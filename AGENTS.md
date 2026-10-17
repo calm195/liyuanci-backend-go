@@ -24,6 +24,10 @@ Preserve the existing Git history and unrelated changes. Use Conventional Commit
 
 Environment variables use the `APP_` prefix. Never commit secrets, local overrides, or production DSNs. Apply explicit database-specific migrations; do not add startup AutoMigrate. Codex should read this guide before editing, preserve unrelated changes, keep scope focused, and report checks that could not run. Never claim tests passed without execution.
 
+## 功能完成后的 README 要求
+
+每个功能的完整修改完成后，必须同步更新本仓库 README.md，说明已实现的功能、实际行为及设计（包括关键流程、模块职责、依赖与必要的设计取舍），并引用对应任务 ID 与 REQ。功能变更包含新增、修复、重构及配置调整；README 内容必须与最终实现一致，明确实现范围、未完成部分和真实/模拟状态，并记录相关验证命令与实际结果。详细设计可链接至本仓库文档或共享契约，但 README 必须保留功能与设计说明，不能仅提供链接。README 更新是功能完成及提交前的必要条件；不得将尚未实现或未经验证的能力描述为已完成。
+
 ## Required Checks After Every Change
 
 After every modification, run `make fmt` and `make check` before declaring the work complete. `make check` must verify formatting without modifying files, run `go vet ./...`, and run `go test -race -cover ./...`. Also run `make build` after Go code or dependency changes. Fix all reported issues and rerun affected checks. If environment restrictions prevent a check, report the command and reason explicitly; do not skip it silently or claim it passed. Keep this workflow enforced in CI.
