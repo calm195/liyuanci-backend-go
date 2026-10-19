@@ -100,14 +100,60 @@ dc run --rm probe
 
 官方Go下载代理不可达时，可在构建前执行`export LIYUANCI_BUILD_GOPROXY=https://goproxy.cn,direct`；仍保留go.sum/GOSUMDB校验。源码修改后重新执行`dc up -d --build --wait api worker`。
 
-| 入口 | 本机地址 | 登录及连接方式 |
-| --- | --- | --- |
-| API存活 | http://127.0.0.1:18080/healthz | 预期200；`/readyz`当前预期503，不表示认证完成 |
-| pgAdmin | http://127.0.0.1:15050 | 使用上述邮箱及pgadmin-password文件内口令登录；添加主机postgres、端口5432、数据库/用户名liyuanci，数据库口令来自postgres-password文件 |
-| Redis Insight | http://127.0.0.1:15540 | 添加redis:6379、DB0；仅本地集成环境无密码 |
-| RocketMQ Dashboard | http://127.0.0.1:18081 | 已配置namesrv:9876，集成环境Broker无ACL |
+### 本地访问地址速查（T003/T004；REQ-018、020）
 
-`postgres`、`redis`、`namesrv`是容器网络内地址，供管理工具连接；宿主没有开放数据库/MQ端口。`make run`是另一种不连接中间件的宿主健康端点模式，监听127.0.0.1:8080，不等同于上述完整Docker开发环境。
+以下为仓库 Compose 和启停脚本的默认地址。`./scripts/start.sh dev`默认启动中间件、API/worker、管理工具，以及独立监控项目中的日志、告警规则和监控组件指标；上面的手工`dc`命令只启动主项目，不会启动Grafana等监控组件。脚本默认主项目为`liyuanci-dev`、监控项目为`liyuanci-observability-dev`。
+
+| 入口 | 宿主浏览器访问地址 | 登录及用途 |
+| --- | --- | --- |
+| API存活 | [healthz](http://127.0.0.1:18080/healthz) | 预期200，仅表示进程存活 |
+| API就绪 | [readyz](http://127.0.0.1:18080/readyz) | 当前预期503，认证及密钥能力尚未实现 |
+| pgAdmin | [PostgreSQL管理](http://127.0.0.1:15050) | 默认邮箱`developer@example.com`；口令见下表；登录后需自行添加数据库连接 |
+| Redis Insight | [Redis管理](http://127.0.0.1:15540) | 添加`redis:6379`、DB 0；当前开发集成Redis无密码 |
+| RocketMQ Dashboard | [MQ管理](http://127.0.0.1:18081) | 已配置`namesrv:9876`；当前开发集成Broker无ACL |
+| Grafana | [监控首页](http://127.0.0.1:13000) | 默认账号`operator`；口令见下表，统一查看日志、指标及告警 |
+| 技术日志 | [日志看板](http://127.0.0.1:13000/d/liyuanci-logs) | 需登录Grafana；API/worker等容器技术日志 |
+| 运行指标 | [运行指标看板](http://127.0.0.1:13000/d/liyuanci-metrics) | 默认含监控组件指标；Linux宿主面板需显式启用扩展 |
+| 中间件指标 | [中间件看板](http://127.0.0.1:13000/d/liyuanci-middleware) | 需准备监控身份并加`--middleware-metrics`，默认启动不采集PG/Redis内部指标 |
+| 自定义查询 | [Grafana Explore](http://127.0.0.1:13000/explore) | 选择`Loki`查询日志，选择`Prometheus`查询指标 |
+| 告警规则 | [Grafana Alerting](http://127.0.0.1:13000/alerting/list) | 默认加载告警规则；真实通知渠道尚未配置 |
+
+Grafana端口可由`LIYUANCI_GRAFANA_PORT`覆盖，覆盖后同步替换上表的`13000`。`--without-management`或`--without-monitoring`启动时不启用对应入口。所有宿主入口仅绑定`127.0.0.1`；远程Docker主机上的地址应通过SSH隧道访问，不能直接使用客户端本机地址。
+
+| 凭据用途 | 默认仓库外文件/配置 | 说明 |
+| --- | --- | --- |
+| PostgreSQL | `~/.config/liyuanci/dev/postgres-password` | 数据库和用户名均为`liyuanci`；脚本变量`LIYUANCI_TEST_DB_PASSWORD_FILE` |
+| pgAdmin登录 | `~/.config/liyuanci/dev/pgadmin-password` | 管理页面口令，与数据库口令分开；邮箱由`LIYUANCI_PGADMIN_EMAIL`指定 |
+| Grafana登录 | `~/.config/liyuanci/observability-dev/grafana-password` | 对应`LIYUANCI_GRAFANA_PASSWORD_FILE`，账号`operator` |
+| 启停配置 | `~/.config/liyuanci/dev/operations.env` | 初始化脚本生成，启动自动读取；自定义目录或`--env-file`时以实际文件为准，不执行shell展开 |
+
+通过本机文件查看器读取所需口令，不将其粘贴到日志或提交仓库。已有数据卷时，修改初始化口令文件不会重置数据库、pgAdmin或Grafana中的既有账号；应恢复原凭据或走各组件的账号管理流程。
+
+#### 容器内部连接地址
+
+下表供同一Docker网络内的管理工具、应用及采集组件使用，**没有映射到宿主端口**，不能在宿主直接连接`127.0.0.1:5432`或浏览`127.0.0.1:9090`。网络按职责隔离：主项目使用`foundation`，监控采集使用`telemetry`，可选中间件采集显式连接主项目网络。
+
+| 服务 | 容器内部地址 | 使用方式与范围 |
+| --- | --- | --- |
+| PostgreSQL | `postgres:5432` | pgAdmin注册服务器时填写此主机/端口，数据库及用户名`liyuanci`，使用数据库口令 |
+| Redis | `redis:6379` | Redis Insight添加连接；DB 0，仅当前开发集成环境无密码 |
+| RocketMQ NameServer | `namesrv:9876` | Dashboard及应用的服务发现地址 |
+| RocketMQ Broker | `broker:10911` | 客户端通过NameServer发现；worker无独立HTTP入口 |
+| Loki | `http://loki:3100` | Grafana的`Loki`数据源，日志由Alloy采集写入 |
+| Prometheus | `http://prometheus:9090` | Grafana的`Prometheus`数据源；宿主通过Explore查询 |
+| Alloy | `http://alloy:12345` | 内部采集状态及`/metrics`端点 |
+| Grafana | `http://grafana:3000` | 容器内部界面及`/metrics`端点，宿主使用13000 |
+| PostgreSQL Exporter | `http://postgres-exporter:9187/metrics` | `--middleware-metrics`显式启用，依赖独立监控身份/口令 |
+| Redis Exporter | `http://redis-exporter:9121/metrics` | 同上，不采集业务键值 |
+| RocketMQ原生指标 | `http://broker:5557/metrics` | Broker已启用PROM接口；需`--middleware-metrics`让Prometheus抓取 |
+| Node Exporter | `http://node-exporter:9100/metrics` | 仅Linux使用`--linux-host`启用；macOS不支持以Docker VM指标代替宿主指标 |
+| Docker日志只读代理 | `docker-log-proxy:2375` | Alloy内部读取Docker元数据与日志，无浏览器管理入口 |
+
+扩展身份准备和查询示例见[监控操作说明](docs/observability.md)，组件开关见[启停说明](docs/operations.md)。上述服务由真实Docker组件提供；当前范围为基础设施及集成探针，不包含业务认证、真实通知闭环或生产验收。
+
+`make run`是另一种不连接中间件的宿主健康端点模式，地址为[http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)，不使用Docker开发API的18080端口。
+
+本节文档验证（2026-10-20）：已逐项核对Compose端口映射、Grafana看板UID、数据源配置和启停脚本默认值；`make fmt`、`make check`（格式检查、vet、race/coverage测试）及`git diff --check`通过。本次仅更新访问说明，未启动服务或执行HTTP连通性验证，不将配置地址视为当前服务在线证明。
 
 ### 3. 查看日志和停止
 
