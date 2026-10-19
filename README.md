@@ -42,6 +42,8 @@ sh scripts/check-connections.sh
 
 ## 本地开发启动（T003/T004；REQ-018、020）
 
+可优先使用新增[启停脚本](docs/operations.md)：`./scripts/init-dev.sh`初始化缺失开发凭据，首次运行`./scripts/start.sh dev --bootstrap-probe --probe`，日常`./scripts/start.sh dev`，停止`./scripts/stop.sh dev`；默认包含管理工具和日志/告警/指标。以下手工命令仍可用于排查。
+
 前提：Docker引擎及Docker Compose已启动；宿主执行Go检查需Go1.25或更新版本。以下在仓库根目录执行，使用固定项目`liyuanci-dev`保留开发数据。它与`sh scripts/integration.sh`每次创建临时验证项目的用途不同。当前API只提供健康端点，worker只消费集成探针，不包含业务认证能力。
 
 ### 1. 准备本地凭据和命令入口
@@ -259,3 +261,11 @@ Linux宿主额外叠加`-f compose.metrics.linux.yaml`，固定Node Exporter1.10
 接入前需显式创建监控身份并提供`LIYUANCI_MONITORED_NETWORK`、`LIYUANCI_PG_MONITOR_PASSWORD_FILE`、`LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE`；Redis密码JSON的键包含用户名。生产监控额外叠加`compose.observability.production.yaml`，必须提供持久状态加密密钥、界面URL和明确日志保留期，禁止依赖内建默认密钥；身份准备、本地开发、生产启动/停止和恢复边界详见[操作步骤](docs/observability.md)。Broker配置更新需重启生效，当前未操作生产。
 
 `python3 scripts/check-management.py --middleware-only --metrics`真实隔离PASS，最终项目`liyuanci-mgmt-bee10a5fb347`：七目标up=1、PG/Redis连接成功且采集错误为0、MQ原生指标、错误监控密码被识别并恢复、Redis监控身份GET被拒绝；生产形态监控密钥注入、中间件看板和四条规则求值也通过。`sh scripts/integration.sh`PASS（`liyuanci-t004-20261019232016-2f878e`），启用Broker指标后消息重复发送仍由独立worker完成两次数据库回执，API健康边界保持正确。全部Compose叠加静态检查与`make fmt/check/build`通过。真实生产凭据、Linux宿主运行、通知、容量、长期清理和T007领域阈值仍未验收；未推进整体T004或认证完成状态。
+
+## 启动与停止脚本（T004/REQ-018、020）
+
+`scripts/init-dev.sh`、`start.sh`、`stop.sh`共用Python3.9+控制器，任意工作目录可调用。初始化只补仓库外缺失凭据，旧数据卷缺原口令时拒绝生成；环境文件按字面读取而非source。启动先预检全部选中配置，再启动中间件、开发API/独立worker、管理工具和独立监控。普通启动不迁移，`--bootstrap-probe`与`--probe`仅用于显式开发探针；生产只启动既有中间件/监控骨架。
+
+停止不需要凭据文件，按项目标签、依赖顺序停止，API/worker退出时采集仍在线；默认保留容器/网络/卷，`--remove`也只移除容器/网络，不删卷、不prune。启动失败保留已启动资源，结构化完成记录不回显Docker输出或秘密。支持组件开关、外部环境文件、自定义项目、计划预览及Linux/中间件指标等显式扩展。[完整操作说明](docs/operations.md)包含本地/生产命令、参数、失败排查；生产配置模板为`configs/operations.production.env.example`，真实通知与生产准入保持待验收。
+
+验证入口：`python3 -m unittest discover -s scripts -p test_services.py -v`（13项边界PASS）、`python3 scripts/check-services.py`（2026-10-20真实全栈PASS，项目`liyuanci-dev-ops-e8a5ec59c3`）。已验证初始化幂等、默认管理/监控页面、真实API日志查询、探针往返、停止保留、无隐式迁移重启和remove保留卷；`make fmt/check/build`、shell/Python语法检查及生产计划预览通过。真实生产启动、Linux/真实通知扩展未在本功能执行，远端CI未运行。本功能不修改API契约0.1.0，不推进整体T004或认证状态。

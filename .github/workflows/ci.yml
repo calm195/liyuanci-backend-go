@@ -3,6 +3,13 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  services-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # T004/REQ-018、020：真实启停/重启/数据保留，端口只用于该独立runner。
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check-services.py
   middleware-observability:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -29,6 +36,7 @@ jobs:
       - run: make fmt
       - run: git diff --exit-code
       - run: make check
+      - run: python3 -m unittest discover -s scripts -p test_services.py -v
       - run: make build
   middleware:
     runs-on: ubuntu-latest

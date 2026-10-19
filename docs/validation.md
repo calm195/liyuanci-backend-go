@@ -80,3 +80,9 @@
 `python3 scripts/check-management.py --middleware-only --metrics`最终PASS，项目`liyuanci-mgmt-bee10a5fb347`。七目标up=1，pg_up/redis_up=1，两项last_scrape_error=0，MQ原生rocketmq_*指标存在；生产形态Grafana密钥注入、中间件看板及四条规则实际健康为ok；PG/Redis错误监控口令反映为连接失败，恢复正确口令后恢复；Redis监控账号GET明确NOPERM。原生产形态Redis匿名拒绝/正确PING和MQ匿名写拒绝也保持通过。初次Redis密码JSON的URL键缺用户名，修正后复验，未扩大监控ACL。最终原始本机记录`/tmp/liyuanci-middleware-metrics-final.log`，交付不依赖该临时文件。
 
 Broker启用PROM后，`sh scripts/integration.sh`独立回归PASS，项目`liyuanci-t004-20261019232016-2f878e`，probe_id=`95d992af199f64c60eb726e9dd116b80`，delivery_count=2；真实API/worker心跳可见，容器API healthz200、readyz503、模板业务入口404。各测试容器/网络已按依赖顺序清理、专用卷保留。全部Compose叠加静态检查、Python语法、`make fmt/check/build`PASS。生产Linux宿主和磁盘覆盖、真实凭据/通知、容量/HA、长期保留清理及T007领域阈值仍待验收；共享API契约维持0.1.0，未更改整体T004或认证任务完成状态。
+
+## 启动/停止脚本（T004/REQ-018、020，2026-10-20）
+
+13项Python边界回归PASS：显式探针bootstrap、完整配置先于启动、生产无业务/探针、外部生产文件预检、跨环境归属拒绝、停止依赖顺序与保留、旧卷缺凭据拒绝初始化、已有文件不覆盖、字面环境文件不执行命令、不泄露解码/子进程错误正文、仓库外工作目录入口。`make fmt/check/build`、shell语法/Python编译检查和生产dry-run计划预览PASS。
+
+`python3 scripts/check-services.py`最终真实PASS，项目`liyuanci-dev-ops-e8a5ec59c3`及`liyuanci-dev-ops-e8a5ec59c3-observability`：开发凭据幂等，默认中间件/API/worker/管理工具/监控启动；API、三个管理页面和Grafana HTTP200；真实请求ID日志可查询；显式bootstrap后探针实际往返；默认停止无运行容器且保留容器/网络/卷；不执行迁移/创建主题的重启后探针再次成功；remove后无本项目容器/网络，数据卷保留。首轮辅助验收元数据格式误用volume ID，修正Name后重跑，未降低保留断言。最终日志本机`/tmp/liyuanci-services-check-final.log`，交付不依赖临时文件；测试凭据已删除、专用卷保留。生产未启动，Linux/真实通知扩展未在本次执行，远端新增CI任务未运行；API契约0.1.0与整体T004/认证状态不变。

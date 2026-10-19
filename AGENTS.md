@@ -49,3 +49,7 @@ T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、Ro
 ## 可观测性变更约定
 
 T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集/告警变更运行`python3 scripts/check-observability.py --alerts --metrics`；真实中间件指标变更运行`python3 scripts/check-management.py --middleware-only --metrics`，Broker行为变更还运行原有集成往返。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须更新README并完成规定质量检查。
+
+## 启停入口维护
+
+T004/REQ-018、020：运维入口为scripts/init-dev.sh、start.sh、stop.sh，共用services.py；普通启动不得隐式迁移或重置账号，生产不得运行开发API/worker/探针。凭据仅在仓库外显式初始化，旧卷缺原口令时拒绝生成；环境文件不执行shell。停止按项目标签及依赖顺序执行，永远不删除卷，不使用force/prune或操作其他项目。变更运行`python3 -m unittest discover -s scripts -p test_services.py -v`与真实隔离`python3 scripts/check-services.py`，并更新README和ops文档、报告生产未验证边界；规定Go质量检查保持不变。
