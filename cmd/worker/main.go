@@ -66,6 +66,9 @@ func run() error {
 			log.Info("consumer shutdown completed")
 		}
 	}()
+	// T004/REQ-020：消费者真实启动后才输出存活心跳，不代表T007业务消费验收。
+	stopHeartbeat := platform.StartHeartbeat(ctx, log, "worker")
+	defer stopHeartbeat()
 	<-ctx.Done()
 	return nil
 }

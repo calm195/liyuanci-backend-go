@@ -64,3 +64,7 @@
 # 统一日志模块验证（T004/REQ-018、020，2026-10-19）
 
 `python3 scripts/check-observability.py`最终PASS，项目`liyuanci-logs-6f2e6e6233`；验证真实Docker→Alloy→Loki→Grafana请求ID查询、三个固定索引标签、敏感行阻断、外项目隔离、受限代理拒绝archive/镜像读取/POST、Alloy/Loki重启后旧日志查询和新日志继续入库，以及预置看板。退出已清理本次容器/网络，卷保留。`make fmt/check/build`及Alloy/Loki/HAProxy配置语法校验PASS。初次3.2.26下载超时及运行暴露的卷权限、必需inspect、自动标签问题均已记录并修复复验；无生产部署、长期保留清理或容量结论。
+
+## 日志告警模块（T004/REQ-018、020）
+
+`python3 scripts/check-observability.py --alerts`实际PASS，项目`liyuanci-logs-0d45838f71`：合成panic经真实规则求值并向隔离Webhook发送firing，停止故障后收到resolved。最终组合项目`liyuanci-logs-ecbab0b171`再次PASS，接收器以宿主UID/GID运行；五条日志规则真实健康接口均为ok。无真实外部通知，未验收全部阈值边界。心跳初始/周期输出、取消后退出/重复停止、HTTP正常/失败/panic安全日志字段测试及`make fmt/check/build`PASS。首次测试镜像缺少httpd，替换固定官方Python接收器后复验，非生产能力变更。

@@ -9,7 +9,7 @@ jobs:
     # T004/REQ-018、020：独立验证真实采集链路，不复用业务或中间件测试项目。
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/check-observability.py
+      - run: python3 scripts/check-observability.py --alerts
   quality:
     runs-on: ubuntu-latest
     steps:

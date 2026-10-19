@@ -85,6 +85,9 @@ func run() error {
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	log.Info("server startup completed", zap.String("address", listener.Addr().String()))
+	// T004/REQ-020：存活心跳独立于业务ready，停止函数等待日志协程退出。
+	stopHeartbeat := platform.StartHeartbeat(ctx, log, "api")
+	defer stopHeartbeat()
 	select {
 	case err := <-done:
 		if !errors.Is(err, http.ErrServerClosed) {

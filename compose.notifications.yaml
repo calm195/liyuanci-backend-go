@@ -1,0 +1,9 @@
+# T004/REQ-020：可选真实通知入口；文件可含凭据，只能来自仓库外。
+services:
+  grafana:
+    secrets:
+      - source: alert_notifications
+        target: /etc/grafana/provisioning/alerting/notifications.yaml
+secrets:
+  alert_notifications:
+    file: ${LIYUANCI_ALERT_NOTIFICATIONS_FILE:?set external notification provisioning file}

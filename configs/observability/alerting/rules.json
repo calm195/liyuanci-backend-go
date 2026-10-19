@@ -1,0 +1,383 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "liyuanci-log-alerts",
+      "folder": "鲤源池运维",
+      "interval": "10s",
+      "rules": [
+        {
+          "uid": "liyuanci-api-panic",
+          "title": "T004 API panic",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-loki",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(count_over_time({service=\"api\"} | json | event=\"http_panic\" [1m])) or vector(0)",
+                "queryType": "instant",
+                "instant": true,
+                "datasource": {
+                  "type": "loki",
+                  "uid": "liyuanci-loki"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "T004 API panic",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-api-errors",
+          "title": "T004 API 5xx ratio",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-loki",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "((sum(count_over_time({service=\"api\"} | json | event=\"http_request_completed\" | path!=\"/healthz\" | path!=\"/readyz\" | status >= 500 [5m])) / sum(count_over_time({service=\"api\"} | json | event=\"http_request_completed\" | path!=\"/healthz\" | path!=\"/readyz\" [5m]))) > bool 0.05) * (sum(count_over_time({service=\"api\"} | json | event=\"http_request_completed\" | path!=\"/healthz\" | path!=\"/readyz\" [5m])) >= bool 20) or vector(0)",
+                "queryType": "instant",
+                "instant": true,
+                "datasource": {
+                  "type": "loki",
+                  "uid": "liyuanci-loki"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "2m",
+          "annotations": {
+            "summary": "T004 API 5xx ratio",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "warning"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-worker-errors",
+          "title": "T004 worker failures",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-loki",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(count_over_time({service=\"worker\"} | json | level=\"error\" [5m])) or vector(0)",
+                "queryType": "instant",
+                "instant": true,
+                "datasource": {
+                  "type": "loki",
+                  "uid": "liyuanci-loki"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        4
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "1m",
+          "annotations": {
+            "summary": "T004 worker failures",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "warning"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-api-heartbeat",
+          "title": "T004 api heartbeat missing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-loki",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(count_over_time({service=\"api\"} | json | event=\"telemetry_heartbeat\" [3m])) or vector(0)",
+                "queryType": "instant",
+                "instant": true,
+                "datasource": {
+                  "type": "loki",
+                  "uid": "liyuanci-loki"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        1
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "1m",
+          "annotations": {
+            "summary": "T004 api heartbeat missing",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "warning"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-worker-heartbeat",
+          "title": "T004 worker heartbeat missing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-loki",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(count_over_time({service=\"worker\"} | json | event=\"telemetry_heartbeat\" [3m])) or vector(0)",
+                "queryType": "instant",
+                "instant": true,
+                "datasource": {
+                  "type": "loki",
+                  "uid": "liyuanci-loki"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        1
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "1m",
+          "annotations": {
+            "summary": "T004 worker heartbeat missing",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "warning"
+          },
+          "isPaused": false
+        }
+      ]
+    }
+  ]
+}

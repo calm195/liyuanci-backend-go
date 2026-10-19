@@ -33,6 +33,8 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		// 外层中间件在异常恢复和处理函数结束后记录最终状态。
 		c.Next()
 		log.Info("http request completed",
+			// T004/REQ-020：告警按最终status而非日志级别判断HTTP失败。
+			zap.String("event", "http_request_completed"),
 			zap.String("request_id", requestID),
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.FullPath()),
@@ -43,7 +45,7 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				// panic 值可能包含敏感信息，因此只保留请求关联信息，不记录其内容。
-				log.Error("request panic", zap.String("request_id", c.GetString("request_id")))
+				log.Error("request panic", zap.String("event", "http_panic"), zap.String("request_id", c.GetString("request_id")))
 				c.AbortWithStatusJSON(500, gin.H{"code": 500, "message": "服务内部错误", "error_code": "INTERNAL_ERROR", "request_id": c.GetString("request_id")})
 			}
 		}()

@@ -234,4 +234,12 @@ dc up -d --wait api worker
 
 启动前设置目标项目、环境、主机别名和仓库外Grafana密码文件，再运行`docker compose -p liyuanci-observability-dev -f compose.observability.yaml up -d`。Grafana仅开放`127.0.0.1:13000`，账号`operator`；完整本地启动、生产配置/SSH访问、查询及停止流程见[运维说明](docs/observability.md)。默认技术日志保留72小时，生产建议显式336小时；Compactor异步清理，不能替代磁盘告警。单实例不承诺HA/零丢失，不承担D05删除日志职责。
 
-验证入口：`python3 scripts/check-observability.py`；真实隔离验证PASS（项目`liyuanci-logs-6f2e6e6233`）：请求ID查询、固定标签、敏感行阻断、项目隔离、代理越权拒绝、Alloy/Loki重启查询及新日志采集、预置看板。`make fmt/check/build`通过；长期保留清理、生产容量/安全验收未完成。告警通知与运行指标属于后续独立模块，当前不宣称完成。
+验证入口：`python3 scripts/check-observability.py`；真实隔离验证PASS（项目`liyuanci-logs-6f2e6e6233`）：请求ID查询、固定标签、敏感行阻断、项目隔离、代理越权拒绝、Alloy/Loki重启查询及新日志采集、预置看板。`make fmt/check/build`通过；长期保留清理、生产容量/安全验收未完成。
+
+## 日志告警与存活心跳（T004/REQ-018、020）
+
+API监听、worker消费者启动成功后，每30秒通过注入的zap.Logger输出无业务数据心跳；停止函数等待协程退出，保证先停止心跳再清理日志器。HTTP完成和panic增加稳定event字段，保留原请求ID及状态。心跳需Info或Debug日志级别，不代表业务ready或T007可靠消费完成。
+
+启动日志设施时叠加`-f compose.alerting.yaml`，启用panic、排除健康检查的5xx比例、worker错误及API/worker心跳缺失五条规则；文件管理规则、Grafana负责求值，数据源失败也进入告警。默认没有真实通知渠道；`compose.notifications.yaml`提供仓库外通知配置入口。用户选择先本地验证，真实通知、值班负责人及平台失联外部检测仍待交付。具体阈值、启停、分组/静默、处置与生产接入见[运维说明](docs/observability.md)。
+
+`python3 scripts/check-observability.py --alerts`真实隔离PASS（`liyuanci-logs-0d45838f71`）：合成panic触发Grafana告警，隔离Webhook收到firing，故障消失后收到resolved。未向外部地址发送消息；不等于五条规则全部边界/真实通知验收。心跳停止/重复停止、HTTP正常/失败/panic事件回归及`make fmt/check/build`通过。运行指标属于后续独立模块。

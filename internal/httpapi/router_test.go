@@ -44,6 +44,15 @@ func TestFoundationBoundary(t *testing.T) {
 			if len(entries) != 1 || entries[0].ContextMap()["status"] != int64(tc.status) || entries[0].ContextMap()["request_id"] != response.Header().Get("X-Request-ID") {
 				t.Fatal("missing completion correlation")
 			}
+			if entries[0].ContextMap()["event"] != "http_request_completed" {
+				t.Fatal("T004/REQ-020：缺少稳定HTTP完成事件")
+			}
+			if tc.panicReady {
+				panicEntries := logs.FilterMessage("request panic").All()
+				if len(panicEntries) != 1 || panicEntries[0].ContextMap()["event"] != "http_panic" {
+					t.Fatal("T004/REQ-020：缺少panic告警事件")
+				}
+			}
 			if strings.Contains(response.Body.String(), "secret") {
 				t.Fatal("response leaked")
 			}

@@ -60,3 +60,36 @@ Compactor按保留期异步清理，不会因为磁盘接近满自动提前删�
 制品为Alloy1.14.0、Loki3.6.0、Grafana12.3.0、HAProxy3.2.14，均固定官方多架构digest；本机实际验证arm64。HAProxy3.2.26的镜像层多地址持续停滞，选择已下载的同系列3.2.14，不代表安全扫描或生产制品准入通过。镜像加速仅用于下载相同digest，配置仍引用官方源。首次真实启动暴露Loki卷属主、Alloy所需inspect权限及Loki自动派生标签，均已修复后重跑；未放宽断言或开放Docker写API。
 
 官方依据：[Alloy Docker采集](https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.docker/)、[Loki保留期](https://grafana.com/docs/loki/latest/operations/storage/retention/)。本扩展不改变业务契约版本0.1.0，也不把三端整体T004标记完成。
+
+## 模块二：日志告警与存活心跳
+
+T004/REQ-018、020：API成功绑定监听、worker成功启动消费者后，每30秒以注入zap.Logger输出`event=telemetry_heartbeat`、service、result=alive、task_id，不包含身份/正文；停止函数等待日志协程退出，先于日志器清理。心跳只表示进程活着，不承诺数据库/MQ就绪。HTTP完成日志增加稳定事件`http_request_completed`，异常恢复增加`http_panic`，保留请求ID和最终状态。
+
+显式叠加`compose.alerting.yaml`，Grafana每10秒求值：
+
+| 规则 | 条件 | 说明 |
+| --- | --- | --- |
+| API panic | 近1分钟至少一次 | 立即进入告警，不记录panic正文 |
+| API 5xx | 5分钟至少20次请求且失败比例>5%，持续2分钟 | 排除healthz/readyz；按status判断，不依赖info/error |
+| worker错误 | 5分钟至少5次error，持续1分钟 | 当前仅探针/生命周期，不代表T007可靠消费 |
+| API/worker心跳缺失 | 近3分钟无心跳，再持续1分钟 | 无业务流量也可检测；进程退出、采集失败需进一步排查 |
+
+规则无错误样本时正常，心跳用零值判断缺失；求值/数据源失败进入Alerting。阈值是技术初值，不改批准的性能或业务时限。T007发件箱积压、死信和重试耗尽尚未实现，不能添加空壳告警冒充完成。当前readyz固定503，不能作为故障依据。
+
+保留模块一环境变量，将启动函数改为：
+
+```sh
+obs() { docker compose -p liyuanci-observability-dev -f compose.observability.yaml -f compose.alerting.yaml "$@"; }
+obs config --quiet
+obs up -d
+```
+
+更新Go心跳代码后需重新构建并启动开发API/worker，才会有对应心跳。未启动这些服务时心跳规则会正常报缺失，开发仅查日志可不叠加告警。Grafana→Alerting查看规则状态。规则由文件管理，修改文件后重启Grafana；不要只在UI改临时状态。处理步骤：先检查请求ID或目标服务，再检查Alloy/Loki/Docker连接与磁盘，定位后修复；维护窗口使用有时限的silence，禁止永久屏蔽。
+
+用户选择先本地验证。默认没有真实SMTP/Webhook配置，Grafana内置默认联系点不构成通知闭环；未配置SMTP时通知尝试会失败，不得当作通知成功。测试脚本`python3 scripts/check-observability.py --alerts`只创建隔离Python HTTP接收器、临时联系点/策略，验证合成panic真实触发和恢复JSON，不联系外部人员。测试接收器不公开宿主端口，退出删除临时通知数据。
+
+未来真实Webhook：将`configs/observability/notifications.example.yaml`复制到仓库外，填入核验后的通知地址与必要鉴权，设置`LIYUANCI_ALERT_NOTIFICATIONS_FILE`，启动命令再叠加`-f compose.notifications.yaml`；凭据不出现在Compose环境、仓库或示例中。该文件同时管理联系点和分组/重复通知策略。与告警规则一同重建Grafana后，必须真实验证触发、恢复、分组、静默及失败处置，之后才能签通知通过。邮件需另行配置SMTP及secret；当前没有实际邮件配置。生产仍需值班负责人和独立平台失联检测，不能只依赖同一Grafana自我报警。
+
+心跳要求应用Info或Debug日志级别，否则会被logger过滤；不强行覆盖运营配置。初始阈值尚未做全部流量/时间边界演练。2026-10-19 `python3 scripts/check-observability.py --alerts`实际PASS，项目`liyuanci-logs-0d45838f71`，本机记录`/tmp/liyuanci-alerting-check-v2.log`；合成panic真实触发、隔离Webhook收到firing及resolved。首次Alpine缺少httpd的测试接收器已替换为固定官方Python镜像；接收器仅测试使用，不部署生产。心跳生命周期/重复停止、HTTP事件字段测试以及`make fmt/check/build`通过。
+
+依据：[Grafana文件化告警](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/)、[No Data/Error处理](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/nodata-and-error-states/)。
