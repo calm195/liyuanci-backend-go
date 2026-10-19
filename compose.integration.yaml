@@ -4,7 +4,7 @@ x-app: &app
   build:
     context: .
     args:
-      GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://proxy.golang.org,direct}
+      GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://goproxy.cn,direct}
   init: true
   stop_grace_period: 30s
   environment: &env

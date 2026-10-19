@@ -2,8 +2,9 @@
 FROM golang:1.25.0-alpine@sha256:f18a072054848d87a8077455f0ac8a25886f2397f88bfdd222d6fafbb5bba440 AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
-# T004/REQ-020：代理仅改变下载路径，go.sum与公共校验数据库保持启用。
-ARG GOPROXY=https://proxy.golang.org,direct
+# T004/REQ-020：本地官方代理超时，默认使用已验证可达的下载代理；可由构建参数覆盖。
+# 仅改变下载路径，go.sum与公共校验数据库保持启用。
+ARG GOPROXY=https://goproxy.cn,direct
 RUN GOPROXY="$GOPROXY" go mod download
 COPY cmd ./cmd
 COPY internal ./internal

@@ -54,3 +54,9 @@
 管理工具最终复验：`python3 scripts/check-management.py` **PASS**，项目`liyuanci-mgmt-6b4b8bb805d3`。pgAdmin `/misc/ping`、Redis Insight `/api/health/`、Dashboard首页均HTTP200；Dashboard `/cluster/list.query`返回成功并包含`broker-a`。这验证真实页面与Broker发现，不等于生产账号登录/ACL或业务联调。日志：本次宿主`/tmp/liyuanci-management-final.log`。全部本次容器/网络已清理，数据卷保留。
 
 管理工具真实启动期间发现Dashboard secret默认挂载名与Spring配置路径不一致，修正为显式目标`dashboard.properties`，并增加静态断言；HTTP探测改为本机直连，避免继承宿主失效代理。官方镜像下载较慢，尝试镜像代理取得同一官方digest，未修改全局Docker镜像源；最终运行仍使用Compose固定的官方镜像引用。失败的首次拉取/旧Dashboard配置验证已停止并清理，未将失败记录算作通过。
+
+## Docker依赖下载超时修复（T004；REQ-020）
+
+用户构建报proxy.golang.org获取RocketMQ Go模块超时。使用固定Go1.25镜像实际探测：官方代理超时，goproxy.cn可达。Dockerfile及集成Compose的默认GOPROXY统一改为https://goproxy.cn,direct，仍可由构建参数/LIYUANCI_BUILD_GOPROXY覆盖；没有更改go.mod/go.sum或关闭GOSUMDB。
+
+`docker build --no-cache --progress=plain --target builder -t liyuanci-builder-check .`实际PASS：go mod download耗时13.7秒，三制品编译耗时9.8秒，非缓存层；日志在本次宿主/tmp/liyuanci-builder-fresh.log。`make fmt`、`make check`、`make build`及Compose静态边界检查通过；首次宿主沙箱缓存权限告警后，提升权限重跑质量检查和构建正常。最终`docker build --progress=plain -t liyuanci-backend:local .`也通过，完整运行镜像已打包；本次不重跑未修改的消息集成链路，不代表业务/生产验收。

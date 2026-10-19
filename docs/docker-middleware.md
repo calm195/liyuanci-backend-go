@@ -79,3 +79,5 @@ sh scripts/integration.sh
 管理工具脚本使用唯一临时项目、进程内随机口令与仓库外临时secret文件，检查两套合并编排的网络/端口/固定镜像边界，再真实启动集成中间件及管理工具，检查三个HTTP入口和Dashboard的Broker发现。结束时删除本次容器/网络，保留卷；不打印展开配置或秘密。`--config-only`仅校验编排；`--middleware-only`使用同样的生产形态配置在唯一临时项目中启动PG/Redis/MQ，验证Redis无凭据拒绝/正确凭据PING成功及MQ匿名写入拒绝，不启动实际生产项目或管理工具。测试ACL和口令仅为合成临时凭据，不代表真实生产账号权限验收；完整管理检查仍不验证生产Dashboard凭据，也不替代业务/认证/性能验收。运行需Docker、Compose、Python3，且本机15050/15540/18081端口空闲。
 
 官方依据：[pgAdmin容器部署](https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html)、[Redis Insight Docker部署](https://redis.io/docs/latest/operate/redisinsight/install/install-on-docker/)、[RocketMQ Dashboard](https://rocketmq.apache.org/docs/deploymentOperations/04Dashboard/)、[RocketMQ 5.3.2 ACL1.0适用范围](https://rocketmq.apache.org/zh/docs/bestPractice/10access-1.0/)。本次两套配置静态检查、生产形态中间件隔离验证、三款管理页面HTTP和Dashboard Broker发现均已通过；测试后清理容器/网络、保留卷，工具当前未常驻运行。实际验证结果另记`docs/validation.md`。
+
+构建下载修复（T004/REQ-020）：本机实际连接proxy.golang.org超时，goproxy.cn可达，因此Dockerfile与集成Compose默认GOPROXY已统一为https://goproxy.cn,direct。Compose仍允许LIYUANCI_BUILD_GOPROXY覆盖，直接Docker构建使用--build-arg GOPROXY覆盖；go.sum/GOSUMDB保持启用。详细重建步骤见README。

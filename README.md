@@ -211,3 +211,20 @@ prod_admin down
 ```
 
 本文新增的是操作说明，命令与当前Compose/secret/探针入口已核对；没有执行上述生产命令。现有隔离实测结果见[验证记录](docs/validation.md)，不冒用为真实生产部署通过。
+
+### Docker依赖下载超时处理（T004；REQ-020）
+
+若构建在`go mod download`报`proxy.golang.org ... i/o timeout`，原因是构建容器无法连接官方Go代理。已在本机复现官方代理超时并验证goproxy.cn可达；Dockerfile与集成Compose默认统一为`https://goproxy.cn,direct`，保留go.sum及GOSUMDB校验，不修改依赖版本或关闭校验。
+
+先前执行过本地启动章节、已定义`dc`的终端，可执行：
+
+```sh
+# 覆盖终端内可能遗留的旧代理设置，重新构建并启动。
+export LIYUANCI_BUILD_GOPROXY=https://goproxy.cn,direct
+dc --progress plain build api worker
+dc up -d --wait api worker
+```
+
+直接使用Docker构建时可执行`docker build --progress=plain --build-arg GOPROXY=https://goproxy.cn,direct -t liyuanci-backend:local .`。能访问官方代理的环境可通过`LIYUANCI_BUILD_GOPROXY=https://proxy.golang.org,direct`（Compose）或`--build-arg GOPROXY=https://proxy.golang.org,direct`（docker build）覆盖；构建参数只作用于镜像构建，不由运行期`APP_`配置控制。检查失败详情时保留`go mod download`上方错误，而非仅查看最终exit code。
+
+本次修复已通过实际无缓存builder构建：依赖下载13.7秒、API/worker/probe编译9.8秒；`make fmt/check/build`及Compose静态检查通过。见[验证记录](docs/validation.md)，不是仅使用旧依赖层缓存判断通过。
