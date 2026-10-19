@@ -228,3 +228,10 @@ dc up -d --wait api worker
 直接使用Docker构建时可执行`docker build --progress=plain --build-arg GOPROXY=https://goproxy.cn,direct -t liyuanci-backend:local .`。能访问官方代理的环境可通过`LIYUANCI_BUILD_GOPROXY=https://proxy.golang.org,direct`（Compose）或`--build-arg GOPROXY=https://proxy.golang.org,direct`（docker build）覆盖；构建参数只作用于镜像构建，不由运行期`APP_`配置控制。检查失败详情时保留`go mod download`上方错误，而非仅查看最终exit code。
 
 本次修复已通过实际无缓存builder构建：依赖下载13.7秒、API/worker/probe编译9.8秒；`make fmt/check/build`及Compose静态检查通过。见[验证记录](docs/validation.md)，不是仅使用旧依赖层缓存判断通过。
+# 统一日志采集与查询（T004/REQ-018、020）
+
+新增独立`compose.observability.yaml`：Alloy通过限制GET读取接口的Docker代理采集指定Compose项目日志，发送到单实例Loki，Grafana提供统一查询和预置技术日志看板。应用继续输出zap JSON，中间件保留原文；索引只保留环境、服务、安全主机别名，请求ID在查询时解析。采集端丢弃命中明显凭据模式的整行日志，源端仍须禁止敏感信息。采集位置、日志与界面状态分别持久化，不依赖业务数据库。
+
+启动前设置目标项目、环境、主机别名和仓库外Grafana密码文件，再运行`docker compose -p liyuanci-observability-dev -f compose.observability.yaml up -d`。Grafana仅开放`127.0.0.1:13000`，账号`operator`；完整本地启动、生产配置/SSH访问、查询及停止流程见[运维说明](docs/observability.md)。默认技术日志保留72小时，生产建议显式336小时；Compactor异步清理，不能替代磁盘告警。单实例不承诺HA/零丢失，不承担D05删除日志职责。
+
+验证入口：`python3 scripts/check-observability.py`；真实隔离验证PASS（项目`liyuanci-logs-6f2e6e6233`）：请求ID查询、固定标签、敏感行阻断、项目隔离、代理越权拒绝、Alloy/Loki重启查询及新日志采集、预置看板。`make fmt/check/build`通过；长期保留清理、生产容量/安全验收未完成。告警通知与运行指标属于后续独立模块，当前不宣称完成。

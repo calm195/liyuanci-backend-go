@@ -1,0 +1,84 @@
+# T004/REQ-018、020：独立技术日志设施；不承担业务审计或D05删除日志。
+name: liyuanci-observability
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+services:
+  # T004/REQ-020：只初始化本项目日志卷；Loki仍以官方镜像非root用户运行。
+  loki-init:
+    image: alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    command: [sh, -c, "chown 10001:10001 /loki && chmod 750 /loki"]
+    volumes: ["loki-data:/loki"]
+  docker-log-proxy:
+    <<: *runtime
+    image: haproxy:3.2.14-alpine@sha256:97157230e52aedafff46acf38bc4eee4da1e56d563c4963d51943b2f854fb24c
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ${LIYUANCI_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ./configs/observability/docker-log-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks: [docker-logs]
+  alloy:
+    <<: *runtime
+    image: grafana/alloy:v1.14.0@sha256:f50931848bd8178774521767bb46b905e1a081301950ff28d7623c9db7c01076
+    command: [run, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy, /etc/alloy/config.alloy]
+    environment:
+      LOG_PROJECT: ${LIYUANCI_LOG_PROJECT:?set target Compose project}
+      LOG_ENVIRONMENT: ${LIYUANCI_LOG_ENVIRONMENT:?set development or production}
+      LOG_HOST: ${LIYUANCI_LOG_HOST:?set safe host alias}
+    volumes:
+      - ./configs/observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy
+    networks: [docker-logs, telemetry]
+    depends_on: [docker-log-proxy, loki]
+  loki:
+    <<: *runtime
+    image: grafana/loki:3.6.0@sha256:6a705de65df88aa0d90a44779606b0042722c86637335a73858f65f9fe9f9557
+    command: [-config.file=/etc/loki/config.yaml, -config.expand-env=true]
+    environment:
+      LOG_RETENTION: ${LIYUANCI_LOG_RETENTION:-72h}
+    volumes:
+      - ./configs/observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks: [telemetry]
+    depends_on:
+      loki-init: {condition: service_completed_successfully}
+  grafana:
+    <<: *runtime
+    image: grafana/grafana:12.3.0@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8
+    environment:
+      GF_SECURITY_ADMIN_USER: operator
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    secrets: [grafana_password]
+    ports: ["127.0.0.1:${LIYUANCI_GRAFANA_PORT:-13000}:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./configs/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [telemetry, ingress]
+    depends_on: [loki]
+networks:
+  docker-logs: {internal: true}
+  telemetry: {internal: true}
+  ingress: {}
+volumes:
+  alloy-data:
+  loki-data:
+  grafana-data:
+secrets:
+  grafana_password:
+    file: ${LIYUANCI_GRAFANA_PASSWORD_FILE:?set external Grafana password file}

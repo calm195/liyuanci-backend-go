@@ -1,0 +1,9 @@
+# T004/REQ-020：固定UID供看板、规则和验收复用。
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: liyuanci-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

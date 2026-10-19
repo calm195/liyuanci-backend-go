@@ -60,3 +60,7 @@
 用户构建报proxy.golang.org获取RocketMQ Go模块超时。使用固定Go1.25镜像实际探测：官方代理超时，goproxy.cn可达。Dockerfile及集成Compose的默认GOPROXY统一改为https://goproxy.cn,direct，仍可由构建参数/LIYUANCI_BUILD_GOPROXY覆盖；没有更改go.mod/go.sum或关闭GOSUMDB。
 
 `docker build --no-cache --progress=plain --target builder -t liyuanci-builder-check .`实际PASS：go mod download耗时13.7秒，三制品编译耗时9.8秒，非缓存层；日志在本次宿主/tmp/liyuanci-builder-fresh.log。`make fmt`、`make check`、`make build`及Compose静态边界检查通过；首次宿主沙箱缓存权限告警后，提升权限重跑质量检查和构建正常。最终`docker build --progress=plain -t liyuanci-backend:local .`也通过，完整运行镜像已打包；本次不重跑未修改的消息集成链路，不代表业务/生产验收。
+
+# 统一日志模块验证（T004/REQ-018、020，2026-10-19）
+
+`python3 scripts/check-observability.py`最终PASS，项目`liyuanci-logs-6f2e6e6233`；验证真实Docker→Alloy→Loki→Grafana请求ID查询、三个固定索引标签、敏感行阻断、外项目隔离、受限代理拒绝archive/镜像读取/POST、Alloy/Loki重启后旧日志查询和新日志继续入库，以及预置看板。退出已清理本次容器/网络，卷保留。`make fmt/check/build`及Alloy/Loki/HAProxy配置语法校验PASS。初次3.2.26下载超时及运行暴露的卷权限、必需inspect、自动标签问题均已记录并修复复验；无生产部署、长期保留清理或容量结论。
