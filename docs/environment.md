@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | foundation | configs/config.yaml；默认127.0.0.1:8080 | 无外部适配、无业务Mock、仅健康端点；无中间件readyz=503 |
 | integration | configs/integration.yaml + compose.integration.yaml，独立项目liyuanci-foundation/内部网络/专用卷 | 真实PG/Redis/MQ；worker只订阅foundation专用探针主题，无学生/运营账号；只API端口绑定127.0.0.1:18080 |
-| production | 需外部注入APP_ENVIRONMENT=production及独立DSN/Redis/MQ | 未配置、未部署；配置校验要求三项中间件，worker拒绝启动探针；业务/密钥/认证未实现，不能以基础健康等同生产就绪 |
+| production | compose.production.yaml：Docker中间件独立项目/卷及外部secret；可叠加compose.management.yaml | 已提供中间件配置骨架、未部署；业务APP_ENVIRONMENT=production及独立凭据仍待接入；配置校验要求三项中间件，worker拒绝启动探针；业务/密钥/认证未实现，不能以基础健康等同生产就绪 |
 | performance | 待D06 manifest | 必须另建performance v0.2固定预算环境；当前本机容器不是性能验收环境 |
 
 模板：`/Users/kurous/code/go-template`，提交`f7c932fc77dafe22796b1c9809a03928dfeb9a36`，核验时干净。选择性导入cmd/internal/configs/构建与CI/锁文件；未导入.git、.env、本地覆盖、.idea、bin或演示迁移；当前.gitignore保持原字节。保留模板AGENTS质量/中文注释/结构化安全日志约束，补充本仓库授权边界。移除示例user领域和MySQL能力，只保留已批准PostgreSQL方案。
@@ -29,3 +29,7 @@
 T004续验制品与兼容性以[t004-followup.md](t004-followup.md)及foundation-manifest.json为准；NameServer DNS在启动时解析为SDK支持的IP，地址变化须重启客户端。当前仅验证最小正常/重复投递，真实业务重试/取消/故障属于T007，远程CI及两端仍待验收。
 
 版本决定见[middleware-decision.md](middleware-decision.md)；已批准设计快照保持只读，后续性能manifest记录5.3.2与原快照的软件版本差异，其他负载/数据/资源/门槛保持原方案，不需要再次为同一版本选择请求确认。
+
+## 2026-10-19 Docker部署约定补充（T003/T004；REQ-018、020）
+
+依据用户新指令，中间件在集成及未来生产统一通过Docker部署；不使用宿主机安装或托管服务替代本批配置。生产与集成编排独立，管理工具作为可选profile提供。新增文件、外部secret变量、连接地址和运维职责见[docker-middleware.md](docker-middleware.md)。所有管理端口只绑定loopback；无新增业务接口，契约仍为0.1.0。D02/D05/D06仍待真实资源/密钥/备份恢复与性能资源验收，Docker配置存在不代表已交付或上线。

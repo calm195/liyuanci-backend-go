@@ -41,3 +41,7 @@ Every change must add or update comments at the affected critical points: busine
 ## 鲤源池实施边界
 
 用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件，禁止AutoMigrate。所有新增实现与测试须引用任务ID和REQ。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
+
+## 中间件部署约定
+
+T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、RocketMQ（NameServer/Broker）统一使用 Docker 部署，保持环境、网络、数据卷与凭据隔离。配套管理工具使用 pgAdmin、Redis Insight、Apache RocketMQ Dashboard 官方发布镜像，固定版本与 digest；管理端口仅绑定 loopback，远程经 SSH 隧道访问。生产配置独立于集成探针，凭据使用仓库外文件/secret 注入，不得将集成无鉴权设置用于生产；生产部署仍须完成业务、安全、备份恢复等验收，未经用户明确授权不部署。

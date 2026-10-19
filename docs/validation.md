@@ -35,3 +35,22 @@
 本批只操作liyuanci-foundation专用容器/网络/卷；未操作已有其他项目容器。测试结束停止本批PG/Redis容器，保留专用数据卷和网络；测试库仅探针表，无真实用户资料。随机测试密码未写文件或日志。重新执行完整集成应在新隔离资源中使用调用方持有的测试secret；现有PG卷不会因修改环境变量自动改口令，禁止为通过测试删除无关卷或默认使用生产凭据。
 
 当前主要风险：D01–D03、D05–D06未交付；4.9.8已放弃，当前5.3.2只签基础往返，生产供应链/可靠业务消费/性能仍未验收；后台凭据契约与部分部署参数仍依赖D02。保留现有方案B，不用删除MQ、放宽检查或模拟结果解决阻塞。
+
+## 2026-10-19 Docker部署及管理配置（T003/T004；REQ-018、020）
+
+用户要求集成与未来生产统一Docker部署；新增独立生产中间件编排、可选官方管理工具编排及操作文档，契约仍为0.1.0，无业务接口变化。
+
+| 检查 | 实际结果 | 范围 |
+| --- | --- | --- |
+| make fmt/check/build | PASS | 本地格式、vet、race/coverage及三制品构建；首次沙箱Go缓存写入告警后提升权限重跑无告警通过 |
+| 两套Compose合并边界 | PASS | `python3 scripts/check-management.py --config-only`；internal网络、无中间件宿主端口、管理loopback端口和固定digest、生产不包含探针/API/worker |
+| 生产形态隔离中间件 | PASS | `python3 scripts/check-management.py --middleware-only`；最终项目`liyuanci-mgmt-9cde6cc08241`，PG/Redis/NameServer/Broker健康；Redis匿名PING返回NOAUTH，正确合成口令返回PONG；MQ匿名updateTopic明确拒绝。最终配置包含SCRAM初始化、日志轮转及外部只读ACL文件 |
+| 镜像版本与架构 | PASS（清单） | pgAdmin9.18、Redis Insight3.8.0、Dashboard2.1.0官方镜像manifest均取得digest和amd64/arm64条目；不等于镜像运行/安全审计通过 |
+
+生产形态测试使用临时随机凭据、合成ACL和独立项目，退出后容器/网络已清理，卷保留。原始无密钥验证日志位于本次宿主`/tmp/liyuanci-production-shape-final.log`；不依赖该临时路径交付生产。首次Redis验证使用redis-cli管道模式，因测试ACL没有管道工具所需ECHO权限导致超时；改用stdin普通AUTH/PING后复验通过，没有放宽被测ACL或业务检查。
+
+未执行实际生产部署、真实生产账号/密钥与Dashboard ACL联调、远程CI或两端工程验收；原T004生产消费往返证据仍见既有续验报告，本次没有修改Go客户端和集成探针链路。生产最小权限角色/客户端凭据、外部备份与恢复、性能仍待后续任务。
+
+管理工具最终复验：`python3 scripts/check-management.py` **PASS**，项目`liyuanci-mgmt-6b4b8bb805d3`。pgAdmin `/misc/ping`、Redis Insight `/api/health/`、Dashboard首页均HTTP200；Dashboard `/cluster/list.query`返回成功并包含`broker-a`。这验证真实页面与Broker发现，不等于生产账号登录/ACL或业务联调。日志：本次宿主`/tmp/liyuanci-management-final.log`。全部本次容器/网络已清理，数据卷保留。
+
+管理工具真实启动期间发现Dashboard secret默认挂载名与Spring配置路径不一致，修正为显式目标`dashboard.properties`，并增加静态断言；HTTP探测改为本机直连，避免继承宿主失效代理。官方镜像下载较慢，尝试镜像代理取得同一官方digest，未修改全局Docker镜像源；最终运行仍使用Compose固定的官方镜像引用。失败的首次拉取/旧Dashboard配置验证已停止并清理，未将失败记录算作通过。
