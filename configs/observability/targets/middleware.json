@@ -1,0 +1,5 @@
+[
+  {"targets": ["postgres-exporter:9187"], "labels": {"job": "postgres-exporter"}},
+  {"targets": ["redis-exporter:9121"], "labels": {"job": "redis-exporter"}},
+  {"targets": ["broker:5557"], "labels": {"job": "rocketmq-broker"}}
+]

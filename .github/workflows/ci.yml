@@ -3,6 +3,13 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  middleware-observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # T004/REQ-018、020：随机隔离凭据；统计身份与错误凭据正反例。
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check-management.py --middleware-only --metrics
   observability:
     runs-on: ubuntu-latest
     timeout-minutes: 20

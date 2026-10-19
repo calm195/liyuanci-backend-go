@@ -228,7 +228,7 @@ dc up -d --wait api worker
 直接使用Docker构建时可执行`docker build --progress=plain --build-arg GOPROXY=https://goproxy.cn,direct -t liyuanci-backend:local .`。能访问官方代理的环境可通过`LIYUANCI_BUILD_GOPROXY=https://proxy.golang.org,direct`（Compose）或`--build-arg GOPROXY=https://proxy.golang.org,direct`（docker build）覆盖；构建参数只作用于镜像构建，不由运行期`APP_`配置控制。检查失败详情时保留`go mod download`上方错误，而非仅查看最终exit code。
 
 本次修复已通过实际无缓存builder构建：依赖下载13.7秒、API/worker/probe编译9.8秒；`make fmt/check/build`及Compose静态检查通过。见[验证记录](docs/validation.md)，不是仅使用旧依赖层缓存判断通过。
-# 统一日志采集与查询（T004/REQ-018、020）
+## 统一日志采集与查询（T004/REQ-018、020）
 
 新增独立`compose.observability.yaml`：Alloy通过限制GET读取接口的Docker代理采集指定Compose项目日志，发送到单实例Loki，Grafana提供统一查询和预置技术日志看板。应用继续输出zap JSON，中间件保留原文；索引只保留环境、服务、安全主机别名，请求ID在查询时解析。采集端丢弃命中明显凭据模式的整行日志，源端仍须禁止敏感信息。采集位置、日志与界面状态分别持久化，不依赖业务数据库。
 
@@ -250,4 +250,12 @@ API监听、worker消费者启动成功后，每30秒通过注入的zap.Logger�
 
 Linux宿主额外叠加`-f compose.metrics.linux.yaml`，固定Node Exporter1.10.2以只读挂载读取宿主CPU/内存/磁盘，配置内存>90%与磁盘可用<15%的持续告警；无宿主网络/管理端口。它是高信任宿主读取组件，仅Linux使用；macOS Docker虚拟机指标不代表macOS宿主。未启用metrics时指标看板明确提示所需叠加文件，日志查询仍可单独使用。生产启动/验收边界见[运维说明](docs/observability.md)。
 
-真实隔离`--metrics`验证PASS（`liyuanci-logs-d2523d7a8e`）：四目标up=1、敏感行丢弃计数可查询、Prometheus重启后恢复查询；`--alerts --metrics`组合验证PASS（`liyuanci-logs-ecbab0b171`）。promtool检查基础配置、Linux目标JSON静态检查、Compose静态组合和`make fmt/check/build`通过。Linux宿主运行验收、长期清理和生产容量未执行；CI增加Linux验证入口，远端CI结果未运行。业务指标及中间件内部指标需后续独立接入，不能从up=1推导业务健康。
+真实隔离`--metrics`验证PASS（`liyuanci-logs-d2523d7a8e`）：四目标up=1、敏感行丢弃计数可查询、Prometheus重启后恢复查询；`--alerts --metrics`组合验证PASS（`liyuanci-logs-ecbab0b171`）。promtool检查基础配置、Linux目标JSON静态检查、Compose静态组合和`make fmt/check/build`通过。Linux宿主运行验收、长期清理和生产容量未执行；CI增加Linux验证入口，远端CI结果未运行。业务指标仍待对应领域实现，不能从up=1推导业务健康。
+
+## 中间件内部指标与生产监控配置（T004/REQ-018、020）
+
+叠加`-f compose.metrics.middleware.yaml`连接明确指定的Docker foundation网络，PostgreSQL/Redis使用固定社区exporter、独立`liyuanci_monitor`统计身份及仓库外secret；PostgreSQL关闭设置/SQL语句指标，Redis只允许PING/INFO，不读取业务键值。Broker5.3.2原生启用PROM指标，5557/9187/9121均不发布宿主。Grafana预置中间件看板，新增连接/采集错误告警，现有up规则覆盖各端点；Linux与中间件目标通过file_sd叠加组合。
+
+接入前需显式创建监控身份并提供`LIYUANCI_MONITORED_NETWORK`、`LIYUANCI_PG_MONITOR_PASSWORD_FILE`、`LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE`；Redis密码JSON的键包含用户名。生产监控额外叠加`compose.observability.production.yaml`，必须提供持久状态加密密钥、界面URL和明确日志保留期，禁止依赖内建默认密钥；身份准备、本地开发、生产启动/停止和恢复边界详见[操作步骤](docs/observability.md)。Broker配置更新需重启生效，当前未操作生产。
+
+`python3 scripts/check-management.py --middleware-only --metrics`真实隔离PASS，最终项目`liyuanci-mgmt-bee10a5fb347`：七目标up=1、PG/Redis连接成功且采集错误为0、MQ原生指标、错误监控密码被识别并恢复、Redis监控身份GET被拒绝；生产形态监控密钥注入、中间件看板和四条规则求值也通过。`sh scripts/integration.sh`PASS（`liyuanci-t004-20261019232016-2f878e`），启用Broker指标后消息重复发送仍由独立worker完成两次数据库回执，API健康边界保持正确。全部Compose叠加静态检查与`make fmt/check/build`通过。真实生产凭据、Linux宿主运行、通知、容量、长期清理和T007领域阈值仍未验收；未推进整体T004或认证完成状态。

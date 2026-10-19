@@ -1,0 +1,17 @@
+# T004/REQ-018、020：生产监控必须显式提供状态加密密钥和技术日志保留期。
+# 不改变业务部署/放行边界；仅叠加到独立生产监控项目。
+services:
+  alloy:
+    environment:
+      LOG_ENVIRONMENT: production
+  loki:
+    environment:
+      LOG_RETENTION: ${LIYUANCI_LOG_RETENTION:?set approved production technical-log retention}
+  grafana:
+    environment:
+      GF_SECURITY_SECRET_KEY__FILE: /run/secrets/grafana_encryption_key
+      GF_SERVER_ROOT_URL: ${LIYUANCI_GRAFANA_ROOT_URL:?set operator-facing Grafana URL}
+    secrets: [grafana_encryption_key]
+secrets:
+  grafana_encryption_key:
+    file: ${LIYUANCI_GRAFANA_ENCRYPTION_KEY_FILE:?set external persistent Grafana encryption key}

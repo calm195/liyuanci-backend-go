@@ -74,3 +74,9 @@
 `python3 scripts/check-observability.py --metrics`实际PASS，项目`liyuanci-logs-d2523d7a8e`；四个监控组件全部up=1、敏感行阻断指标可查、预置指标看板存在、Prometheus重启后查询恢复。组合`--alerts --metrics`项目`liyuanci-logs-ecbab0b171`PASS。初次Grafana拒绝15秒规则间隔，改为其10秒调度粒度的20秒后复验通过。promtool基础配置、Linux目标JSON静态检查、Compose组合静态检查及`make fmt/check/build`PASS。未验收Linux生产宿主运行、全磁盘覆盖、长期TSDB/日志清理、真实通知或容量；CI配置不等于远端CI执行通过。
 
 最终组合复验项目`liyuanci-logs-2719c30805`PASS，十条已启用日志/指标规则健康接口均为ok，合成Webhook触发/恢复正常。Linux与后续可选指标通过独立file_sd目标文件组合，避免叠加时覆盖主配置。
+
+## 中间件指标与生产监控配置（T004/REQ-018、020）
+
+`python3 scripts/check-management.py --middleware-only --metrics`最终PASS，项目`liyuanci-mgmt-bee10a5fb347`。七目标up=1，pg_up/redis_up=1，两项last_scrape_error=0，MQ原生rocketmq_*指标存在；生产形态Grafana密钥注入、中间件看板及四条规则实际健康为ok；PG/Redis错误监控口令反映为连接失败，恢复正确口令后恢复；Redis监控账号GET明确NOPERM。原生产形态Redis匿名拒绝/正确PING和MQ匿名写拒绝也保持通过。初次Redis密码JSON的URL键缺用户名，修正后复验，未扩大监控ACL。最终原始本机记录`/tmp/liyuanci-middleware-metrics-final.log`，交付不依赖该临时文件。
+
+Broker启用PROM后，`sh scripts/integration.sh`独立回归PASS，项目`liyuanci-t004-20261019232016-2f878e`，probe_id=`95d992af199f64c60eb726e9dd116b80`，delivery_count=2；真实API/worker心跳可见，容器API healthz200、readyz503、模板业务入口404。各测试容器/网络已按依赖顺序清理、专用卷保留。全部Compose叠加静态检查、Python语法、`make fmt/check/build`PASS。生产Linux宿主和磁盘覆盖、真实凭据/通知、容量/HA、长期保留清理及T007领域阈值仍待验收；共享API契约维持0.1.0，未更改整体T004或认证任务完成状态。

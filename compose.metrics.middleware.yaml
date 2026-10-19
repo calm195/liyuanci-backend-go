@@ -1,0 +1,45 @@
+# T004/REQ-018、020：显式连接单个受监控Docker网络，独立只读监控身份。
+services:
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.18.1@sha256:fb96c4413985d4b23ab02b19022b3d70a86c8e0a62f41ab15ebb6f4673781a5d
+    environment:
+      DATA_SOURCE_URI: postgres:5432/liyuanci?sslmode=disable
+      DATA_SOURCE_USER: liyuanci_monitor
+      DATA_SOURCE_PASS_FILE: /run/secrets/pg_monitor_password
+    command: [--disable-settings-metrics, --no-collector.stat_statements, --log.format=json]
+    secrets: [pg_monitor_password]
+    networks: [telemetry, monitored]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.77.0@sha256:4c8000eb3525e0f6ed1327499861e272fcce358a9e7a87dd9db74c44607e6d8e
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_USER: liyuanci_monitor
+      REDIS_PASSWORD_FILE: /run/secrets/redis_monitor_passwords
+    command: [--config-command=-, --set-client-name=false, --export-client-list=false, --exclude-latency-histogram-metrics, --disable-exporting-key-values, --redis-only-metrics, --log-format=json]
+    secrets: [redis_monitor_passwords]
+    networks: [telemetry, monitored]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+  prometheus:
+    # Broker自带PROM接口只在业务内部网络；不开放5557/9187/9121宿主端口。
+    networks: [telemetry, monitored]
+    volumes:
+      - ./configs/observability/targets/middleware.json:/etc/prometheus/targets/middleware.json:ro
+  grafana:
+    volumes:
+      - ./configs/observability/middleware-alerts.json:/etc/grafana/provisioning/alerting/middleware.json:ro
+networks:
+  monitored:
+    external: true
+    name: ${LIYUANCI_MONITORED_NETWORK:?set exact target foundation Docker network}
+secrets:
+  pg_monitor_password:
+    file: ${LIYUANCI_PG_MONITOR_PASSWORD_FILE:?set external monitor password file}
+  redis_monitor_passwords:
+    file: ${LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE:?set external Redis exporter password JSON file}

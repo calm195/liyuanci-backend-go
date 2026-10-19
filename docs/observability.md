@@ -113,3 +113,85 @@ Grafana指标看板和Explore选择Prometheus；`up`为抓取端点可达，不�
 `python3 scripts/check-observability.py --metrics`实际PASS，项目`liyuanci-logs-d2523d7a8e`：四目标全部up=1、阻断计数和看板可查、Prometheus重启后恢复；组合项目`liyuanci-logs-ecbab0b171`日志/指标/本地通知全链路PASS。基础配置经固定镜像promtool校验、Linux目标JSON静态检查通过，全部Compose组合静态检查通过。`--linux-host`明确拒绝macOS宿主；GitHub Linux CI已配置运行`--alerts --metrics --linux-host`，远端执行结果未验证。生产Linux宿主、全部磁盘覆盖、阈值边界、保留期/容量和平台失联检测仍待实际环境验收。
 
 官方依据：[Prometheus Docker部署](https://prometheus.io/docs/prometheus/latest/installation/)、[TSDB保留](https://prometheus.io/docs/prometheus/latest/storage/)、[Node Exporter](https://github.com/prometheus/node_exporter)。
+
+## 模块四：中间件内部指标
+
+T004/REQ-018、020：显式叠加`compose.metrics.middleware.yaml`，PostgreSQL由Prometheus社区postgres-exporter0.18.1采集，Redis由上游redis_exporter1.77.0采集，两者固定digest、独立监控账号和外部secret文件。RocketMQ5.3.2直接启用Broker原生`metricsExporterType=PROM`，不是额外Java exporter，也不要求Go SDK提供指标。只采Broker端指标，未接入客户端指标或T007领域发件箱指标。
+
+Prometheus通过独立file_sd文件组合可选目标，可同时叠加Linux宿主采集，不覆盖主配置。监控项目只连接显式指定的单个业务foundation网络；不发布5557/9187/9121。Broker配置变化需在开发重建/生产批准的维护窗口重启Broker生效，不自动操作生产。原生指标端点无额外认证，只能保留在受控内部网络，不能改为公网端口。
+
+### 账号与配置准备
+
+PostgreSQL管理员在目标库显式创建`liyuanci_monitor`登录角色（NOSUPERUSER、NOCREATEDB、NOCREATEROLE、NOREPLICATION、NOBYPASSRLS），授予`pg_monitor`和目标库连接权限。可在已授权的交互psql里执行角色/授权SQL后，用`\password liyuanci_monitor`安全提示设置密码，避免口令出现在shell参数/历史中。监控口令保存到仓库外文件，由`LIYUANCI_PG_MONITOR_PASSWORD_FILE`引用；不使用bootstrap超级用户或业务账号采集。`pg_monitor`仍可读取运行统计/SQL元数据，账号和exporter属于高信任组件；当前关闭设置指标和stat_statements，不采SQL正文。
+
+```sql
+CREATE ROLE liyuanci_monitor LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT pg_monitor TO liyuanci_monitor;
+GRANT CONNECT ON DATABASE liyuanci TO liyuanci_monitor;
+\password liyuanci_monitor
+```
+
+如果角色已存在，先核对现有用途/权限，不覆盖或复用未知身份；上述SQL不是启动迁移，也不嵌入API/worker。
+
+Redis准备`liyuanci_monitor`：只允许`PING`和`INFO`，不授予键模式、GET/SCAN、CONFIG、Lua或客户端列表权限。生产将以下规则中的密码哈希替换为外部监控密码的SHA-256，追加到既有外部ACL文件，保留原有业务/管理身份及`default off`：
+
+```text
+user liyuanci_monitor on #<外部监控密码的SHA-256> -@all +ping +info
+```
+
+Redis exporter禁用CONFIG查询、客户端列表、延迟直方图与业务键值采集；不因为导出器需要统计就扩大到+@all。另准备仓库外JSON密码文件，环境变量为`LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE`。URL键必须包含用户名：
+
+```json
+{"redis://liyuanci_monitor@redis:6379": "<由密钥管理工具写入的真实监控密码>"}
+```
+
+上面仅结构示例，不能直接当口令使用；文件内容不入仓库/日志。所有secret所在宿主目录0700、挂载文件需对容器的非root进程可读（当前文件型secret示例0644，目录限制宿主访问）。更新口令需同步目标账号与secret并重启exporter，检查pg_up/redis_up和last_scrape_error，不能只检查HTTP up。
+
+### 本地开发接入
+
+先按README启动真实开发中间件。使用管理员连接创建上述PostgreSQL统计身份；Redis开发集成没有ACL文件，需在隔离开发实例显式设置监控身份。可在仓库终端用以下命令从外部JSON文件生成仅含哈希的ACL命令，经stdin送入开发容器，不将密码放入参数：
+
+```sh
+export LIYUANCI_PG_MONITOR_PASSWORD_FILE="$HOME/.config/liyuanci/dev/pg-monitor-password"
+export LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE="$HOME/.config/liyuanci/dev/redis-monitor-passwords.json"
+python3 - <<'PY'
+import hashlib,json,os,subprocess
+from pathlib import Path
+password=json.loads(Path(os.environ['LIYUANCI_REDIS_MONITOR_PASSWORDS_FILE']).read_text())['redis://liyuanci_monitor@redis:6379']
+rule='ACL SETUSER liyuanci_monitor reset on #'+hashlib.sha256(password.encode()).hexdigest()+' -@all +ping +info\r\n'
+subprocess.run(['docker','compose','-p','liyuanci-dev','-f','compose.integration.yaml','exec','-T','redis','redis-cli','--raw'],input=rule,text=True,check=True)
+PY
+```
+
+此命令明确仅操作`liyuanci-dev`开发项目，不用于生产；开发Redis重建/重启后需重新确认动态ACL，生产必须使用持久化的外部ACL文件。管理员角色/secret前置条件未满足时不启动exporter冒充接入。然后沿用前述Grafana密码等环境变量：
+
+```sh
+export LIYUANCI_MONITORED_NETWORK=liyuanci-dev_foundation
+obs() { docker compose -p liyuanci-observability-dev -f compose.observability.yaml -f compose.alerting.yaml -f compose.metrics.yaml -f compose.metrics.middleware.yaml "$@"; }
+obs config --quiet
+obs up -d
+```
+
+在Grafana查看「T004 中间件指标」：HTTP抓取up=1和`pg_up=1`/`redis_up=1`、两项last_scrape_error=0均须满足；MQ必须出现原生rocketmq_*指标。无消费组时消息积压/滞后面板可能无数据，不能解释为已消费或系统健康。
+
+### 未来生产和验收
+
+先在独立生产环境完成角色最小权限、外部secret、Redis ACL、内部网络与Broker配置准入；`LIYUANCI_MONITORED_NETWORK=liyuanci-production_foundation`，与开发完全不同的项目/secret/卷。生产启动函数使用上述叠加文件并按Linux实际需要增加`compose.metrics.linux.yaml`，按真实通知进度增加notifications叠加。停止监控时先down监控项目，再维护中间件网络，不加-v。未批准不执行生产启动。
+
+生产监控还必须叠加`compose.observability.production.yaml`：独立持久化的仓库外`LIYUANCI_GRAFANA_ENCRYPTION_KEY_FILE`加密Grafana状态中的敏感配置，设置明确的`LIYUANCI_LOG_RETENTION`及`LIYUANCI_GRAFANA_ROOT_URL`（SSH方式可为`http://127.0.0.1:13000/`）。不要沿用内建默认状态密钥，也不要在已有Grafana卷上随意换密钥；备份/轮换须连同状态恢复验证。完整顺序示例为：
+
+```sh
+obsprod() { docker compose -p liyuanci-observability-production -f compose.observability.yaml -f compose.observability.production.yaml -f compose.alerting.yaml -f compose.metrics.yaml -f compose.metrics.linux.yaml -f compose.metrics.middleware.yaml "$@"; }
+obsprod config --quiet
+# 仅经生产准入及用户批准后由运维执行，当前批次未执行：
+obsprod pull
+obsprod up -d
+```
+
+需要真实通知时在函数中继续叠加notifications文件及对应外部配置；仅启用规则不代表通知可达。这里仍是单机监控骨架，不签高可用或容量通过。
+
+新增告警监控PG/Redis连接和统计采集错误，现有up告警同时覆盖Broker/两个exporter；不预设未实现T007领域的积压/重试/死信阈值。阈值、全时间边界、生产凭据与故障恢复仍需生产前验收。`python3 scripts/check-management.py --middleware-only --metrics`创建独立生产形态中间件及监控项目，检查七目标、统计指标、原生MQ指标、PG/Redis错误监控密码及恢复、监控用户GET被拒绝；随后按依赖顺序清理容器/网络、保留卷。
+
+2026-10-19最终实际PASS，项目`liyuanci-mgmt-bee10a5fb347`：上述正反例全部通过，中间件看板、四条规则实际求值健康及生产监控状态密钥注入也通过。本机记录`/tmp/liyuanci-middleware-metrics-final.log`；初次密码映射未包含用户名导致Redis未认证，按固定版本源码修正后成功，不扩大ACL权限。保留`PING/INFO`最小集合，监控账号GET返回NOPERM。`sh scripts/integration.sh`在`liyuanci-t004-20261019232016-2f878e`实际PASS，probe_id=`95d992af199f64c60eb726e9dd116b80`，delivery_count=2，真实API/worker也输出心跳。所有配置静态组合、脚本语法与`make fmt/check/build`通过。这里只验证隔离生产形态与合成数据，不等于真实生产账号/宿主/通知、容量、长期清理或业务验收，整体T004状态不变。
+
+官方依据：[RocketMQ原生指标](https://rocketmq.apache.org/docs/observability/01metrics/)、[PostgreSQL exporter](https://github.com/prometheus-community/postgres_exporter)、[Redis exporter1.77.0密码映射](https://github.com/oliver006/redis_exporter/blob/v1.77.0/exporter/redis.go)。
