@@ -1,0 +1,383 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "liyuanci-metric-alerts",
+      "folder": "鲤源池运维",
+      "interval": "20s",
+      "rules": [
+        {
+          "uid": "liyuanci-scrape-down",
+          "title": "T004 monitoring target down",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "up",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        1
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "1m",
+          "annotations": {
+            "summary": "T004 monitoring target down",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-log-drops",
+          "title": "T004 log delivery dropped",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(increase(loki_write_dropped_entries_total[5m])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "T004 log delivery dropped",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-sensitive-drops",
+          "title": "T004 sensitive log blocked",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(increase(loki_process_dropped_lines_total[5m])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "T004 sensitive log blocked",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-host-disk",
+          "title": "T004 Linux disk low",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/host.*\"} / node_filesystem_size_bytes",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        0.15
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "annotations": {
+            "summary": "T004 Linux disk low",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-host-memory",
+          "title": "T004 Linux memory high",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0.9
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "annotations": {
+            "summary": "T004 Linux memory high",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "task_id": "T004",
+            "req": "REQ-020",
+            "severity": "critical"
+          },
+          "isPaused": false
+        }
+      ]
+    }
+  ]
+}

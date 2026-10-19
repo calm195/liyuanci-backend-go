@@ -1,0 +1,22 @@
+# T004/REQ-020：仅内部抓取；固定目标不包含凭据、不公开9090。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+  # T004/REQ-020：叠加功能各自挂载目标文件，Linux与中间件指标不会覆盖彼此。
+  - job_name: optional
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/*.json"]
+        refresh_interval: 5s

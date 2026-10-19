@@ -242,4 +242,12 @@ API监听、worker消费者启动成功后，每30秒通过注入的zap.Logger�
 
 启动日志设施时叠加`-f compose.alerting.yaml`，启用panic、排除健康检查的5xx比例、worker错误及API/worker心跳缺失五条规则；文件管理规则、Grafana负责求值，数据源失败也进入告警。默认没有真实通知渠道；`compose.notifications.yaml`提供仓库外通知配置入口。用户选择先本地验证，真实通知、值班负责人及平台失联外部检测仍待交付。具体阈值、启停、分组/静默、处置与生产接入见[运维说明](docs/observability.md)。
 
-`python3 scripts/check-observability.py --alerts`真实隔离PASS（`liyuanci-logs-0d45838f71`）：合成panic触发Grafana告警，隔离Webhook收到firing，故障消失后收到resolved。未向外部地址发送消息；不等于五条规则全部边界/真实通知验收。心跳停止/重复停止、HTTP正常/失败/panic事件回归及`make fmt/check/build`通过。运行指标属于后续独立模块。
+`python3 scripts/check-observability.py --alerts`真实隔离PASS（`liyuanci-logs-0d45838f71`）：合成panic触发Grafana告警，隔离Webhook收到firing，故障消失后收到resolved。未向外部地址发送消息；不等于五条规则全部边界/真实通知验收。心跳停止/重复停止、HTTP正常/失败/panic事件回归及`make fmt/check/build`通过。
+
+## 运行指标（T004/REQ-018、020）
+
+叠加`-f compose.metrics.yaml`启用固定版本Prometheus3.8.0、独立数据卷、Grafana指标数据源/看板及指标告警。每15秒抓取Alloy/Loki/Grafana/Prometheus自身，数据保留7天或1GB（先触及的TSDB限制生效，并非整个卷硬上限）；9090不映射宿主。覆盖抓取失败、日志投递丢弃和敏感日志阻断，规则每20秒求值。日志与指标组合共享Grafana，仍需外部渠道及平台失联检测。
+
+Linux宿主额外叠加`-f compose.metrics.linux.yaml`，固定Node Exporter1.10.2以只读挂载读取宿主CPU/内存/磁盘，配置内存>90%与磁盘可用<15%的持续告警；无宿主网络/管理端口。它是高信任宿主读取组件，仅Linux使用；macOS Docker虚拟机指标不代表macOS宿主。未启用metrics时指标看板明确提示所需叠加文件，日志查询仍可单独使用。生产启动/验收边界见[运维说明](docs/observability.md)。
+
+真实隔离`--metrics`验证PASS（`liyuanci-logs-d2523d7a8e`）：四目标up=1、敏感行丢弃计数可查询、Prometheus重启后恢复查询；`--alerts --metrics`组合验证PASS（`liyuanci-logs-ecbab0b171`）。promtool检查基础配置、Linux目标JSON静态检查、Compose静态组合和`make fmt/check/build`通过。Linux宿主运行验收、长期清理和生产容量未执行；CI增加Linux验证入口，远端CI结果未运行。业务指标及中间件内部指标需后续独立接入，不能从up=1推导业务健康。

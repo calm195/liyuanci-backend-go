@@ -93,3 +93,23 @@ obs up -d
 心跳要求应用Info或Debug日志级别，否则会被logger过滤；不强行覆盖运营配置。初始阈值尚未做全部流量/时间边界演练。2026-10-19 `python3 scripts/check-observability.py --alerts`实际PASS，项目`liyuanci-logs-0d45838f71`，本机记录`/tmp/liyuanci-alerting-check-v2.log`；合成panic真实触发、隔离Webhook收到firing及resolved。首次Alpine缺少httpd的测试接收器已替换为固定官方Python镜像；接收器仅测试使用，不部署生产。心跳生命周期/重复停止、HTTP事件字段测试以及`make fmt/check/build`通过。
 
 依据：[Grafana文件化告警](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/)、[No Data/Error处理](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/nodata-and-error-states/)。
+
+## 模块三：监控链路及Linux宿主指标
+
+T004/REQ-018、020：独立Prometheus每15秒抓取监控组件，无API/业务/中间件空壳指标；通过固定UID数据源在Grafana查询`up`、`loki_write_dropped_entries_total`和`loki_process_dropped_lines_total`。TSDB设置7天和1GB双限制，WAL/head等仍占额外空间，不能当作宿主磁盘硬配额。数据卷独立，停止保留。基础告警每20秒求值，符合Grafana10秒调度粒度；首次15秒间隔被真实运行拒绝，已修正并复验。
+
+本地使用已有密码/环境变量，把函数改为：
+
+```sh
+obs() { docker compose -p liyuanci-observability-dev -f compose.observability.yaml -f compose.alerting.yaml -f compose.metrics.yaml "$@"; }
+obs config --quiet
+obs up -d
+```
+
+Grafana指标看板和Explore选择Prometheus；`up`为抓取端点可达，不等于业务健康。日志发送丢弃/敏感行阻断增加即告警；任何监控抓取目标持续1分钟up<1告警。未启用Linux采集时磁盘/内存规则无数据视为正常，不能据此签宿主正常。
+
+仅Linux生产宿主，启动命令再叠加`-f compose.metrics.linux.yaml`。Node Exporter只启用CPU/meminfo/filesystem/uname，pid使用宿主命名空间，/proc、/sys、根文件系统只读挂载，无宿主监听端口、不直接接触Docker socket；它能读取宿主元数据，是高信任组件。CPU可查`1-avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))`；内存使用>90%持续5分钟、磁盘可用<15%持续5分钟告警。处置时先确认挂载点/设备、日志增长和Docker轮转，不自动删除业务卷或扩大保留期。首次生产启用需确认所有日志卷所在设备被覆盖，不能只看根盘。
+
+`python3 scripts/check-observability.py --metrics`实际PASS，项目`liyuanci-logs-d2523d7a8e`：四目标全部up=1、阻断计数和看板可查、Prometheus重启后恢复；组合项目`liyuanci-logs-ecbab0b171`日志/指标/本地通知全链路PASS。基础配置经固定镜像promtool校验、Linux目标JSON静态检查通过，全部Compose组合静态检查通过。`--linux-host`明确拒绝macOS宿主；GitHub Linux CI已配置运行`--alerts --metrics --linux-host`，远端执行结果未验证。生产Linux宿主、全部磁盘覆盖、阈值边界、保留期/容量和平台失联检测仍待实际环境验收。
+
+官方依据：[Prometheus Docker部署](https://prometheus.io/docs/prometheus/latest/installation/)、[TSDB保留](https://prometheus.io/docs/prometheus/latest/storage/)、[Node Exporter](https://github.com/prometheus/node_exporter)。

@@ -68,3 +68,9 @@
 ## 日志告警模块（T004/REQ-018、020）
 
 `python3 scripts/check-observability.py --alerts`实际PASS，项目`liyuanci-logs-0d45838f71`：合成panic经真实规则求值并向隔离Webhook发送firing，停止故障后收到resolved。最终组合项目`liyuanci-logs-ecbab0b171`再次PASS，接收器以宿主UID/GID运行；五条日志规则真实健康接口均为ok。无真实外部通知，未验收全部阈值边界。心跳初始/周期输出、取消后退出/重复停止、HTTP正常/失败/panic安全日志字段测试及`make fmt/check/build`PASS。首次测试镜像缺少httpd，替换固定官方Python接收器后复验，非生产能力变更。
+
+## 运行指标模块（T004/REQ-018、020）
+
+`python3 scripts/check-observability.py --metrics`实际PASS，项目`liyuanci-logs-d2523d7a8e`；四个监控组件全部up=1、敏感行阻断指标可查、预置指标看板存在、Prometheus重启后查询恢复。组合`--alerts --metrics`项目`liyuanci-logs-ecbab0b171`PASS。初次Grafana拒绝15秒规则间隔，改为其10秒调度粒度的20秒后复验通过。promtool基础配置、Linux目标JSON静态检查、Compose组合静态检查及`make fmt/check/build`PASS。未验收Linux生产宿主运行、全磁盘覆盖、长期TSDB/日志清理、真实通知或容量；CI配置不等于远端CI执行通过。
+
+最终组合复验项目`liyuanci-logs-2719c30805`PASS，十条已启用日志/指标规则健康接口均为ok，合成Webhook触发/恢复正常。Linux与后续可选指标通过独立file_sd目标文件组合，避免叠加时覆盖主配置。

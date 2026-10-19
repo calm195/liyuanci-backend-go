@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import platform
 from pathlib import Path
 import secrets
 import subprocess
@@ -16,7 +17,11 @@ import urllib.request
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--alerts", action="store_true", help="增加本地合成Webhook触发/恢复测试")
+    parser.add_argument("--metrics", action="store_true", help="增加真实指标抓取与查询测试")
+    parser.add_argument("--linux-host", action="store_true", help="仅Linux：验证宿主CPU/内存/磁盘采集")
     options = parser.parse_args()
+    if options.linux_host and (not options.metrics or platform.system() != "Linux"):
+        parser.error("--linux-host要求Linux宿主并同时启用--metrics；Docker VM不等于macOS宿主")
     project = "liyuanci-logs-" + secrets.token_hex(5)
     marker = secrets.token_hex(12)
     password = secrets.token_hex(24)
@@ -36,6 +41,10 @@ def main():
         compose = ["docker", "compose", "-p", project, "-f", "compose.observability.yaml"]
         if options.alerts:
             compose += ["-f", "compose.alerting.yaml"]
+        if options.metrics:
+            compose += ["-f", "compose.metrics.yaml"]
+        if options.linux_host:
+            compose += ["-f", "compose.metrics.linux.yaml"]
 
         def run(args):
             result = subprocess.run(args, env=env, capture_output=True,
@@ -115,15 +124,40 @@ def main():
             wait(lambda: any(int(stamp) > restarted_at for stream in query(expression)["data"]["result"]
                              for stamp, _ in stream["values"]), "重启后继续采集新日志")
             assert api("/api/dashboards/uid/liyuanci-logs")["dashboard"]["uid"] == "liyuanci-logs"
+            if options.metrics:
+                def metrics_query(expression):
+                    return api("/api/datasources/proxy/uid/liyuanci-prometheus/api/v1/query?" +
+                               urllib.parse.urlencode({"query": expression}))["data"]["result"]
+
+                def targets_healthy():
+                    results = metrics_query("up")
+                    jobs = {row["metric"]["job"]: row["value"][1] for row in results}
+                    expected = {"prometheus": "1", "alloy": "1", "loki": "1", "grafana": "1"}
+                    if options.linux_host:
+                        expected["node-exporter"] = "1"
+                    return jobs == expected
+
+                wait(targets_healthy, "四个监控组件真实指标抓取全部up=1")
+                wait(lambda: bool(metrics_query("loki_process_dropped_lines_total")), "敏感行阻断计数可查询")
+                if options.linux_host:
+                    for metric in ["node_uname_info", "node_cpu_seconds_total", "node_memory_MemTotal_bytes",
+                                   "node_filesystem_size_bytes"]:
+                        wait(lambda: bool(metrics_query(metric)), "Linux宿主指标 " + metric)
+                assert api("/api/dashboards/uid/liyuanci-metrics")["dashboard"]["uid"] == "liyuanci-metrics"
+                run(compose + ["restart", "prometheus"])
+                wait(targets_healthy, "Prometheus重启后指标查询恢复")
             if options.alerts:
                 def rules_healthy():
                     groups = api("/api/prometheus/grafana/api/v1/rules")["data"]["groups"]
                     rules = {rule["name"]: rule for group in groups for rule in group["rules"]}
                     expected = {"T004 API panic", "T004 API 5xx ratio", "T004 worker failures",
                                 "T004 api heartbeat missing", "T004 worker heartbeat missing"}
+                    if options.metrics:
+                        expected |= {"T004 monitoring target down", "T004 log delivery dropped",
+                                     "T004 sensitive log blocked", "T004 Linux disk low", "T004 Linux memory high"}
                     return expected <= rules.keys() and all(rules[name].get("health") == "ok" for name in expected)
 
-                wait(rules_healthy, "五条日志规则真实求值无数据源或表达式错误")
+                wait(rules_healthy, "已启用规则真实求值无数据源或表达式错误")
                 # T004/REQ-020：只向隔离网络中的合成接收器发消息，不联系外部人员。
                 sink = Path(directory) / "sink"
                 sink.mkdir()

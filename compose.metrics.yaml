@@ -1,0 +1,23 @@
+# T004/REQ-018、020：只采集可观测性组件指标；不伪造业务/中间件exporter。
+services:
+  prometheus:
+    image: prom/prometheus:v3.8.0@sha256:d936808bdea528155c0154a922cd42fd75716b8bb7ba302641350f9f3eaeba09
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./configs/observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    networks: [telemetry]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+  grafana:
+    volumes:
+      - ./configs/observability/prometheus-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./configs/observability/metrics-alerts.json:/etc/grafana/provisioning/alerting/metrics.json:ro
+volumes:
+  prometheus-data:
