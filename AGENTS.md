@@ -24,9 +24,11 @@ Preserve the existing Git history and unrelated changes. Use Conventional Commit
 
 Environment variables use the `APP_` prefix. Never commit secrets, local overrides, or production DSNs. Apply explicit database-specific migrations; do not add startup AutoMigrate. Codex should read this guide before editing, preserve unrelated changes, keep scope focused, and report checks that could not run. Never claim tests passed without execution.
 
-## 功能完成后的 README 要求
+## 项目文档与阶段记录要求
 
-每个功能的完整修改完成后，必须同步更新本仓库 README.md，说明已实现的功能、实际行为及设计（包括关键流程、模块职责、依赖与必要的设计取舍），并引用对应任务 ID 与 REQ。功能变更包含新增、修复、重构及配置调整；README 内容必须与最终实现一致，明确实现范围、未完成部分和真实/模拟状态，并记录相关验证命令与实际结果。详细设计可链接至本仓库文档或共享契约，但 README 必须保留功能与设计说明，不能仅提供链接。README 更新是功能完成及提交前的必要条件；不得将尚未实现或未经验证的能力描述为已完成。
+README.md 仅保留四部分：项目介绍、项目选项与目录结构、项目启动方式、开发规范与须知。功能变更涉及项目能力、选项、目录或启动方式时，同步更新对应部分，内容与最终实现一致；不得在 README 累积里程碑、实施流水或验收记录。
+
+每个功能的完整修改完成后，必须在 docs/milestones/ 对应阶段文件中说明已实现功能、实际行为、关键流程、模块职责、依赖与设计取舍，引用任务 ID 与 REQ，并记录实现范围、未完成部分、真实/模拟状态、验证命令与实际结果。新增阶段另建文件并更新阶段索引；详细设计可链接至本仓库文档或共享契约，但阶段文件必须保留必要说明，不能仅提供链接。阶段记录更新是功能完成及提交前的必要条件；不得将尚未实现或未经验证的能力描述为已完成。
 
 ## Required Checks After Every Change
 
@@ -50,7 +52,7 @@ T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、Ro
 
 ## 可观测性变更约定
 
-T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集/告警变更运行`python3 scripts/check-observability.py --alerts --metrics`；真实中间件指标变更运行`python3 scripts/check-management.py --middleware-only --metrics`，Broker行为变更还运行原有集成往返。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须更新README并完成规定质量检查。
+T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集/告警变更运行`python3 scripts/check-observability.py --alerts --metrics`；真实中间件指标变更运行`python3 scripts/check-management.py --middleware-only --metrics`，Broker行为变更还运行原有集成往返。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须更新对应阶段记录，按需同步 README，并完成规定质量检查。
 
 ## 启停入口维护
 
