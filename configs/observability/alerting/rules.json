@@ -9,7 +9,7 @@
       "rules": [
         {
           "uid": "liyuanci-api-panic",
-          "title": "T004 API panic",
+          "title": "API请求处理异常",
           "condition": "C",
           "data": [
             {
@@ -71,19 +71,17 @@
           "execErrState": "Alerting",
           "for": "0s",
           "annotations": {
-            "summary": "T004 API panic",
+            "summary": "API请求处理异常",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-api-errors",
-          "title": "T004 API 5xx ratio",
+          "title": "API服务端错误比例过高",
           "condition": "C",
           "data": [
             {
@@ -145,19 +143,17 @@
           "execErrState": "Alerting",
           "for": "2m",
           "annotations": {
-            "summary": "T004 API 5xx ratio",
+            "summary": "API服务端错误比例过高",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "warning"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-worker-errors",
-          "title": "T004 worker failures",
+          "title": "工作进程处理失败",
           "condition": "C",
           "data": [
             {
@@ -219,19 +215,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 worker failures",
+            "summary": "工作进程处理失败",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "warning"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-api-heartbeat",
-          "title": "T004 api heartbeat missing",
+          "title": "API进程心跳缺失",
           "condition": "C",
           "data": [
             {
@@ -293,19 +287,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 api heartbeat missing",
+            "summary": "API进程心跳缺失",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "warning"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-worker-heartbeat",
-          "title": "T004 worker heartbeat missing",
+          "title": "工作进程心跳缺失",
           "condition": "C",
           "data": [
             {
@@ -367,12 +359,10 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 worker heartbeat missing",
+            "summary": "工作进程心跳缺失",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "warning"
           },
           "isPaused": false

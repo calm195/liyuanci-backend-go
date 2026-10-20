@@ -45,6 +45,10 @@ func TestHeartbeatLifecycle(t *testing.T) {
 	}
 	for _, entry := range entries {
 		fields := entry.ContextMap()
+		// T004/REQ-018、020：中文消息不携带实施编号，固定事件仍可用于告警查询。
+		if entry.Message != "进程心跳记录完成" || fields["task_id"] != nil || fields["req"] != nil {
+			t.Fatalf("心跳消息或追溯字段不符合规范: %v", entry)
+		}
 		if fields["event"] != "telemetry_heartbeat" || fields["result"] != "alive" || fields["service"] != "api" {
 			t.Fatalf("心跳字段不完整: %v", fields)
 		}

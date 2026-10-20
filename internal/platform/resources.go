@@ -41,7 +41,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 			DisableAutomaticPing: true,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("open database: %w", err)
+			return nil, fmt.Errorf("打开数据库失败：%w", err)
 		}
 		db, e := r.DB.DB()
 		if e != nil {
@@ -51,7 +51,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 		db.SetMaxIdleConns(c.Database.MaxIdle)
 		db.SetConnMaxLifetime(c.Database.MaxLifetime)
 		if err = db.PingContext(ctx); err != nil {
-			return nil, fmt.Errorf("ping database: %w", err)
+			return nil, fmt.Errorf("数据库连接检查失败：%w", err)
 		}
 	}
 	if c.Redis.Enabled {
@@ -64,7 +64,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 			WriteTimeout: 3 * time.Second,
 		})
 		if err = r.Redis.Ping(ctx).Err(); err != nil {
-			return nil, fmt.Errorf("ping redis: %w", err)
+			return nil, fmt.Errorf("Redis连接检查失败：%w", err)
 		}
 	}
 	if c.RocketMQ.Enabled {
@@ -72,7 +72,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 		if err != nil {
 			return nil, err
 		}
-		// T004/REQ-018、020：SDK构造失败可返回含nil指针的interface。
+		// SDK构造失败可返回含nil指针的interface。
 		// 仅在构造和Start都成功后接管Producer，避免失败清理再次panic并遮蔽原始错误。
 		client, createErr := rocketmq.NewProducer(
 			producer.WithNameServer(primitive.NamesrvAddr(r.NameServers)),
@@ -80,11 +80,11 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 			producer.WithRetry(2),
 		)
 		if createErr != nil {
-			return nil, fmt.Errorf("create producer: %w", createErr)
+			return nil, fmt.Errorf("创建生产者失败：%w", createErr)
 		}
 		if err = client.Start(); err != nil {
 			_ = client.Shutdown()
-			return nil, fmt.Errorf("start producer: %w", err)
+			return nil, fmt.Errorf("启动生产者失败：%w", err)
 		}
 		r.Producer = client
 	}
@@ -93,9 +93,9 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 
 // Ready 检查已启用的数据库和 Redis 连接是否可用。
 func (r *Resources) Ready(ctx context.Context) error {
-	// T004/REQ-020：缺少真实依赖时仅存活，不报告具备业务处理条件。
+	// 缺少真实依赖时仅存活，不报告具备业务处理条件。
 	if r.DB == nil || r.Redis == nil || r.Producer == nil {
-		return errors.New("required middleware unavailable")
+		return errors.New("必需的中间件不可用")
 	}
 	if r.DB != nil {
 		db, err := r.DB.DB()

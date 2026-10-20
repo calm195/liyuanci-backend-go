@@ -48,6 +48,10 @@ class ServicesTest(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name).resolve()
+        # T004/REQ-020：隔离宿主默认凭据文件，防止本机开发配置覆盖测试输入。
+        home = patch.object(services.Path, "home", return_value=self.root)
+        home.start()
+        self.addCleanup(home.stop)
 
     def service(self, command, env=None, docker=None):
         return services.Services(services.parser().parse_args(command), env or {}, docker or Docker())

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T004/REQ-018、020：Docker环境生命周期入口，不执行生产部署或隐式迁移。"""
+"""Docker环境生命周期入口，不执行生产部署或隐式迁移。"""
 import argparse
 import json
 import os
@@ -80,7 +80,7 @@ class Services:
                 raise OperationError(stage + "失败（Docker退出码%d）；资源保留，可按README查看对应项目日志" % result.returncode)
             return result
         finally:
-            print(json.dumps({"task_id": "T004", "stage": stage,
+            print(json.dumps({"msg": "运行阶段执行结束", "stage": stage,
                               "result": "completed" if succeeded else "failed",
                               "duration": round(time.monotonic() - started, 3)}, ensure_ascii=False))
 
@@ -344,7 +344,7 @@ def main(argv=None):
         result, code = "interrupted", 130
         print("操作已中断；已启动的资源保留，可使用相同项目名执行stop", file=sys.stderr)
     finally:
-        print(json.dumps({"task_id": "T004", "req": ["REQ-018", "REQ-020"], "operation": args.action,
+        print(json.dumps({"msg": "运维操作执行结束", "operation": args.action,
                           "environment": getattr(args, "environment", "dev"), "result": result,
                           "duration": round(time.monotonic() - started, 3)}, ensure_ascii=False))
     return code

@@ -94,7 +94,7 @@ def main():
             run(compose + ["config", "--quiet"])
             run(compose + ["up", "-d"])
             wait(lambda: api("/api/health")["database"] == "ok", "Grafana健康")
-            fixture(project, "api", json.dumps({"msg": "http request completed", "status": 500,
+            fixture(project, "api", json.dumps({"msg": "HTTP请求处理完成", "status": 500,
                     "request_id": marker, "level": "info", "duration": 0.01}))
             fixture(project, "blocked", json.dumps({"password": "synthetic-" + marker}))
             fixture(project + "-other", "foreign", marker)
@@ -150,11 +150,11 @@ def main():
                 def rules_healthy():
                     groups = api("/api/prometheus/grafana/api/v1/rules")["data"]["groups"]
                     rules = {rule["name"]: rule for group in groups for rule in group["rules"]}
-                    expected = {"T004 API panic", "T004 API 5xx ratio", "T004 worker failures",
-                                "T004 api heartbeat missing", "T004 worker heartbeat missing"}
+                    expected = {"API请求处理异常", "API服务端错误比例过高", "工作进程处理失败",
+                                "API进程心跳缺失", "工作进程心跳缺失"}
                     if options.metrics:
-                        expected |= {"T004 monitoring target down", "T004 log delivery dropped",
-                                     "T004 sensitive log blocked", "T004 Linux disk low", "T004 Linux memory high"}
+                        expected |= {"监控目标不可用", "日志投递丢弃",
+                                     "敏感日志已阻断", "Linux磁盘空间不足", "Linux内存使用率过高"}
                     return expected <= rules.keys() and all(rules[name].get("health") == "ok" for name in expected)
 
                 wait(rules_healthy, "已启用规则真实求值无数据源或表达式错误")
@@ -184,7 +184,7 @@ def main():
                         try:
                             data = json.loads(path.read_text())
                             if data.get("status") == status and any(
-                                alert.get("labels", {}).get("alertname") == "T004 API panic"
+                                alert.get("labels", {}).get("alertname") == "API请求处理异常"
                                 for alert in data.get("alerts", [])):
                                 return True
                         except ValueError:

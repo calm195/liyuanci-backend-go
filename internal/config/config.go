@@ -60,34 +60,34 @@ func Load(path string) (Config, error) {
 	if path != "" {
 		v.SetConfigFile(path)
 		if err := v.ReadInConfig(); err != nil {
-			return Config{}, fmt.Errorf("read config: %w", err)
+			return Config{}, fmt.Errorf("读取配置失败：%w", err)
 		}
 	}
 	var c Config
 	if err := v.Unmarshal(&c); err != nil {
-		return c, fmt.Errorf("decode config: %w", err)
+		return c, fmt.Errorf("解析配置失败：%w", err)
 	}
 	if c.Database.Driver != "" && c.Database.Driver != "postgres" {
-		return c, fmt.Errorf("unsupported database driver %q", c.Database.Driver)
+		return c, fmt.Errorf("不支持的数据库驱动%q", c.Database.Driver)
 	}
 	if c.Database.Driver != "" && c.Database.DSN == "" {
-		return c, fmt.Errorf("database DSN is required")
+		return c, fmt.Errorf("必须配置数据库DSN")
 	}
 	if c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
-		return c, fmt.Errorf("server timeouts must be positive")
+		return c, fmt.Errorf("服务超时必须为正数")
 	}
 	if c.Database.MaxOpen <= 0 || c.Database.MaxIdle < 0 || c.Database.MaxIdle > c.Database.MaxOpen || c.Database.MaxLifetime <= 0 {
-		return c, fmt.Errorf("invalid database pool settings")
+		return c, fmt.Errorf("数据库连接池配置无效")
 	}
 	if c.RocketMQ.Enabled && (len(c.RocketMQ.NameServers) == 0 || c.RocketMQ.Group == "") {
-		return c, fmt.Errorf("RocketMQ nameservers and group are required")
+		return c, fmt.Errorf("必须配置RocketMQ的NameServer和组名")
 	}
-	// T004/REQ-018、020：真实环境不能静默降级到无中间件或Mock。
+	// 真实环境不能静默降级到无中间件或Mock。
 	if c.Environment != "foundation" && c.Environment != "integration" && c.Environment != "production" {
-		return c, fmt.Errorf("unsupported environment")
+		return c, fmt.Errorf("不支持的运行环境")
 	}
 	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || !c.RocketMQ.Enabled) {
-		return c, fmt.Errorf("all middleware required outside foundation")
+		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
 	}
 	return c, nil
 }

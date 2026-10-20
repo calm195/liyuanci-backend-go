@@ -1,4 +1,4 @@
-# T004/REQ-018、020：独立技术日志设施；不承担业务审计或D05删除日志。
+# 独立技术日志设施；不承担业务审计或D05删除日志。
 name: liyuanci-observability
 x-runtime: &runtime
   restart: unless-stopped
@@ -6,7 +6,7 @@ x-runtime: &runtime
     driver: json-file
     options: {max-size: "10m", max-file: "5"}
 services:
-  # T004/REQ-020：只初始化本项目日志卷；Loki仍以官方镜像非root用户运行。
+  # 只初始化本项目日志卷；Loki仍以官方镜像非root用户运行。
   loki-init:
     image: alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
     user: "0:0"

@@ -9,7 +9,7 @@
       "rules": [
         {
           "uid": "liyuanci-pg-down",
-          "title": "T004 PostgreSQL monitor connection failed",
+          "title": "PostgreSQL监控连接失败",
           "condition": "C",
           "data": [
             {
@@ -71,19 +71,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 PostgreSQL monitor connection failed",
+            "summary": "PostgreSQL监控连接失败",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-pg-scrape",
-          "title": "T004 PostgreSQL scrape error",
+          "title": "PostgreSQL指标采集失败",
           "condition": "C",
           "data": [
             {
@@ -145,19 +143,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 PostgreSQL scrape error",
+            "summary": "PostgreSQL指标采集失败",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-redis-down",
-          "title": "T004 Redis monitor connection failed",
+          "title": "Redis监控连接失败",
           "condition": "C",
           "data": [
             {
@@ -219,19 +215,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 Redis monitor connection failed",
+            "summary": "Redis监控连接失败",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-redis-scrape",
-          "title": "T004 Redis scrape error",
+          "title": "Redis指标采集失败",
           "condition": "C",
           "data": [
             {
@@ -293,12 +287,10 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 Redis scrape error",
+            "summary": "Redis指标采集失败",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false

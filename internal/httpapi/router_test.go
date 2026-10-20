@@ -40,7 +40,7 @@ func TestFoundationBoundary(t *testing.T) {
 			if response.Code != tc.status {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body)
 			}
-			entries := logs.FilterMessage("http request completed").All()
+			entries := logs.FilterMessage("HTTP请求处理完成").All()
 			if len(entries) != 1 || entries[0].ContextMap()["status"] != int64(tc.status) || entries[0].ContextMap()["request_id"] != response.Header().Get("X-Request-ID") {
 				t.Fatal("missing completion correlation")
 			}
@@ -48,7 +48,7 @@ func TestFoundationBoundary(t *testing.T) {
 				t.Fatal("T004/REQ-020：缺少稳定HTTP完成事件")
 			}
 			if tc.panicReady {
-				panicEntries := logs.FilterMessage("request panic").All()
+				panicEntries := logs.FilterMessage("请求处理发生异常").All()
 				if len(panicEntries) != 1 || panicEntries[0].ContextMap()["event"] != "http_panic" {
 					t.Fatal("T004/REQ-020：缺少panic告警事件")
 				}

@@ -91,3 +91,7 @@ docker logs --tail 100 liyuanci-observability-dev-grafana-1
 单元边界：`python3 -m unittest discover -s scripts -p test_services.py -v`；真实全栈：`python3 scripts/check-services.py`。后者新建唯一项目和仓库外临时开发凭据，包含默认管理/监控、真实API日志查询、探针往返、停止保留、无隐式迁移重启及remove保留数据卷，退出只清理本次容器/网络。端口已占用时拒绝测试，不停止占用者；结果仅作开发环境验收，不作为生产上线验收。
 
 2026-10-20实际PASS，项目`liyuanci-dev-ops-e8a5ec59c3`及其独立监控项目，记录在本机`/tmp/liyuanci-services-check-final.log`：上述全部流程通过，重启后再次完成真实MQ/独立worker数据库回执，移除后仅留下专用卷。13项单元回归、`make fmt/check/build`、`sh -n`、Python编译检查通过。首轮验收辅助脚本误用Docker volume的ID格式，改为Name后完整重跑；停止/保留断言未放宽。生产参数/文件预检路径通过单元测试，生产只执行dry-run计划预览，未启动生产或验证真实通知/Linux扩展，远端CI仍待执行。
+
+存量规范清理（T004；REQ-018、020）：启停入口及共用实现的注释只说明功能与业务约束；结构化完成日志增加中文说明，不再输出任务 ID/REQ，保留操作、阶段、环境、结果和耗时字段。
+
+本次清理验证（2026-10-20）：`python3 -m unittest discover -s scripts -p test_services.py -v`（13 项）与 `python3 scripts/check-services.py` 均通过；真实隔离项目 `liyuanci-dev-ops-df574141ac` 完成启动、探针往返、日志查询、停止、无隐式迁移重启及移除后卷保留检查。`make fmt/check/build` 通过；未执行生产启动或远端 CI。

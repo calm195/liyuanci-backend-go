@@ -27,7 +27,7 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "configs/config.yaml", "YAML configuration path; empty for environment only")
+	path := flag.String("config", "configs/config.yaml", "YAML配置路径；留空时仅使用环境变量")
 	flag.Parse()
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -35,7 +35,7 @@ func run() error {
 	}
 	log, err := platform.NewLogger(cfg.Log.Level)
 	if err != nil {
-		return fmt.Errorf("log level: %w", err)
+		return fmt.Errorf("日志级别配置失败：%w", err)
 	}
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
@@ -47,29 +47,29 @@ func run() error {
 	cancel()
 	if err != nil {
 		// 客户端错误可能包含凭据，因此这里只记录操作结果。
-		log.Error("resource initialization failed")
-		return errors.New("resource initialization failed")
+		log.Error("资源初始化失败")
+		return errors.New("资源初始化失败")
 	}
-	log.Info("resource initialization completed",
+	log.Info("资源初始化完成",
 		zap.Bool("database_enabled", resources.DB != nil),
 		zap.Bool("redis_enabled", resources.Redis != nil),
 		zap.Bool("rocketmq_enabled", resources.Producer != nil),
 	)
 	defer func() {
 		if err := resources.Close(); err != nil {
-			log.Error("resource cleanup failed")
+			log.Error("资源清理失败")
 			return
 		}
-		log.Info("resource cleanup completed")
+		log.Info("资源清理完成")
 	}()
 	server := &http.Server{
 		Addr: cfg.Server.Address,
-		// T004/REQ-018、020：基础依赖可连接不等于认证/密钥已就绪；T008前不向流量入口报业务ready。
+		// 基础依赖可连接不等于认证/密钥已就绪；认证与密钥就绪检查实现前不向流量入口报告业务就绪。
 		Handler: httpapi.New(log, func(ctx context.Context) error {
 			if err := resources.Ready(ctx); err != nil {
 				return err
 			}
-			return errors.New("authentication and key readiness not implemented (T008)")
+			return errors.New("认证与密钥就绪检查尚未实现")
 		}),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       cfg.Server.ReadTimeout,
@@ -79,33 +79,33 @@ func run() error {
 	// 先绑定监听地址再记录启动成功，避免地址冲突时误报就绪。
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
-		log.Error("server startup failed", zap.Error(err))
+		log.Error("服务启动失败", zap.Error(err))
 		return err
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	log.Info("server startup completed", zap.String("address", listener.Addr().String()))
-	// T004/REQ-020：存活心跳独立于业务ready，停止函数等待日志协程退出。
+	log.Info("服务启动完成", zap.String("address", listener.Addr().String()))
+	// 存活心跳独立于业务ready，停止函数等待日志协程退出。
 	stopHeartbeat := platform.StartHeartbeat(ctx, log, "api")
 	defer stopHeartbeat()
 	select {
 	case err := <-done:
 		if !errors.Is(err, http.ErrServerClosed) {
-			log.Error("server serving failed", zap.Error(err))
+			log.Error("服务运行失败", zap.Error(err))
 			return err
 		}
 		return nil
 	case <-ctx.Done():
 	}
 	// 先等待 HTTP 请求结束，再由延迟清理逻辑关闭共享客户端。
-	log.Info("server shutdown started")
+	log.Info("开始关闭服务")
 	shutdown, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
 	if err := server.Shutdown(shutdown); err != nil {
 		_ = server.Close()
-		log.Error("server shutdown failed", zap.Error(err))
+		log.Error("服务关闭失败", zap.Error(err))
 		return err
 	}
-	log.Info("server shutdown completed")
+	log.Info("服务关闭完成")
 	return nil
 }

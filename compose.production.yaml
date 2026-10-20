@@ -1,5 +1,5 @@
-# T003/T004/REQ-018、020：未来生产中间件骨架；本文件不部署业务API/worker。
-# 生产独立项目/卷、文件型secret、无宿主中间件端口；上线仍需T005–T038验收。
+# 未来生产中间件骨架；本文件不部署业务API/worker。
+# 生产独立项目/卷、文件型secret、无宿主中间件端口；上线仍需完成业务与生产验收。
 name: liyuanci-production
 x-runtime: &runtime
   restart: unless-stopped
@@ -37,7 +37,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
-  # T004/REQ-020：官方镜像非root用户无法写Docker新建的root属主卷。
+  # 官方镜像非root用户无法写Docker新建的root属主卷。
   # 仅初始化专用MQ卷权限；Broker继续以镜像的rocketmq用户运行。
   mq-init:
     image: apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587

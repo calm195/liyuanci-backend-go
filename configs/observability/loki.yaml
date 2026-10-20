@@ -1,4 +1,4 @@
-# T004/REQ-018、020：单机TSDB，独立技术日志保留；不承诺HA/零丢失。
+# 单机TSDB，独立技术日志保留；不承诺HA/零丢失。
 auth_enabled: false
 server:
   http_listen_port: 3100
@@ -27,7 +27,7 @@ compactor:
   retention_enabled: true
   delete_request_store: filesystem
 limits_config:
-  # T004/REQ-020：关闭自动派生标签，索引严格限制为采集侧三个固定维度。
+  # 关闭自动派生标签，索引严格限制为采集侧三个固定维度。
   discover_service_name: []
   discover_log_levels: false
   retention_period: ${LOG_RETENTION}

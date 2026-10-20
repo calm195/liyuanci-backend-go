@@ -32,8 +32,8 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 		// 外层中间件在异常恢复和处理函数结束后记录最终状态。
 		c.Next()
-		log.Info("http request completed",
-			// T004/REQ-020：告警按最终status而非日志级别判断HTTP失败。
+		log.Info("HTTP请求处理完成",
+			// 告警按最终status而非日志级别判断HTTP失败。
 			zap.String("event", "http_request_completed"),
 			zap.String("request_id", requestID),
 			zap.String("method", c.Request.Method),
@@ -45,7 +45,7 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				// panic 值可能包含敏感信息，因此只保留请求关联信息，不记录其内容。
-				log.Error("request panic", zap.String("event", "http_panic"), zap.String("request_id", c.GetString("request_id")))
+				log.Error("请求处理发生异常", zap.String("event", "http_panic"), zap.String("request_id", c.GetString("request_id")))
 				c.AbortWithStatusJSON(500, gin.H{"code": 500, "message": "服务内部错误", "error_code": "INTERNAL_ERROR", "request_id": c.GetString("request_id")})
 			}
 		}()
@@ -61,7 +61,7 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		}
 		c.JSON(200, gin.H{"status": "ready"})
 	})
-	// T004/REQ-018：尚未实现的业务入口不返回模拟成功，也不暴露模板示例。
+	// 尚未实现的业务入口不返回模拟成功，也不暴露模板示例。
 	r.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"code": 404, "message": "资源不可用", "error_code": "NOT_FOUND", "request_id": c.GetString("request_id")})
 	})

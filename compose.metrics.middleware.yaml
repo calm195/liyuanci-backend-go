@@ -1,4 +1,4 @@
-# T004/REQ-018、020：显式连接单个受监控Docker网络，独立只读监控身份。
+# 显式连接单个受监控Docker网络，独立只读监控身份。
 services:
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.18.1@sha256:fb96c4413985d4b23ab02b19022b3d70a86c8e0a62f41ab15ebb6f4673781a5d

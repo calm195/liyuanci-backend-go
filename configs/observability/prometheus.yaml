@@ -1,4 +1,4 @@
-# T004/REQ-020：仅内部抓取；固定目标不包含凭据、不公开9090。
+# 仅内部抓取；固定目标不包含凭据、不公开9090。
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -15,7 +15,7 @@ scrape_configs:
   - job_name: grafana
     static_configs:
       - targets: ["grafana:3000"]
-  # T004/REQ-020：叠加功能各自挂载目标文件，Linux与中间件指标不会覆盖彼此。
+  # 叠加功能各自挂载目标文件，Linux与中间件指标不会覆盖彼此。
   - job_name: optional
     file_sd_configs:
       - files: ["/etc/prometheus/targets/*.json"]

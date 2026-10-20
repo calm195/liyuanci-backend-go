@@ -1,10 +1,7 @@
 {
   "uid": "liyuanci-metrics",
-  "title": "T004 运行指标（需metrics叠加）",
-  "tags": [
-    "T004",
-    "REQ-020"
-  ],
+  "title": "运行指标（需metrics叠加）",
+  "tags": [],
   "schemaVersion": 41,
   "version": 1,
   "refresh": "15s",

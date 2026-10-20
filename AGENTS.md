@@ -36,11 +36,13 @@ After every modification, run `make fmt` and `make check` before declaring the w
 
 注释默认使用中文，包括包注释、导出符号文档、关键逻辑和测试说明。导出符号注释仍以对应的 Go 标识符开头；保留必要的技术术语及工具指令（如 `//go:build`），不修改生成代码中的注释。用户明确要求其他语言时遵循用户要求。
 
+非测试代码不得出现 `T00x` 等任务或里程碑编号，包括注释、标识符、字符串和日志；注释只描述中文的功能、业务规则及必要的设计原因，不记录实施批次或任务进度。运行日志的消息及面向人的说明使用中文，不包含任务或里程碑编号；结构化字段名、协议值和必要的技术标识保持稳定。任务 ID 与 REQ 的追溯记录放在测试和文档中，不写入非测试代码。
+
 Every change must add or update comments at the affected critical points: business rules, lifecycle ordering, resource ownership, recovery, and non-obvious decisions. Explain why the code exists and keep comments accurate. Every changed runtime operation must emit a structured completion log using injected `*zap.Logger` (`go.uber.org/zap`), with request ID, duration, result, or safe identifiers as applicable. Log success only after the operation succeeds; record failures at the owning boundary. Never log credentials, DSNs, request bodies, or personal data. Preserve request completion logs on failure and recovery paths. Documentation-only changes must report completion and validation in the final response. Update relevant log assertions and run the required checks after every change.
 
 ## 鲤源池实施边界
 
-用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件，禁止AutoMigrate。所有新增实现与测试须引用任务ID和REQ。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
+用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件，禁止AutoMigrate。新增实现须在对应文档中引用任务ID和REQ，测试保留任务ID和REQ追溯，非测试代码遵循上述中文注释与日志规范。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
 
 ## 中间件部署约定
 

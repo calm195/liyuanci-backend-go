@@ -32,6 +32,6 @@ finally:
   proc.kill()
   output=proc.communicate()[0]
  logs=[json.loads(line) for line in output.splitlines() if line.startswith('{')]
- assert sum(line.get('msg')=='http request completed' for line in logs)>=4
- assert any(line.get('msg')=='server shutdown completed' for line in logs)
+ assert sum(line.get('msg')=='HTTP请求处理完成' for line in logs)>=4
+ assert any(line.get('msg')=='服务关闭完成' for line in logs)
  print('T004 request correlation and graceful shutdown PASS')

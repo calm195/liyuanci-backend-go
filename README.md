@@ -6,6 +6,12 @@ T001–T004第一批实施；REQ-001、018、020。固定方案B：Go模块化�
 
 开发规范：每个功能的完整修改完成后，必须在本 README 同步说明实现功能、实际行为与设计，关联任务 ID/REQ，并记录验证结果、未完成部分及真实/模拟状态；详细设计可链接展开。该要求已写入 [AGENTS.md](AGENTS.md)，作为功能完成及提交前的必要条件。
 
+注释与日志规范（T004；REQ-018、020）：非测试代码不得出现 `T00x` 等任务或里程碑编号；注释使用中文说明功能、业务规则与必要的设计原因，日志消息及面向人的说明使用中文。结构化字段名、协议值和必要的技术标识保持稳定，任务 ID/REQ 仅在测试和文档中追溯。
+
+存量清理已覆盖 API、worker、探针、配置、迁移注释、构建与启停入口，以及 CI 配置；应用日志、配置错误说明和告警标题/摘要改为中文，删除日志和告警标签中的任务 ID/REQ。HTTP 完成、异常恢复和心跳仍使用原有稳定事件字段，告警查询、UID、阈值及业务行为保持不变。测试断言随中文消息同步；启停单元测试隔离宿主默认凭据目录，避免本机配置污染验证结果。集成验收脚本及测试夹具属于测试代码，历史文档和证据保留追溯编号；第三方组件的原生日志和错误正文不做翻译。未增加全仓库静态规范检查器。
+
+本次清理验证（2026-10-20）：`make fmt`、`make check`（格式检查、`go vet`、race/coverage 测试）、`make build`、`python3 -m unittest discover -s scripts -p test_services.py -v`（13 项）及 `python3 scripts/check-api.py` 通过。真实隔离 `python3 scripts/check-observability.py --alerts --metrics`（项目 `liyuanci-logs-ce19888b5a`）通过中文告警求值、合成 Webhook 触发/恢复及采集/指标验证；`python3 scripts/check-management.py --middleware-only --metrics`（项目 `liyuanci-mgmt-a8ac08d53a37`）通过七目标采集、错误凭据识别和恢复；`python3 scripts/check-services.py`（项目 `liyuanci-dev-ops-df574141ac`）通过全栈启动、探针往返、API 日志查询、无隐式迁移重启及停止/移除后卷保留。验证容器和网络已清理，卷保留；未执行生产、Linux 宿主、真实通知或远端 CI 验收。
+
 ```sh
 make fmt
 make check  # 格式检查、vet、race测试与覆盖率；无需中间件

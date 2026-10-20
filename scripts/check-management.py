@@ -141,8 +141,8 @@ with tempfile.TemporaryDirectory(prefix='liyuanci-management-') as directory:
                                1, 'RocketMQ原生指标存在')
                     assert api('/api/dashboards/uid/liyuanci-middleware')['dashboard']['uid'] == 'liyuanci-middleware'
                     deadline = time.monotonic() + 90
-                    expected = {'T004 PostgreSQL monitor connection failed', 'T004 PostgreSQL scrape error',
-                                'T004 Redis monitor connection failed', 'T004 Redis scrape error'}
+                    expected = {'PostgreSQL监控连接失败', 'PostgreSQL指标采集失败',
+                                'Redis监控连接失败', 'Redis指标采集失败'}
                     while True:
                         groups = api('/api/prometheus/grafana/api/v1/rules')['data']['groups']
                         rules = {rule['name']: rule for group in groups for rule in group['rules']}

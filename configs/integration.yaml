@@ -1,4 +1,4 @@
-# T003/T004/REQ-020：只用于隔离Compose，凭据由运行时环境注入。
+# 只用于隔离Compose，凭据由运行时环境注入。
 environment: integration
 server:
   address: ":8080"

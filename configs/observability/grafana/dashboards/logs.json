@@ -1,11 +1,7 @@
 {
   "uid": "liyuanci-logs",
-  "title": "T004 鲤源池技术日志",
-  "tags": [
-    "T004",
-    "REQ-018",
-    "REQ-020"
-  ],
+  "title": "鲤源池技术日志",
+  "tags": [],
   "schemaVersion": 41,
   "version": 1,
   "refresh": "10s",

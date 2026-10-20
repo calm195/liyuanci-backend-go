@@ -9,7 +9,7 @@
       "rules": [
         {
           "uid": "liyuanci-scrape-down",
-          "title": "T004 monitoring target down",
+          "title": "监控目标不可用",
           "condition": "C",
           "data": [
             {
@@ -71,19 +71,17 @@
           "execErrState": "Alerting",
           "for": "1m",
           "annotations": {
-            "summary": "T004 monitoring target down",
+            "summary": "监控目标不可用",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-log-drops",
-          "title": "T004 log delivery dropped",
+          "title": "日志投递丢弃",
           "condition": "C",
           "data": [
             {
@@ -145,19 +143,17 @@
           "execErrState": "Alerting",
           "for": "0s",
           "annotations": {
-            "summary": "T004 log delivery dropped",
+            "summary": "日志投递丢弃",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-sensitive-drops",
-          "title": "T004 sensitive log blocked",
+          "title": "敏感日志已阻断",
           "condition": "C",
           "data": [
             {
@@ -219,19 +215,17 @@
           "execErrState": "Alerting",
           "for": "0s",
           "annotations": {
-            "summary": "T004 sensitive log blocked",
+            "summary": "敏感日志已阻断",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-host-disk",
-          "title": "T004 Linux disk low",
+          "title": "Linux磁盘空间不足",
           "condition": "C",
           "data": [
             {
@@ -293,19 +287,17 @@
           "execErrState": "Alerting",
           "for": "5m",
           "annotations": {
-            "summary": "T004 Linux disk low",
+            "summary": "Linux磁盘空间不足",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false
         },
         {
           "uid": "liyuanci-host-memory",
-          "title": "T004 Linux memory high",
+          "title": "Linux内存使用率过高",
           "condition": "C",
           "data": [
             {
@@ -367,12 +359,10 @@
           "execErrState": "Alerting",
           "for": "5m",
           "annotations": {
-            "summary": "T004 Linux memory high",
+            "summary": "Linux内存使用率过高",
             "runbook_url": "docs/observability.md"
           },
           "labels": {
-            "task_id": "T004",
-            "req": "REQ-020",
             "severity": "critical"
           },
           "isPaused": false

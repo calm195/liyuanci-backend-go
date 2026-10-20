@@ -37,7 +37,7 @@ obs up -d
 obs logs --tail 100 alloy loki grafana
 ```
 
-Grafana为`http://127.0.0.1:13000`，账号`operator`，密码为外部文件中保存的随机值。不要把密码粘贴到命令行参数或日志。首次初始化后更换文件不会自动重置已有Grafana账号密码。预置「T004 鲤源池技术日志」看板；Explore选择Loki：
+Grafana为`http://127.0.0.1:13000`，账号`operator`，密码为外部文件中保存的随机值。不要把密码粘贴到命令行参数或日志。首次初始化后更换文件不会自动重置已有Grafana账号密码。预置「鲤源池技术日志」看板；Explore选择Loki：
 
 ```logql
 {environment="development",service="api"} | json | request_id="待定位请求ID"
@@ -63,7 +63,7 @@ Compactor按保留期异步清理，不会因为磁盘接近满自动提前删�
 
 ## 模块二：日志告警与存活心跳
 
-T004/REQ-018、020：API成功绑定监听、worker成功启动消费者后，每30秒以注入zap.Logger输出`event=telemetry_heartbeat`、service、result=alive、task_id，不包含身份/正文；停止函数等待日志协程退出，先于日志器清理。心跳只表示进程活着，不承诺数据库/MQ就绪。HTTP完成日志增加稳定事件`http_request_completed`，异常恢复增加`http_panic`，保留请求ID和最终状态。
+T004/REQ-018、020：API成功绑定监听、worker成功启动消费者后，每30秒以注入zap.Logger输出`event=telemetry_heartbeat`、service、result=alive，不包含身份/正文；停止函数等待日志协程退出，先于日志器清理。心跳只表示进程活着，不承诺数据库/MQ就绪。HTTP完成日志增加稳定事件`http_request_completed`，异常恢复增加`http_panic`，保留请求ID和最终状态。
 
 显式叠加`compose.alerting.yaml`，Grafana每10秒求值：
 
@@ -172,7 +172,7 @@ obs config --quiet
 obs up -d
 ```
 
-在Grafana查看「T004 中间件指标」：HTTP抓取up=1和`pg_up=1`/`redis_up=1`、两项last_scrape_error=0均须满足；MQ必须出现原生rocketmq_*指标。无消费组时消息积压/滞后面板可能无数据，不能解释为已消费或系统健康。
+在Grafana查看「中间件指标」：HTTP抓取up=1和`pg_up=1`/`redis_up=1`、两项last_scrape_error=0均须满足；MQ必须出现原生rocketmq_*指标。无消费组时消息积压/滞后面板可能无数据，不能解释为已消费或系统健康。
 
 ### 未来生产和验收
 
@@ -195,3 +195,7 @@ obsprod up -d
 2026-10-19最终实际PASS，项目`liyuanci-mgmt-bee10a5fb347`：上述正反例全部通过，中间件看板、四条规则实际求值健康及生产监控状态密钥注入也通过。本机记录`/tmp/liyuanci-middleware-metrics-final.log`；初次密码映射未包含用户名导致Redis未认证，按固定版本源码修正后成功，不扩大ACL权限。保留`PING/INFO`最小集合，监控账号GET返回NOPERM。`sh scripts/integration.sh`在`liyuanci-t004-20261019232016-2f878e`实际PASS，probe_id=`95d992af199f64c60eb726e9dd116b80`，delivery_count=2，真实API/worker也输出心跳。所有配置静态组合、脚本语法与`make fmt/check/build`通过。这里只验证隔离生产形态与合成数据，不等于真实生产账号/宿主/通知、容量、长期清理或业务验收，整体T004状态不变。
 
 官方依据：[RocketMQ原生指标](https://rocketmq.apache.org/docs/observability/01metrics/)、[PostgreSQL exporter](https://github.com/prometheus-community/postgres_exporter)、[Redis exporter1.77.0密码映射](https://github.com/oliver006/redis_exporter/blob/v1.77.0/exporter/redis.go)。
+
+存量规范清理（T004；REQ-018、020）：应用日志消息和告警标题/摘要使用中文，移除运行日志与告警标签中的任务 ID/REQ；事件字段、告警 UID、查询表达式与阈值保持稳定。历史验证记录保留原始编号和消息，不代表新版本运行结果。
+
+本次清理验证（2026-10-20）：`python3 scripts/check-observability.py --alerts --metrics` 与 `python3 scripts/check-management.py --middleware-only --metrics` 均通过，隔离项目分别为 `liyuanci-logs-ce19888b5a`、`liyuanci-mgmt-a8ac08d53a37`；包含中文告警实际求值、隔离合成 Webhook 触发/恢复及中间件凭据正反例。`make fmt/check/build` 通过；未执行真实通知、Linux 宿主或生产验收。

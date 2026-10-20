@@ -11,7 +11,7 @@ import (
 func NewLogger(level string) (*zap.Logger, error) {
 	cfg := zap.NewProductionConfig()
 	if err := cfg.Level.UnmarshalText([]byte(level)); err != nil {
-		return nil, fmt.Errorf("parse log level: %w", err)
+		return nil, fmt.Errorf("解析日志级别失败：%w", err)
 	}
 	cfg.OutputPaths = []string{"stdout"}
 	cfg.ErrorOutputPaths = []string{"stderr"}

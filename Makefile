@@ -17,11 +17,11 @@ check: fmt-check vet test
 tidy:
 	go mod tidy
 
-# T004/REQ-020：真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
+# 真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
 integration:
 	docker compose -f compose.integration.yaml up -d --wait postgres redis namesrv broker
 	docker compose -f compose.integration.yaml run --rm migrate
-	# T004/REQ-020：订阅前显式建立探针主题，不能依赖首次生产才自动创建。
+	# 订阅前显式建立探针主题，不能依赖首次生产才自动创建。
 	docker compose -f compose.integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1
 	docker compose -f compose.integration.yaml up -d --build --wait api worker
 	docker compose -f compose.integration.yaml run --rm probe
