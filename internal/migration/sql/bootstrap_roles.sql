@@ -87,6 +87,9 @@ ALTER TABLE evidence.assets OWNER TO liyuanci_migrator;
 ALTER TABLE evidence.evidence_items OWNER TO liyuanci_migrator;
 ALTER TABLE evidence.evidence_actions OWNER TO liyuanci_migrator;
 REVOKE ALL ON public.schema_migrations, public.accounts, public.identity_lookup_keys, public.identity_secrets, public.identity_lookup_claims, public.identity_names, public.admin_accounts, public.admin_role_bindings, public.sessions, public.assets, public.identity_reviews, public.blocks, public.penalties, public.appeals, public.wishes, public.wish_versions, public.applications, public.matches, public.conversations, public.messages, public.story_versions, public.content_registry, public.wordlist_versions, public.wordlist_entries, public.moderation_tasks, public.reports, public.content_restrictions, public.privacy_holds, public.work_items, public.outbox_events, public.consumer_receipts, public.notifications, public.delivery_attempts, public.command_receipts, public.access_audits, public.deletion_jobs, evidence.evidence_cases, evidence.crisis_cases, evidence.assets, evidence.evidence_items, evidence.evidence_actions FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
+-- 表级 REVOKE 不清除历史列级 ACL；显式清理回执列，防止重放后仍可改主体或幂等键。
+REVOKE ALL (actor_kind, actor_id, command_kind, key_hash, request_hash, result_ref, expires_at)
+ON public.command_receipts FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
 GRANT SELECT, INSERT, UPDATE ON public.accounts, public.sessions, public.identity_names, public.wishes, public.wish_versions, public.applications, public.matches, public.conversations, public.messages, public.story_versions, public.content_registry, public.blocks, public.reports, public.appeals, public.notifications, public.deletion_jobs TO liyuanci_api;
 GRANT SELECT ON public.identity_lookup_keys, public.wordlist_versions, public.wordlist_entries, public.penalties, public.identity_reviews, public.content_restrictions, public.privacy_holds, public.assets TO liyuanci_api;
 GRANT SELECT, INSERT ON public.identity_secrets, public.identity_lookup_claims, public.identity_reviews, public.assets, public.moderation_tasks, public.work_items, public.outbox_events, public.command_receipts TO liyuanci_api;
@@ -94,7 +97,8 @@ GRANT SELECT ON public.accounts TO liyuanci_worker;
 GRANT SELECT ON public.accounts TO liyuanci_identity_maintenance;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.identity_lookup_keys, public.identity_secrets, public.identity_lookup_claims, public.identity_names TO liyuanci_identity_maintenance;
 GRANT SELECT ON public.admin_accounts, public.admin_role_bindings, public.accounts, public.identity_names, public.identity_secrets, public.identity_reviews, public.assets, public.content_registry, public.wish_versions, public.applications, public.messages, public.story_versions, public.reports, public.appeals, public.penalties TO liyuanci_admin_api;
-GRANT SELECT, INSERT, UPDATE ON public.sessions, public.moderation_tasks, public.wordlist_versions, public.wordlist_entries, public.penalties, public.reports, public.appeals, public.content_restrictions, public.access_audits, public.work_items, public.outbox_events, public.command_receipts TO liyuanci_admin_api;
+GRANT SELECT, INSERT, UPDATE ON public.sessions, public.moderation_tasks, public.wordlist_versions, public.wordlist_entries, public.penalties, public.reports, public.appeals, public.content_restrictions, public.access_audits, public.work_items, public.outbox_events TO liyuanci_admin_api;
+GRANT SELECT, INSERT ON public.command_receipts TO liyuanci_admin_api;
 GRANT UPDATE ON public.identity_reviews, public.accounts TO liyuanci_admin_api;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.admin_accounts, public.admin_role_bindings TO liyuanci_admin_maintenance;
 GRANT SELECT, UPDATE ON public.sessions TO liyuanci_admin_maintenance;
@@ -119,3 +123,16 @@ CREATE POLICY sessions_admin_scope ON public.sessions FOR ALL TO liyuanci_admin_
 DROP POLICY IF EXISTS sessions_privacy_scope ON public.sessions;
 CREATE POLICY sessions_privacy_scope ON public.sessions FOR ALL TO liyuanci_privacy_maintenance
     USING (account_id IS NOT NULL) WITH CHECK (account_id IS NOT NULL);
+
+-- 命令入口在同一主体锁内重用过期回执，不删除未过期结果，更新权限仅限回执字段。
+GRANT UPDATE (request_hash, result_ref, expires_at) ON public.command_receipts TO liyuanci_api, liyuanci_admin_api;
+
+-- 后台 API 需要锁定当前授权主体，但不应获得修改后台身份表的权限。
+CREATE OR REPLACE FUNCTION public.lock_command_admin(subject uuid)
+RETURNS TABLE(id uuid, status text, auth_epoch bigint)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog
+AS $$ SELECT a.id, a.status, a.auth_epoch FROM public.admin_accounts a WHERE a.id = subject FOR UPDATE $$;
+ALTER FUNCTION public.lock_command_admin(uuid) OWNER TO liyuanci_migrator;
+COMMENT ON FUNCTION public.lock_command_admin(uuid) IS '仅锁定并返回后台授权 guard，锁随调用事务结束，不提供身份修改能力';
+REVOKE ALL ON FUNCTION public.lock_command_admin(uuid) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
+GRANT EXECUTE ON FUNCTION public.lock_command_admin(uuid) TO liyuanci_admin_api, liyuanci_admin_maintenance;

@@ -127,3 +127,9 @@ T005 仍未整体验收：真实密钥适配/真实轮换证据及整体 T004 �
 第三笔首次集成检查因 Docker 未启动未能运行，启动 OrbStack 后重跑通过；阶段记录末尾空行已修正并通过暂存差异检查。
 
 本笔同步最终 README、环境/结构/数据基础、外部依赖交付清单、阶段记录及 CI 入口。make fmt/check/build 和差异校验在最终暂存快照通过；真实 D02/D03/D05、整体 T004 两端、远端 CI、生产和恢复/性能状态不因提交而推进。
+
+## 命令框架所需权限增量
+
+2026-10-21；T006/REQ-014、016、018、019，依赖 T005 的会话、后台 guard 与回执结构。显式 permissions 新增后台 guard 锁定函数：迁移组所有、固定 search_path、参数化 UUID，仅后台组 EXECUTE，不授后台 API 身份表 UPDATE。回执更新限 request_hash/result_ref/expires_at 三列，并显式清除历史列 ACL；学生及后台不能改键或命名空间。已有编号迁移、表字段及中文注释未改写，函数另有中文 COMMENT；普通启动不安装函数或授权。
+
+`make fmt`、`make check`、`make build`、`python3 scripts/check-migrations.py --container` 和 `git diff --check` 已通过，含实际 SET ROLE、列级/函数越权授权撤销、权限重放与正式镜像 CLI。资源为随机专用 PostgreSQL，身份全部合成，非生产授权验收。用户随后明确授权按功能及依赖顺序提交，本增量先于命令库提交；未推送或部署。
