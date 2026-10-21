@@ -401,16 +401,8 @@ func (s *Store) BindStudentNumber(ctx context.Context, tx *gorm.DB, accountID st
 		}
 		s.logger.Info("身份事务绑定完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
 	}()
-	if tx == nil || tx.Statement == nil {
-		return ErrUnavailable
-	}
-	if _, ok := tx.Statement.ConnPool.(gorm.TxCommitter); !ok {
-		return ErrUnavailable
-	}
-	// 核对本事务实际持有锁，禁止错误装配绕过与检索轮换的串行化约束。
-	var held bool
-	if tx.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND classid=0 AND objid=624109174 AND granted)").Scan(&held).Error != nil || !held {
-		return ErrUnavailable
+	if e := bindingTransaction(ctx, tx); e != nil {
+		return e
 	}
 	return s.bind(ctx, tx.WithContext(ctx), accountID, "student_number", value)
 }

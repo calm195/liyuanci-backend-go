@@ -536,7 +536,7 @@ func TestPostgresStudentCards(t *testing.T) {
 		t.Fatal("成功/失败/取消/租约等待日志不完整")
 	}
 
-	t.Log("学生卡真实PG/Redis/HTTP、加密暂存、租约/重试/取消/幂等通过；外部供应商为合成适配器，人工认证尚未交付")
+	t.Log("学生卡真实PG/Redis/HTTP、加密暂存、租约/重试/取消/幂等通过；外部供应商为合成适配器，人工认证由独立模块测试")
 }
 func contains(values []string, value string) bool {
 	for _, entry := range values {

@@ -29,3 +29,7 @@ studentcard.service负责会话计算准入、资源边界、无损图像规范�
 最终check-migrations.py --container退出0，正式制品liyuanci-migrate-check:a990bb58ff21；锁定Go1.25.0、正式UID10001 CLI、十版重复up/permissions与空库down/up、数据库表列中文注释、受限权限和恢复库混建拒绝均通过，历史九版SQL未改。该镜像的离线库测试不等于真实供应商或MQ业务往返。服务脚本单元13项通过；未变更启停/监控/Broker配置，不重跑check-services.py、监控专项或原MQ探针，不声称完成T007同一真实PG+MQ领域闭环。
 
 共享contracts/build.py与validate.py通过83操作/130 schema/783请求响应示例及动作正反例；revision 4固定当前文件指纹，r1–r3留作历史。既有LibreSSL/RefResolver告警保留但退出0。本轮没有Go依赖变化，不需要tidy；两仓diff-check通过。提交前阶段记录更新后再次执行make fmt/check。实际私有桶/扫描/KMS、业务进程装配、人工认证和物理删除等未完成边界保持上节，不将可注入模块签为整体完成，也没有推送或部署。
+
+## 后续人工认证模块
+
+第七阶段已实现T011人工认证申请/驳回重提、后台队列/详情/原卡代理/决定、唯一学号绑定/姓名加密和敏感访问留迹的注入式模块，上述“尚未实现”为本阶段原交付快照；当前行为和真实验证见[第七阶段](phase-07.md)。实际供应商、学生API/业务worker装配及物理清理仍未完成，图片approved仍不等于学生资格。

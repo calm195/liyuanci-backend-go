@@ -40,10 +40,12 @@ type Limiter interface {
 type Config struct {
 	// StudentCardAssets 仅在同一装配显式注册学生卡路由后启用动作提示。
 	StudentCardAssets bool
-	SessionTTL        time.Duration
-	ExchangeTTL       time.Duration
-	Command           command.Config
-	SessionKey        []byte
+	// VerificationRequests 仅在人工认证服务和路由已显式装配后启用申请动作。
+	VerificationRequests bool
+	SessionTTL           time.Duration
+	ExchangeTTL          time.Duration
+	Command              command.Config
+	SessionKey           []byte
 }
 
 // Me 仅包含本人非敏感资料及当前可用操作，不回显完整身份字段。
@@ -366,11 +368,14 @@ func (s *Service) Logout(ctx context.Context, token, key, requestID string) (err
 	})
 }
 
-// project 仅提示已装配的学生卡上传动作，不把静态协议目录当成实际授权。
+// project 仅提示显式装配且当前资格允许的动作，不把静态协议目录当成实际授权。
 func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.Time) (Me, error) {
 	out, e := projection(ctx, db, id, at)
 	if e == nil && s.config.StudentCardAssets && slices.Contains(out.AllowedActions, "putMeProfile") {
 		out.AllowedActions = append(out.AllowedActions, "postMeStudentCardAssets")
+	}
+	if e == nil && s.config.VerificationRequests && slices.Contains(out.AllowedActions, "putMeProfile") && (out.Verification == "unverified" || out.Verification == "rejected") {
+		out.AllowedActions = append(out.AllowedActions, "postMeVerificationRequests")
 	}
 	return out, e
 }
