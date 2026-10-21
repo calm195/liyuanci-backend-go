@@ -42,7 +42,7 @@ func createDraftRows(ctx context.Context, db *gorm.DB, now time.Time, id, regist
 // 只读当前归属和版本，内容删除或转移后拒绝重放，不从回执重建正文或对象。
 func resolveCreated(ctx context.Context, db *gorm.DB, id, owner string) (CreatedDraft, error) {
 	var row entity.Wish
-	err := db.WithContext(ctx).Select("id,version,current_content_version,state").Where("id=? AND owner_id=?", id, owner).Take(&row).Error
+	err := db.WithContext(ctx).Select("id,version,current_content_version,state").Where("id=? AND owner_id=? AND draft_deleted_at IS NULL", id, owner).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return CreatedDraft{}, command.ErrNotFound
 	}

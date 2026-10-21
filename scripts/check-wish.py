@@ -44,6 +44,9 @@ def main():
         env["APP_WISH_HTTP_TEST_DSN"] = env["APP_WISH_TEST_DSN"].replace("dbname=wish", "dbname=wish_http")
         subprocess.run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-run", "TestPostgresWishHTTP", "-v", "./internal/httpapi"],
                        cwd=root, env=env, check=True)
+        subprocess.run(["docker", "exec", name, "createdb", "-U", "postgres", "wish_lifecycle"], check=True, stdout=subprocess.DEVNULL)
+        env["APP_WISH_LIFECYCLE_TEST_DSN"] = env["APP_WISH_TEST_DSN"].replace("dbname=wish", "dbname=wish_lifecycle")
+        subprocess.run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-run", "TestPostgresLifecycle|TestPostgresQueries", "-v", "./internal/wish"], cwd=root, env=env, check=True)
     finally:
         # 只清理本次创建的临时容器，不操作其他项目或删除数据卷。
         if started:

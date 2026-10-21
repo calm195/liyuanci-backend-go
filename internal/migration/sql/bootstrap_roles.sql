@@ -188,3 +188,7 @@ GRANT SELECT ON public.identity_lookup_keys, public.identity_lookup_claims TO li
 GRANT INSERT ON public.identity_lookup_claims, public.identity_secrets, public.identity_names TO liyuanci_admin_api;
 -- PostgreSQL行锁要求至少一列UPDATE权限；只授予版本列，不允许审核入口改写对象键或扫描结果。
 GRANT UPDATE (version) ON public.assets TO liyuanci_identity_maintenance, liyuanci_admin_api;
+
+-- 心愿命令只使旧审核/工作失效，不允许学生接口写入人工结论或删除历史审核记录。
+GRANT UPDATE (status) ON public.moderation_tasks TO liyuanci_api;
+GRANT UPDATE (status, lease_until, version) ON public.work_items TO liyuanci_api;

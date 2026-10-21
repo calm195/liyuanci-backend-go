@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
@@ -34,6 +35,8 @@ type CreatedDraft struct {
 
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
+	db         *gorm.DB
+	config     ServiceConfig
 	engine     *command.Engine
 	policy     *Policy
 	codec      *securedata.Codec
@@ -53,7 +56,7 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades
 	if err != nil {
 		return nil, err
 	}
-	return &Service{engine: engine, policy: policy, codec: codec, receiptKey: append([]byte(nil), cfg.ReceiptKey...)}, nil
+	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), config: cfg, engine: engine, policy: policy, codec: codec, receiptKey: append([]byte(nil), cfg.ReceiptKey...)}, nil
 }
 
 func (s *Service) requestDigest(input ContentInput) (string, error) {

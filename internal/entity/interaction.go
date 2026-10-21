@@ -7,6 +7,7 @@ import (
 
 // Wish 映射 public.wishes，字段注释描述数据库持久化语义。
 type Wish struct {
+	DraftDeletedAt        *time.Time `gorm:"column:draft_deleted_at;type:timestamptz;comment:草稿删除生效时间，保留技术引用但不再允许读取或复活" json:"-"`
 	DurationDays          int16      `gorm:"column:duration_days;type:smallint;not null;default:7;comment:有效期整数天数，默认七天" json:"-"`
 	ID                    string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	OwnerID               string     `gorm:"column:owner_id;type:uuid;not null;comment:许愿人" json:"-"`
@@ -27,6 +28,7 @@ func (Wish) TableName() string { return "public.wishes" }
 
 // WishVersion 映射 public.wish_versions，字段注释描述数据库持久化语义。
 type WishVersion struct {
+	ReviewTaskID           *string         `gorm:"column:review_task_id;type:uuid;comment:当前显式送审任务引用，旧任务不能覆盖本版本的新审核轮次" json:"-"`
 	WishID                 string          `gorm:"column:wish_id;type:uuid;primaryKey;autoIncrement:false;comment:所属心愿" json:"-"`
 	ContentVersion         int64           `gorm:"column:content_version;type:bigint;primaryKey;autoIncrement:false;comment:内容版本" json:"-"`
 	BodyCipher             json.RawMessage `gorm:"column:body_cipher;type:jsonb;not null;comment:原始心愿正文，保存信封密文而非明文" json:"-"`

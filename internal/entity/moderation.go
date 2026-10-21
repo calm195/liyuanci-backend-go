@@ -29,6 +29,7 @@ func (WordlistEntry) TableName() string { return "public.wordlist_entries" }
 
 // ModerationTask 映射 public.moderation_tasks，字段注释描述数据库持久化语义。
 type ModerationTask struct {
+	RestrictionEpoch   *int64    `gorm:"column:restriction_epoch;type:bigint;comment:提交时内容限制代次，历史空值不得作为当前心愿上架依据" json:"-"`
 	ID                 string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	ContentID          string    `gorm:"column:content_id;type:uuid;not null;comment:注册内容标识" json:"-"`
 	ContentVersion     int64     `gorm:"column:content_version;type:bigint;not null;comment:目标内容版本" json:"-"`
