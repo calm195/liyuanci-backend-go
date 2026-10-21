@@ -14,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
@@ -62,15 +63,28 @@ func run() error {
 		}
 		log.Info("资源清理完成")
 	}()
+	router := httpapi.New(log, func(ctx context.Context) error {
+		if err := resources.Ready(ctx); err != nil {
+			return err
+		}
+		return errors.New("学生认证与密钥就绪检查尚未实现")
+	})
+	if cfg.AdminAuth.Enabled {
+		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		service, closePool, e := adminauth.Open(initCtx, cfg, resources.Redis, log)
+		cancel()
+		if e != nil {
+			return errors.New("后台身份资源初始化失败")
+		}
+		defer func() { _ = closePool() }()
+		if e = httpapi.RegisterAdmin(router, service); e != nil {
+			return errors.New("后台身份路由装配失败")
+		}
+	}
 	server := &http.Server{
 		Addr: cfg.Server.Address,
-		// 基础依赖可连接不等于认证/密钥已就绪；认证与密钥就绪检查实现前不向流量入口报告业务就绪。
-		Handler: httpapi.New(log, func(ctx context.Context) error {
-			if err := resources.Ready(ctx); err != nil {
-				return err
-			}
-			return errors.New("认证与密钥就绪检查尚未实现")
-		}),
+		// 后台独立入口可用不等于学生认证/密钥已就绪，readyz仍按整体业务依赖失败关闭。
+		Handler:           router,
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       cfg.Server.ReadTimeout,
 		WriteTimeout:      cfg.Server.WriteTimeout,

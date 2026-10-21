@@ -11,7 +11,13 @@ import (
 // Config 保存服务设置及可选中间件配置。
 type Config struct {
 	Environment string
-	Server      struct {
+	AdminAuth   struct {
+		Enabled                                                   bool
+		DSN, InitialPasswordFile, ReceiptKeyFile                  string
+		SessionTTL, Timeout, LockTimeout, ReceiptTTL, LoginWindow time.Duration
+		LoginLimit, MaxAttempts                                   int
+	}
+	Server struct {
 		Address                                    string
 		ReadTimeout, WriteTimeout, ShutdownTimeout time.Duration
 	}
@@ -37,6 +43,15 @@ type Config struct {
 func Load(path string) (Config, error) {
 	v := viper.New()
 	v.SetDefault("environment", "foundation")
+	v.SetDefault("adminauth.enabled", false)
+	v.SetDefault("adminauth.dsn", "")
+	v.SetDefault("adminauth.initialpasswordfile", "")
+	v.SetDefault("adminauth.receiptkeyfile", "")
+	for _, key := range []string{"sessionttl", "timeout", "locktimeout", "receiptttl", "loginwindow"} {
+		v.SetDefault("adminauth."+key, "0s")
+	}
+	v.SetDefault("adminauth.loginlimit", 0)
+	v.SetDefault("adminauth.maxattempts", 0)
 	v.SetDefault("server.address", "127.0.0.1:8080")
 	v.SetDefault("server.readtimeout", "5s")
 	v.SetDefault("server.writetimeout", "10s")
@@ -88,6 +103,9 @@ func Load(path string) (Config, error) {
 	}
 	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || !c.RocketMQ.Enabled) {
 		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
+	}
+	if c.AdminAuth.Enabled && (c.AdminAuth.DSN == "" || c.AdminAuth.InitialPasswordFile == "" || c.AdminAuth.ReceiptKeyFile == "" || !c.Redis.Enabled || c.AdminAuth.SessionTTL <= 0 || c.AdminAuth.Timeout <= 0 || c.AdminAuth.LockTimeout < time.Millisecond || c.AdminAuth.LockTimeout > c.AdminAuth.Timeout || c.AdminAuth.ReceiptTTL <= 0 || c.AdminAuth.LoginWindow < time.Millisecond || c.AdminAuth.LoginLimit < 1 || c.AdminAuth.MaxAttempts < 1 || c.AdminAuth.MaxAttempts > 10) {
+		return c, fmt.Errorf("后台身份启用时必须显式配置独立数据库、凭据文件、期限、重试及共享限流")
 	}
 	return c, nil
 }

@@ -24,7 +24,7 @@ def check_container(name, password, task_root):
     subprocess.run(builder_build + [str(task_root)], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "go", builder_tag, "version"], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "-e", "CGO_ENABLED=0", "--entrypoint", "go", builder_tag,
-                    "test", "./internal/securedata", "./internal/identity", "./internal/command", "./internal/durable"], check=True)
+                    "test", "./internal/securedata", "./internal/identity", "./internal/command", "./internal/durable", "./internal/adminauth", "./internal/httpapi"], check=True)
     actual_user = subprocess.check_output(["docker", "run", "--rm", "--entrypoint", "id", tag, "-u"], text=True).strip()
     if actual_user != "10001":
         raise RuntimeError("镜像迁移工具未使用专用非 root 用户")

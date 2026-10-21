@@ -86,7 +86,7 @@ func TestBusinessSchema(t *testing.T) {
 		t.Fatal("迁移权限组不能完成空库回退及重建", err)
 	}
 	assertComments(t, db)
-	required := []string{"identity_names", "admin_accounts", "admin_role_bindings", "sessions", "assets", "identity_reviews", "blocks", "penalties", "appeals", "wishes", "wish_versions", "applications", "matches", "conversations", "messages", "story_versions", "content_registry", "wordlist_versions", "wordlist_entries", "moderation_tasks", "reports", "content_restrictions", "privacy_holds", "work_items", "outbox_events", "consumer_receipts", "notifications", "delivery_attempts", "command_receipts", "access_audits", "deletion_jobs"}
+	required := []string{"identity_names", "admin_accounts", "admin_account_actions", "admin_role_bindings", "sessions", "assets", "identity_reviews", "blocks", "penalties", "appeals", "wishes", "wish_versions", "applications", "matches", "conversations", "messages", "story_versions", "content_registry", "wordlist_versions", "wordlist_entries", "moderation_tasks", "reports", "content_restrictions", "privacy_holds", "work_items", "outbox_events", "consumer_receipts", "notifications", "delivery_attempts", "command_receipts", "access_audits", "deletion_jobs"}
 	for _, table := range required {
 		if !db.Migrator().HasTable("public." + table) {
 			t.Fatal("设计表缺失", table)

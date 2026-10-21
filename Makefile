@@ -6,6 +6,7 @@ build:
 	go build -trimpath -o bin/worker ./cmd/worker
 	go build -trimpath -o bin/probe ./cmd/probe
 	go build -trimpath -o bin/migrate ./cmd/migrate
+	go build -trimpath -o bin/admin-init ./cmd/admin-init
 test:
 	go test -race -cover ./...
 fmt:

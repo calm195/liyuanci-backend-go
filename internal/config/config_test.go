@@ -54,3 +54,38 @@ func TestRealEnvironmentFailsClosed(t *testing.T) {
 		t.Fatal("only PostgreSQL is supported")
 	}
 }
+
+// T008/REQ-018、019：默认不启用后台，不为待定TTL/限流或凭据文件提供隐含值。
+func TestAdminExplicitConfiguration(t *testing.T) {
+	c, err := Load("")
+	if err != nil || c.AdminAuth.Enabled || c.AdminAuth.SessionTTL != 0 {
+		t.Fatal("后台默认不应启用")
+	}
+	t.Setenv("APP_ADMINAUTH_ENABLED", "true")
+	if _, err = Load(""); err == nil {
+		t.Fatal("缺失部署参数不能启用")
+	}
+	for key, value := range map[string]string{
+		"APP_ADMINAUTH_DSN":                 "synthetic-dsn",
+		"APP_ADMINAUTH_INITIALPASSWORDFILE": "/synthetic/password",
+		"APP_ADMINAUTH_RECEIPTKEYFILE":      "/synthetic/key",
+		"APP_REDIS_ENABLED":                 "true",
+		"APP_ADMINAUTH_SESSIONTTL":          "1h",
+		"APP_ADMINAUTH_TIMEOUT":             "10s",
+		"APP_ADMINAUTH_LOCKTIMEOUT":         "1s",
+		"APP_ADMINAUTH_RECEIPTTTL":          "1h",
+		"APP_ADMINAUTH_LOGINWINDOW":         "1m",
+		"APP_ADMINAUTH_LOGINLIMIT":          "10",
+		"APP_ADMINAUTH_MAXATTEMPTS":         "3",
+	} {
+		t.Setenv(key, value)
+	}
+	c, err = Load("")
+	if err != nil || !c.AdminAuth.Enabled {
+		t.Fatal("显式隔离测试配置应可加载", err)
+	}
+	t.Setenv("APP_ADMINAUTH_SESSIONTTL", "0s")
+	if _, err = Load(""); err == nil {
+		t.Fatal("未定TTL不得自行选择")
+	}
+}
