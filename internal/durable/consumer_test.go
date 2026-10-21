@@ -305,6 +305,12 @@ func TestPostgresConsumer(t *testing.T) {
 			t.Fatal("提交后运输确认丢失应去重")
 		}
 	})
+	// T007/REQ-018、020：GORM 更新与回执写入仍覆盖成功、失败两个完成边界。
+	for _, result := range []string{"success", "failure"} {
+		if observed.FilterMessage("持久工作消费完成").FilterField(zap.String("result", result)).Len() == 0 {
+			t.Fatalf("缺少消费完成结果：%s", result)
+		}
+	}
 	for _, entry := range observed.FilterMessage("持久工作消费完成").All() {
 		fields := entry.ContextMap()
 		if fields["duration"] == nil || fields["result"] == nil || fields["consumer"] == nil {

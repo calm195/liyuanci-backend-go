@@ -408,6 +408,7 @@ func TestPostgresRecovery(t *testing.T) {
 			t.Fatal(failure)
 		}
 	})
+	// T007/REQ-020：GORM Create 只能回读已授权的键，不能因默认 RETURNING 扩大完成时间权限。
 	t.Run("实际后台失效终结及回执窄权限", func(t *testing.T) {
 		clear()
 		event := makeWork(1019, "attention")

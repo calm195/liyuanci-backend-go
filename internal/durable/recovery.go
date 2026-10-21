@@ -9,8 +9,10 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 // Compensation 统计有界扫描的独立处理结果；部分成功不会因后续失败回滚。
@@ -197,7 +199,7 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 		return out, err
 	}
 	var locked []Work
-	if failure := tx.DB().WithContext(ctx).Raw("SELECT * FROM public.work_items WHERE id=? FOR UPDATE", work.ID).Scan(&locked).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&locked).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if len(locked) != 1 {
@@ -227,7 +229,7 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 		return out, err
 	}
 	var receipts int64
-	if failure := tx.DB().WithContext(ctx).Raw("SELECT count(*) FROM public.consumer_receipts WHERE consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Scan(&receipts).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.ConsumerReceipt{}).Where("consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Count(&receipts).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if receipts != 0 {
@@ -245,17 +247,18 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 	}
 	// 所有唤醒按固定事件顺序锁定；旧转发者之后只能看到失效租约，不能确认或把新周期写成 attention。
 	var eventIDs []string
-	if failure := tx.DB().WithContext(ctx).Raw("SELECT event_id FROM public.outbox_events WHERE work_id=? ORDER BY event_id FOR UPDATE", work.ID).Scan(&eventIDs).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).Select("event_id").Where("work_id=?", work.ID).Order("event_id").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&eventIDs).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
-	if failure := tx.DB().WithContext(ctx).Exec("UPDATE public.outbox_events SET superseded_at=clock_timestamp(),lease_until=NULL WHERE work_id=? AND superseded_at IS NULL", work.ID).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).Where("work_id=? AND superseded_at IS NULL", work.ID).Updates(map[string]any{"superseded_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if decision == Invalidate {
-		if failure := tx.DB().WithContext(ctx).Exec("UPDATE public.work_items SET status='cancelled',lease_until=NULL,version=version+1 WHERE id=?", work.ID).Error; failure != nil {
+		if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
 			return out, command.ErrUnavailable
 		}
-		if failure := tx.DB().WithContext(ctx).Exec("INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES (?,?)", c.definition.ConsumerKind, current.OperationID).Error; failure != nil {
+		// 后台只有回执键的读取权限；显式回读主键，禁止 GORM 自动 RETURNING 完成时间。
+		if failure := tx.DB().WithContext(ctx).Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).Error; failure != nil {
 			return out, command.ErrUnavailable
 		}
 		out.Cancelled = true
@@ -265,10 +268,10 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 	if err != nil {
 		return out, command.ErrInternal
 	}
-	if failure := tx.DB().WithContext(ctx).Exec("UPDATE public.work_items SET status='pending',lease_until=NULL,attempts=0,next_at=clock_timestamp(),version=version+1 WHERE id=?", work.ID).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Updates(map[string]any{"status": "pending", "lease_until": nil, "attempts": 0, "next_at": gorm.Expr("clock_timestamp()"), "version": gorm.Expr("version+1")}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
-	if failure := tx.DB().WithContext(ctx).Exec("INSERT INTO public.outbox_events(event_id,work_id,aggregate_id,aggregate_version,event_type) VALUES (?,?,?,?,?)", id, work.ID, current.TargetID, current.TargetVersion, c.definition.Route.EventType).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Create(&entity.OutboxEvent{EventID: id, WorkID: work.ID, AggregateID: current.TargetID, AggregateVersion: current.TargetVersion, EventType: c.definition.Route.EventType}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	out.Resumed = true

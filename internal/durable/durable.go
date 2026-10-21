@@ -9,7 +9,10 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 var (
@@ -162,6 +165,7 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		if len(candidates) == 0 {
 			return nil
 		}
+		// 原子 UPDATE RETURNING 同时取得新租约代次与发送快照，避免读改写之间被重领。
 		var rows []lease
 		if failure := tx.Raw(`UPDATE public.outbox_events SET lease_until=clock_timestamp()+(? * interval '1 millisecond'),attempts=attempts+1
  WHERE event_id=? AND superseded_at IS NULL AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<=clock_timestamp())
@@ -173,10 +177,10 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		}
 		// 上次发送在确认前中断也占一次尝试；重领时先耗尽检查，防止持续崩溃无限发送。
 		if rows[0].Attempts > r.config.MaxAttempts {
-			if failure := tx.Exec("UPDATE public.work_items SET status='attention',version=version+1 WHERE id=? AND status NOT IN ('cancelled','completed','attention')", rows[0].CorrelationID).Error; failure != nil {
+			if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", rows[0].CorrelationID).Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).Error; failure != nil {
 				return ErrUnavailable
 			}
-			if failure := tx.Exec("UPDATE public.outbox_events SET lease_until=NULL WHERE event_id=?", rows[0].EventID).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", rows[0].EventID).Updates(map[string]any{"lease_until": nil}).Error; failure != nil {
 				return ErrUnavailable
 			}
 			result = "attention"
@@ -207,27 +211,31 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 	temporary := errors.Is(sendErr, ErrTemporary) || errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded)
 	attention := sendErr != nil && (!temporary || item.Attempts >= r.config.MaxAttempts)
 	err = r.transaction(ctx, func(tx *gorm.DB) error {
-		if failure := tx.Exec("SELECT id FROM public.work_items WHERE id=? FOR UPDATE", item.CorrelationID).Error; failure != nil {
+		// 确认前仍先锁工作、后锁事件；Find 保持空结果不报错，由租约校验决定是否失效。
+		var works []entity.WorkItem
+		if failure := tx.Select("id").Where("id = ?", item.CorrelationID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&works).Error; failure != nil {
 			return ErrUnavailable
 		}
 		var current []struct{ EventID string }
-		if failure := tx.Raw(`SELECT event_id FROM public.outbox_events WHERE event_id=? AND superseded_at IS NULL AND attempts=? AND sent_at IS NULL AND lease_until>clock_timestamp() FOR UPDATE`, item.EventID, item.Attempts).Scan(&current).Error; failure != nil {
+		if failure := tx.Model(&entity.OutboxEvent{}).Select("event_id").
+			Where("event_id = ? AND superseded_at IS NULL AND attempts = ? AND sent_at IS NULL AND lease_until > clock_timestamp()", item.EventID, item.Attempts).
+			Clauses(clause.Locking{Strength: "UPDATE"}).Find(&current).Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(current) != 1 {
 			return ErrLeaseLost
 		}
 		if sendErr == nil {
-			if failure := tx.Exec("UPDATE public.outbox_events SET sent_at=clock_timestamp(),lease_until=NULL WHERE event_id=?", item.EventID).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).Updates(map[string]any{"sent_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).Error; failure != nil {
 				return ErrUnavailable
 			}
 		} else {
-			if failure := tx.Exec("UPDATE public.outbox_events SET lease_until=NULL,next_at=clock_timestamp()+(? * interval '1 millisecond') WHERE event_id=?", r.config.RetryDelay.Milliseconds(), item.EventID).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).Updates(map[string]any{"lease_until": nil, "next_at": gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", r.config.RetryDelay.Milliseconds())}).Error; failure != nil {
 				return ErrUnavailable
 			}
 			// 异常待办不得把 cancelled/completed 工作恢复；解除待办须由后续领域命令重新授权。
 			if attention {
-				if failure := tx.Exec("UPDATE public.work_items SET status='attention',version=version+1 WHERE id=? AND status NOT IN ('cancelled','completed','attention')", item.CorrelationID).Error; failure != nil {
+				if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", item.CorrelationID).Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).Error; failure != nil {
 					return ErrUnavailable
 				}
 			}

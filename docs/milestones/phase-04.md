@@ -158,3 +158,7 @@ acf31b515538e1bf3b3f85fcecee9a210bb83e6b0408e2dbcde6643a736d9dd9  contracts/open
 ```
 
 本轮验证命令：独立虚拟环境Python执行contracts/build.py、contracts/validate.py均退出0；make fmt/check（含vet、race-cover）及两仓git diff --check均退出0。校验环境保留既有LibreSSL/RefResolver警告，未发生校验失败。不将通过记录外推为登录、改密、词库或扫描服务验收。
+
+## 2026-10-21 其他模块 ORM 统一增量
+
+T007、REQ-018/020：工作行锁、消费回执、终态/重试/租约清理、旧事件替代和新事件写入改用实体；保留单语句 CTE、SKIP LOCKED、UPDATE RETURNING、LATERAL 和原子补偿条件。显式限制回执回读列，不扩大后台权限。完整范围、设计取舍、兼容性修复、真实/合成状态与本轮实际验证见[ORM 专题后续增量](orm-refactor-2026-10-21.md#后续模块-orm-统一增量)。本次不推进生产或完整领域业务验收。
