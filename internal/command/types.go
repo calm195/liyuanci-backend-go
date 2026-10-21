@@ -57,6 +57,8 @@ const (
 type ResourceKind string
 
 const (
+	// Asset 是账号之后、互动资源之前锁定的私有学生卡。
+	Asset ResourceKind = "asset"
 	// Account 使用已经取得的账号 guard，不作为普通资源重复锁定。
 	Account ResourceKind = "account"
 	// Wish 在申请和会话前锁定。

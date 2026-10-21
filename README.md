@@ -28,6 +28,7 @@ internal/
   command/            短事务、排序锁、幂等回执及当前会话/权限复核
   adminauth/          显式启用的后台账号、口令及数据库会话
   studentauth/        可注入的wx.login交换、学生会话及本人资料
+  studentcard/        可注入的学生卡加密上传、扫描任务与状态
   durable/            持久工作、转发/消费、数据库补偿和受控重驱动
   transportmq/        显式装配的最小 RocketMQ 运输适配
   identity/           加密身份存储、唯一占用及受控轮换
@@ -94,7 +95,7 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；当前未接入业务路由，外部副作用须留待持久工作链路。
 
-`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行九版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
+`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行十版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
 
 账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
 
@@ -120,6 +121,8 @@ make build # Go 代码或依赖变更时必需；输出 server、worker、probe�
 
 真实运输适配独立检查：`python3 scripts/check-mq.py`。在随机 Docker 项目中使用固定镜像运行 Broker、NameServer 和合成处理器，验证发送/重投/重复/晚到与退出，保留卷，不代表领域消费或整体需求验收；不连接生产服务。
 
-后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行九版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
+后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行十版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
 
 学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](docs/student-auth.md)。
+
+学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。现有server及独立探针worker不自动启用该模块。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及人工认证、实际供应商、物理清理等未完成范围见[学生卡说明](docs/student-card.md)。

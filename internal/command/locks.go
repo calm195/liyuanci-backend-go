@@ -26,18 +26,20 @@ func ids(values []string) ([]string, error) {
 
 func rank(kind ResourceKind) int {
 	switch kind {
-	case Wish:
+	case Asset:
 		return 0
-	case Application:
+	case Wish:
 		return 1
-	case Match:
+	case Application:
 		return 2
-	case Conversation:
+	case Match:
 		return 3
-	case ModerationTask:
+	case Conversation:
 		return 4
-	case Message:
+	case ModerationTask:
 		return 5
+	case Message:
+		return 6
 	default:
 		return -1
 	}
@@ -145,6 +147,9 @@ func (t *Tx) lockResources(resources []Resource) error {
 		var model any
 		columns := []string{"id"}
 		switch ref.Kind {
+		case Asset:
+			model = &entity.Asset{}
+			columns = append(columns, "version")
 		case Wish:
 			model = &entity.Wish{}
 			columns = append(columns, "version")

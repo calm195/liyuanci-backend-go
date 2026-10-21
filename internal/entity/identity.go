@@ -66,6 +66,8 @@ func (IdentityReview) TableName() string { return "public.identity_reviews" }
 
 // Asset 映射 public.assets，字段注释描述数据库持久化语义。
 type Asset struct {
+	Version            int64           `gorm:"column:version;type:bigint;not null;default:1;comment:学生卡处理版本，用于锁后状态复核" json:"-"`
+	ScanStatus         string          `gorm:"column:scan_status;type:text;not null;default:'pending';comment:图片安全状态，pending待处理、approved通过或rejected拒绝，不代表学生认证" json:"-"`
 	ID                 string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	OwnerID            string          `gorm:"column:owner_id;type:uuid;not null;comment:普通账号所有者，不级联跳过外部对象清理" json:"-"`
 	Purpose            string          `gorm:"column:purpose;type:text;not null;comment:普通对象仅学生卡，证据对象另存隔离域" json:"-"`

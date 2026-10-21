@@ -13,6 +13,7 @@ func BusinessModels() []any {
 		&AdminRoleBinding{},
 		&Session{},
 		&Asset{},
+		&StudentCardPayload{},
 		&IdentityReview{},
 		&Block{},
 		&Penalty{},

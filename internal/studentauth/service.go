@@ -38,10 +38,12 @@ type Limiter interface {
 
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
-	SessionTTL  time.Duration
-	ExchangeTTL time.Duration
-	Command     command.Config
-	SessionKey  []byte
+	// StudentCardAssets 仅在同一装配显式注册学生卡路由后启用动作提示。
+	StudentCardAssets bool
+	SessionTTL        time.Duration
+	ExchangeTTL       time.Duration
+	Command           command.Config
+	SessionKey        []byte
 }
 
 // Me 仅包含本人非敏感资料及当前可用操作，不回显完整身份字段。
@@ -223,7 +225,7 @@ func (s *Service) Login(ctx context.Context, code, clientID, source, requestID s
 		if e = finishExchange(ctx, db, receiptID, sessionID); e != nil {
 			return e
 		}
-		out.Me, e = projection(ctx, db, id, now)
+		out.Me, e = s.project(ctx, db, id, now)
 		return e
 	})
 	if err == nil {
@@ -256,7 +258,7 @@ func (s *Service) replay(ctx context.Context, codeHash, requestHash []byte) (out
 		if !receipt.ExpiresAt.After(now) {
 			return command.ErrUnauthenticated
 		}
-		out.Me, e = projection(ctx, db, id, now)
+		out.Me, e = s.project(ctx, db, id, now)
 		return e
 	})
 	if err == nil {
@@ -288,7 +290,7 @@ func (s *Service) Current(ctx context.Context, token, requestID string) (out Me,
 		if e != nil {
 			return e
 		}
-		out, e = projection(ctx, db, id, now)
+		out, e = s.project(ctx, db, id, now)
 		return e
 	})
 	return out, err
@@ -328,7 +330,7 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 		},
 		Resolve: func(ctx context.Context, tx *command.Tx, id string) error {
 			var e error
-			out, e = projection(ctx, tx.DB(), id, tx.Now())
+			out, e = s.project(ctx, tx.DB(), id, tx.Now())
 			return e
 		},
 	}
@@ -362,4 +364,13 @@ func (s *Service) Logout(ctx context.Context, token, key, requestID string) (err
 		hash := sha256.Sum256([]byte(token))
 		return revoke(ctx, db, hash[:], now)
 	})
+}
+
+// project 仅提示已装配的学生卡上传动作，不把静态协议目录当成实际授权。
+func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.Time) (Me, error) {
+	out, e := projection(ctx, db, id, at)
+	if e == nil && s.config.StudentCardAssets && slices.Contains(out.AllowedActions, "putMeProfile") {
+		out.AllowedActions = append(out.AllowedActions, "postMeStudentCardAssets")
+	}
+	return out, e
 }
