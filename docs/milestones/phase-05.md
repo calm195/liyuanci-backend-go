@@ -65,3 +65,27 @@ ea1e985c9dfc0f3da0e0a464d5ef955eac0c0b2818bba2bab6db443d5551b1a4  scripts/check-
 ```
 
 Python语法检查通过（临时缓存目录），两仓git diff --check通过；最终规定质量检查通过。正式镜像已包含本轮最后的会话计算准入与连接隔离，未推送镜像或部署。
+
+## c927db0协调增量：B05/B07及INT-003准备
+
+2026-10-21后端会话；T002/T008/T010，REQ-002–008、015、018、019。完整映射、版本缺口、正式静态动作词表/未激活Wire扩展、后台角色刷新与学生策略边界、资产查询建议和标签更新未决项，以及INT-003交接清单/I3-01–08预期见[本轮交接](../contract-int003-handoff-2026-10-21.md)。本端起点8ba233f7a3c4edab32de8331f775aefd14b2dcad；docs基准c927db0fa2a1b12b1ded49bc77e23991cc80325d。未改现有共享五项改动、共享plans及运行代码，新增静态指纹manifest；没有本轮提交或推送/部署。
+
+T002静态核对子范围本端验证通过，整体开发中（B05/B07/B14阻塞）；INT-003开发中（环境/实际配置/管理端接线缺），未达到待联调，未发真实请求。历史后台PG/Redis/HTTP验证不作为本轮跨端通过。B05目标/案件独立version缺DDL，新增target/动作响应和目标ID决策继续草案；B07词表只固定静态范围，年级字典、生产TTL、学生体验、标签更新语义不自行编造。模块职责保持service业务、repository查询、HTTP验证、外部配置/显式迁移；本轮不引入领域运行行为。B02–B13按原解除条件保留，B14只部分解除。
+
+本轮文档完成验证：`make fmt`、`make check`（只读格式检查、`go vet ./...`、`go test -race -cover ./...`）退出0；单元结果含缓存，未配置集成DSN的真实集成不计本轮验证。两仓`git diff --check`通过。无Go/依赖修改，未运行`make build`；未重跑Docker后台/迁移检查或真实跨端联调。最终新增/未提交文件列表以本轮回报为准，无本轮提交。
+
+## B07正式提交收口（后续增量）
+
+2026-10-21后端会话；T002/B07，REQ-002–008、018、019；验收关联C01/C06、002-A–C、019-A/B适用静态子项。用户本轮明确授权将可独立交付的动作索引/生成校验形成正式提交。修改前两仓状态与前轮一致，八文件旧指纹核对无变化；沿用本会话已审查范围，未覆盖其他会话文件。docs main正式提交 `f8c35f93fcc10cd2b4adc3f3b67ae4e4736b0b87`，父提交为协调基准c927db0fa2a1b12b1ded49bc77e23991cc80325d。
+
+本次七文件：contracts/README.md、actions.v0.2.0.json、actions.v0.2.0.md、actions-review.v0.2.0-r1.json、authorization.py、build.py、validate.py。正式输入为契约0.2.0 / 静态动作索引revision 1。索引SHA256 `1c6b67db585a9f80970bdde16b996c145fb5627ee56c86de2ce82af3bfb2ebd2`；manifest SHA256 `0d377b65bf7a6f353ecf620f1db403d3117debbb239084e4fd5791c61a0680ba`。其余生成源/文档指纹由manifest固定；OpenAPI/examples保持原指纹。
+
+authorization.py只生成/校验正式静态索引，移除对审核扩展的生成/读取依赖；GET列表不作为WishResult写动作提示。允许动作仍必须来自当前投影并绑定当前主体/目标；加入缺失/未知/错误投影/跨账号/跨心愿的合成拒绝校验。83项是协议目录，不是83个运行授权。现有四后台操作以外的服务状态未变。消费说明列选图上传、首次/重提认证、新建/改版/删草稿/送审/上架及版本归属、403/409边界；后台角色刷新不套给学生。年级字典/部署TTL、学生会话体验、标签更新省略/清除、查询节奏与页面实现仍未冻结或交付。
+
+moderation-extension.draft.json保持原字节/未跟踪，未提交、未激活。B05需用户决定的取舍单列在共享actions.v0.2.0.md：registry精确正文资源还是独立稳定实体处置资源；新增字段/独立版本模型的兼容发布范围。不得直接作为0.2.0启用，未改迁移。
+
+验证：实际build.py生成83操作/130 schema；validate.py通过783示例、5原负边界/8新增负例及B07合成消费边界；make fmt、make check（格式检查、vet、race/coverage）退出0，单元含缓存。无Go/依赖修改不运行make build；不运行真实PG/Redis/HTTP或跨端服务。LibreSSL/RefResolver告警保留但校验退出0。Git默认沙箱不能写index.lock，经授权沙箱权限重试后提交成功，无强推。共享plans未修改、未推送或部署。
+
+状态：B07正式静态输入子范围本端验证通过；T002整体开发中（阻塞），B07/B14不整体关闭，等待两端按上述完整SHA消费并验证，资源/真实业务分别按原阻塞处理。INT-003仍仅准备，无本轮真实联调证据。本节覆盖前文“索引未提交”的时间状态，旧快照指纹保留为历史，不可用于本次正式接入。
+
+正式提交干净制品复验：`git archive f8c35f93fcc10cd2b4adc3f3b67ae4e4736b0b87 contracts`导出至`/tmp/liyuanci-b07-committed`，执行该副本build.py/validate.py均退出0；manifest八项指纹一致，目录中不存在moderation-extension.draft.json，证明可独立生成/校验。最终两仓git diff --check通过；后端阶段文档同步后make fmt/make check再次退出0。
