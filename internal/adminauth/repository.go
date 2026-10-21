@@ -145,7 +145,20 @@ func checkSchema(ctx context.Context, db *gorm.DB) error {
 	if e := db.WithContext(ctx).Exec("SELECT login_name FROM public.admin_accounts LIMIT 0").Error; e != nil {
 		return e
 	}
-	return db.WithContext(ctx).Exec("SELECT id FROM public.admin_account_actions LIMIT 0").Error
+	if e := db.WithContext(ctx).Exec("SELECT id FROM public.admin_account_actions LIMIT 0").Error; e != nil {
+		return e
+	}
+	// 启用角色写入口前要求显式迁移已扩展留迹动作，避免旧结构下部分能力启动成功。
+	var ready bool
+	if e := db.WithContext(ctx).Raw(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+ WHERE conrelid='public.admin_account_actions'::regclass AND conname='admin_account_actions_action_kind_check'
+ AND pg_catalog.pg_get_constraintdef(oid) LIKE '%roles_change%')`).Scan(&ready).Error; e != nil {
+		return e
+	}
+	if !ready {
+		return ErrUnavailable
+	}
+	return nil
 }
 
 // precheckSession 只作事务外的计算资源准入；真正授权仍在持guard后复核，不能用此快照提交业务。

@@ -123,3 +123,5 @@ T008整体仍未完成：微信/学生会话与资格后续实现；T007领域wo
 本模块最终验证：新增第八版的`python3 scripts/check-migrations.py --container`退出0，正式镜像制品liyuanci-migrate-check:55000a0d2171；八版结构/表列中文注释、权限、空库上下行和正式UID10001 CLI通过。迁移79.7%、identity81.2%、command83.5%、durable78.0%。本次无跨端联调、生产、微信/对象桶外部调用。共享contracts生成83操作/130 schema，validate通过783示例及动作正反例；只将后台列表/角色两个已有操作更新为implemented-opt-in，不更改正式Wire字段，审核扩展保持未激活。Python已有LibreSSL/RefResolver告警，退出0。初次宿主Go检查受系统缓存沙箱限制，授权重跑通过；不将受限失败当通过。
 
 共享静态动作索引推进revision 2，新增actions-review.v0.2.0-r2.json固定当前输入；r1清单仅作历史保留。最终`make fmt`、`make check`（格式只读校验/vet/race-cover）、`make build`及两仓`git diff --check`退出0；本模块无依赖变化。新增游标签名单元测试已纳入最终check。未推送、部署或执行跨端联调。
+
+后续启动防护：checkSchema显式检查角色留迹约束包含roles_change，旧结构即使有表/列也拒绝后台启用，普通启动不补迁移。受限真实LOGIN的Open正反例覆盖该边界。复验`make fmt/check/build`退出0，`python3 scripts/check-adminauth.py`最终项目liyuanci-admin-check-d0b6a9f4cb8b退出0，TestPostgresAdmin12.67s、覆盖率82.0%；游标签名回归也纳入本轮真实检查。前述迁移镜像测试对应第八版DDL未变化，不冒称新的镜像复跑。

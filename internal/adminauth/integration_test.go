@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 )
@@ -117,6 +117,16 @@ func TestPostgresAdmin(t *testing.T) {
 		t.Fatal("隔离DSN形状无效")
 	}
 	settings.AdminAuth.DSN = fixtureDSN[:startAt] + "password=" + databasePassword + fixtureDSN[endAt:]
+	// T008/REQ-018、019：旧留迹结构不能启用新增角色写入口，普通启动不隐式补迁移。
+	if e := db.Exec("ALTER TABLE public.admin_account_actions DROP CONSTRAINT admin_account_actions_action_kind_check").Error; e != nil {
+		t.Fatal(e)
+	}
+	if _, _, e := adminauth.Open(ctx, settings, client, logger); e != adminauth.ErrUnavailable {
+		t.Fatal("缺第八版留迹能力应拒绝启动", e)
+	}
+	if e := db.Exec("ALTER TABLE public.admin_account_actions ADD CONSTRAINT admin_account_actions_action_kind_check CHECK (action_kind IN ('bootstrap','create','password_change','roles_change'))").Error; e != nil {
+		t.Fatal(e)
+	}
 	opened, closeOpened, e := adminauth.Open(ctx, settings, client, logger)
 	if e != nil {
 		t.Fatal("显式装配失败", e)
