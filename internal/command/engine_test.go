@@ -302,19 +302,103 @@ func TestPostgresCommands(t *testing.T) {
 			}
 		}
 	})
-	t.Run("参与者变化重新发现", func(t *testing.T) {
+
+	t.Run("数据库参与者变化重新发现", func(t *testing.T) {
 		reset()
+		discovered := make(chan struct{})
+		changed := make(chan error, 1)
+		// T006/REQ-004、005：另一事务遵守账号锁序，在只读发现后增加更小 UUID 参与者。
+		go func() {
+			select {
+			case <-discovered:
+			case <-time.After(5 * time.Second):
+				changed <- errors.New("未进入发现阶段")
+				return
+			}
+			changed <- db.Transaction(func(writer *gorm.DB) error {
+				if failure := writer.Exec("SELECT id FROM public.accounts WHERE id IN (?,?) ORDER BY id FOR UPDATE", actorID, otherID).Error; failure != nil {
+					return failure
+				}
+				return writer.Exec("INSERT INTO public.blocks(owner_id,target_id) VALUES (?,?)", actorID, otherID).Error
+			})
+		}()
+		defer exec("DELETE FROM public.blocks WHERE owner_id=?", actorID)
 		var discoveries atomic.Int32
 		d := definition()
-		d.Discover = func(context.Context, *gorm.DB, Subject) (Discovery, error) {
-			if discoveries.Add(1) == 1 {
-				return Discovery{}, nil
+		d.Discover = func(ctx context.Context, reader *gorm.DB, _ Subject) (Discovery, error) {
+			var participants []string
+			if failure := reader.WithContext(ctx).Raw("SELECT target_id FROM public.blocks WHERE owner_id=? ORDER BY target_id", actorID).Scan(&participants).Error; failure != nil {
+				return Discovery{}, failure
 			}
-			return Discovery{Accounts: []string{otherID}}, nil
+			if discoveries.Add(1) == 1 {
+				close(discovered)
+				select {
+				case failure := <-changed:
+					if failure != nil {
+						return Discovery{}, failure
+					}
+				case <-ctx.Done():
+					return Discovery{}, ctx.Err()
+				}
+			}
+			return Discovery{Accounts: participants}, nil
+		}
+		apply := d.Apply
+		d.Apply = func(ctx context.Context, tx *Tx) (string, error) {
+			if _, present := tx.Guard(otherID); !present {
+				return "", ErrInternal
+			}
+			return apply(ctx, tx)
 		}
 		out := run(d, input("rediscover"), nil)
 		if out.Attempts != 2 || version() != 2 {
-			t.Fatal("新增更小 UUID 必须整事务重试")
+			t.Fatal("数据库集合改变后必须回滚并重新按序锁定")
+		}
+	})
+	t.Run("持锁前撤销必须再次授权", func(t *testing.T) {
+		reset()
+		discovered := make(chan struct{})
+		revoked := make(chan error, 1)
+		// T006/REQ-014、016、018：会话初读有效，撤销事务先取主体 guard，再撤销会话。
+		go func() {
+			select {
+			case <-discovered:
+			case <-time.After(5 * time.Second):
+				revoked <- errors.New("未进入发现阶段")
+				return
+			}
+			revoked <- db.Transaction(func(writer *gorm.DB) error {
+				if failure := writer.Exec("SELECT id FROM public.accounts WHERE id=? FOR UPDATE", actorID).Error; failure != nil {
+					return failure
+				}
+				return writer.Exec("UPDATE public.sessions SET revoked_at=clock_timestamp() WHERE account_id=?", actorID).Error
+			})
+		}()
+		d := definition()
+		var discoveries atomic.Int32
+		var applies atomic.Int32
+		d.Discover = func(ctx context.Context, _ *gorm.DB, _ Subject) (Discovery, error) {
+			if discoveries.Add(1) == 1 {
+				close(discovered)
+				select {
+				case failure := <-revoked:
+					if failure != nil {
+						return Discovery{}, failure
+					}
+				case <-ctx.Done():
+					return Discovery{}, ctx.Err()
+				}
+			}
+			return Discovery{}, nil
+		}
+		d.Apply = func(context.Context, *Tx) (string, error) { applies.Add(1); return actorID, nil }
+		run(d, input("revocation-race"), ErrUnauthenticated)
+		var count int64
+		if failure := db.Raw("SELECT count(*) FROM public.command_receipts").Scan(&count).Error; failure != nil {
+			t.Fatal(failure)
+		}
+		if applies.Load() != 0 || version() != 1 || count != 0 {
+			t.Fatal("旧发现结果不得越过锁后撤销复核")
 		}
 	})
 	t.Run("版本保持与有界重试", func(t *testing.T) {
