@@ -93,7 +93,7 @@ func (c *Consumer) read(ctx context.Context, db *gorm.DB, event Event) (Work, bo
 	var rows []Work
 	failure := db.WithContext(ctx).Raw(`SELECT w.*,e.aggregate_version AS target_version FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id
  WHERE w.id=? AND e.event_id=? AND e.aggregate_id=? AND e.aggregate_version=? AND e.event_type=? AND e.created_at=?
- AND w.kind=? AND w.target_kind=? AND w.target_id=e.aggregate_id`, event.CorrelationID, event.EventID, event.AggregateID, event.AggregateVersion, event.EventType, event.CreatedAt, c.definition.Route.Kind, c.definition.Route.TargetKind).Scan(&rows).Error
+ AND e.superseded_at IS NULL AND w.kind=? AND w.target_kind=? AND w.target_id=e.aggregate_id`, event.CorrelationID, event.EventID, event.AggregateID, event.AggregateVersion, event.EventType, event.CreatedAt, c.definition.Route.Kind, c.definition.Route.TargetKind).Scan(&rows).Error
 	if failure != nil {
 		return Work{}, false, ErrUnavailable
 	}

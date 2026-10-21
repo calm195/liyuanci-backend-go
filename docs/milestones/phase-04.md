@@ -67,3 +67,11 @@ T007 仍为部分实现。下一步按依赖推进：消费方从持久源读取
 T007 仍部分实现：数据库定时补偿/重新唤醒、业务取消写入命令、安全重驱动/待办入口、真实 RocketMQ Sender 与订阅/ACK/NACK、重复/晚到/确认前故障的真实往返、独立业务 worker 装配及资源隔离尚未完成。Deferred 的唤醒不能被装配方当成工作最终完成，需要未来数据库补偿；当前没有对外可用的 Broker 消费进程。D04 真实身份/主题/留存、D02 真实密钥与身份、D05 删除/恢复缺口继续保留；本批不推送、不部署，不签整体或生产验收。
 
 消费增量最终复验：锁后持久事件重读及 TargetVersion/Version 独立反例加入后，`make fmt`、`make check`、`make build`、`python3 scripts/check-migrations.py --container`、`git diff --check` 全部通过。真实包覆盖率为迁移 79.7%、身份 81.2%、command 83.5%、durable 80.3%；新增分支后覆盖率变化如实保留，不以比例代替场景断言。锁定 Go 1.25 builder 与正式 CLI 完整复验通过，本地制品 `liyuanci-migrate-check:2891abf6304d`。未连接真实业务 Broker、未发布；原迁移 CI job 自动包含新包内测试，远端未执行。
+
+## 补偿与重驱动前置：唤醒替代迁移
+
+2026-10-21；T007/REQ-006、007、015、017、018、020。版本 6（0006_outbox_supersession）增加 outbox_events.superseded_at 与当前工作关联索引；字段与索引具有中文数据库注释，既有表注释完整、版本 1–5 原文件不改写。默认 NULL 保留旧事件可用；非 NULL 禁止转发领取/确认及消费。down 先排他锁，发件箱非空时拒绝，不能因移除标记让旧唤醒重新生效。迁移目录/版本账本断言同步为六版本，业务表数量保持四十。
+
+重驱动将使用新事件标识而非重置旧租约 attempts，防止旧发送者与新周期拥有相同 fencing 代次。旧事件替代不伪造 sent_at。后台最小列授权仅允许 consumer_kind/operation_id SELECT/INSERT，用于检查去重及无操作终结；不能读取 completed_at、修改或删除既有回执，重放权限前显式清除两组历史列 ACL。运行组无自动提权，普通启动仍不迁移或配置权限。
+
+`make fmt`、`make check`、`make build`、隔离真实 `python3 scripts/check-migrations.py --container` 已通过，含全部表字段中文注释、旧版追加/空表回退重建、非空发件箱拒绝回退且保留替代标记、实际后台窄权限、旧转发者失效和正式 Go 1.25/UID10001 CLI。补偿/重驱动运行组件另行提交，完整实现与最终验证见后续增量记录；真实供应商、Broker 与生产状态不变，未推送或部署。

@@ -155,7 +155,7 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		var candidates []struct{ WorkID, EventID string }
 		if failure := tx.Raw(`SELECT w.id AS work_id,e.event_id FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id
  WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased')
- AND e.sent_at IS NULL AND e.next_at<=clock_timestamp() AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
+ AND e.superseded_at IS NULL AND e.sent_at IS NULL AND e.next_at<=clock_timestamp() AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
  ORDER BY e.next_at,e.event_id LIMIT 1 FOR UPDATE OF w SKIP LOCKED`, r.route.Kind, r.route.TargetKind, r.route.EventType).Scan(&candidates).Error; failure != nil {
 			return ErrUnavailable
 		}
@@ -164,7 +164,7 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		}
 		var rows []lease
 		if failure := tx.Raw(`UPDATE public.outbox_events SET lease_until=clock_timestamp()+(? * interval '1 millisecond'),attempts=attempts+1
- WHERE event_id=? AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<=clock_timestamp())
+ WHERE event_id=? AND superseded_at IS NULL AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<=clock_timestamp())
  RETURNING event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at,attempts`, r.config.LeaseDuration.Milliseconds(), candidates[0].EventID).Scan(&rows).Error; failure != nil {
 			return ErrUnavailable
 		}
@@ -211,7 +211,7 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 			return ErrUnavailable
 		}
 		var current []struct{ EventID string }
-		if failure := tx.Raw(`SELECT event_id FROM public.outbox_events WHERE event_id=? AND attempts=? AND sent_at IS NULL AND lease_until>clock_timestamp() FOR UPDATE`, item.EventID, item.Attempts).Scan(&current).Error; failure != nil {
+		if failure := tx.Raw(`SELECT event_id FROM public.outbox_events WHERE event_id=? AND superseded_at IS NULL AND attempts=? AND sent_at IS NULL AND lease_until>clock_timestamp() FOR UPDATE`, item.EventID, item.Attempts).Scan(&current).Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(current) != 1 {

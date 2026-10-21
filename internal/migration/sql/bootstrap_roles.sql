@@ -146,3 +146,7 @@ ALTER FUNCTION public.lock_command_account(uuid) OWNER TO liyuanci_migrator;
 COMMENT ON FUNCTION public.lock_command_account(uuid) IS '锁定账号 guard 并返回当前授权元数据，不提供账号修改能力';
 REVOKE ALL ON FUNCTION public.lock_command_account(uuid) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
 GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_api, liyuanci_admin_api, liyuanci_domain_worker, liyuanci_privacy_maintenance;
+
+-- 后台重驱动仅检查/追加去重标识，不能改写既有回执或读取无关完成时间。
+REVOKE ALL (consumer_kind, operation_id, completed_at) ON public.consumer_receipts FROM PUBLIC, liyuanci_admin_api;
+GRANT SELECT (consumer_kind, operation_id), INSERT (consumer_kind, operation_id) ON public.consumer_receipts TO liyuanci_admin_api;

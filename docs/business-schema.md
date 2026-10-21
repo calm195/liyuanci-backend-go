@@ -4,7 +4,7 @@
 
 ## 版本与覆盖
 
-保留版本 1/2 原文件及 SHA-256，新增版本 3/4/5，总计 40 张业务表（35 张 public、5 张 evidence），另有业务迁移账本。新增的 36 张表、全部字段及原有表都带中文数据库注释；真实检查查询 PostgreSQL 目录，不以 SQL 中有 `--` 注释代替。
+保留版本 1–5 原文件及 SHA-256；版本 3/4/5 补齐领域结构，版本 6 增加发件箱替代标记及当前关联索引。总计 40 张业务表（35 张 public、5 张 evidence），另有业务迁移账本。新增的 36 张表、全部字段及原有表都带中文数据库注释；真实检查查询 PostgreSQL 目录，不以 SQL 中有 `--` 注释代替。
 
 | 版本 | 表 | 已落实的结构职责 |
 | --- | --- | --- |
@@ -23,6 +23,7 @@
 | 5 | notifications、delivery_attempts、command_receipts | 通用通知与渠道状态、命令摘要幂等及结果引用，不保存正文快照 |
 | 5 | access_audits、deletion_jobs | 受控普通访问留迹、删除阶段/剩余计数/安全错误码，completed 必须清除 subject_ref |
 | 5 | evidence.evidence_cases、crisis_cases、assets、evidence_items、evidence_actions | 限定案件、危机流程、私有证据对象、主体/正文信封与必要动作；不以普通账号外键依赖其存续 |
+| 6 | outbox_events 扩展 | superseded_at 中文字段注释及当前工作关联索引；旧唤醒不可领取/确认/消费，非空发件箱拒绝回退 |
 
 未增加延期需求的积分/胶囊/独立搭子等表。词库、举报类型和部分内部处理状态是实现代码，非已交付的真实运营资料；没有预置后台账号、角色绑定、口令、真实词条或学生资料。
 
@@ -73,7 +74,7 @@ sessions 启用行级安全：普通 API/普通隐私清理仅能操作学生主
 
 ## 独立恢复日志结构
 
-恢复日志不进入上述五个业务版本。通过独立外部 APP_RECOVERY_DATABASE_DSN 指向专用恢复库：
+恢复日志不进入上述六个业务版本。通过独立外部 APP_RECOVERY_DATABASE_DSN 指向专用恢复库：
 
 ```sh
 bin/migrate journal-up
@@ -93,3 +94,6 @@ D02 未交付时没有真实恢复信封加密客户端，D05 未交付时没有
 `make fmt/check/build`、`python3 scripts/check-migrations.py --container` 和 `git diff --check`。真实入口在随机容器内建立迁移、业务 schema、恢复三个逻辑库，执行 race/cover，含旧版追加、空表安全回退/拒绝非空回退、专用迁移角色重建 schema、全部注释、关键唯一/FK/CHECK、计数器回滚、实际 SET ROLE 正反权限和历史误授权重放清除。仅本次容器停止移除、保留卷；不操作已有开发/生产库。远端 CI、生产身份、真实 D02/D03/D05 及性能/恢复未验证。详细实际结果保留在阶段记录。
 
 外部依赖仍按[交付清单](dependency-deliverables.md)未交付记录；D03 不是本结构的阻塞，D05 的真实独立持久资源与恢复流程不由同容器逻辑库测试代替。
+
+
+2026-10-21，T007/REQ-006、007、015、017、018、020：版本 6 为安全重驱动增加 nullable superseded_at（默认未替代），不修改旧事件 sent_at 来伪造发送确认，不重置旧 attempts。旧事件按原 ID 保留，重驱动新事件具有独立 UUID，工作和 operation_id 不变。显式 permissions 给后台组 consumer_kind/operation_id 两列 SELECT/INSERT，不给 completed_at 读取或 UPDATE/DELETE；重驱动的后台会话、角色和当前业务复核仍由命令入口负责。索引/字段与中文注释已在真实 PostgreSQL 验证，具体结果和未接线范围见第四阶段。
