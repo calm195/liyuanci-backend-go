@@ -136,3 +136,13 @@ ALTER FUNCTION public.lock_command_admin(uuid) OWNER TO liyuanci_migrator;
 COMMENT ON FUNCTION public.lock_command_admin(uuid) IS '仅锁定并返回后台授权 guard，锁随调用事务结束，不提供身份修改能力';
 REVOKE ALL ON FUNCTION public.lock_command_admin(uuid) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
 GRANT EXECUTE ON FUNCTION public.lock_command_admin(uuid) TO liyuanci_admin_api, liyuanci_admin_maintenance;
+
+-- 领域消费者需要串行复核账号资格，但不能因此获得修改账号的宽权限。
+CREATE OR REPLACE FUNCTION public.lock_command_account(subject uuid)
+RETURNS TABLE(id uuid, lifecycle text, verification text, auth_epoch bigint, version bigint)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog
+AS $$ SELECT a.id, a.lifecycle, a.verification, a.auth_epoch, a.version FROM public.accounts a WHERE a.id = subject FOR UPDATE $$;
+ALTER FUNCTION public.lock_command_account(uuid) OWNER TO liyuanci_migrator;
+COMMENT ON FUNCTION public.lock_command_account(uuid) IS '锁定账号 guard 并返回当前授权元数据，不提供账号修改能力';
+REVOKE ALL ON FUNCTION public.lock_command_account(uuid) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
+GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_api, liyuanci_admin_api, liyuanci_domain_worker, liyuanci_privacy_maintenance;

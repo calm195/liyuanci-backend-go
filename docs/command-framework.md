@@ -56,3 +56,7 @@ T006；REQ-004、005、006、007、014、016、018；授权关联 REQ-002、019�
 单元测试运行 `make check`；真实测试运行 `python3 scripts/check-migrations.py --container`，在随机专用 PostgreSQL 容器的 commands 数据库构造合成账号/会话/处罚，校验真实事务、锁等待及 SET ROLE 权限。未配置 APP_COMMAND_TEST_DSN 时集成用例明确跳过；常规无中间件检查不能替代真实验证。脚本也在锁定 Go 1.25 builder 中离线测试本库，CI 原迁移 job 自动覆盖新增包；远端 CI 未执行。
 
 会话签发/真实身份提供方、HTTP 错误映射、三条额度/B01、实际匹配/聊天/审核/处罚命令、发件箱消费与恢复删除均未在本批实现。真实 D02/D03/D05 和两端验收缺口仍保留在[交付清单](dependency-deliverables.md)。
+
+## 后台工作复用
+
+`NormalizePlan` 与 `LockPlan` 供可信内部消费事务复用完整集合、排序锁和快照；LockPlan 拒绝根连接，不注入请求主体，Tx.Actor 为空，不执行 Bearer 或领域权限判断。消费入口必须重发现参与者、锁定工作源，再由领域回调复核当前资格/版本与隐私条件，同事务写结果/终态/回执。领域 worker 通过显式 permissions 的 lock_command_account 函数取得账号 guard，不获得账号 UPDATE；该函数与后台 guard 同样定参、固定 search_path、最小 EXECUTE，不改变表字段或已应用迁移。普通命令也使用该账号函数，因此迁移后需显式重放 permissions。

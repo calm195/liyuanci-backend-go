@@ -51,12 +51,19 @@ func normalize(discovery Discovery, subject Subject) (Discovery, error) {
 	} else {
 		admins = append(admins, subject.ID)
 	}
+	discovery.Accounts = accounts
+	discovery.Admins = admins
+	return NormalizePlan(discovery)
+}
+
+// NormalizePlan 排序并校验后台工作发现的完整参与者集合，不隐式加入客户端主体。
+func NormalizePlan(discovery Discovery) (Discovery, error) {
 	var err error
-	discovery.Accounts, err = ids(accounts)
+	discovery.Accounts, err = ids(discovery.Accounts)
 	if err != nil {
 		return Discovery{}, err
 	}
-	discovery.Admins, err = ids(admins)
+	discovery.Admins, err = ids(discovery.Admins)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -112,7 +119,7 @@ func (e *Engine) lock(ctx context.Context, db *gorm.DB, subject Subject, discove
 	}
 	for _, id := range discovery.Accounts {
 		var guards []Guard
-		if err := db.Raw("SELECT id,lifecycle,verification,auth_epoch,version FROM public.accounts WHERE id=? FOR UPDATE", id).Scan(&guards).Error; err != nil {
+		if err := db.Raw("SELECT id,lifecycle,verification,auth_epoch,version FROM public.lock_command_account(?)", id).Scan(&guards).Error; err != nil {
 			return nil, err
 		}
 		if len(guards) != 1 {
@@ -211,4 +218,31 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 		}
 	}
 	return nil
+}
+
+// LockPlan 在调用方现有事务中按统一锁序取得后台工作依赖；本函数不提交或决定业务资格。
+// 调用方必须重发现参与者、锁工作源、校验当前版本/资格，并在同事务提交结果与消费回执。
+func LockPlan(ctx context.Context, db *gorm.DB, plan Discovery, timeout time.Duration) (*Tx, error) {
+	if db == nil || db.Statement == nil || timeout < time.Millisecond {
+		return nil, ErrInvalid
+	}
+	if _, ok := db.Statement.ConnPool.(gorm.TxCommitter); !ok {
+		return nil, ErrInvalid
+	}
+	normalized, err := NormalizePlan(plan)
+	if err != nil {
+		return nil, err
+	}
+	engine := &Engine{config: Config{LockTimeout: timeout}}
+	tx, err := engine.lock(ctx, db, Subject{}, normalized)
+	if err != nil {
+		return nil, normalizeError(err)
+	}
+	if err = tx.lockResources(normalized.Resources); err != nil {
+		return nil, normalizeError(err)
+	}
+	if err = db.WithContext(ctx).Raw("SELECT clock_timestamp()").Scan(&tx.now).Error; err != nil {
+		return nil, normalizeError(err)
+	}
+	return tx, nil
 }

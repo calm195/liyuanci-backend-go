@@ -47,3 +47,11 @@ Redis 未参与授权与锁，因此不能通过 Redis 状态放宽库内数据�
 - 没有新增表或字段，无需新编号迁移；既有完整中文表字段注释保持。只修改测试及本阶段记录，不增加运行操作或日志。框架生产行为、callback 所有权和缺失依赖保持上述边界。
 
 `make fmt`、`make check`、`make build`、`python3 scripts/check-migrations.py`、`git diff --check` 均通过。宿主初次构建有沙箱模块缓存写入警告，允许工具链缓存后重跑通过；本轮命令真实数据库测试覆盖率 83.5%，迁移 79.7%、身份 81.2%。使用随机专用 PostgreSQL、合成关系和会话；没有重跑正式镜像 CLI，首批镜像实测结果保留为历史证据，没有用本次宿主测试替代真实供应商/Redis 故障入口/死锁崩溃或生产验收。新增回归经原 CI 脚本入口纳入，远端未执行。
+
+## 后台消费复用锁序与最小账号 guard 权限
+
+2026-10-21；T006/T007，REQ-014、016、018、020。消费方不能使用学生 Bearer 伪造命令主体，因此新增 NormalizePlan/LockPlan：只在调用方现有事务中规范化/锁定完整参与者，复用后台→账号→资源的既有顺序和数据库时间；不提交、不提供身份或决定领域授权，Actor 为空。最终事务日志归消费入口所有，辅助函数不声明提交成功。
+
+真实 SET ROLE 检查发现领域 worker 的账号只读权限不能执行 FOR UPDATE。新增显式 permissions 函数 lock_command_account：固定 search_path、全限定表、迁移组 owner、定参 UUID，只返回 guard 元数据并锁行。普通/后台 API、领域 worker、隐私维护可执行，PUBLIC/探针/其他组不可执行；领域 worker 仍无账号 UPDATE。普通命令也复用该函数，普通启动不自动配置。没有新增表字段或改写编号迁移，函数具有中文 COMMENT，表字段注释维持完整。
+
+`make fmt`、`make check`、`make build` 通过；`python3 scripts/check-migrations.py --container` 的真实数据库回归通过（迁移 79.7%、身份 81.2%、命令 83.5%、durable 含新消费回归 81.1%），包括根连接拒绝、领域 worker 可锁但不能修改账号、探针拒绝及原命令完整回归。镜像工具链与 CLI 最终结果见第四阶段消费增量。本依赖增量先于消费组件提交；整体 T005/T006 与真实资源边界不变，未推送或部署。
