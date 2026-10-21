@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
@@ -17,6 +18,9 @@ import (
 
 // ErrConflict 表示身份已被占用或账号已绑定其他值，不包含可反查的身份信息。
 var ErrConflict = errors.New("身份绑定冲突")
+
+// ErrInactive 表示身份已映射到不可登录的生命周期，不能创建替代账号绕过注销屏障。
+var ErrInactive = errors.New("身份账号不可登录")
 
 // ErrUnavailable 表示密钥、存储或身份状态不可用，调用方不能降级明文或绕过查重。
 var ErrUnavailable = errors.New("身份基础服务不可用")
@@ -352,4 +356,85 @@ func (s *Store) reencryptOne(ctx context.Context, tx *gorm.DB, purpose, targetRe
 		return ErrUnavailable
 	}
 	return nil
+}
+
+// ResolveOpenID 在调用方根事务内解析或创建微信身份；调用方必须先取身份锁，再锁账号和会话。
+// 返回的账号不因此获得学生资格；外层负责会话、回执与身份绑定一并提交。
+func (s *Store) ResolveOpenID(ctx context.Context, tx *gorm.DB, value []byte) (id string, err error) {
+	start := time.Now()
+	defer func() {
+		result := "pending_commit"
+		if err != nil {
+			result = "failure"
+			id = ""
+		}
+		s.logger.Info("微信身份解析暂存完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	}()
+	if tx == nil || tx.Statement == nil || len(value) == 0 {
+		return "", ErrUnavailable
+	}
+	if _, ok := tx.Statement.ConnPool.(gorm.TxCommitter); !ok {
+		return "", ErrUnavailable
+	}
+	tx = tx.WithContext(ctx).Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)})
+	// 与绑定/轮换使用同一锁，避免新账号穿透双代唯一占用；锁不能由调用方提前反序取得。
+	if tx.Exec("SELECT pg_catalog.pg_advisory_xact_lock(624109174)").Error != nil {
+		return "", ErrUnavailable
+	}
+	current, e := state(tx, "openid")
+	if e != nil {
+		return "", e
+	}
+	refs := []string{current.CurrentRef}
+	if current.PreviousRef != nil {
+		refs = append(refs, *current.PreviousRef)
+	}
+	values := make([][]byte, len(refs))
+	for i, ref := range refs {
+		values[i], e = s.digest(ctx, ref, "openid", value)
+		if e != nil {
+			return "", e
+		}
+		var rows []struct{ AccountID string }
+		if tx.Raw("SELECT account_id FROM public.identity_lookup_claims WHERE purpose='openid' AND key_ref=? AND digest=?", ref, values[i]).Scan(&rows).Error != nil {
+			return "", ErrUnavailable
+		}
+		if len(rows) == 1 {
+			if id != "" && id != rows[0].AccountID {
+				return "", ErrConflict
+			}
+			id = rows[0].AccountID
+		}
+	}
+	if id != "" {
+		var active bool
+		if tx.Raw("SELECT lifecycle='active' FROM public.accounts WHERE id=? FOR UPDATE", id).Scan(&active).Error != nil {
+			return "", ErrUnavailable
+		}
+		if !active {
+			return "", ErrInactive
+		}
+		return id, nil
+	}
+	id = uuid.NewString()
+	envelope, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "openid", ObjectID: id, Version: 1}, value)
+	if e != nil {
+		return "", ErrUnavailable
+	}
+	encoded, e := json.Marshal(envelope)
+	if e != nil {
+		return "", ErrUnavailable
+	}
+	if tx.Exec("INSERT INTO public.accounts(id,nickname) VALUES (?,?)", id, "新用户").Error != nil {
+		return "", ErrUnavailable
+	}
+	if tx.Exec("INSERT INTO public.identity_secrets(account_id,purpose,content_version,envelope) VALUES (?,'openid',1,?::jsonb)", id, string(encoded)).Error != nil {
+		return "", ErrUnavailable
+	}
+	for i, ref := range refs {
+		if tx.Exec("INSERT INTO public.identity_lookup_claims(purpose,key_ref,digest,account_id) VALUES ('openid',?,?,?)", ref, values[i], id).Error != nil {
+			return "", ErrUnavailable
+		}
+	}
+	return id, nil
 }
