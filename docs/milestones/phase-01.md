@@ -321,3 +321,7 @@ Linux宿主额外叠加`-f compose.metrics.linux.yaml`，固定Node Exporter1.10
 停止不需要凭据文件，按项目标签、依赖顺序停止，API/worker退出时采集仍在线；默认保留容器/网络/卷，`--remove`也只移除容器/网络，不删卷、不prune。启动失败保留已启动资源，结构化完成记录不回显Docker输出或秘密。支持组件开关、外部环境文件、自定义项目、计划预览及Linux/中间件指标等显式扩展。[完整操作说明](../operations.md)包含本地/生产命令、参数、失败排查；生产配置模板为`configs/operations.production.env.example`，真实通知与生产准入保持待验收。
 
 验证入口：`python3 -m unittest discover -s scripts -p test_services.py -v`（13项边界PASS）、`python3 scripts/check-services.py`（2026-10-20真实全栈PASS，项目`liyuanci-dev-ops-e8a5ec59c3`）。已验证初始化幂等、默认管理/监控页面、真实API日志查询、探针往返、停止保留、无隐式迁移重启和remove保留卷；`make fmt/check/build`、shell/Python语法检查及生产计划预览通过。真实生产启动、Linux/真实通知扩展未在本功能执行，远端CI未运行。本功能不修改API契约0.1.0，不推进整体T004或认证状态。
+
+## 2026-10-21 其他模块 ORM 统一增量
+
+T004、REQ-018/020：探针回执改用实体及 GORM OnConflict 原子累加，探针实体读取消费计数；消息仍在 PostgreSQL 写入成功后确认，中文结构化完成日志保留。完整范围、设计取舍、兼容性修复、真实/合成状态与本轮实际验证见[ORM 专题后续增量](orm-refactor-2026-10-21.md#后续模块-orm-统一增量)。本次不推进生产或完整领域业务验收。

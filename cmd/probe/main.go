@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/worker"
 )
@@ -93,7 +94,7 @@ func run() error {
 	defer tick.Stop()
 	for {
 		var count int64
-		if err = r.DB.WithContext(ctx).Raw("SELECT COALESCE(MAX(delivery_count), 0) FROM foundation_probe_receipts WHERE probe_id = ?", id).Scan(&count).Error; err != nil {
+		if err = r.DB.WithContext(ctx).Model(&entity.FoundationProbeReceipt{}).Select("COALESCE(MAX(delivery_count), 0)").Where("probe_id = ?", id).Scan(&count).Error; err != nil {
 			return errors.New("探针回执查询失败，请显式执行集成数据库迁移")
 		}
 		if count >= 2 {
