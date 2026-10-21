@@ -24,7 +24,7 @@ Preserve the existing Git history and unrelated changes. Use Conventional Commit
 
 ## Configuration & Agent Instructions
 
-Environment variables use the `APP_` prefix. Never commit secrets, local overrides, or production DSNs. Apply explicit database-specific migrations; do not add startup AutoMigrate. Codex should read this guide before editing, preserve unrelated changes, keep scope focused, and report checks that could not run. Never claim tests passed without execution.
+Environment variables use the `APP_` prefix. Never commit secrets, local overrides, or production DSNs. 在显式迁移入口启用 GORM AutoMigrate，以实体结构体维护常规字段；PostgreSQL 专用约束、生成列、RLS、锁函数和权限仍通过版本 SQL 维护。API/worker 普通启动不隐式执行 DDL。每张实体表对应独立结构体，按功能模块分文件存放，禁止将所有实体堆入单一文件。 Codex should read this guide before editing, preserve unrelated changes, keep scope focused, and report checks that could not run. Never claim tests passed without execution.
 
 ## 项目文档与阶段记录要求
 
@@ -46,7 +46,7 @@ Every change must add or update comments at the affected critical points: busine
 
 ## 鲤源池实施边界
 
-用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件，禁止AutoMigrate。新增实现须在对应文档中引用任务ID和REQ，测试保留任务ID和REQ追溯，非测试代码遵循上述中文注释与日志规范。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
+用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件；GORM AutoMigrate 由显式迁移入口及专用迁移身份执行，运行身份不授予 DDL 权限。新增实现须在对应文档中引用任务ID和REQ，测试保留任务ID和REQ追溯，非测试代码遵循上述中文注释与日志规范。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
 
 ## 中间件部署约定
 
