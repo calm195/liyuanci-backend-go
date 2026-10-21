@@ -134,6 +134,10 @@ func copyTags(tags IdentityTags) IdentityTags {
 }
 
 func (p *Policy) complete(operation, requestID string, start time.Time, err error) {
+	p.finish("心愿规则计算完成", operation, requestID, start, err)
+}
+
+func (p *Policy) finish(message, operation, requestID string, start time.Time, err error) {
 	result := "success"
 	if err != nil {
 		result = "failure"
@@ -143,6 +147,6 @@ func (p *Policy) complete(operation, requestID string, start time.Time, err erro
 	}) {
 		requestID = ""
 	}
-	// 不记录原文、标签、原始摘要或字典供应商错误，调用成功仅表示规则计算完成。
-	p.logger.Info("心愿规则计算完成", zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	// 只记录技术结果；调用方在各自拥有的计算或根事务结束后使用，不附带供应商原始错误。
+	p.logger.Info(message, zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start)))
 }
