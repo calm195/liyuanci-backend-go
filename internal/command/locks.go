@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 func ids(values []string) ([]string, error) {
@@ -138,20 +141,26 @@ func (e *Engine) lock(ctx context.Context, db *gorm.DB, subject Subject, discove
 
 func (t *Tx) lockResources(resources []Resource) error {
 	for _, ref := range resources {
-		var query string
+		// 表由封闭资源类型选择；投影缺少的版本字段保持零值，不引入动态表名输入。
+		var model any
+		columns := []string{"id"}
 		switch ref.Kind {
 		case Wish:
-			query = "SELECT id,version,0 AS write_epoch FROM public.wishes WHERE id=? FOR UPDATE"
+			model = &entity.Wish{}
+			columns = append(columns, "version")
 		case Application:
-			query = "SELECT id,version,0 AS write_epoch FROM public.applications WHERE id=? FOR UPDATE"
+			model = &entity.Application{}
+			columns = append(columns, "version")
 		case Match:
-			query = "SELECT id,0 AS version,0 AS write_epoch FROM public.matches WHERE id=? FOR UPDATE"
+			model = &entity.Match{}
 		case Conversation:
-			query = "SELECT id,0 AS version,write_epoch FROM public.conversations WHERE id=? FOR UPDATE"
+			model = &entity.Conversation{}
+			columns = append(columns, "write_epoch")
 		case ModerationTask:
-			query = "SELECT id,0 AS version,0 AS write_epoch FROM public.moderation_tasks WHERE id=? FOR UPDATE"
+			model = &entity.ModerationTask{}
 		case Message:
-			query = "SELECT id,version,0 AS write_epoch FROM public.messages WHERE id=? FOR UPDATE"
+			model = &entity.Message{}
+			columns = append(columns, "version")
 		default:
 			return ErrInvalid
 		}
@@ -160,7 +169,7 @@ func (t *Tx) lockResources(resources []Resource) error {
 			Version    int64
 			WriteEpoch int64
 		}
-		if err := t.db.Raw(query, ref.ID).Scan(&rows).Error; err != nil {
+		if err := t.db.Model(model).Select(columns).Where("id = ?", ref.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) != 1 {
@@ -178,7 +187,7 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 		ExpiresAt time.Time
 		RevokedAt *time.Time
 	}
-	if err := db.Raw("SELECT subject_id,auth_epoch,expires_at,revoked_at FROM public.sessions WHERE token_hash=? AND subject_kind=? FOR UPDATE", hash, d.ActorKind).Scan(&sessions).Error; err != nil {
+	if err := db.Model(&entity.Session{}).Select("subject_id,auth_epoch,expires_at,revoked_at").Where("token_hash=? AND subject_kind=?", hash, d.ActorKind).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&sessions).Error; err != nil {
 		return err
 	}
 	if len(sessions) != 1 || sessions[0].SubjectID != tx.actor.ID || sessions[0].RevokedAt != nil || !sessions[0].ExpiresAt.After(tx.now) || sessions[0].AuthEpoch != tx.actor.AuthEpoch {
@@ -186,7 +195,7 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 	}
 	if d.ActorKind == "admin" {
 		var roles []struct{ Role string }
-		if err := db.Raw("SELECT role FROM public.admin_role_bindings WHERE admin_id=? ORDER BY role", tx.actor.ID).Scan(&roles).Error; err != nil {
+		if err := db.Model(&entity.AdminRoleBinding{}).Select("role").Where("admin_id=?", tx.actor.ID).Order("role").Find(&roles).Error; err != nil {
 			return err
 		}
 		allowed := false
@@ -210,7 +219,7 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 	}
 	if d.Access != Restricted {
 		var count int64
-		if err := db.Raw(`SELECT count(*) FROM public.penalties WHERE account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)`, guard.ID, tx.now, tx.now).Scan(&count).Error; err != nil {
+		if err := db.Model(&entity.Penalty{}).Where("account_id = ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?)", guard.ID, []string{"mute", "ban"}, tx.now, tx.now).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 0 {
