@@ -29,6 +29,7 @@ internal/
   adminauth/          显式启用的后台账号、口令及数据库会话
   studentauth/        可注入的wx.login交换、学生会话及本人资料
   studentcard/        可注入的学生卡加密上传、扫描任务与状态
+  cardworker/         学生卡消息消费、发件箱与补偿调度装配
   verification/       可注入的人工认证申请、重提、后台审核及访问留迹
   durable/            持久工作、转发/消费、数据库补偿和受控重驱动
   transportmq/        显式装配的最小 RocketMQ 运输适配
@@ -126,6 +127,6 @@ make build # Go 代码或依赖变更时必需；输出 server、worker、probe�
 
 学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](docs/student-auth.md)。
 
-学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。现有server及独立探针worker不自动启用该模块。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及实际供应商、物理清理等未完成范围见[学生卡说明](docs/student-card.md)。
+学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。`cardworker.Open`组合真实MQ适配器、发件箱和数据库扫描补偿，提供取消与等待在途结束的关闭入口。现有server及独立探针worker不自动启用这些模块；接入顺序与未完成范围见[应用装配说明](docs/application-assembly.md)。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及实际供应商、物理清理等未完成范围见[学生卡说明](docs/student-card.md)。
 
 人工认证通过`verification.New`和`httpapi.RegisterVerification`显式注入，支持本人申请/驳回重提/状态、后台脱敏队列/详情/原卡代理/版本审核。申请时在同事务绑定唯一学号，通过时核验绑定、加密姓名并更新资格；敏感读取与审核保留访问留迹。学生与后台分别使用受限池，学校规则/密钥/私有对象没有默认实现；生产进程尚未装配，接入与外部缺口见[人工认证说明](docs/verification.md)。
