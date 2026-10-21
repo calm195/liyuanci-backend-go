@@ -25,7 +25,7 @@ SessionTTL为学生绝对会话期限，ExchangeTTL为同code成功回执期限�
 - PUT /api/v1/me/profile：Bearer、Idempotency-Key、nickname/hide_identity_tags/expected_version，全部必填；200 Me。空白昵称/未知字段400，旧版本409 VERSION_CONFLICT，受罚403；同键重放仍当前授权，不重复推进version。
 - DELETE /api/v1/auth/session：Bearer与Idempotency-Key，204；受罚可退出，只撤销当前会话。旧token再调用401，不影响其他会话。
 
-均no-store。Me.allowed_actions当前只列实际已实现且当前允许的putMeProfile/deleteAuthSession，后续认证/心愿服务接线再扩展，不凭verified状态开放不存在接口。记录中文完成日志operation/request_id/result/duration；不记录code、OpenID、token、AppSecret、session_key或请求正文。
+均no-store。Me.allowed_actions当前只列实际已实现且当前允许的putMeProfile/deleteAuthSession，认证/学生卡动作由显式装配追加；心愿模块完整装配且当前verified、无交互限制时追加postWishes。GET操作不加入动作数组，未装配时不凭verified开放写入。记录中文完成日志operation/request_id/result/duration；不记录code、OpenID、token、AppSecret、session_key或请求正文。
 
 ## 验证边界
 

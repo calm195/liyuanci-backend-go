@@ -115,6 +115,10 @@ func TestPostgresQueries(t *testing.T) {
 	if _, e = s.Detail(ctx, "", "expired", r2.ID); !errors.Is(e, command.ErrNotFound) {
 		t.Fatal(e)
 	}
+	current, e := resolveCreated(ctx, s.db, r2.ID, f.owner)
+	if e != nil || current.State != Expired {
+		t.Fatal("回执解析误报已上架", current, e)
+	}
 	own, e = s.Detail(ctx, f.token, "expired-own", r2.ID)
 	if e != nil || own.State != Expired {
 		t.Fatal(own, e)

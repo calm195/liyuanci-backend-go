@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
@@ -78,7 +80,7 @@ func TestPostgresWishHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := New(logger, func(context.Context) error { return nil })
-	if err := RegisterWishCreation(router, service); err != nil {
+	if err := RegisterWishes(router, service); err != nil {
 		t.Fatal(err)
 	}
 	request := func(key, body string) *httptest.ResponseRecorder {
@@ -121,4 +123,93 @@ func TestPostgresWishHTTP(t *testing.T) {
 	if request("key", body).Code != 403 {
 		t.Fatal("撤销资格后仍可重放")
 	}
+	if err := root.Model(&entity.Account{}).Where("id=?", id).Update("verification", "verified").Error; err != nil {
+		t.Fatal(err)
+	}
+	perform := func(method, path, key, body string, guest bool) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if !guest {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	path := "/api/v1/wishes/" + a.Data.ID
+	updated := perform("PUT", path+"/content", "edit", `{"category":"help","body":"新正文","campus":"any","refresh_expiry":false,"expected_version":1}`, false)
+	if updated.Code != 200 {
+		t.Fatal(updated.Code, updated.Body.String())
+	}
+	submitted := perform("POST", path+"/submit-review", "submit", `{"expected_version":2,"content_version":2}`, false)
+	if submitted.Code != 202 {
+		t.Fatal(submitted.Code, submitted.Body.String())
+	}
+	if result := perform("POST", path+"/publish", "publish", `{"expected_version":3}`, false); result.Code != 409 {
+		t.Fatal("未审却上架", result.Code)
+	}
+	if result := perform("GET", path, "", "", true); result.Code != 404 {
+		t.Fatal("游客看到待审", result.Code)
+	}
+	if result := perform("GET", "/api/v1/me/wishes?limit=1", "", "", false); result.Code != 200 || !strings.Contains(result.Body.String(), "own_content") {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	if result := perform("GET", "/api/v1/wishes?limit=1", "", "", true); result.Code != 200 || strings.Contains(result.Body.String(), "新正文") {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	if result := perform("PUT", path+"/content", "edit-again", `{"category":"help","body":"删除前正文","campus":"any","refresh_expiry":false,"expected_version":3}`, false); result.Code != 200 {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	for range 2 {
+		if result := perform("DELETE", path+"/draft", "delete", `{"expected_version":4}`, false); result.Code != 204 || result.Body.Len() != 0 {
+			t.Fatal(result.Code, result.Body.String())
+		}
+	}
+	if result := perform("GET", path, "", "", false); result.Code != 404 {
+		t.Fatal("删除对象被复活", result.Code)
+	}
+
+	// Me只在显式装配且当前认证/交互资格满足时提示postWishes，Current不调用微信供应商。
+	authConfig := studentauth.Config{Wishes: true, SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{69}, 32), Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}}
+	authService, err := studentauth.New(open("liyuanci_identity_maintenance"), logger, wishUnusedAuth{}, wishUnusedAuth{}, wishUnusedAuth{}, authConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, err := authService.Current(context.Background(), token, "me-wish")
+	if err != nil || !slices.Contains(me.AllowedActions, "postWishes") {
+		t.Fatal(me, err)
+	}
+
+	authConfig.Wishes = false
+	disabled, err := studentauth.New(open("liyuanci_identity_maintenance"), logger, wishUnusedAuth{}, wishUnusedAuth{}, wishUnusedAuth{}, authConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hiddenMe, err := disabled.Current(context.Background(), token, "me-disabled")
+	if err != nil || slices.Contains(hiddenMe.AllowedActions, "postWishes") {
+		t.Fatal(hiddenMe, err)
+	}
+	if err := root.Model(&entity.Account{}).Where("id=?", id).Update("verification", "unverified").Error; err != nil {
+		t.Fatal(err)
+	}
+	me, err = authService.Current(context.Background(), token, "me-unverified")
+	if err != nil || slices.Contains(me.AllowedActions, "postWishes") {
+		t.Fatal(me, err)
+	}
+
 }
+
+// wishUnusedAuth 只用于证明Current不接触供应商；调用任何外部能力都使测试失败。
+type wishUnusedAuth struct{}
+
+func (wishUnusedAuth) Exchange(context.Context, string) ([]byte, error) {
+	panic("不应交换微信身份")
+}
+func (wishUnusedAuth) ResolveOpenID(context.Context, *gorm.DB, []byte) (string, error) {
+	panic("不应访问外部身份")
+}
+func (wishUnusedAuth) Allow(context.Context, string) (bool, error) { panic("不应调用登录限流") }

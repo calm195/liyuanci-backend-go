@@ -85,31 +85,41 @@ func wishObject(data []byte, allowed []string) (map[string]json.RawMessage, erro
 	return fields, nil
 }
 
-func decodeWishInput(c *gin.Context) (out wish.ContentInput, err error) {
+func readWishJSON(c *gin.Context, allowed []string) (data []byte, fields map[string]json.RawMessage, err error) {
 	if c.ContentType() != "application/json" {
-		return out, command.ErrInvalid
+		return nil, nil, command.ErrInvalid
 	}
-	// 即使装配方未使用New，也限制此入口的读取量；不允许JSON悄悄替换非法UTF-8。
-	data, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
+	data, err = io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
 	if err != nil || !utf8.Valid(data) {
-		return out, command.ErrInvalid
+		clear(data)
+		return nil, nil, command.ErrInvalid
 	}
-	defer clear(data)
-	fields, err := wishObject(data, []string{"category", "body", "campus", "identity_tags", "reward_method", "duration_days"})
+	fields, err = wishObject(data, allowed)
+	if err != nil {
+		clear(data)
+		return nil, nil, err
+	}
+	if tags := fields["identity_tags"]; tags != nil {
+		if _, err = wishObject(tags, []string{"campus", "grade", "gender"}); err != nil {
+			clear(data)
+			return nil, nil, err
+		}
+	}
+	return data, fields, nil
+}
+
+func decodeWishInput(c *gin.Context) (out wish.ContentInput, err error) {
+	data, fields, err := readWishJSON(c, []string{"category", "body", "campus", "identity_tags", "reward_method", "duration_days"})
 	if err != nil {
 		return out, err
 	}
+	defer clear(data)
 	for _, required := range []string{"category", "body", "campus"} {
 		if fields[required] == nil {
 			return out, command.ErrInvalid
 		}
 	}
-	if tags := fields["identity_tags"]; tags != nil {
-		if _, err = wishObject(tags, []string{"campus", "grade", "gender"}); err != nil {
-			return out, err
-		}
-	}
-	if err = json.Unmarshal(data, &out); err != nil {
+	if json.Unmarshal(data, &out) != nil {
 		return wish.ContentInput{}, command.ErrInvalid
 	}
 	return out, nil

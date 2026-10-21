@@ -39,10 +39,10 @@ func createDraftRows(ctx context.Context, db *gorm.DB, now time.Time, id, regist
 }
 
 // resolveCreated 不锁历史结果以免逆序取锁；作者 guard 已串行化同作者命令。
-// 只读当前归属和版本，内容删除或转移后拒绝重放，不从回执重建正文或对象。
+// 只读当前归属和版本，截止时直接投影过期；删除或转移后拒绝重放，不从回执重建正文或对象。
 func resolveCreated(ctx context.Context, db *gorm.DB, id, owner string) (CreatedDraft, error) {
 	var row entity.Wish
-	err := db.WithContext(ctx).Select("id,version,current_content_version,state").Where("id=? AND owner_id=? AND draft_deleted_at IS NULL", id, owner).Take(&row).Error
+	err := db.WithContext(ctx).Select("id,version,current_content_version,CASE WHEN state='published' AND expires_at<=clock_timestamp() THEN 'expired' ELSE state END AS state").Where("id=? AND owner_id=? AND draft_deleted_at IS NULL", id, owner).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return CreatedDraft{}, command.ErrNotFound
 	}

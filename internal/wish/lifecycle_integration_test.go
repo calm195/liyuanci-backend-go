@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
@@ -304,6 +306,48 @@ func TestPostgresLifecycle(t *testing.T) {
 	var cancelled entity.WorkItem
 	if e := f.root.Where("id=?", workID).Take(&cancelled).Error; e != nil || cancelled.Status != "cancelled" {
 		t.Fatal(cancelled, e)
+	}
+
+	// 应愿中跨原期限仍占一个名额，不能被到期查询释放。
+	g := lifecycleSetup(t)
+	matching := g.ready()
+	g.exec("UPDATE public.wishes SET state='matching',published_at=clock_timestamp()-interval '8 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=?", matching.ID)
+	for range 2 {
+		candidate := g.ready()
+		v, e := g.service.Publish(ctx, g.token, uuid.NewString(), "matching-quota", candidate.ID, candidate.Version)
+		if e != nil || v.State != Published {
+			t.Fatal(v, e)
+		}
+	}
+	candidate := g.ready()
+	v, e := g.service.Publish(ctx, g.token, uuid.NewString(), "matching-quota-full", candidate.ID, candidate.Version)
+	if e != nil || v.State != Ready {
+		t.Fatal("应愿中没有占额度", v, e)
+	}
+
+	// 授权查询失败必须映射依赖故障，不能因错误被折叠成“不存在”而误报404。
+	injected := false
+	callback := "synthetic_wish_authorize_failure"
+	if e := s.db.Callback().Query().Before("gorm:query").Register(callback, func(db *gorm.DB) {
+		if !strings.HasSuffix(db.Statement.Table, "wishes") {
+			return
+		}
+		where, ok := db.Statement.Clauses["WHERE"].Expression.(clause.Where)
+		if !ok {
+			return
+		}
+		for _, expression := range where.Exprs {
+			if raw, ok := expression.(clause.Expr); ok && strings.Contains(raw.SQL, "owner_id") {
+				injected = true
+				db.AddError(gorm.ErrInvalidDB)
+			}
+		}
+	}); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { s.db.Callback().Query().Remove(callback) })
+	if _, e := s.Update(ctx, f.token, uuid.NewString(), "authorize-failure", candidate.ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: candidate.Version}); !injected || !errors.Is(e, command.ErrUnavailable) {
+		t.Fatal("授权故障映射错误", injected, e)
 	}
 
 }

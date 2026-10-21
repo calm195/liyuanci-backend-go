@@ -38,6 +38,8 @@ type Limiter interface {
 
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
+	// Wishes 只在本域全部入口已成功装配时提示创建动作。
+	Wishes bool
 	// StudentCardAssets 仅在同一装配显式注册学生卡路由后启用动作提示。
 	StudentCardAssets bool
 	// VerificationRequests 仅在人工认证服务和路由已显式装配后启用申请动作。
@@ -376,6 +378,9 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 	}
 	if e == nil && s.config.VerificationRequests && slices.Contains(out.AllowedActions, "putMeProfile") && (out.Verification == "unverified" || out.Verification == "rejected") {
 		out.AllowedActions = append(out.AllowedActions, "postMeVerificationRequests")
+	}
+	if e == nil && s.config.Wishes && out.Verification == "verified" && slices.Contains(out.AllowedActions, "putMeProfile") {
+		out.AllowedActions = append(out.AllowedActions, "postWishes")
 	}
 	return out, e
 }

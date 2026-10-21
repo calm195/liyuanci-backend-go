@@ -3,6 +3,7 @@ package wish
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -24,7 +25,11 @@ type UpdateInput struct {
 
 // ReviewRoute 返回固定的审核工作路由，消费者必须复核任务、版本和当前授权，不能直接信任唤醒。
 func ReviewRoute() durable.Route {
-	return durable.Route{Kind: "wish_review", TargetKind: "moderation_task", EventType: "wish.review_requested"}
+	return durable.Route{
+		Kind:       "wish_review",
+		TargetKind: "moderation_task",
+		EventType:  "wish.review_requested",
+	}
 }
 
 func validWishID(id string) bool {
@@ -93,14 +98,24 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 		path = "/api/v1/wishes/" + id + "/draft"
 		method = "DELETE"
 	}
-	d := command.Definition{Kind: "wish." + string(change.Action), Method: method, ResourcePath: path, ActorKind: "student", Access: command.Verified}
+	d := command.Definition{
+		Kind:         "wish." + string(change.Action),
+		Method:       method,
+		ResourcePath: path,
+		ActorKind:    "student",
+		Access:       command.Verified,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return discoverWish(ctx, db, id)
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var row entity.Wish
+		// 仅目标缺失或归属不符返回404，存储故障交给拥有边界映射为依赖失败。
 		if e := tx.DB().WithContext(ctx).Where("id=? AND owner_id=?", id, tx.Actor().ID).Take(&row).Error; e != nil {
-			return command.ErrNotFound
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return command.ErrNotFound
+			}
+			return e
 		}
 		if row.DraftDeletedAt != nil && change.Action != DeleteDraft {
 			return command.ErrNotFound

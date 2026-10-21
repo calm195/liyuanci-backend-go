@@ -19,6 +19,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // unavailable 只用于证明构造及未授权请求不调用供应商，不实现合成业务成功路径。
@@ -170,5 +171,39 @@ func TestRejectPartialApplication(t *testing.T) {
 				t.Fatal("缺少失败完成日志")
 			}
 		})
+	}
+}
+
+// TestOptionalWishAssembly 追溯 T014/REQ-003/004/018：独立池/密钥、全部路由及未授权请求不调用供应商。
+func TestOptionalWishAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
+	router, err := New(d, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.Wishes {
+		t.Fatal("修改调用方配置")
+	}
+	if len(router.Routes()) != 23 {
+		t.Fatal("心愿路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes"}, {"PUT", "/api/v1/wishes/id/content"}, {"POST", "/api/v1/wishes/id/submit-review"}, {"POST", "/api/v1/wishes/id/publish"}, {"POST", "/api/v1/wishes/id/withdraw"}, {"DELETE", "/api/v1/wishes/id/draft"}, {"GET", "/api/v1/me/wishes"}} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
+		if response.Code != 401 {
+			t.Fatal(tc, response.Code)
+		}
+	}
+	d.WishDB = d.StudentDB
+	if router, err := New(d, cfg); err == nil || router != nil {
+		t.Fatal("允许复用身份维护池")
+	}
+	d.WishDB = other.StudentDB
+	cfg.Wish.ReceiptKey = cfg.Auth.SessionKey
+	if router, err := New(d, cfg); err == nil || router != nil {
+		t.Fatal("允许复用用途密钥")
 	}
 }
