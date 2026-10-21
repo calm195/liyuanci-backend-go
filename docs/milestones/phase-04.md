@@ -37,3 +37,33 @@ T007 仍为部分实现。下一步按依赖推进：消费方从持久源读取
 `make fmt`、`make check`、`make build`、`python3 scripts/check-migrations.py --container`、`git diff --check` 通过。隔离真实数据库包覆盖率：迁移 79.7%、身份 81.2%、命令 83.5%、durable 84.9%。锁定 Go 1.25.0 builder 离线库测试通过，正式 CLI 以 UID10001 验证重复 up/permissions、down/up、恢复库隔离和安全日志；本地制品 `liyuanci-migrate-check:634f1d7bf41a` 未发布。首次普通脚本验证通过后，补入确认前中断预算检查并重跑上述完整镜像验证；后者为本批最终实测。
 
 未改真实 Broker/监控/启停行为，未重跑这些无关验收；远端 CI、真实发送/消费、生产部署、性能、删除恢复均未执行。SQL 沿用完整中文表字段注释并由结构测试复核，没有新增表字段或改写已应用版本。用户授权按计划提交，本批按依赖接在命令框架之后，不推送或部署。
+
+## 消费侧增量：当前持久源、去重与取消终结
+
+2026-10-21；T007/REQ-006、007、015、017、018、020。依赖先提交 `d3a6ff0` 的后台 LockPlan 与最小账号 guard 函数，再提交本节消费实现；不改变业务范围或依赖交付状态。
+
+### 实现范围与关键流程
+
+`NewConsumer` 显式注入根 DB、zap、固定 ConsumerDefinition 与技术配置，拒绝已有事务。事件只能提供最小技术引用；Consumer 用全部技术事件字段匹配真实 outbox/work 关联，锁后再次重读关联，不接受伪造目标/版本/类型/时间，不从未知事件重建工作。事件/工作已清理或不匹配返回 Missing，不插入回执。
+
+初读使用真正只读事务发现完整业务参与者，LockPlan 按既有顺序锁 guard/资源，再锁工作源。后台 Tx.Actor 为空，不能借用学生 Bearer；领域 Discover 必须列全当前存在的依赖，Apply 必须复核当前生命周期、权限代次、资格/处罚、目标版本与隐私屏障，具体规则仍由后续领域实现。Work.TargetVersion 来自数据库 outbox.aggregate_version，Work.Version 是工作自身版本，绝不互相替代；锁后用持久源重新发现集合，变化整事务回滚后进入持久重试，不追加逆序锁。
+
+同一工作行串行化消费者，按服务端 consumer_kind 与数据库 operation_id 查询去重。Apply 的纯数据库业务结果、工作 completed/cancelled 终态及 consumer_receipts 在同一根事务提交；运输层只可在 Consume 返回后确认，确认前中断再投递不会重复产生业务结果。Apply 不得手动提交/另起写事务/进行网络外发，涉及外部操作的工作必须拆分领取、调用、最终复核，不能把本入口当成持长事务的外部执行器。
+
+已 completed/cancelled 的工作无需重新发现可能已被注销清理的依赖，不执行 Apply，只幂等记录技术回执；attention、未到 next_at、未过期 leased 返回 Deferred，不插入成功回执。当前领域发现结果需要安全处理目标不存在：只锁仍存在的依赖，Apply 返回 Obsolete 后无操作取消；不能把缺失内容从旧事件恢复。
+
+临时失败先回滚业务，再以工作版本 CAS 持久化 retry_wait/next_at/attempts；达到显式预算或配置失败/panic 转 attention，均不插成功回执。失败调度事务只修改工作元数据，拒绝覆盖其他消费者新版本、completed/cancelled/attention；父 context 已取消或数据库不可用时失败关闭，保留数据库当前状态待后续重投/补偿。Apply panic 先由 GORM 回滚，再由边界恢复与调度，日志只留 recovered 标记，不留原文。初读 Discover panic 也恢复为稳定失败，但不在尚未建立可信工作上下文时写待办。
+
+消费完成日志只在根事务结果确定后记录 result、consumer、duration、replayed/cancelled/missing/deferred/recovered，不记录身份、事件正文或数据库/panic 原文。工作库错误统一屏蔽，ErrTemporary/ErrConfiguration 为回调显式错误契约；未分类存储错误保持失败，不擅自签成业务取消。复用现有表及完整中文表字段注释，无编号迁移/自动迁移/默认真实工作类型；未修改启停、监控或 Broker。
+
+### 实测与限制
+
+真实 PostgreSQL 新用例覆盖八并发同工作只提交一次、伪造/未知事件不建工作或回执、终态取消跳过领域回调、资格撤销与目标版本过时无操作取消、工作与目标版本独立、失败业务回滚/持久重试预算/attention 不自动重放、panic 后先回滚再待办、初读后取消不被重试复活、未来 next_at 不插回执、实际领域 worker 权限和提交后模拟运输确认丢失的 JSON 重投。合成领域只改测试账号或只完成技术工作，不冒称真实审核/消息服务；取消测试使用已有持久终态，没有实现注销/处罚领域命令或完整隐私矩阵。
+
+首次真实检查发现领域 worker 的账号 SELECT 不足以 FOR UPDATE，已通过前置最小 guard 函数修复，并复验通过；没有给它账号 UPDATE。`make fmt`、`make check`、`make build` 和真实隔离 `python3 scripts/check-migrations.py --container` 通过；锁定 Go 1.25.0 库测试、正式非 root CLI/重复权限/上下行/恢复隔离及日志也通过。首次完整镜像制品 `liyuanci-migrate-check:8a733559866c` 为本地验证；其后新增锁后事件重读与独立目标版本反例，最终结果另附，不把先前制品当作新增反例已验证。
+
+### 最新未完成项
+
+T007 仍部分实现：数据库定时补偿/重新唤醒、业务取消写入命令、安全重驱动/待办入口、真实 RocketMQ Sender 与订阅/ACK/NACK、重复/晚到/确认前故障的真实往返、独立业务 worker 装配及资源隔离尚未完成。Deferred 的唤醒不能被装配方当成工作最终完成，需要未来数据库补偿；当前没有对外可用的 Broker 消费进程。D04 真实身份/主题/留存、D02 真实密钥与身份、D05 删除/恢复缺口继续保留；本批不推送、不部署，不签整体或生产验收。
+
+消费增量最终复验：锁后持久事件重读及 TargetVersion/Version 独立反例加入后，`make fmt`、`make check`、`make build`、`python3 scripts/check-migrations.py --container`、`git diff --check` 全部通过。真实包覆盖率为迁移 79.7%、身份 81.2%、command 83.5%、durable 80.3%；新增分支后覆盖率变化如实保留，不以比例代替场景断言。锁定 Go 1.25 builder 与正式 CLI 完整复验通过，本地制品 `liyuanci-migrate-check:2891abf6304d`。未连接真实业务 Broker、未发布；原迁移 CI job 自动包含新包内测试，远端未执行。

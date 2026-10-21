@@ -1,4 +1,4 @@
-// Package durable 提供同事务持久工作写入和带租约的最小唤醒转发，不执行领域消费。
+// Package durable 提供同事务持久工作、最小唤醒转发与幂等消费，领域规则由注入处理器负责。
 package durable
 
 import (
@@ -17,10 +17,10 @@ var (
 	ErrInvalid = errors.New("持久工作参数无效")
 	// ErrUnavailable 表示存储操作失败，原始错误不越过边界。
 	ErrUnavailable = errors.New("持久工作存储不可用")
-	// ErrTemporary 表示发送依赖临时失败，可按配置重试。
-	ErrTemporary = errors.New("唤醒发送暂时失败")
-	// ErrConfiguration 表示发送配置不可恢复，需要异常待办处理。
-	ErrConfiguration = errors.New("唤醒发送配置失败")
+	// ErrTemporary 表示处理依赖临时失败，可按持久状态和配置重试。
+	ErrTemporary = errors.New("持久工作暂时失败")
+	// ErrConfiguration 表示配置或回调不能安全继续，需要异常待办处理。
+	ErrConfiguration = errors.New("持久工作处理失败")
 	// ErrLeaseLost 表示租约过期或已被其他转发者取得。
 	ErrLeaseLost = errors.New("转发租约已失效")
 )
