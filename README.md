@@ -4,9 +4,7 @@
 
 鲤源池后端采用 Go 模块化单体 API 与独立 worker，模块为 `github.com/calm195/liyuanci-backend-go`。PostgreSQL 是业务权威，Redis 与 RocketMQ 提供配套能力，事务发件箱为后续领域实现方案。
 
-当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施。API 仅提供健康端点；认证、领域发件箱与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
-
-另已提供显式业务迁移、隔离证据/恢复库、身份唯一占用与双代轮换、信封/有界对象加密；真实密钥、身份审核和恢复流程尚未接入。
+当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及独立的业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和待密钥供应商接入的信封及有界对象加密组件。API 仅提供健康端点；认证、领域发件箱与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
 
 阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
@@ -25,13 +23,17 @@ cmd/
   server/             API 依赖装配与生命周期
   worker/             独立集成探针消费者
   probe/              集成探针生产与回执检查
+  migrate/            显式版本迁移命令
 internal/
+  identity/           加密身份存储、唯一占用及受控轮换
+  migration/          内嵌迁移 SQL、事务锁、版本校验及显式权限配置
+  securedata/         信封加密及域隔离 HMAC 基础
   config/             YAML 与环境配置
   httpapi/            Gin 处理器与中间件
   platform/           日志及中间件客户端
   worker/             探针消费逻辑
 configs/              配置示例与监控配置
-migrations/           显式执行的数据库迁移
+migrations/           集成探针 SQL（业务版本 SQL 位于 internal/migration/sql）
 scripts/              初始化、启停及隔离验收脚本
 docs/
   milestones/         按阶段分文件的实施与验收记录
@@ -80,24 +82,25 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
-业务迁移仅由显式 bin/migrate up/down/permissions 执行，使用仓库外 APP_DATABASE_DSN；恢复 journal-up/down/permissions 使用独立 APP_RECOVERY_DATABASE_DSN，禁止混库。运行组 NOLOGIN，普通启动不迁移或改权限。完整安全边界见阶段记录。验证入口：python3 scripts/check-migrations.py --container。
-
 ## 4. 开发规范与须知
+
+账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
 
 - 使用 Go 1.25+、gofmt 与标准 Go 命名；测试与源码相邻，单元测试无需中间件。依赖变化后执行 `go mod tidy`，同步维护 `go.mod`、`go.sum`。
 - 按领域组织功能；HTTP 层负责校验及状态映射，service 负责业务规则，repository 负责 GORM 查询。I/O 首参使用 `context.Context`，数据库调用使用 `WithContext`，依赖显式注入。
 - 注释默认中文，导出符号注释以标识符开头；关键业务、资源归属、生命周期和恢复逻辑说明原因。非测试代码不含任务编号，运行日志使用中文消息与注入的 `*zap.Logger`，成功后记录完成，失败在所属边界记录。
 - 不记录凭据、DSN、请求正文或个人信息；日志索引仅使用 environment/service/host。技术日志不能替代业务审计或删除日志。
 - 数据库迁移显式执行，禁止启动 AutoMigrate；开发与生产隔离环境、网络、数据卷及凭据。停止不得删除卷、force/prune 或操作其他项目。
+- SQL 必须为每张表和每个字段提供中文数据库注释，使用 `COMMENT ON TABLE/COLUMN`；迁移集成检查验证注释完整性。
 - 每次修改完成后运行下列格式与质量检查；Go 代码或依赖变化另运行构建。CI 保持相同检查，未执行的验证必须明确说明。
 
 ```sh
 make fmt
 make check  # 只读格式检查、go vet、race 测试与覆盖率
-make build # Go 代码或依赖变更时必需；输出 server、worker、probe
+make build # Go 代码或依赖变更时必需；输出 server、worker、probe、migrate
 ```
 
-真实中间件往返独立执行 `sh scripts/integration.sh`；启停、监控及中间件指标变更的专项检查见 [AGENTS.md](AGENTS.md)，具体历史结果按阶段记录。
+业务迁移验证可执行 `python3 scripts/check-migrations.py --container`，包含正式镜像及非 root CLI 验证；外部资源交付见[依赖清单](docs/dependency-deliverables.md)。真实中间件往返独立执行 `sh scripts/integration.sh`；启停、监控及中间件指标变更的专项检查见 [AGENTS.md](AGENTS.md)，具体历史结果按阶段记录。
 
 功能完成时在上述四部分更新必要的项目说明、选项或用法；详细功能设计、任务 ID/REQ、范围、未完成项、真实/模拟状态及验证命令和实际结果写入 `docs/milestones/` 对应阶段文件，不在 README 累积里程碑记录。阶段文档不得把未实现或未经验证的能力描述为完成。
 
