@@ -10,7 +10,8 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -o /artifacts/server ./cmd/server && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/worker ./cmd/worker && \
-    CGO_ENABLED=0 go build -trimpath -o /artifacts/probe ./cmd/probe
+    CGO_ENABLED=0 go build -trimpath -o /artifacts/probe ./cmd/probe && \
+    CGO_ENABLED=0 go build -trimpath -o /artifacts/migrate ./cmd/migrate
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 WORKDIR /app

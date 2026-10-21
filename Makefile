@@ -5,6 +5,7 @@ build:
 	go build -trimpath -o bin/server ./cmd/server
 	go build -trimpath -o bin/worker ./cmd/worker
 	go build -trimpath -o bin/probe ./cmd/probe
+	go build -trimpath -o bin/migrate ./cmd/migrate
 test:
 	go test -race -cover ./...
 fmt:

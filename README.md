@@ -6,7 +6,7 @@
 
 当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施。API 仅提供健康端点；认证、领域发件箱与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
 
-另已提供未接入 API 的信封、有界对象加密和 HMAC 原语；真实密钥源尚未交付。
+另已提供显式业务迁移、独立恢复库结构/权限及信封/有界对象加密基础；领域服务和真实密钥适配尚未实现。
 
 阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
@@ -79,6 +79,8 @@ make run
 pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pgadmin-password` 和 `~/.config/liyuanci/observability-dev/grafana-password`，自定义配置时以实际路径为准。pgAdmin 连接 PostgreSQL 使用 `postgres:5432`，数据库与用户名均为 `liyuanci`，口令来自开发目录的 `postgres-password`。已有卷不会因修改初始化文件而重置账号。
 
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
+
+业务迁移仅由显式 bin/migrate up/down/permissions 执行，使用仓库外 APP_DATABASE_DSN；恢复 journal-up/down/permissions 使用独立 APP_RECOVERY_DATABASE_DSN，禁止混库。运行组 NOLOGIN，普通启动不迁移或改权限。完整安全边界见阶段记录。验证入口：python3 scripts/check-migrations.py --container。
 
 ## 4. 开发规范与须知
 
