@@ -93,6 +93,8 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
+心愿草稿创建支持显式注入事务服务及 `httpapi.RegisterWishCreation`，默认进程尚未接线；依赖、请求及隔离检查见 [心愿草稿创建模块](docs/wish.md)。
+
 ## 4. 开发规范与须知
 
 常规数据库增删改查使用 `internal/entity` 中按功能模块拆分的实体和 GORM；显式处理 NULL、零值和数据库默认值。行锁与冲突更新使用 GORM Clauses，保留 PostgreSQL 专用锁函数、原子 CTE、队列租约及 LATERAL 关联逻辑；受限身份的插入回读列须符合现有列级授权。

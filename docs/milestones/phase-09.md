@@ -53,3 +53,13 @@ Public 复用当前资格和审核条件，仅 published 且当前截止前可�
 该模块未注册HTTP、未装配生产资源，也未实现编辑/删除/提交审核/上架持久化或广场查询；共享接口实施状态保持原状，不宣称T014整项交付或跨端验收。后续HTTP与事务模块按依赖继续交付。
 
 本模块最终验证：python3 scripts/check-wish.py退出0，真实隔离PG下wish覆盖率95.0%，包含提交时故障及并发反例；make fmt、make check通过。首次make build有模块缓存沙箱写入提示，允许正常缓存后提交前重跑make fmt/check/build及git diff --check，均通过。不执行跨端、生产或真实供应商验收。
+
+## 显式草稿创建HTTP模块
+
+2026-10-21；T014，REQ-003、004、005、008、014、018。新增httpapi.RegisterWishCreation，仅显式注册POST /api/v1/wishes，调用上节已交付的wish.Service.Create；沿用正式0.2.0 WishInput/WishResult、学生Bearer与Idempotency-Key，不更改Wire字段或版本。必填category/body/campus，保留省略/显式字段差异；顶层与identity_tags按精确字段白名单校验，拒绝重复键、null、大小写错误字段、未知字段、尾随JSON、错误类型、非法UTF-8及超1MiB请求。正文/枚举/年级/期限的业务校验由已授权服务执行，未在HTTP鉴权前访问外部字典。
+
+返回201及当前id/version/content_version/current_state，allowed_actions为空数组，因为此装配尚未实现编辑/详情/送审等后续动作；不返回正文、用户标签或密文。响应no-store/no-cache并带请求关联头，错误使用既有400/401/403/404/409/500/503映射。注册到httpapi.New上复用注入zap的请求完成及恢复日志，所有失败/异常路径保留最终状态，panic与供应商原始错误不进入响应。cmd/server、现有studentapi装配尚未接线，默认不开放该入口，也未修改学生/me动作授权；共享索引不以本注入模块冒充真实进程交付。依赖与请求示例见[模块说明](../wish.md)。
+
+协议测试使用显式合成服务，覆盖省略/全字段、严格解析、失败映射、无权限、异常恢复、请求完成日志和安全响应；真实隔离检查另以liyuanci_api运行角色验证HTTP→命令→PostgreSQL，覆盖创建201、同键重放201、同键异正文409、501码点400、数据库只产生一个草稿、撤销认证后重放403。scripts/check-wish.py在同次随机容器的两个独立测试库分别执行事务及HTTP检查，实际密钥服务仍是合成夹具，不含跨端联调。
+
+本轮python3 scripts/check-wish.py退出0：事务模块含race检查覆盖95.0%；单独运行TestPostgresWishHTTP通过（该单个HTTP集成测试覆盖率16.5%，不混作全包覆盖率）。make fmt、make check（只读格式、vet、race-cover）通过，全包普通检查httpapi覆盖率65.7%，数据库测试在无DSN时明确跳过。最终make fmt、make check、make build及git diff --check全部退出0。T014仍未整体验收：编辑/删除/提交审核/上架持久化、广场及本人查询、真实配置与进程接线后续继续，不执行跨端、推送、部署或生产验收。
