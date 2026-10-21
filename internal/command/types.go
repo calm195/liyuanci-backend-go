@@ -23,6 +23,8 @@ var (
 	ErrVersionConflict = errors.New("版本冲突")
 	// ErrIdempotencyConflict 表示同一键关联不同请求。
 	ErrIdempotencyConflict = errors.New("幂等键与请求不一致")
+	// ErrAssetNotReady 表示本人资源仍在处理或未通过安全检查。
+	ErrAssetNotReady = errors.New("资源尚未就绪")
 	// ErrConflict 表示数据库业务约束冲突。
 	ErrConflict = errors.New("业务约束冲突")
 	// ErrRetry 表示并发状态变化且达到上限后可再次请求。
@@ -59,6 +61,8 @@ type ResourceKind string
 const (
 	// Asset 是账号之后、互动资源之前锁定的私有学生卡。
 	Asset ResourceKind = "asset"
+	// IdentityReview 在学生卡之后锁定人工认证申请。
+	IdentityReview ResourceKind = "identity_review"
 	// Account 使用已经取得的账号 guard，不作为普通资源重复锁定。
 	Account ResourceKind = "account"
 	// Wish 在申请和会话前锁定。
@@ -122,6 +126,8 @@ type Input struct {
 // Discover 必须只读；Authorize 校验当前资格/对象访问，不能把首次业务状态当重放授权。
 // Apply 仅执行本事务数据库操作，无外部发送；Resolve 重查当前结果可访问性，不回放正文。
 type Definition struct {
+	// IdentityLock 在主体锁之前串行化身份绑定与检索密钥轮换。
+	IdentityLock bool
 	Kind         string
 	Method       string
 	ResourcePath string

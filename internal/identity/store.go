@@ -127,67 +127,7 @@ func (s *Store) Configure(ctx context.Context, purpose, ref string) error {
 // 本层不自行折叠大小写、去空格或改变学校学号规则，接入方须提供经权威规则验证的值。
 func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byte) error {
 	return s.transaction(ctx, "bind", purpose, func(tx *gorm.DB) error {
-		canonical, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, accountID)
-		if !canonical || len(value) == 0 {
-			return ErrUnavailable
-		}
-		current, err := state(tx, purpose)
-		if err != nil {
-			return err
-		}
-		var accounts []struct{ Lifecycle string }
-		if tx.Model(&entity.Account{}).Select("lifecycle").Where("id = ?", accountID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&accounts).Error != nil || len(accounts) != 1 || accounts[0].Lifecycle != "active" {
-			return ErrUnavailable
-		}
-		refs := []string{current.CurrentRef}
-		if current.PreviousRef != nil {
-			refs = append(refs, *current.PreviousRef)
-		}
-		values := make([][]byte, len(refs))
-		sameOwner := false
-		for i, ref := range refs {
-			values[i], err = s.digest(ctx, ref, purpose, value)
-			if err != nil {
-				return err
-			}
-			var owners []struct{ AccountID string }
-			if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose = ? AND key_ref = ? AND digest = ?", purpose, ref, values[i]).Find(&owners).Error != nil {
-				return ErrUnavailable
-			}
-			if len(owners) > 0 {
-				if owners[0].AccountID != accountID {
-					return ErrConflict
-				}
-				sameOwner = true
-			}
-		}
-		if sameOwner {
-			return nil
-		}
-		var existing int64
-		if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", accountID, purpose).Count(&existing).Error != nil {
-			return ErrUnavailable
-		}
-		if existing != 0 {
-			return ErrConflict
-		}
-		envelope, err := s.codec.Encrypt(ctx, securedata.Binding{Purpose: purpose, ObjectID: accountID, Version: 1}, value)
-		if err != nil {
-			return ErrUnavailable
-		}
-		encoded, err := json.Marshal(envelope)
-		if err != nil {
-			return ErrUnavailable
-		}
-		if tx.Create(&entity.IdentitySecret{AccountID: accountID, Purpose: purpose, ContentVersion: 1, Envelope: json.RawMessage(encoded)}).Error != nil {
-			return ErrUnavailable
-		}
-		for i, ref := range refs {
-			if tx.Create(&entity.IdentityLookupClaim{Purpose: purpose, KeyRef: ref, Digest: values[i], AccountID: accountID}).Error != nil {
-				return ErrConflict
-			}
-		}
-		return nil
+		return s.bind(ctx, tx, accountID, purpose, value)
 	})
 }
 
@@ -448,4 +388,92 @@ func missingClaims(tx *gorm.DB, purpose, ref string) *gorm.DB {
 		Where("account_id = s.account_id AND purpose = s.purpose AND key_ref = ?", ref)
 	return tx.Model(&entity.IdentitySecret{}).Table("public.identity_secrets AS s").
 		Where("s.purpose = ?", purpose).Where("NOT EXISTS (?)", claims)
+}
+
+// BindStudentNumber 在已有命令事务中绑定学号，调用方必须先取得身份全局锁再锁账号。
+// 只允许正常账号首次占用或同值重放，不允许审核修改既有已绑定身份。
+func (s *Store) BindStudentNumber(ctx context.Context, tx *gorm.DB, accountID string, value []byte) (err error) {
+	start := time.Now()
+	defer func() {
+		result := "pending_commit"
+		if err != nil {
+			result = "failure"
+		}
+		s.logger.Info("身份事务绑定完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	}()
+	if tx == nil || tx.Statement == nil {
+		return ErrUnavailable
+	}
+	if _, ok := tx.Statement.ConnPool.(gorm.TxCommitter); !ok {
+		return ErrUnavailable
+	}
+	// 核对本事务实际持有锁，禁止错误装配绕过与检索轮换的串行化约束。
+	var held bool
+	if tx.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND classid=0 AND objid=624109174 AND granted)").Scan(&held).Error != nil || !held {
+		return ErrUnavailable
+	}
+	return s.bind(ctx, tx.WithContext(ctx), accountID, "student_number", value)
+}
+func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string, value []byte) error {
+	canonical, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, accountID)
+	if !canonical || len(value) == 0 {
+		return ErrUnavailable
+	}
+	current, err := state(tx, purpose)
+	if err != nil {
+		return err
+	}
+	var accounts []struct{ Lifecycle string }
+	if tx.Model(&entity.Account{}).Select("lifecycle").Where("id = ?", accountID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&accounts).Error != nil || len(accounts) != 1 || accounts[0].Lifecycle != "active" {
+		return ErrUnavailable
+	}
+	refs := []string{current.CurrentRef}
+	if current.PreviousRef != nil {
+		refs = append(refs, *current.PreviousRef)
+	}
+	values := make([][]byte, len(refs))
+	sameOwner := false
+	for i, ref := range refs {
+		values[i], err = s.digest(ctx, ref, purpose, value)
+		if err != nil {
+			return err
+		}
+		var owners []struct{ AccountID string }
+		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose = ? AND key_ref = ? AND digest = ?", purpose, ref, values[i]).Find(&owners).Error != nil {
+			return ErrUnavailable
+		}
+		if len(owners) > 0 {
+			if owners[0].AccountID != accountID {
+				return ErrConflict
+			}
+			sameOwner = true
+		}
+	}
+	if sameOwner {
+		return nil
+	}
+	var existing int64
+	if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", accountID, purpose).Count(&existing).Error != nil {
+		return ErrUnavailable
+	}
+	if existing != 0 {
+		return ErrConflict
+	}
+	envelope, err := s.codec.Encrypt(ctx, securedata.Binding{Purpose: purpose, ObjectID: accountID, Version: 1}, value)
+	if err != nil {
+		return ErrUnavailable
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return ErrUnavailable
+	}
+	if tx.Create(&entity.IdentitySecret{AccountID: accountID, Purpose: purpose, ContentVersion: 1, Envelope: json.RawMessage(encoded)}).Error != nil {
+		return ErrUnavailable
+	}
+	for i, ref := range refs {
+		if tx.Create(&entity.IdentityLookupClaim{Purpose: purpose, KeyRef: ref, Digest: values[i], AccountID: accountID}).Error != nil {
+			return ErrConflict
+		}
+	}
+	return nil
 }

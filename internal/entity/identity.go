@@ -50,15 +50,18 @@ func (IdentityName) TableName() string { return "public.identity_names" }
 
 // IdentityReview 映射 public.identity_reviews，字段注释描述数据库持久化语义。
 type IdentityReview struct {
-	ID         string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	AccountID  string     `gorm:"column:account_id;type:uuid;not null;comment:申请账号" json:"-"`
-	Version    int64      `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
-	AssetID    string     `gorm:"column:asset_id;type:uuid;not null;comment:本次审核的学生卡对象" json:"-"`
-	Status     string     `gorm:"column:status;type:text;not null;default:'pending';comment:审核状态" json:"-"`
-	Reason     *string    `gorm:"column:reason;type:text;comment:驳回原因" json:"-"`
-	ReviewerID *string    `gorm:"column:reviewer_id;type:uuid;comment:处理审核的后台账号" json:"-"`
-	ReviewedAt *time.Time `gorm:"column:reviewed_at;type:timestamptz;comment:完成审核时间" json:"-"`
-	CreatedAt  time.Time  `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	// DataCipher 按申请版本绑定待审姓名及学号，避免驳回材料污染已绑定身份。
+	DataCipher         json.RawMessage `gorm:"column:data_cipher;type:jsonb;comment:按申请版本加密的待审姓名与学号，历史未提交材料为空" json:"-"`
+	RevisionSuggestion *string         `gorm:"column:revision_suggestion;type:text;comment:驳回后的修改建议" json:"-"`
+	ID                 string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	AccountID          string          `gorm:"column:account_id;type:uuid;not null;comment:申请账号" json:"-"`
+	Version            int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
+	AssetID            string          `gorm:"column:asset_id;type:uuid;not null;comment:本次审核的学生卡对象" json:"-"`
+	Status             string          `gorm:"column:status;type:text;not null;default:'pending';comment:审核状态" json:"-"`
+	Reason             *string         `gorm:"column:reason;type:text;comment:驳回原因" json:"-"`
+	ReviewerID         *string         `gorm:"column:reviewer_id;type:uuid;comment:处理审核的后台账号" json:"-"`
+	ReviewedAt         *time.Time      `gorm:"column:reviewed_at;type:timestamptz;comment:完成审核时间" json:"-"`
+	CreatedAt          time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

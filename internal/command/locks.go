@@ -28,18 +28,20 @@ func rank(kind ResourceKind) int {
 	switch kind {
 	case Asset:
 		return 0
-	case Wish:
+	case IdentityReview:
 		return 1
-	case Application:
+	case Wish:
 		return 2
-	case Match:
+	case Application:
 		return 3
-	case Conversation:
+	case Match:
 		return 4
-	case ModerationTask:
+	case Conversation:
 		return 5
-	case Message:
+	case ModerationTask:
 		return 6
+	case Message:
+		return 7
 	default:
 		return -1
 	}
@@ -149,6 +151,9 @@ func (t *Tx) lockResources(resources []Resource) error {
 		switch ref.Kind {
 		case Asset:
 			model = &entity.Asset{}
+			columns = append(columns, "version")
+		case IdentityReview:
+			model = &entity.IdentityReview{}
 			columns = append(columns, "version")
 		case Wish:
 			model = &entity.Wish{}

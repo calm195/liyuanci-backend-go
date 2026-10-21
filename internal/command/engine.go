@@ -87,7 +87,7 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, Wish, Application, Message}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message}, check.Target.Kind) {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":
@@ -202,6 +202,12 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 		}, &sql.TxOptions{Isolation: sql.LevelReadCommitted, ReadOnly: true})
 		if err == nil {
 			err = e.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
+				// 身份唯一占用锁先于所有主体锁，避免与登录和密钥轮换形成反向等待。
+				if d.IdentityLock {
+					if failure := db.Exec("SELECT pg_catalog.pg_advisory_xact_lock(624109174)").Error; failure != nil {
+						return failure
+					}
+				}
 				tx, failure := e.lock(ctx, db, subject, discovered)
 				if failure != nil {
 					return failure
@@ -331,7 +337,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -367,6 +373,8 @@ func resultCode(err error) string {
 		return "version_conflict"
 	case errors.Is(err, ErrIdempotencyConflict):
 		return "idempotency_conflict"
+	case errors.Is(err, ErrAssetNotReady):
+		return "asset_not_ready"
 	case errors.Is(err, ErrConflict):
 		return "conflict"
 	case errors.Is(err, ErrRetry):

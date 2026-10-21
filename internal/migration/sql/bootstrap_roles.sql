@@ -180,3 +180,11 @@ GRANT SELECT,INSERT ON public.work_items,public.outbox_events TO liyuanci_identi
 GRANT SELECT,UPDATE ON public.assets TO liyuanci_domain_worker;
 GRANT SELECT,DELETE ON public.student_card_payloads TO liyuanci_domain_worker;
 GRANT SELECT,DELETE ON public.student_card_payloads TO liyuanci_privacy_maintenance;
+
+-- 人工认证按用途隔离数据库池；审核通过时只授予必要的加密身份绑定权限。
+GRANT SELECT, INSERT, UPDATE ON public.identity_reviews TO liyuanci_identity_maintenance;
+GRANT UPDATE (verification) ON public.accounts TO liyuanci_identity_maintenance;
+GRANT SELECT ON public.identity_lookup_keys, public.identity_lookup_claims TO liyuanci_admin_api;
+GRANT INSERT ON public.identity_lookup_claims, public.identity_secrets, public.identity_names TO liyuanci_admin_api;
+-- PostgreSQL行锁要求至少一列UPDATE权限；只授予版本列，不允许审核入口改写对象键或扫描结果。
+GRANT UPDATE (version) ON public.assets TO liyuanci_identity_maintenance, liyuanci_admin_api;
