@@ -1,0 +1,56 @@
+{
+  "task_id": "T003/T004",
+  "req_ids": [
+    "REQ-018",
+    "REQ-020",
+    "REQ-021"
+  ],
+  "template_commit": "f7c932fc77dafe22796b1c9809a03928dfeb9a36",
+  "host_go": "go1.27.2 darwin/arm64",
+  "container_go": "go1.25.0 (container binary metadata verified)",
+  "mq_status": "PASS-backend-foundation-roundtrip",
+  "business_status": "not-implemented",
+  "contract_version": "0.1.0",
+  "contract_sha256": "d2d01a0478ccc33839f14d6c648c16784883ccdb146764d20beba59323bab26c",
+  "sha256": {
+    "go.mod": "a69b7786fbb3d16d1adeb19e07288c8d0516a666c5d03f1ff928f309325a94aa",
+    "go.sum": "3e501df6ca75b68db50b83f9aba1bc357b6833fbb58de395613be4c906f1c747",
+    "Dockerfile": "ef0a883b73fbde63c7cd7a0db7dd59afd92ffe57be4a3627127002ac0291aaa4",
+    "compose.integration.yaml": "7f392c5620285b50f8ebe3a56eab6986a54ff40a71392497fed7f7fb6d57b848",
+    "Makefile": "0bc91ba40948ffc0ba0999fe1250fe538c2f0dc8fd7dbe86f2ec165d24a8b73d",
+    "configs/broker.conf": "e1a188cb748db10a86806cc262c2ab77a6301ae60da90b4342d7a45dfe5928a5",
+    "internal/platform/resources.go": "78721269f2c052c60f7991b5dc0b4f4d5043b5a22cee9bafae861c74f7095c36",
+    "internal/platform/nameservers.go": "e0ba894cba8f66e5a87638cd054cc5b5e27d853d9e6384b5f5129f83f9bb0156",
+    "internal/worker/worker.go": "eb426bc09f4b5dd645b48c0f09bcbc7bac2508615f4ff555227174a2ff68bef5",
+    "cmd/probe/main.go": "69af8f2008f5398cf083fca3e53ded0797e3f84a83de23696c653f0d36e88dfb",
+    "scripts/integration.sh": "3bd3297342b6daca786b7a20a11da428ca7658b134be82348ea51f50eaae6b2b",
+    "scripts/check-container-api.py": "69f137eeafdae8d9332c6bbd824d02358f9f31e25546217dafa00ac8625744ce",
+    ".github/workflows/ci.yml": "cddf19bb36034531301d8e3dbf085b540e8ca2d5052c19182eda22e343bbe812"
+  },
+  "container_os": "Alpine 3.22.6",
+  "container_architecture": "linux/arm64",
+  "container_user": "app uid=10001",
+  "rocketmq_version": "5.3.2",
+  "rocketmq_client_version": "2.1.2",
+  "jre": "Temurin 1.8.0_442-b06",
+  "overall_t004": "pending-both-frontends",
+  "build_goproxy": "https://goproxy.cn,direct (go.sum/GOSUMDB verification retained)",
+  "images": {
+    "postgres": "postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+    "redis": "redis:7.2.12@sha256:16623900b6ddd58e8bac04ccb6b611b9a5d1aed165453e28bcaed251d549d62c",
+    "rocketmq": "apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587",
+    "go_builder": "golang:1.25.0-alpine@sha256:f18a072054848d87a8077455f0ac8a25886f2397f88bfdd222d6fafbb5bba440",
+    "runtime": "alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+  },
+  "performance_baseline_difference": "User abandoned RocketMQ4.9.8 and selected pinned5.3.2; record software-version deviation in future performance manifest, preserve approved workload/data/resources/thresholds; no performance result",
+  "container_server_sha256": "1dc0a4032e47be6c899d854f2398f4fc026064ad6f9d5243cbd9e9a4e89a0c70",
+  "rocketmq_version_decision": {
+    "date": "2026-10-17",
+    "source": "用户明确指令：放弃4.9.8",
+    "selected_version": "5.3.2",
+    "abandoned_versions": [
+      "4.9.8"
+    ],
+    "follow_up": "Do not retry or require validation of4.9.8; use pinned5.3.2 for implementation and subsequent tests"
+  }
+}

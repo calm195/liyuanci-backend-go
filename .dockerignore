@@ -1,0 +1,14 @@
+# 镜像上下文禁止Git、凭据、本地配置和构建产物。
+.git
+.env
+.env.*
+.aws
+.codex
+.agents
+.idea
+.vscode
+bin
+coverage.out
+*.local
+*.local.*
+.DS_Store

@@ -1,0 +1,373 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "liyuanci-metric-alerts",
+      "folder": "鲤源池运维",
+      "interval": "20s",
+      "rules": [
+        {
+          "uid": "liyuanci-scrape-down",
+          "title": "监控目标不可用",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "up",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        1
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "1m",
+          "annotations": {
+            "summary": "监控目标不可用",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-log-drops",
+          "title": "日志投递丢弃",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(increase(loki_write_dropped_entries_total[5m])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "日志投递丢弃",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-sensitive-drops",
+          "title": "敏感日志已阻断",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "sum(increase(loki_process_dropped_lines_total[5m])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "敏感日志已阻断",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-host-disk",
+          "title": "Linux磁盘空间不足",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/host.*\"} / node_filesystem_size_bytes",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "lt",
+                      "params": [
+                        0.15
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "annotations": {
+            "summary": "Linux磁盘空间不足",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "severity": "critical"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "liyuanci-host-memory",
+          "title": "Linux内存使用率过高",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "liyuanci-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+                "instant": true,
+                "range": false,
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "liyuanci-prometheus"
+                }
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "type": "query",
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0.9
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "C"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "annotations": {
+            "summary": "Linux内存使用率过高",
+            "runbook_url": "docs/observability.md"
+          },
+          "labels": {
+            "severity": "critical"
+          },
+          "isPaused": false
+        }
+      ]
+    }
+  ]
+}

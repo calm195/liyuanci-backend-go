@@ -1,0 +1,18 @@
+# 只用于隔离Compose，凭据由运行时环境注入。
+environment: integration
+server:
+  address: ":8080"
+log:
+  level: info
+database:
+  driver: postgres
+  dsn: ""
+  maxopen: 10
+  maxidle: 5
+redis:
+  enabled: true
+  address: redis:6379
+rocketmq:
+  enabled: true
+  nameservers: [namesrv:9876]
+  group: liyuanci-foundation-producer

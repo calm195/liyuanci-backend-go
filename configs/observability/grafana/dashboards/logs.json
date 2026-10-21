@@ -1,0 +1,89 @@
+{
+  "uid": "liyuanci-logs",
+  "title": "鲤源池技术日志",
+  "tags": [],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "全部技术日志",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "liyuanci-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{environment=~\".+\", service=~\".+\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 2,
+      "type": "logs",
+      "title": "API失败请求",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "liyuanci-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"api\"} | json | status >= 500"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "错误与panic",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "liyuanci-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"api|worker\"} | json | level=\"error\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

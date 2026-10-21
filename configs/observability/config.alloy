@@ -1,0 +1,51 @@
+// 只发现指定项目；不采其他项目/宿主系统日志。
+logging {
+  level = "info"
+  format = "json"
+}
+discovery.docker "project" {
+  host = "tcp://docker-log-proxy:2375"
+  refresh_interval = "5s"
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=" + sys.env("LOG_PROJECT")]
+  }
+}
+discovery.relabel "logs" {
+  targets = discovery.docker.project.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service"
+  }
+  rule {
+    target_label = "environment"
+    replacement = sys.env("LOG_ENVIRONMENT")
+  }
+  rule {
+    target_label = "host"
+    replacement = sys.env("LOG_HOST")
+  }
+}
+loki.source.docker "project" {
+  host = "tcp://docker-log-proxy:2375"
+  targets = discovery.relabel.logs.output
+  refresh_interval = "5s"
+  forward_to = [loki.process.safe.receiver]
+}
+loki.process "safe" {
+  // 源端禁止敏感数据；兜底整行丢弃明显凭据，不把秘密复制到错误日志。
+  stage.drop {
+    expression = "(?i)(authorization|password|secret|cookie|postgres(ql)?://|[?&](token|signature)=)"
+    drop_counter_reason = "sensitive_pattern"
+  }
+  // request_id等高基数字段留在JSON中；查询时解析，不建立索引。
+  stage.label_keep {
+    values = ["service", "environment", "host"]
+  }
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,42 @@
+# 叠加到integration或production；仅显式management profile启动。
+services:
+  pgadmin:
+    image: dpage/pgadmin4:9.18@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de
+    profiles: [management]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${LIYUANCI_PGADMIN_EMAIL:?set pgAdmin administrator email}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+      PGADMIN_DISABLE_POSTFIX: "true"
+    secrets: [pgadmin_password]
+    volumes: ["pgadmin-data:/var/lib/pgadmin"]
+    ports: ["127.0.0.1:15050:80"]
+    networks: [foundation, management]
+    restart: unless-stopped
+  redisinsight:
+    image: redis/redisinsight:3.8.0@sha256:b5e19ee240abef6edb435871b90ff8a210995422e8e018ab61c0339d318a1f84
+    profiles: [management]
+    volumes: ["redisinsight-data:/data"]
+    ports: ["127.0.0.1:15540:5540"]
+    networks: [foundation, management]
+    restart: unless-stopped
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard:2.1.0@sha256:ce78506bd6fe01095bf1b37c954625e363ba5afae5d1539b77f395785d445e33
+    profiles: [management]
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -Dserver.port=8080 -Drocketmq.namesrv.addr=namesrv:9876 -Drocketmq.config.namesrvAddrs[0]=namesrv:9876 -Dspring.config.additional-location=file:/run/secrets/dashboard.properties"
+    secrets:
+      - source: dashboard_properties
+        target: dashboard.properties
+    ports: ["127.0.0.1:18081:8080"]
+    networks: [foundation, management]
+    restart: unless-stopped
+networks:
+  management: {}
+volumes:
+  pgadmin-data:
+  redisinsight-data:
+secrets:
+  pgadmin_password:
+    file: ${LIYUANCI_PGADMIN_PASSWORD_FILE:?set external pgAdmin password file}
+  dashboard_properties:
+    file: ${LIYUANCI_DASHBOARD_PROPERTIES_FILE:?set external dashboard properties file}

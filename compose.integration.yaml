@@ -1,0 +1,120 @@
+# 与生产隔离；无预设密码，禁止此配置用于生产或性能验收。
+name: liyuanci-foundation
+x-app: &app
+  build:
+    context: .
+    args:
+      GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://goproxy.cn,direct}
+  init: true
+  stop_grace_period: 30s
+  environment: &env
+    APP_DATABASE_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
+  networks: [foundation]
+  restart: "no"
+services:
+  api:
+    <<: *app
+    command: ["-config", "configs/integration.yaml"]
+    # API增加独立入口网络供loopback发布端口；中间件仍仅在internal网络。
+    networks: [foundation, ingress]
+    ports: ["127.0.0.1:18080:8080"]
+    healthcheck:
+      # 基础阶段仅存活可通过；认证/密钥未实现的readyz仍应503。
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      broker: {condition: service_healthy}
+  worker:
+    <<: *app
+    entrypoint: ["./worker"]
+    command: ["-config", "configs/integration.yaml"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      broker: {condition: service_healthy}
+  probe:
+    <<: *app
+    profiles: [tools]
+    entrypoint: ["./probe"]
+    command: ["-config", "configs/integration.yaml"]
+  migrate:
+    image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    profiles: [tools]
+    environment:
+      PGPASSWORD: ${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password}
+    entrypoint: [psql, -h, postgres, -U, liyuanci, -d, liyuanci, -v, ON_ERROR_STOP=1, -f, /migrations/0001_probe.up.sql]
+    volumes: ["./migrations/integration:/migrations:ro"]
+    networks: [foundation]
+  postgres:
+    image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    environment:
+      POSTGRES_DB: liyuanci
+      POSTGRES_USER: liyuanci
+      POSTGRES_PASSWORD: ${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password}
+    volumes: ["pg-data:/var/lib/postgresql"]
+    networks: [foundation]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U liyuanci -d liyuanci"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7.2.12@sha256:16623900b6ddd58e8bac04ccb6b611b9a5d1aed165453e28bcaed251d549d62c
+    command: [redis-server, --appendonly, "yes"]
+    volumes: ["redis-data:/data"]
+    networks: [foundation]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  # 官方镜像非root用户无法写Docker新建的root属主卷。
+  # 仅初始化专用MQ卷权限；Broker继续以镜像的rocketmq用户运行。
+  mq-init:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    working_dir: /
+    entrypoint: [sh, -c]
+    command: ["chown rocketmq:rocketmq /mq-store && chmod 750 /mq-store"]
+    volumes: ["mq-data:/mq-store"]
+  namesrv:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    command: sh mqnamesrv
+    environment: {JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"}
+    networks: [foundation]
+    healthcheck:
+      test: [CMD-SHELL, "sh mqadmin clusterList -n localhost:9876 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  broker:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    environment: {JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"}
+    depends_on:
+      namesrv: {condition: service_healthy}
+      mq-init: {condition: service_completed_successfully}
+    volumes:
+      - ./configs/broker.conf:/home/rocketmq/broker.conf:ro
+      - mq-data:/home/rocketmq/store
+    networks: [foundation]
+    healthcheck:
+      test: [CMD-SHELL, "sh mqadmin clusterList -n namesrv:9876 | grep -q broker-a"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+networks:
+  foundation: {internal: true}
+  ingress: {}
+volumes:
+  pg-data:
+  redis-data:
+  mq-data:
