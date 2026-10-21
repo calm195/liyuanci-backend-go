@@ -132,7 +132,7 @@ func normalize(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrConflict, ErrRateLimited, command.ErrIdempotencyConflict, command.ErrNotFound, command.ErrInternal} {
+	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrConflict, ErrRateLimited, command.ErrIdempotencyConflict, command.ErrVersionConflict, command.ErrNotFound, command.ErrInternal} {
 		if errors.Is(err, known) {
 			return known
 		}

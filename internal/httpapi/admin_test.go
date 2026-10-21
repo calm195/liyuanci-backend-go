@@ -20,6 +20,15 @@ type adminFixture struct {
 	panicLogin bool
 }
 
+func (f *adminFixture) ListAccounts(context.Context, string, string, string, int) (adminauth.AccountPage, error) {
+	f.called = true
+	return adminauth.AccountPage{Items: []adminauth.Account{}}, f.failure
+}
+func (f *adminFixture) ChangeRoles(context.Context, string, string, string, string, adminauth.RolesInput) (adminauth.Account, error) {
+	f.called = true
+	return adminauth.Account{}, f.failure
+}
+
 func (f *adminFixture) Create(context.Context, string, string, string, adminauth.CreateInput) (adminauth.Account, error) {
 	f.called = true
 	return adminauth.Account{}, f.failure
@@ -48,6 +57,13 @@ func TestAdminProtocol(t *testing.T) {
 		want                                 int
 		called, panicLogin                   bool
 	}{
+		{name: "list", method: "GET", path: "/accounts", token: "token", want: 200, called: true},
+		{name: "list_duplicate", method: "GET", path: "/accounts?limit=1&limit=2", token: "token", want: 400},
+		{name: "list_unknown", method: "GET", path: "/accounts?filter=x", token: "token", want: 400},
+		{name: "list_limit", method: "GET", path: "/accounts?limit=51", token: "token", want: 400},
+		{name: "roles", method: "PUT", path: "/accounts/00000000-0000-4000-8000-000000000001/roles", body: `{"roles":[],"reason":"合成","expected_version":1}`, token: "token", key: "key", want: 200, called: true},
+		{name: "roles_version", method: "PUT", path: "/accounts/00000000-0000-4000-8000-000000000001/roles", body: `{"roles":[],"reason":"合成","expected_version":1}`, token: "token", key: "key", want: 409, called: true, failure: command.ErrVersionConflict},
+		{name: "roles_missing", method: "PUT", path: "/accounts/00000000-0000-4000-8000-000000000001/roles", body: `{"reason":"合成","expected_version":1}`, token: "token", key: "key", want: 400},
 		{name: "login", method: "POST", path: "/sessions", body: `{"login_name":"synthetic","password":"SYNTHETIC_PASSWORD"}`, want: 200, called: true},
 		{name: "unknown_field", method: "POST", path: "/sessions", body: `{"login_name":"synthetic","password":"x","roles":["super_admin"]}`, want: 400},
 		{name: "duplicate_field", method: "POST", path: "/sessions", body: `{"login_name":"synthetic","password":"a","password":"b"}`, want: 400},

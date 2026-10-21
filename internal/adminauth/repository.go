@@ -3,6 +3,7 @@ package adminauth
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -163,4 +164,51 @@ WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.e
 		return ErrUnauthenticated
 	}
 	return nil
+}
+
+// accountRows 固定UUID升序作键集分页；单条查询聚合角色，避免分页过程中读取混合角色快照。
+func accountRows(ctx context.Context, db *gorm.DB, after string, limit int) ([]Account, error) {
+	var rows []struct {
+		ID        string
+		Version   int64
+		LoginName string
+		Active    bool
+		RoleJSON  []byte
+	}
+	query := `SELECT a.id,a.version,a.login_name,a.status='active' AS active,
+ coalesce((SELECT json_agg(r.role ORDER BY r.role) FROM public.admin_role_bindings r WHERE r.admin_id=a.id),'[]'::json) AS role_json
+ FROM public.admin_accounts a WHERE a.login_name IS NOT NULL`
+	args := []any{}
+	if after != "" {
+		query += " AND a.id>?::uuid"
+		args = append(args, after)
+	}
+	query += " ORDER BY a.id LIMIT ?"
+	args = append(args, limit)
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Account, 0, len(rows))
+	for _, row := range rows {
+		roles := []string{}
+		if err := json.Unmarshal(row.RoleJSON, &roles); err != nil {
+			return nil, err
+		}
+		out = append(out, Account{ID: row.ID, Version: row.Version, LoginName: row.LoginName, Active: row.Active, Roles: roles})
+	}
+	return out, nil
+}
+
+// replaceRoles 的调用方已按全局顺序锁定目标guard；角色、版本和留迹必须共同提交。
+func replaceRoles(ctx context.Context, db *gorm.DB, target string, roles []string) error {
+	db = db.WithContext(ctx)
+	if e := db.Exec("DELETE FROM public.admin_role_bindings WHERE admin_id=?", target).Error; e != nil {
+		return e
+	}
+	for _, role := range roles {
+		if e := insertRole(ctx, db, target, role); e != nil {
+			return e
+		}
+	}
+	return db.Exec("UPDATE public.admin_accounts SET version=version+1 WHERE id=?", target).Error
 }

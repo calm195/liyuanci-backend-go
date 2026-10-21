@@ -109,3 +109,17 @@ T002/T008/T010，REQ-002–008、015、018、019；本轮后台实际子范围RE
 ## 文档提交与主分支合并复核（2026-10-21）
 
 按用户明确要求提交本项目变更并合入主分支。本次提交范围为T002/T008/T010、REQ-002–008、015、018、019的R2准入及交接文档，未新增运行能力，既有未完成和未验收边界保持上述状态。刷新远程分支后，仅有main与feat/backend-foundation，远程功能分支已包含于本地功能分支。提交前实际执行`make fmt`、`make check`和`git diff --check`均退出0；`make build`首次完成但有沙箱缓存写入警告，放开缓存写入后重跑退出0。此次未重跑真实中间件或跨端联调，历史证据不作为本轮新执行结果。不推送远程、不部署。
+
+## 后台账号管理增量（2026-10-21）
+
+T008/REQ-018、019；本轮用户授权逐任务实施、按模块依赖提交并新开分支，不考虑跨端联调。分支codex/backend-domain-services。补齐GET账号列表和PUT角色替换，复用现有独立受限后台池、命令根事务及当前角色授权；默认关闭，普通启动不迁移或初始化。模块职责：accounts.go负责流程/签名游标，repository.go负责单SQL分页角色聚合和角色替换，HTTP处理严格输入/状态，新增第八版仅扩展留迹动作及中文数据库注释，前七版不改。
+
+分页limit默认20上限50、UUID升序，HMAC游标绑定主体/用途；每页当前超管鉴权，非快照全量导出。角色写按全局guard锁序、目标账号版本复核，角色/版本/留迹/回执共同提交；重放当前授权，撤权不能靠旧回执提权；不变更auth_epoch，不新增最后超管限制。日志含中文完成消息、operation/request_id/result/duration，不记录理由/登录名/正文。详细接口见admin-auth.md及共享contracts后台账号管理说明。
+
+已执行真实Docker隔离PG/Redis检查python3 scripts/check-adminauth.py：项目liyuanci-admin-check-fa64836aa731退出0，TestPostgresAdmin13.26s，包覆盖率81.3%。新增分页不重复、签名篡改/跨主体拒绝、普通运营禁止列表/提权、角色成功及同键重放/异摘要、旧版本/并发冲突、留迹故障回滚、自身撤权后重放拒绝；HTTP协议测试覆盖参数/字段/版本错误。身份与口令为合成资料，PG/Redis/事务/权限真实；非跨端联调或生产验收。新增游标签名单元回归后规定检查和迁移镜像最终结果在下节记录。
+
+T008整体仍未完成：微信/学生会话与资格后续实现；T007领域worker随对应业务接入。审核处置用户本轮明确使用registry.id绑定精确正文版本，供T016及共享契约后续演进使用，不在本模块实现审核。未推送、部署或修改共享审批/需求/设计。
+
+本模块最终验证：新增第八版的`python3 scripts/check-migrations.py --container`退出0，正式镜像制品liyuanci-migrate-check:55000a0d2171；八版结构/表列中文注释、权限、空库上下行和正式UID10001 CLI通过。迁移79.7%、identity81.2%、command83.5%、durable78.0%。本次无跨端联调、生产、微信/对象桶外部调用。共享contracts生成83操作/130 schema，validate通过783示例及动作正反例；只将后台列表/角色两个已有操作更新为implemented-opt-in，不更改正式Wire字段，审核扩展保持未激活。Python已有LibreSSL/RefResolver告警，退出0。初次宿主Go检查受系统缓存沙箱限制，授权重跑通过；不将受限失败当通过。
+
+共享静态动作索引推进revision 2，新增actions-review.v0.2.0-r2.json固定当前输入；r1清单仅作历史保留。最终`make fmt`、`make check`（格式只读校验/vet/race-cover）、`make build`及两仓`git diff --check`退出0；本模块无依赖变化。新增游标签名单元测试已纳入最终check。未推送、部署或执行跨端联调。
