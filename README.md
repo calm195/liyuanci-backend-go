@@ -4,7 +4,7 @@
 
 鲤源池后端采用 Go 模块化单体 API 与独立 worker，模块为 `github.com/calm195/liyuanci-backend-go`。PostgreSQL 是业务权威，Redis 与 RocketMQ 提供配套能力，事务发件箱为后续领域实现方案。
 
-当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及独立的业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和待密钥供应商接入的信封及有界对象加密组件。API 仅提供健康端点；认证、领域发件箱与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
+当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及可供领域服务调用的数据库事务、幂等和当前授权命令库，独立的业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和待密钥供应商接入的信封及有界对象加密组件。API 仅提供健康端点；认证、领域发件箱与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
 
 阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
@@ -25,6 +25,7 @@ cmd/
   probe/              集成探针生产与回执检查
   migrate/            显式版本迁移命令
 internal/
+  command/            短事务、排序锁、幂等回执及当前会话/权限复核
   identity/           加密身份存储、唯一占用及受控轮换
   migration/          内嵌迁移 SQL、事务锁、版本校验及显式权限配置
   securedata/         信封加密及域隔离 HMAC 基础
@@ -83,6 +84,8 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
 ## 4. 开发规范与须知
+
+领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；当前未接入业务路由，外部副作用须留待持久工作链路。
 
 账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
 

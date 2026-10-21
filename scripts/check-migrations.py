@@ -24,7 +24,7 @@ def check_container(name, password, task_root):
     subprocess.run(builder_build + [str(task_root)], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "go", builder_tag, "version"], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "-e", "CGO_ENABLED=0", "--entrypoint", "go", builder_tag,
-                    "test", "./internal/securedata", "./internal/identity"], check=True)
+                    "test", "./internal/securedata", "./internal/identity", "./internal/command"], check=True)
     actual_user = subprocess.check_output(["docker", "run", "--rm", "--entrypoint", "id", tag, "-u"], text=True).strip()
     if actual_user != "10001":
         raise RuntimeError("镜像迁移工具未使用专用非 root 用户")
@@ -90,15 +90,16 @@ def main():
             time.sleep(1)
         else:
             raise RuntimeError("隔离数据库启动超时")
-        for database in ("business_schema", "recovery"):
+        for database in ("business_schema", "recovery", "commands"):
             subprocess.run(["docker", "exec", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE " + database], check=True, stdout=subprocess.DEVNULL)
         state = json.loads(subprocess.check_output(["docker", "inspect", name]))[0]
         port = state["NetworkSettings"]["Ports"]["5432/tcp"][0]["HostPort"]
         test_env = dict(os.environ, APP_MIGRATION_TEST_DSN=f"host=127.0.0.1 port={port} user=postgres password={password} dbname=migrations sslmode=disable")
         test_env["APP_SCHEMA_TEST_DSN"] = test_env["APP_MIGRATION_TEST_DSN"].replace("dbname=migrations", "dbname=business_schema")
         test_env["APP_RECOVERY_TEST_DSN"] = test_env["APP_MIGRATION_TEST_DSN"].replace("dbname=migrations", "dbname=recovery")
-        # 两组测试按序使用同一个专用库，避免迁移回退与身份用例互相干扰。
-        for package in ("./internal/migration", "./internal/identity"):
+        test_env["APP_COMMAND_TEST_DSN"] = test_env["APP_MIGRATION_TEST_DSN"].replace("dbname=migrations", "dbname=commands")
+        # 迁移与身份按序运行；命令框架使用独立数据库，避免夹具互相干扰。
+        for package in ("./internal/migration", "./internal/identity", "./internal/command"):
             subprocess.run(["go", "test", "-race", "-cover", "-count=1", "-v", package],
                            cwd=pathlib.Path(__file__).resolve().parents[1], env=test_env, check=True)
         if args.container:
