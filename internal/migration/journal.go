@@ -10,6 +10,8 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 //go:embed journal/*.sql
@@ -65,7 +67,7 @@ COMMENT ON COLUMN public.recovery_schema_migrations.applied_at IS '恢复日志�
 			Version  int64
 			Checksum string
 		}
-		if tx.Raw("SELECT version, checksum FROM public.recovery_schema_migrations ORDER BY version").Scan(&rows).Error != nil {
+		if tx.Model(&entity.RecoverySchemaMigration{}).Select("version, checksum").Order("version").Find(&rows).Error != nil {
 			return errors.New("恢复日志账本读取失败")
 		}
 		if len(rows) > 1 || (len(rows) == 1 && (rows[0].Version != 1 || rows[0].Checksum != checksum)) {
@@ -73,13 +75,19 @@ COMMENT ON COLUMN public.recovery_schema_migrations.applied_at IS '恢复日志�
 		}
 		switch action {
 		case "up":
-			if len(rows) == 1 {
-				return nil
+			if len(rows) == 0 {
+				if tx.Exec(string(up)).Error != nil {
+					return errors.New("恢复日志迁移失败")
+				}
+				if err := tx.Create(&entity.RecoverySchemaMigration{Version: 1, Checksum: checksum}).Error; err != nil {
+					return errors.New("恢复日志账本写入失败")
+				}
 			}
-			if tx.Exec(string(up)).Error != nil {
-				return errors.New("恢复日志迁移失败")
+			// 恢复实体只在独立库同步；只读技术序号由原生 identity 列产生。
+			if err := tx.AutoMigrate(&entity.RecoverySchemaMigration{}, &entity.RecoveryDeleteJournal{}); err != nil {
+				return errors.New("恢复日志实体自动迁移失败")
 			}
-			return tx.Exec("INSERT INTO public.recovery_schema_migrations(version, checksum) VALUES (1, ?)", checksum).Error
+			return nil
 		case "down":
 			if len(rows) == 0 {
 				return nil
@@ -87,7 +95,7 @@ COMMENT ON COLUMN public.recovery_schema_migrations.applied_at IS '恢复日志�
 			if tx.Exec(string(down)).Error != nil {
 				return errors.New("恢复日志非空或回退失败")
 			}
-			return tx.Exec("DELETE FROM public.recovery_schema_migrations WHERE version = 1").Error
+			return tx.Where("version = ?", 1).Delete(&entity.RecoverySchemaMigration{}).Error
 		default:
 			if len(rows) != 1 {
 				return errors.New("恢复日志权限配置需要已应用结构")

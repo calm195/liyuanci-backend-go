@@ -372,6 +372,13 @@ func TestPostgresIdentity(t *testing.T) {
 	if observed.FilterField(zap.String("result", "failure")).Len() == 0 {
 		t.Fatal("缺少失败完成日志")
 	}
+	// T005/REQ-018、020：实体 CRUD 与 JSONB 回写完成后仍由事务边界输出成功及耗时。
+	for _, operation := range []string{"configure", "bind", "rotation_begin", "rotation_backfill", "rotation_finish", "reencrypt"} {
+		entries := observed.FilterMessage("身份存储操作完成").FilterField(zap.String("operation", operation)).FilterField(zap.String("result", "success")).All()
+		if len(entries) == 0 || entries[0].ContextMap()["duration"] == nil {
+			t.Fatalf("缺少身份操作成功完成日志：%s", operation)
+		}
+	}
 	for _, entry := range observed.All() {
 		for _, field := range entry.ContextMap() {
 			if text, ok := field.(string); ok && (strings.Contains(text, "SYNTHETIC") || strings.Contains(text, winner)) {

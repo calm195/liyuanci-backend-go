@@ -11,8 +11,10 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
@@ -81,9 +83,10 @@ func (s *Store) transaction(ctx context.Context, operation, purpose string, acti
 	return err
 }
 
+// state 只读取检索状态投影，空记录仍由领域边界映射为不可用。
 func state(tx *gorm.DB, purpose string) (keyState, error) {
 	var result []keyState
-	if tx.Raw("SELECT current_ref, previous_ref FROM public.identity_lookup_keys WHERE purpose = ?", purpose).Scan(&result).Error != nil || len(result) != 1 {
+	if tx.Model(&entity.IdentityLookupKey{}).Select("current_ref, previous_ref").Where("purpose = ?", purpose).Find(&result).Error != nil || len(result) != 1 {
 		return keyState{}, ErrUnavailable
 	}
 	return result[0], nil
@@ -106,7 +109,7 @@ func (s *Store) Configure(ctx context.Context, purpose, ref string) error {
 		if _, err := s.digest(ctx, ref, purpose, []byte("key-availability-check")); err != nil {
 			return err
 		}
-		if tx.Exec("INSERT INTO public.identity_lookup_keys(purpose,current_ref) VALUES (?,?) ON CONFLICT (purpose) DO NOTHING", purpose, ref).Error != nil {
+		if tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "purpose"}}, DoNothing: true}).Create(&entity.IdentityLookupKey{Purpose: purpose, CurrentRef: ref}).Error != nil {
 			return ErrUnavailable
 		}
 		current, err := state(tx, purpose)
@@ -133,7 +136,7 @@ func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byt
 			return err
 		}
 		var accounts []struct{ Lifecycle string }
-		if tx.Raw("SELECT lifecycle FROM public.accounts WHERE id = ? FOR UPDATE", accountID).Scan(&accounts).Error != nil || len(accounts) != 1 || accounts[0].Lifecycle != "active" {
+		if tx.Model(&entity.Account{}).Select("lifecycle").Where("id = ?", accountID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&accounts).Error != nil || len(accounts) != 1 || accounts[0].Lifecycle != "active" {
 			return ErrUnavailable
 		}
 		refs := []string{current.CurrentRef}
@@ -148,7 +151,7 @@ func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byt
 				return err
 			}
 			var owners []struct{ AccountID string }
-			if tx.Raw("SELECT account_id FROM public.identity_lookup_claims WHERE purpose = ? AND key_ref = ? AND digest = ?", purpose, ref, values[i]).Scan(&owners).Error != nil {
+			if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose = ? AND key_ref = ? AND digest = ?", purpose, ref, values[i]).Find(&owners).Error != nil {
 				return ErrUnavailable
 			}
 			if len(owners) > 0 {
@@ -162,7 +165,7 @@ func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byt
 			return nil
 		}
 		var existing int64
-		if tx.Table("public.identity_secrets").Where("account_id = ? AND purpose = ?", accountID, purpose).Count(&existing).Error != nil {
+		if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", accountID, purpose).Count(&existing).Error != nil {
 			return ErrUnavailable
 		}
 		if existing != 0 {
@@ -176,11 +179,11 @@ func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byt
 		if err != nil {
 			return ErrUnavailable
 		}
-		if tx.Exec("INSERT INTO public.identity_secrets(account_id,purpose,content_version,envelope) VALUES (?,?,1,?::jsonb)", accountID, purpose, string(encoded)).Error != nil {
+		if tx.Create(&entity.IdentitySecret{AccountID: accountID, Purpose: purpose, ContentVersion: 1, Envelope: json.RawMessage(encoded)}).Error != nil {
 			return ErrUnavailable
 		}
 		for i, ref := range refs {
-			if tx.Exec("INSERT INTO public.identity_lookup_claims(purpose,key_ref,digest,account_id) VALUES (?,?,?,?)", purpose, ref, values[i], accountID).Error != nil {
+			if tx.Create(&entity.IdentityLookupClaim{Purpose: purpose, KeyRef: ref, Digest: values[i], AccountID: accountID}).Error != nil {
 				return ErrConflict
 			}
 		}
@@ -201,7 +204,7 @@ func (s *Store) BeginRotation(ctx context.Context, purpose, nextRef string) erro
 		if _, err = s.digest(ctx, nextRef, purpose, []byte("key-availability-check")); err != nil {
 			return err
 		}
-		if tx.Exec("UPDATE public.identity_lookup_keys SET previous_ref = current_ref, current_ref = ?, version = version + 1 WHERE purpose = ?", nextRef, purpose).Error != nil {
+		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).Updates(map[string]any{"previous_ref": gorm.Expr("current_ref"), "current_ref": nextRef, "version": gorm.Expr("version + 1")}).Error != nil {
 			return ErrUnavailable
 		}
 		return nil
@@ -227,9 +230,9 @@ func (s *Store) Backfill(ctx context.Context, purpose string, limit int) (count 
 			ContentVersion int64
 			Envelope       []byte
 		}
-		if tx.Raw(`SELECT s.account_id, s.content_version, s.envelope FROM public.identity_secrets s
-WHERE s.purpose = ? AND NOT EXISTS (SELECT 1 FROM public.identity_lookup_claims c WHERE c.account_id = s.account_id AND c.purpose = s.purpose AND c.key_ref = ?)
-ORDER BY s.account_id LIMIT ? FOR UPDATE OF s`, purpose, current.CurrentRef, limit).Scan(&rows).Error != nil {
+		if missingClaims(tx, purpose, current.CurrentRef).
+			Select("s.account_id", "s.content_version", "s.envelope").Order("s.account_id").Limit(limit).
+			Clauses(clause.Locking{Strength: "UPDATE", Table: clause.Table{Name: "s"}}).Find(&rows).Error != nil {
 			return ErrUnavailable
 		}
 		for _, row := range rows {
@@ -261,14 +264,14 @@ func (s *Store) backfillOne(ctx context.Context, tx *gorm.DB, purpose string, cu
 		return err
 	}
 	var matches int64
-	if tx.Table("public.identity_lookup_claims").Where("account_id = ? AND purpose = ? AND key_ref = ? AND digest = ?", id, purpose, *current.PreviousRef, previous).Count(&matches).Error != nil || matches != 1 {
+	if tx.Model(&entity.IdentityLookupClaim{}).Where("account_id = ? AND purpose = ? AND key_ref = ? AND digest = ?", id, purpose, *current.PreviousRef, previous).Count(&matches).Error != nil || matches != 1 {
 		return ErrUnavailable
 	}
 	next, err := s.digest(ctx, current.CurrentRef, purpose, plain)
 	if err != nil {
 		return err
 	}
-	if tx.Exec("INSERT INTO public.identity_lookup_claims(purpose,key_ref,digest,account_id) VALUES (?,?,?,?)", purpose, current.CurrentRef, next, id).Error != nil {
+	if tx.Create(&entity.IdentityLookupClaim{Purpose: purpose, KeyRef: current.CurrentRef, Digest: next, AccountID: id}).Error != nil {
 		return ErrConflict
 	}
 	return nil
@@ -285,17 +288,16 @@ func (s *Store) FinishRotation(ctx context.Context, purpose string) error {
 			return ErrConflict
 		}
 		var missing int64
-		if tx.Raw(`SELECT count(*) FROM public.identity_secrets s WHERE s.purpose = ? AND NOT EXISTS
-(SELECT 1 FROM public.identity_lookup_claims c WHERE c.account_id = s.account_id AND c.purpose = s.purpose AND c.key_ref = ?)`, purpose, current.CurrentRef).Scan(&missing).Error != nil {
+		if missingClaims(tx, purpose, current.CurrentRef).Count(&missing).Error != nil {
 			return ErrUnavailable
 		}
 		if missing != 0 {
 			return ErrConflict
 		}
-		if tx.Exec("DELETE FROM public.identity_lookup_claims WHERE purpose = ? AND key_ref = ?", purpose, *current.PreviousRef).Error != nil {
+		if tx.Where("purpose = ? AND key_ref = ?", purpose, *current.PreviousRef).Delete(&entity.IdentityLookupClaim{}).Error != nil {
 			return ErrUnavailable
 		}
-		if tx.Exec("UPDATE public.identity_lookup_keys SET previous_ref = NULL, version = version + 1 WHERE purpose = ?", purpose).Error != nil {
+		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).Updates(map[string]any{"previous_ref": nil, "version": gorm.Expr("version + 1")}).Error != nil {
 			return ErrUnavailable
 		}
 		return nil
@@ -314,9 +316,9 @@ func (s *Store) Reencrypt(ctx context.Context, purpose, targetRef string, limit 
 			ContentVersion int64
 			Envelope       []byte
 		}
-		if tx.Raw(`SELECT account_id, content_version, envelope FROM public.identity_secrets
-WHERE purpose = ? AND (envelope->>'KeyRef') IS DISTINCT FROM ?
-ORDER BY account_id LIMIT ? FOR UPDATE`, purpose, targetRef, limit).Scan(&rows).Error != nil {
+		if tx.Model(&entity.IdentitySecret{}).Select("account_id", "content_version", "envelope").
+			Where("purpose = ? AND (envelope->>'KeyRef') IS DISTINCT FROM ?", purpose, targetRef).
+			Order("account_id").Limit(limit).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error != nil {
 			return ErrUnavailable
 		}
 		for _, row := range rows {
@@ -352,7 +354,7 @@ func (s *Store) reencryptOne(ctx context.Context, tx *gorm.DB, purpose, targetRe
 	if err != nil {
 		return ErrUnavailable
 	}
-	if tx.Exec("UPDATE public.identity_secrets SET envelope = ?::jsonb WHERE account_id = ? AND purpose = ?", string(serialized), id, purpose).Error != nil {
+	if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", id, purpose).Updates(map[string]any{"envelope": json.RawMessage(serialized)}).Error != nil {
 		return ErrUnavailable
 	}
 	return nil
@@ -396,7 +398,7 @@ func (s *Store) ResolveOpenID(ctx context.Context, tx *gorm.DB, value []byte) (i
 			return "", e
 		}
 		var rows []struct{ AccountID string }
-		if tx.Raw("SELECT account_id FROM public.identity_lookup_claims WHERE purpose='openid' AND key_ref=? AND digest=?", ref, values[i]).Scan(&rows).Error != nil {
+		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose='openid' AND key_ref=? AND digest=?", ref, values[i]).Find(&rows).Error != nil {
 			return "", ErrUnavailable
 		}
 		if len(rows) == 1 {
@@ -407,11 +409,11 @@ func (s *Store) ResolveOpenID(ctx context.Context, tx *gorm.DB, value []byte) (i
 		}
 	}
 	if id != "" {
-		var active bool
-		if tx.Raw("SELECT lifecycle='active' FROM public.accounts WHERE id=? FOR UPDATE", id).Scan(&active).Error != nil {
+		var accounts []entity.Account
+		if tx.Select("lifecycle").Where("id = ?", id).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&accounts).Error != nil {
 			return "", ErrUnavailable
 		}
-		if !active {
+		if len(accounts) != 1 || accounts[0].Lifecycle != "active" {
 			return "", ErrInactive
 		}
 		return id, nil
@@ -425,16 +427,25 @@ func (s *Store) ResolveOpenID(ctx context.Context, tx *gorm.DB, value []byte) (i
 	if e != nil {
 		return "", ErrUnavailable
 	}
-	if tx.Exec("INSERT INTO public.accounts(id,nickname) VALUES (?,?)", id, "新用户").Error != nil {
+	if tx.Create(&entity.Account{ID: id, Nickname: "新用户"}).Error != nil {
 		return "", ErrUnavailable
 	}
-	if tx.Exec("INSERT INTO public.identity_secrets(account_id,purpose,content_version,envelope) VALUES (?,'openid',1,?::jsonb)", id, string(encoded)).Error != nil {
+	if tx.Create(&entity.IdentitySecret{AccountID: id, Purpose: "openid", ContentVersion: 1, Envelope: json.RawMessage(encoded)}).Error != nil {
 		return "", ErrUnavailable
 	}
 	for i, ref := range refs {
-		if tx.Exec("INSERT INTO public.identity_lookup_claims(purpose,key_ref,digest,account_id) VALUES ('openid',?,?,?)", ref, values[i], id).Error != nil {
+		if tx.Create(&entity.IdentityLookupClaim{Purpose: "openid", KeyRef: ref, Digest: values[i], AccountID: id}).Error != nil {
 			return "", ErrUnavailable
 		}
 	}
 	return id, nil
+}
+
+// missingClaims 复用新代缺口条件，回填与结束轮换必须使用相同存在性判定。
+// 子查询只比较随机主体与检索引用；调用方的身份锁保持绑定、回填和切换串行。
+func missingClaims(tx *gorm.DB, purpose, ref string) *gorm.DB {
+	claims := tx.Model(&entity.IdentityLookupClaim{}).Select("1").
+		Where("account_id = s.account_id AND purpose = s.purpose AND key_ref = ?", ref)
+	return tx.Model(&entity.IdentitySecret{}).Table("public.identity_secrets AS s").
+		Where("s.purpose = ?", purpose).Where("NOT EXISTS (?)", claims)
 }
