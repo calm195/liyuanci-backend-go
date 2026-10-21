@@ -21,3 +21,9 @@ internal/migration 内嵌五个版本，覆盖账号/身份结构、审核/后�
 cmd/migrate 提供 up/down/permissions 及独立 APP_RECOVERY_DATABASE_DSN 的 journal 操作，拒绝业务与恢复同库。权限组 NOLOGIN，不初始化真实账号；探针/领域/后台/隐私/证据角色分离，sessions RLS 隔离学生与后台，未知策略/运行组所有权异常拒绝。所有权、schema 权及最小表权限显式维护，日志仅结果/耗时，不输出 DSN。
 
 Makefile/Dockerfile 构建迁移二进制；scripts/check-migrations.py 随机专用 Docker 库验证迁移、业务/证据/恢复表、注释、并发唯一、回滚计数器、实际 SET ROLE/RLS 正反权限和误授权撤销。--container 构建正式 Go1.25 镜像/非 root CLI，验证重复操作、回退、混建拒绝及日志脱敏；当期 builder 只测试已提交 securedata。提交快照 make fmt/check/build、--container 和差异校验通过。恢复库只验证同容器不同逻辑库，不能冒称独立物理持久或恢复演练；D02/D03/D05 与实际登录身份未交付。
+
+## 身份唯一占用与受控轮换
+
+internal/identity.Store 依赖既有 Codec、DigestService、数据库与日志；身份事务锁先于账号锁，按数据库代次计算所有活跃检索摘要，加密字段与唯一占用同行事务落库。只绑定 active 账号，同值幂等、改号拒绝；绑定不是资格审核。双代轮换有界回填，旧摘要与解密值一致后才新增新摘要，全部完成前不清旧代；重加密保持身份值/内容版本，不改查重占用。日志不含身份/摘要或供应商原始错误。
+
+验证入口补上 identity 的真实 PostgreSQL/race 与 Go1.25 无中间件库测试。并发同学号只有一个占用，失钥/损坏密文/引用不符回滚，恢复后可重试；实际 API/维护/worker 权限正反测试通过。提交快照 make fmt/check/build、--container 和差异校验通过；没有生产密钥适配或 T008/T011 接口。

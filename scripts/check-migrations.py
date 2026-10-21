@@ -24,7 +24,7 @@ def check_container(name, password, task_root):
     subprocess.run(builder_build + [str(task_root)], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "go", builder_tag, "version"], check=True)
     subprocess.run(["docker", "run", "--rm", "--network", "none", "-e", "CGO_ENABLED=0", "--entrypoint", "go", builder_tag,
-                    "test", "./internal/securedata"], check=True)
+                    "test", "./internal/securedata", "./internal/identity"], check=True)
     actual_user = subprocess.check_output(["docker", "run", "--rm", "--entrypoint", "id", tag, "-u"], text=True).strip()
     if actual_user != "10001":
         raise RuntimeError("镜像迁移工具未使用专用非 root 用户")
@@ -98,12 +98,12 @@ def main():
         test_env["APP_SCHEMA_TEST_DSN"] = test_env["APP_MIGRATION_TEST_DSN"].replace("dbname=migrations", "dbname=business_schema")
         test_env["APP_RECOVERY_TEST_DSN"] = test_env["APP_MIGRATION_TEST_DSN"].replace("dbname=migrations", "dbname=recovery")
         # 两组测试按序使用同一个专用库，避免迁移回退与身份用例互相干扰。
-        for package in ("./internal/migration",):
+        for package in ("./internal/migration", "./internal/identity"):
             subprocess.run(["go", "test", "-race", "-cover", "-count=1", "-v", package],
                            cwd=pathlib.Path(__file__).resolve().parents[1], env=test_env, check=True)
         if args.container:
             check_container(name, password, pathlib.Path(__file__).resolve().parents[1])
-        print("隔离迁移验证通过；包含迁移、结构约束与合成权限组；包含业务表/证据域及独立逻辑恢复库；未验证生产身份、外部密钥或物理隔离恢复")
+        print("隔离迁移验证通过；包含身份占用、双代轮换与合成权限组；包含业务表/证据域及独立逻辑恢复库；未验证生产身份、外部密钥或物理隔离恢复")
     finally:
         if started:
             # 仅移除本次随机容器，不删除数据卷，不使用 force/prune。
