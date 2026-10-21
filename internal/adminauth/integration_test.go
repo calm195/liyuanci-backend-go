@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 )
@@ -117,6 +117,16 @@ func TestPostgresAdmin(t *testing.T) {
 		t.Fatal("隔离DSN形状无效")
 	}
 	settings.AdminAuth.DSN = fixtureDSN[:startAt] + "password=" + databasePassword + fixtureDSN[endAt:]
+	// T008/REQ-018、019：旧留迹结构不能启用新增角色写入口，普通启动不隐式补迁移。
+	if e := db.Exec("ALTER TABLE public.admin_account_actions DROP CONSTRAINT admin_account_actions_action_kind_check").Error; e != nil {
+		t.Fatal(e)
+	}
+	if _, _, e := adminauth.Open(ctx, settings, client, logger); e != adminauth.ErrUnavailable {
+		t.Fatal("缺第八版留迹能力应拒绝启动", e)
+	}
+	if e := db.Exec("ALTER TABLE public.admin_account_actions ADD CONSTRAINT admin_account_actions_action_kind_check CHECK (action_kind IN ('bootstrap','create','password_change','roles_change'))").Error; e != nil {
+		t.Fatal(e)
+	}
 	opened, closeOpened, e := adminauth.Open(ctx, settings, client, logger)
 	if e != nil {
 		t.Fatal("显式装配失败", e)
@@ -207,6 +217,111 @@ func TestPostgresAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// T008/REQ-018、019：角色管理与分页使用真实受限数据库身份；不进行跨端联调。
+	t.Run("账号列表与角色修改", func(t *testing.T) {
+		page, e := service.ListAccounts(ctx, session.Token, "", "accounts_first", 1)
+		if e != nil || len(page.Items) != 1 || page.NextCursor == nil {
+			t.Fatal("首分页失败", e)
+		}
+		second, e := service.ListAccounts(ctx, session.Token, *page.NextCursor, "accounts_next", 1)
+		if e != nil || len(second.Items) != 1 || second.Items[0].ID == page.Items[0].ID {
+			t.Fatal("键集分页重复", e)
+		}
+		if _, e = service.ListAccounts(ctx, session.Token, *page.NextCursor+"X", "accounts_tampered", 1); e != adminauth.ErrInvalid {
+			t.Fatal("篡改游标应拒绝", e)
+		}
+		if _, e = service.ListAccounts(ctx, operator.Token, "", "accounts_forbidden", 20); e != adminauth.ErrForbidden {
+			t.Fatal("普通运营不可列账号", e)
+		}
+		local, e := service.Create(ctx, session.Token, "roles_fixture", "roles_create", adminauth.CreateInput{LoginName: "roles-fixture", Roles: []string{}, Reason: "合成角色测试"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		input := adminauth.RolesInput{Roles: []string{"review_operator"}, Reason: "合成授权", ExpectedVersion: local.Version}
+		if _, e = service.ChangeRoles(ctx, operator.Token, "roles_forbidden", "roles_forbidden", local.ID, input); e != adminauth.ErrForbidden {
+			t.Fatal("运营不能提权", e)
+		}
+		changed, e := service.ChangeRoles(ctx, session.Token, "roles_success", "roles_success", local.ID, input)
+		if e != nil || changed.Version != local.Version+1 || len(changed.Roles) != 1 {
+			t.Fatal("角色替换失败", e)
+		}
+		replay, e := service.ChangeRoles(ctx, session.Token, "roles_success", "roles_replay", local.ID, input)
+		if e != nil || replay.Version != changed.Version {
+			t.Fatal("重放不能再次写入", e)
+		}
+		if _, e = service.ChangeRoles(ctx, session.Token, "roles_stale", "roles_stale", local.ID, input); e != command.ErrVersionConflict {
+			t.Fatal("旧版本应冲突", e)
+		}
+		input.Reason = "不同理由"
+		if _, e = service.ChangeRoles(ctx, session.Token, "roles_success", "roles_digest", local.ID, input); e != command.ErrIdempotencyConflict {
+			t.Fatal("异摘要应冲突", e)
+		}
+		// 留迹写入失败时，角色与版本必须原子回滚。
+		exec("CREATE FUNCTION public.fail_roles_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action_kind='roles_change' THEN RAISE EXCEPTION 'synthetic failure'; END IF; RETURN NEW; END $$")
+		exec("CREATE TRIGGER fail_roles_audit BEFORE INSERT ON public.admin_account_actions FOR EACH ROW EXECUTE FUNCTION public.fail_roles_audit()")
+		input = adminauth.RolesInput{Roles: []string{}, Reason: "合成回滚", ExpectedVersion: changed.Version}
+		_, e = service.ChangeRoles(ctx, session.Token, "roles_rollback", "roles_rollback", local.ID, input)
+		exec("DROP TRIGGER fail_roles_audit ON public.admin_account_actions")
+		exec("DROP FUNCTION public.fail_roles_audit()")
+		if e != adminauth.ErrUnavailable {
+			t.Fatal("留迹失败应拒绝", e)
+		}
+		current, e := service.ListAccounts(ctx, session.Token, "", "roles_rollback_check", 50)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, a := range current.Items {
+			if a.ID == local.ID && (a.Version != changed.Version || len(a.Roles) != 1) {
+				t.Fatal("角色变更未回滚")
+			}
+		}
+		// 并发同版本只有一个成功；不使用缓存角色决定权限。
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				_, e := service.ChangeRoles(ctx, session.Token, fmt.Sprintf("roles_race_%d", i), "roles_race", local.ID, input)
+				results <- e
+			}(i)
+		}
+		wg.Wait()
+		close(results)
+		success, conflict := 0, 0
+		for e := range results {
+			if e == nil {
+				success++
+			} else if e == command.ErrVersionConflict {
+				conflict++
+			} else {
+				t.Fatal(e)
+			}
+		}
+		if success != 1 || conflict != 1 {
+			t.Fatal("并发版本保护失败", success, conflict)
+		}
+		// 一个单独超管撤掉自身权限后，同键成功回执也不能恢复原授权。
+		super, e := service.Create(ctx, session.Token, "roles_super", "roles_super", adminauth.CreateInput{LoginName: "roles-super", Roles: []string{"super_admin"}, Reason: "合成超管"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		logged, e := service.Login(ctx, "roles-super", "123456", "roles-source", "roles_login")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = service.ListAccounts(ctx, logged.Token, *page.NextCursor, "cursor_cross_actor", 1); e != adminauth.ErrInvalid {
+			t.Fatal("跨主体游标应拒绝", e)
+		}
+		self := adminauth.RolesInput{Roles: []string{}, Reason: "合成撤权", ExpectedVersion: super.Version}
+		if _, e = service.ChangeRoles(ctx, logged.Token, "self_revoke", "self_revoke", super.ID, self); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = service.ChangeRoles(ctx, logged.Token, "self_revoke", "self_replay", super.ID, self); e != adminauth.ErrForbidden {
+			t.Fatal("撤权后回执不可越权", e)
+		}
+	})
 	if got := request("POST", "/api/v1/admin/accounts", operator.Token, "forbidden", strings.Replace(body, "synthetic-review", "forbidden-name", 1)).Code; got != 403 {
 		t.Fatal("普通角色不得创建", got)
 	}

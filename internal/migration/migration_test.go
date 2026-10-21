@@ -73,6 +73,16 @@ func TestPostgresMigrations(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	// T005/REQ-020：账本版本不变时也执行实体同步，补齐缺失常规字段及数据库注释。
+	if err = db.Exec("ALTER TABLE public.accounts DROP COLUMN hide_identity_tags").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = Run(ctx, db, log, "up"); err != nil {
+		t.Fatal(err)
+	}
+	if !db.Migrator().HasColumn("public.accounts", "hide_identity_tags") {
+		t.Fatal("自动迁移未补齐实体字段")
+	}
 	// T005/REQ-020：数据库对象注释是强制规范，探针与迁移账本同样纳入验证。
 	probeSQL, err := os.ReadFile("../../migrations/integration/0001_probe.up.sql")
 	if err != nil {
@@ -94,7 +104,7 @@ func TestPostgresMigrations(t *testing.T) {
 		t.Fatalf("表或字段缺少数据库注释：%d，错误：%v", missingComments, err)
 	}
 	var count int64
-	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 7 {
+	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 9 {
 		t.Fatalf("迁移账本版本数量不符：%v", err)
 	}
 	for _, statement := range []string{

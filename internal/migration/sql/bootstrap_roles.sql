@@ -115,7 +115,7 @@ GRANT SELECT, UPDATE, DELETE ON evidence.evidence_cases, evidence.crisis_cases, 
 -- 命名空间隔离在数据库内生效；同一命名空间中的本人/案件授权仍由服务复核。
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS sessions_student_scope ON public.sessions;
-CREATE POLICY sessions_student_scope ON public.sessions FOR ALL TO liyuanci_api
+CREATE POLICY sessions_student_scope ON public.sessions FOR ALL TO liyuanci_api, liyuanci_identity_maintenance
     USING (account_id IS NOT NULL) WITH CHECK (account_id IS NOT NULL);
 DROP POLICY IF EXISTS sessions_admin_scope ON public.sessions;
 CREATE POLICY sessions_admin_scope ON public.sessions FOR ALL TO liyuanci_admin_api, liyuanci_admin_maintenance
@@ -158,3 +158,16 @@ GRANT SELECT, INSERT ON public.admin_account_actions TO liyuanci_admin_maintenan
 GRANT INSERT ON public.sessions TO liyuanci_admin_maintenance;
 GRANT SELECT, INSERT ON public.command_receipts TO liyuanci_admin_maintenance;
 GRANT UPDATE (request_hash, result_ref, expires_at) ON public.command_receipts TO liyuanci_admin_maintenance;
+
+-- 学生身份装配使用专用身份维护组，不向普通API或后台身份池开放微信占用/会话写入。
+ALTER TABLE public.student_login_exchanges OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.student_login_exchanges FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger;
+GRANT SELECT, INSERT, UPDATE ON public.student_login_exchanges TO liyuanci_identity_maintenance;
+GRANT SELECT, INSERT ON public.sessions TO liyuanci_identity_maintenance;
+GRANT UPDATE (revoked_at) ON public.sessions TO liyuanci_identity_maintenance;
+GRANT INSERT ON public.accounts TO liyuanci_identity_maintenance;
+GRANT UPDATE (nickname, hide_identity_tags, version) ON public.accounts TO liyuanci_identity_maintenance;
+GRANT SELECT, INSERT ON public.command_receipts TO liyuanci_identity_maintenance;
+GRANT UPDATE (request_hash, result_ref, expires_at) ON public.command_receipts TO liyuanci_identity_maintenance;
+GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_identity_maintenance;
+GRANT SELECT ON public.penalties TO liyuanci_identity_maintenance;

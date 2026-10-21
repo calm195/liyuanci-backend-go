@@ -14,7 +14,10 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 // Engine 拥有命令事务及提交后的完成日志，不依赖 Redis 权限或 MQ 投递结果。
@@ -174,17 +177,16 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 		// 初次发现使用真正的只读事务，错误写入不能产生提前提交的业务副作用。
 		err = e.db.WithContext(ctx).Transaction(func(reader *gorm.DB) error {
 			var subjects []Subject
-			query := `SELECT s.subject_kind AS kind,s.subject_id AS id FROM public.sessions s
-JOIN public.accounts a ON a.id=s.account_id
-WHERE s.token_hash=? AND s.subject_kind='student' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()
-AND a.lifecycle='active' AND s.auth_epoch=a.auth_epoch`
+			// 只读发现使用单次联表快照；资格检查仍在取得 guard 后重新执行。
+			query := reader.Model(&entity.Session{}).Table("public.sessions AS s").
+				Select("s.subject_kind AS kind", "s.subject_id AS id").
+				Where("s.token_hash = ? AND s.subject_kind = ? AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND s.auth_epoch = a.auth_epoch", token[:], d.ActorKind)
 			if d.ActorKind == "admin" {
-				query = `SELECT s.subject_kind AS kind,s.subject_id AS id FROM public.sessions s
-JOIN public.admin_accounts a ON a.id=s.admin_id
-WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()
-AND a.status='active' AND s.auth_epoch=a.auth_epoch`
+				query = query.Joins("JOIN public.admin_accounts AS a ON a.id = s.admin_id").Where("a.status = ?", "active")
+			} else {
+				query = query.Joins("JOIN public.accounts AS a ON a.id = s.account_id").Where("a.lifecycle = ?", "active")
 			}
-			if failure := reader.Raw(query, token[:]).Scan(&subjects).Error; failure != nil {
+			if failure := query.Find(&subjects).Error; failure != nil {
 				return failure
 			}
 			if len(subjects) != 1 {
@@ -245,10 +247,11 @@ AND a.status='active' AND s.auth_epoch=a.auth_epoch`
 					ResultRef   string
 					ExpiresAt   time.Time
 				}
-				if failure = db.Raw("SELECT request_hash,result_ref,expires_at FROM public.command_receipts WHERE actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=? FOR UPDATE", subject.Kind, subject.ID, scope, key[:]).Scan(&receipts).Error; failure != nil {
+				if failure = db.Model(&entity.CommandReceipt{}).Select("request_hash,result_ref,expires_at").Where("actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=?", subject.Kind, subject.ID, scope, key[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&receipts).Error; failure != nil {
 					return failure
 				}
 				// 同一主体 guard 串行化同键操作；数据库唯一键兜底，回执和业务结果同事务。
+				// 冲突更新仍须检查数据库现有到期时间；零行代表并发状态变化，不能覆盖有效回执。
 				if len(receipts) == 1 && receipts[0].ExpiresAt.After(tx.now) {
 					if !slices.Equal(receipts[0].RequestHash, digest) {
 						return ErrIdempotencyConflict
@@ -292,10 +295,14 @@ AND a.status='active' AND s.auth_epoch=a.auth_epoch`
 				if failure = d.Resolve(ctx, tx, ref); failure != nil {
 					return failure
 				}
-				saved := db.Exec(`INSERT INTO public.command_receipts(actor_kind,actor_id,command_kind,key_hash,request_hash,result_ref,expires_at)
-VALUES (?,?,?,?,?,?,?) ON CONFLICT(actor_kind,actor_id,command_kind,key_hash) DO UPDATE
-SET request_hash=EXCLUDED.request_hash,result_ref=EXCLUDED.result_ref,expires_at=EXCLUDED.expires_at
-WHERE public.command_receipts.expires_at<=?`, subject.Kind, subject.ID, scope, key[:], digest, ref, tx.now.Add(e.config.ReceiptTTL), tx.now)
+				saved := db.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "actor_kind"}, {Name: "actor_id"}, {Name: "command_kind"}, {Name: "key_hash"}},
+					DoUpdates: clause.AssignmentColumns([]string{"request_hash", "result_ref", "expires_at"}),
+					Where:     clause.Where{Exprs: []clause.Expression{clause.Lte{Column: clause.Column{Table: "command_receipts", Name: "expires_at"}, Value: tx.now}}},
+				}).Create(&entity.CommandReceipt{
+					ActorKind: subject.Kind, ActorID: subject.ID, CommandKind: scope, KeyHash: key[:],
+					RequestHash: digest, ResultRef: ref, ExpiresAt: tx.now.Add(e.config.ReceiptTTL),
+				})
 				if saved.Error != nil {
 					return saved.Error
 				}

@@ -9,9 +9,11 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 // Work 是数据库持久源快照，不从唤醒事件重建，OperationID 是跨投递稳定去重依据。
@@ -91,9 +93,13 @@ func samePlan(a, b command.Discovery) bool {
 
 func (c *Consumer) read(ctx context.Context, db *gorm.DB, event Event) (Work, bool, error) {
 	var rows []Work
-	failure := db.WithContext(ctx).Raw(`SELECT w.*,e.aggregate_version AS target_version FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id
- WHERE w.id=? AND e.event_id=? AND e.aggregate_id=? AND e.aggregate_version=? AND e.event_type=? AND e.created_at=?
- AND e.superseded_at IS NULL AND w.kind=? AND w.target_kind=? AND w.target_id=e.aggregate_id`, event.CorrelationID, event.EventID, event.AggregateID, event.AggregateVersion, event.EventType, event.CreatedAt, c.definition.Route.Kind, c.definition.Route.TargetKind).Scan(&rows).Error
+	// 工作与事件在同一快照内匹配，不能分别读取后拼接出已失效的版本关联。
+	failure := db.WithContext(ctx).Model(&entity.WorkItem{}).Table("public.work_items AS w").
+		Select("w.*, e.aggregate_version AS target_version").
+		Joins("JOIN public.outbox_events AS e ON e.work_id = w.id").
+		Where("w.id = ? AND e.event_id = ? AND e.aggregate_id = ? AND e.aggregate_version = ? AND e.event_type = ? AND e.created_at = ?", event.CorrelationID, event.EventID, event.AggregateID, event.AggregateVersion, event.EventType, event.CreatedAt).
+		Where("e.superseded_at IS NULL AND w.kind = ? AND w.target_kind = ? AND w.target_id = e.aggregate_id", c.definition.Route.Kind, c.definition.Route.TargetKind).
+		Find(&rows).Error
 	if failure != nil {
 		return Work{}, false, ErrUnavailable
 	}
@@ -166,8 +172,9 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 			if failure != nil {
 				return failure
 			}
+			// 工作 DTO 带有联表目标版本；锁源表时显式选择真实列，避免 GORM 推断虚拟列。
 			var rows []Work
-			if failure = db.Raw("SELECT * FROM public.work_items WHERE id=? FOR UPDATE", initial.ID).Scan(&rows).Error; failure != nil {
+			if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", initial.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; failure != nil {
 				return ErrUnavailable
 			}
 			if len(rows) != 1 {
@@ -186,7 +193,7 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				return ErrConfiguration
 			}
 			var receipts int64
-			if failure = db.Raw("SELECT count(*) FROM public.consumer_receipts WHERE consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Scan(&receipts).Error; failure != nil {
+			if failure = db.Model(&entity.ConsumerReceipt{}).Where("consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Count(&receipts).Error; failure != nil {
 				return ErrUnavailable
 			}
 			if receipts > 0 {
@@ -206,7 +213,7 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 					return nil
 				}
 				if current.Attempts >= c.config.MaxAttempts {
-					if failure = db.Exec("UPDATE public.work_items SET status='attention',lease_until=NULL,version=version+1 WHERE id=?", current.ID).Error; failure != nil {
+					if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
 						return ErrUnavailable
 					}
 					out.Deferred = true
@@ -230,7 +237,7 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				if decision != Complete && decision != Obsolete {
 					return ErrConfiguration
 				}
-				if failure = db.Exec("UPDATE public.work_items SET status=?,lease_until=NULL,version=version+1,attempts=attempts+1 WHERE id=?", string(decision), current.ID).Error; failure != nil {
+				if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": string(decision), "lease_until": nil, "version": gorm.Expr("version+1"), "attempts": gorm.Expr("attempts+1")}).Error; failure != nil {
 					return ErrUnavailable
 				}
 				out.Applied = decision == Complete
@@ -239,7 +246,7 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				out.Cancelled = current.Status == "cancelled"
 				out.Replayed = current.Status == "completed"
 			}
-			if failure = db.Exec("INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES (?,?)", c.definition.ConsumerKind, current.OperationID).Error; failure != nil {
+			if failure = db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).Error; failure != nil {
 				return ErrUnavailable
 			}
 			return nil
@@ -273,7 +280,7 @@ func (c *Consumer) schedule(ctx context.Context, initial Work, cause error) erro
 	// 失败重试仅调度工作元数据，不持业务资源锁，也不覆盖其他消费者刚提交的版本/终态。
 	failure := c.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		var rows []Work
-		if failure := db.Raw("SELECT * FROM public.work_items WHERE id=? FOR UPDATE", initial.ID).Scan(&rows).Error; failure != nil {
+		if failure := db.Model(&entity.WorkItem{}).Select("*").Where("id=?", initial.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(rows) != 1 {
@@ -287,7 +294,7 @@ func (c *Consumer) schedule(ctx context.Context, initial Work, cause error) erro
 		if errors.Is(cause, ErrConfiguration) || current.Attempts+1 >= c.config.MaxAttempts {
 			status = "attention"
 		}
-		if failure := db.Exec("UPDATE public.work_items SET status=?,lease_until=NULL,attempts=attempts+1,version=version+1,next_at=clock_timestamp()+(? * interval '1 millisecond') WHERE id=?", status, c.config.RetryDelay.Milliseconds(), current.ID).Error; failure != nil {
+		if failure := db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": status, "lease_until": nil, "attempts": gorm.Expr("attempts+1"), "version": gorm.Expr("version+1"), "next_at": gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", c.config.RetryDelay.Milliseconds())}).Error; failure != nil {
 			return ErrUnavailable
 		}
 		return nil

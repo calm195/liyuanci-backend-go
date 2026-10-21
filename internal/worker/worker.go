@@ -12,8 +12,11 @@ import (
 	"github.com/apache/rocketmq-client-go/v2/consumer"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
 
@@ -49,7 +52,11 @@ func Start(c config.Config, r *platform.Resources, log *zap.Logger) (rocketmq.Pu
 				log.Error("探针消息消费完成", zap.String("result", "invalid_event"), zap.Duration("duration", time.Since(start)))
 				return consumer.ConsumeRetryLater, nil
 			}
-			result := r.DB.WithContext(ctx).Exec("INSERT INTO foundation_probe_receipts (probe_id) VALUES (?) ON CONFLICT (probe_id) DO UPDATE SET delivery_count = foundation_probe_receipts.delivery_count + 1", event.ProbeID)
+			// 同键投递由数据库原子累加，只有写入提交成功后才确认消息。
+			result := r.DB.WithContext(ctx).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "probe_id"}},
+				DoUpdates: clause.Assignments(map[string]any{"delivery_count": gorm.Expr("foundation_probe_receipts.delivery_count + 1")}),
+			}).Create(&entity.FoundationProbeReceipt{ProbeID: event.ProbeID})
 			if result.Error != nil {
 				log.Error("探针消息消费完成", zap.String("result", "storage_failed"), zap.Duration("duration", time.Since(start)))
 				return consumer.ConsumeRetryLater, nil

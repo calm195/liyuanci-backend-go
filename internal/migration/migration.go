@@ -1,4 +1,4 @@
-// Package migration 提供仅显式调用的事务迁移，启动服务不触发任何迁移。
+// Package migration 在受控迁移入口协调实体自动迁移与 PostgreSQL 专用约束。
 package migration
 
 import (
@@ -12,6 +12,8 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 //go:embed sql/*.sql
@@ -33,7 +35,7 @@ func Run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string)
 	if direction != "up" && direction != "down" {
 		return errors.New("迁移方向必须为 up 或 down")
 	}
-	catalog := []string{"0001_accounts", "0002_identity", "0003_identity_admin", "0004_interactions", "0005_moderation_work_evidence", "0006_outbox_supersession", "0007_admin_local"}
+	catalog := []string{"0001_accounts", "0002_identity", "0003_identity_admin", "0004_interactions", "0005_moderation_work_evidence", "0006_outbox_supersession", "0007_admin_local", "0008_admin_roles", "0009_student_login"}
 	type entry struct {
 		up, down []byte
 		checksum string
@@ -72,7 +74,7 @@ COMMENT ON COLUMN public.schema_migrations.applied_at IS '迁移事务应用时�
 			Version  int64
 			Checksum string
 		}
-		if e := tx.Raw("SELECT version, checksum FROM public.schema_migrations ORDER BY version").Scan(&rows).Error; e != nil {
+		if e := tx.Model(&entity.SchemaMigration{}).Select("version, checksum").Order("version").Find(&rows).Error; e != nil {
 			return fmt.Errorf("迁移账本读取失败：%w", e)
 		}
 		// 账本必须是已知版本的连续前缀，拒绝缺口、未知版本及任何历史文件改写。
@@ -89,9 +91,14 @@ COMMENT ON COLUMN public.schema_migrations.applied_at IS '迁移事务应用时�
 				if e := tx.Exec(string(entries[i].up)).Error; e != nil {
 					return fmt.Errorf("应用迁移失败：%w", e)
 				}
-				if e := tx.Exec("INSERT INTO public.schema_migrations(version, checksum) VALUES (?, ?)", i+1, entries[i].checksum).Error; e != nil {
+				if e := tx.Create(&entity.SchemaMigration{Version: int64(i + 1), Checksum: entries[i].checksum}).Error; e != nil {
 					return e
 				}
+			}
+			// 历史迁移先建立生成列、隔离域、权限和锁函数；实体仅同步常规字段。
+			// 与版本迁移共享事务和锁，任一失败会回滚，运行账号无需 DDL 权限。
+			if e := tx.AutoMigrate(entity.BusinessModels()...); e != nil {
+				return fmt.Errorf("实体自动迁移失败：%w", e)
 			}
 			return nil
 		}
@@ -99,7 +106,7 @@ COMMENT ON COLUMN public.schema_migrations.applied_at IS '迁移事务应用时�
 			if e := tx.Exec(string(entries[i].down)).Error; e != nil {
 				return fmt.Errorf("回退迁移失败：%w", e)
 			}
-			if e := tx.Exec("DELETE FROM public.schema_migrations WHERE version = ?", i+1).Error; e != nil {
+			if e := tx.Where("version = ?", i+1).Delete(&entity.SchemaMigration{}).Error; e != nil {
 				return e
 			}
 		}

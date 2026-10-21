@@ -23,14 +23,16 @@ cmd/
   server/             API 依赖装配与生命周期
   worker/             独立集成探针消费者
   probe/              集成探针生产与回执检查
-  migrate/            显式版本迁移命令
+  migrate/            版本迁移与实体 AutoMigrate 命令
 internal/
   command/            短事务、排序锁、幂等回执及当前会话/权限复核
   adminauth/          显式启用的后台账号、口令及数据库会话
+  studentauth/        可注入的wx.login交换、学生会话及本人资料
   durable/            持久工作、转发/消费、数据库补偿和受控重驱动
   transportmq/        显式装配的最小 RocketMQ 运输适配
   identity/           加密身份存储、唯一占用及受控轮换
-  migration/          内嵌迁移 SQL、事务锁、版本校验及显式权限配置
+  entity/             按功能模块分文件的数据库实体与迁移注册表
+  migration/          内嵌专用 SQL、实体自动迁移、事务锁与权限配置
   securedata/         信封加密及域隔离 HMAC 基础
   config/             YAML 与环境配置
   httpapi/            Gin 处理器与中间件
@@ -88,9 +90,11 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 ## 4. 开发规范与须知
 
+常规数据库增删改查使用 `internal/entity` 中按功能模块拆分的实体和 GORM；显式处理 NULL、零值和数据库默认值。行锁与冲突更新使用 GORM Clauses，保留 PostgreSQL 专用锁函数、原子 CTE、队列租约及 LATERAL 关联逻辑；受限身份的插入回读列须符合现有列级授权。
+
 领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；当前未接入业务路由，外部副作用须留待持久工作链路。
 
-`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行七版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
+`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行九版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
 
 账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
 
@@ -98,7 +102,7 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 - 按领域组织功能；HTTP 层负责校验及状态映射，service 负责业务规则，repository 负责 GORM 查询。I/O 首参使用 `context.Context`，数据库调用使用 `WithContext`，依赖显式注入。
 - 注释默认中文，导出符号注释以标识符开头；关键业务、资源归属、生命周期和恢复逻辑说明原因。非测试代码不含任务编号，运行日志使用中文消息与注入的 `*zap.Logger`，成功后记录完成，失败在所属边界记录。
 - 不记录凭据、DSN、请求正文或个人信息；日志索引仅使用 environment/service/host。技术日志不能替代业务审计或删除日志。
-- 数据库迁移显式执行，禁止启动 AutoMigrate；开发与生产隔离环境、网络、数据卷及凭据。停止不得删除卷、force/prune 或操作其他项目。
+- 数据库迁移入口 `go run ./cmd/migrate up` 启用 GORM AutoMigrate：先应用版本 SQL，再按实体同步常规字段，同批次事务/锁保证失败回滚；`journal-up` 只同步独立恢复库。API/worker 普通启动不执行 DDL，使用专用迁移身份。生成列、RLS、外键及复杂约束/索引、锁函数和授权保留版本 SQL；自动迁移不能替代完整数据库设计，字段重命名/删除仍须专项迁移。开发与生产隔离环境、网络、数据卷及凭据。停止不得删除卷、force/prune 或操作其他项目。
 - SQL 必须为每张表和每个字段提供中文数据库注释，使用 `COMMENT ON TABLE/COLUMN`；迁移集成检查验证注释完整性。
 - 每次修改完成后运行下列格式与质量检查；Go 代码或依赖变化另运行构建。CI 保持相同检查，未执行的验证必须明确说明。
 
@@ -116,4 +120,6 @@ make build # Go 代码或依赖变更时必需；输出 server、worker、probe�
 
 真实运输适配独立检查：`python3 scripts/check-mq.py`。在随机 Docker 项目中使用固定镜像运行 Broker、NameServer 和合成处理器，验证发送/重投/重复/晚到与退出，保留卷，不代表领域消费或整体需求验收；不连接生产服务。
 
-后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、登录、改密与退出。先显式执行七版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
+后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行九版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
+
+学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](docs/student-auth.md)。

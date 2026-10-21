@@ -109,3 +109,47 @@ T002/T008/T010，REQ-002–008、015、018、019；本轮后台实际子范围RE
 ## 文档提交与主分支合并复核（2026-10-21）
 
 按用户明确要求提交本项目变更并合入主分支。本次提交范围为T002/T008/T010、REQ-002–008、015、018、019的R2准入及交接文档，未新增运行能力，既有未完成和未验收边界保持上述状态。刷新远程分支后，仅有main与feat/backend-foundation，远程功能分支已包含于本地功能分支。提交前实际执行`make fmt`、`make check`和`git diff --check`均退出0；`make build`首次完成但有沙箱缓存写入警告，放开缓存写入后重跑退出0。此次未重跑真实中间件或跨端联调，历史证据不作为本轮新执行结果。不推送远程、不部署。
+
+## 后台账号管理增量（2026-10-21）
+
+T008/REQ-018、019；本轮用户授权逐任务实施、按模块依赖提交并新开分支，不考虑跨端联调。分支codex/backend-domain-services。补齐GET账号列表和PUT角色替换，复用现有独立受限后台池、命令根事务及当前角色授权；默认关闭，普通启动不迁移或初始化。模块职责：accounts.go负责流程/签名游标，repository.go负责单SQL分页角色聚合和角色替换，HTTP处理严格输入/状态，新增第八版仅扩展留迹动作及中文数据库注释，前七版不改。
+
+分页limit默认20上限50、UUID升序，HMAC游标绑定主体/用途；每页当前超管鉴权，非快照全量导出。角色写按全局guard锁序、目标账号版本复核，角色/版本/留迹/回执共同提交；重放当前授权，撤权不能靠旧回执提权；不变更auth_epoch，不新增最后超管限制。日志含中文完成消息、operation/request_id/result/duration，不记录理由/登录名/正文。详细接口见admin-auth.md及共享contracts后台账号管理说明。
+
+已执行真实Docker隔离PG/Redis检查python3 scripts/check-adminauth.py：项目liyuanci-admin-check-fa64836aa731退出0，TestPostgresAdmin13.26s，包覆盖率81.3%。新增分页不重复、签名篡改/跨主体拒绝、普通运营禁止列表/提权、角色成功及同键重放/异摘要、旧版本/并发冲突、留迹故障回滚、自身撤权后重放拒绝；HTTP协议测试覆盖参数/字段/版本错误。身份与口令为合成资料，PG/Redis/事务/权限真实；非跨端联调或生产验收。新增游标签名单元回归后规定检查和迁移镜像最终结果在下节记录。
+
+T008整体仍未完成：微信/学生会话与资格后续实现；T007领域worker随对应业务接入。审核处置用户本轮明确使用registry.id绑定精确正文版本，供T016及共享契约后续演进使用，不在本模块实现审核。未推送、部署或修改共享审批/需求/设计。
+
+本模块最终验证：新增第八版的`python3 scripts/check-migrations.py --container`退出0，正式镜像制品liyuanci-migrate-check:55000a0d2171；八版结构/表列中文注释、权限、空库上下行和正式UID10001 CLI通过。迁移79.7%、identity81.2%、command83.5%、durable78.0%。本次无跨端联调、生产、微信/对象桶外部调用。共享contracts生成83操作/130 schema，validate通过783示例及动作正反例；只将后台列表/角色两个已有操作更新为implemented-opt-in，不更改正式Wire字段，审核扩展保持未激活。Python已有LibreSSL/RefResolver告警，退出0。初次宿主Go检查受系统缓存沙箱限制，授权重跑通过；不将受限失败当通过。
+
+共享静态动作索引推进revision 2，新增actions-review.v0.2.0-r2.json固定当前输入；r1清单仅作历史保留。最终`make fmt`、`make check`（格式只读校验/vet/race-cover）、`make build`及两仓`git diff --check`退出0；本模块无依赖变化。新增游标签名单元测试已纳入最终check。未推送、部署或执行跨端联调。
+
+后续启动防护：checkSchema显式检查角色留迹约束包含roles_change，旧结构即使有表/列也拒绝后台启用，普通启动不补迁移。受限真实LOGIN的Open正反例覆盖该边界。复验`make fmt/check/build`退出0，`python3 scripts/check-adminauth.py`最终项目liyuanci-admin-check-d0b6a9f4cb8b退出0，TestPostgresAdmin12.67s、覆盖率82.0%；游标签名回归也纳入本轮真实检查。前述迁移镜像测试对应第八版DDL未变化，不冒称新的镜像复跑。
+
+## 学生wx.login身份与会话注入模块（2026-10-21）
+
+T008/REQ-002、014、018。本轮用户明确先实现可注入适配器/隔离测试，保留供应商接入缺口，并确认微信绑定遵循小程序wx.login。继后台账号管理c99c6cb和启动防护f02655d之后实施；不做跨端联调。studentauth的Exchanger/Resolver/Limiter显式依赖，WeChat仅接受wx.login code并调用固定HTTPS code2Session；禁止客户端OpenID、禁止重定向、响应有界/重复字段拒绝，丢弃session_key/UnionID，供应商原始错误不进入日志。HTTP仅协议/状态映射，repository负责SQL，identity.Store负责身份全局锁/双代占用/信封密文；Service负责会话与命令事务/完成日志，资源由外层持有。
+
+新增四个注入式HTTP操作：微信登录、GET本人、PUT资料、DELETE学生会话。server启动尚未装配学生资源，不提供默认合成身份或密钥；共享状态implemented-injected与后台implemented-opt-in区分，不能按文档地址宣称部署。SessionTTL/ExchangeTTL/独立SessionKey及命令参数全部显式注入，未选择生产学生TTL/续期策略。
+
+code先唯一HMAC领取，再事务外交换；失败/中断/没有有效成功回执要求新wx.login code，不重试已消费code。成功将双代OpenID解析/必要新账号（unverified）、身份信封/唯一占用、会话摘要和完成回执同事务提交。独立随机nonce与SessionKey用途隔离派生256位不透明token；数据库只存摘要/随机材料，不存token/code/OpenID明文；回执重放重验当前会话、账号代次/生命周期、绝对到期，不能恢复已撤销身份。身份库只记pending_commit，由外层提交后记success。
+
+资料写复用command当前资格、版本/幂等事务，受罚拒绝；受罚GET只返回受限资料/通用提示/退出动作。退出仅撤销当前学生会话，后台token拒绝，已删除/旧代/到期会话即时失效。Me.allowed_actions不列未交付心愿等动作。第九版新增学生登录技术回执及全部表列中文注释；前八版不改，非空回退拒绝。identity_maintenance增加账号创建/限定资料更新、学生sessions RLS及命令回执必要权限，仍无后台sessions跨域访问；permissions可重复。未成功code记录的到期清理调度和真实server资源装配保留缺口。
+
+首次真实检查暴露合成后台账号夹具缺凭据域约束，并非服务实现失败；补显式合成credential_ref后通过。后续项目liyuanci-admin-check-47004dc5f65f完整退出0：真实后台12.73s/82.0%，真实学生0.32s/84.4%，覆盖双代/不同code并发同身份、同code重放、当前投影/资料幂等和版本、会话写故障回滚身份、密钥失败不落身份、处罚/删除/到期/代次/退出、后台token/RLS、共享Redis限流及故障、HTTP字段白名单和no-store、panic/脱敏日志。微信/KMS为合成适配器，PG/Redis/权限/事务/HTTP真实，不是微信实机或跨端验收。追加同code并发测试后的最终结果另记。
+
+迁移/镜像check-migrations.py --container九版检查退出0，制品liyuanci-migrate-check:179efc914999，正式UID10001 CLI/上下行/注释/权限通过；identity包新增函数由学生隔离用例覆盖，迁移脚本单独identity包覆盖63.1%不等于完整学生链路覆盖。后续错误分类/敏感内存清理的小改动须以最终镜像复验为准。官方页面工具访问失败，HTTP适配器仅合成协议测试；真实微信AppID/AppSecret、真实KMS/HMAC服务、执行身份、私有桶/图片扫描和生产参数仍缺，T008整体不签验收。共享API保持0.2.0 Wire，静态索引revision 3记录六个后台opt-in、四个学生注入库、其余73项未实现。
+
+最终同code六并发回归纳入真实项目liyuanci-admin-check-7255686aed48：完整检查退出0，同code只交换一次且成功返回同token；后台13.86s/82.0%，学生0.30s/84.4%。最终make fmt/check/build通过；服务脚本单元13项通过，未修改启停入口或运行check-services.py。共享契约build/validate通过83操作/130 schema/783示例和动作正反例，生成revision 3指纹；格式检查发现的一处Python行尾空格已清理。最终两仓diff-check与规定检查在提交前执行；无依赖变化，不运行无必要的tidy。没有跨端联调、真实微信/KMS、生产部署或推送。
+
+最终正式镜像复验退出0：liyuanci-migrate-check:1e136859026a，锁定Go1.25.0/UID10001、九版上下行/重复permissions/注释与恢复库混建拒绝通过；该制品包含本模块最终运行源码。外部微信/KMS及server学生装配仍未交付，不扩展为T008整体完成。
+
+注销新code防护补全：identity.ResolveOpenID明确区分已映射但生命周期不可登录，Service映射401，不能创建替代账号绕过注销。最终真实项目liyuanci-admin-check-24a11ee264c5退出0，学生0.32s/84.5%、后台13.61s/82.0%，含新code拒绝注销主体。最终正式镜像liyuanci-migrate-check:6f1cb2675bd3全部检查退出0，含该生命周期映射；此前制品为历史验证快照。最终规定make fmt/check/build、两仓diff-check均通过；revision 3全部指纹逐项一致。学生server装配、真实供应商和后续业务任务仍未完成，不以本注入模块代替交付。
+
+## 2026-10-21 ORM 重构增量
+
+T005/T008、REQ-018/020：新增按功能模块分文件的完整数据库实体映射；版本迁移后同事务执行 GORM AutoMigrate，运行身份继续不持有 DDL 权限。后台/学生认证的常规 CRUD、角色批量写入和回执冲突处理改用 GORM，原锁序、数据库时间、生成列、RLS、专用 SQL 和完成日志边界保留。实现取舍、真实/合成范围、验证结果及限制见[本次专题记录](orm-refactor-2026-10-21.md)。本次不推进生产或外部供应商验收。
+
+## 2026-10-21 其他模块 ORM 统一增量
+
+T008、REQ-018/020：认证模块剩余普通投影、会话行锁、惩罚计数、只读资格预检及后台分页改用实体查询；JSON 角色聚合保持单次数据库快照，锁函数及数据库时间保留。完整范围、设计取舍、兼容性修复、真实/合成状态与本轮实际验证见[ORM 专题后续增量](orm-refactor-2026-10-21.md#后续模块-orm-统一增量)。本次不推进生产或完整领域业务验收。

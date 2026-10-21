@@ -6,6 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+
+	"github.com/google/uuid"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +19,8 @@ import (
 
 // AdminService 注入独立后台身份服务，处理器只负责协议验证和稳定状态映射。
 type AdminService interface {
+	ListAccounts(context.Context, string, string, string, int) (adminauth.AccountPage, error)
+	ChangeRoles(context.Context, string, string, string, string, adminauth.RolesInput) (adminauth.Account, error)
 	Create(context.Context, string, string, string, adminauth.CreateInput) (adminauth.Account, error)
 	Login(context.Context, string, string, string, string) (adminauth.Session, error)
 	ChangePassword(context.Context, string, string, string, adminauth.PasswordInput) error
@@ -29,6 +34,57 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 	}
 	group := r.Group("/api/v1/admin")
 	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.GET("/accounts", func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		query := c.Request.URL.Query()
+		for name, values := range query {
+			if (name != "cursor" && name != "limit") || len(values) != 1 {
+				adminError(c, adminauth.ErrInvalid)
+				return
+			}
+		}
+		limit := 20
+		if values, exists := query["limit"]; exists {
+			n, e := strconv.Atoi(values[0])
+			if e != nil || n < 1 || n > 50 {
+				adminError(c, adminauth.ErrInvalid)
+				return
+			}
+			limit = n
+		}
+		out, err := service.ListAccounts(c.Request.Context(), token, query.Get("cursor"), c.GetString("request_id"), limit)
+		if err != nil {
+			adminError(c, err)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
+	group.PUT("/accounts/:id/roles", func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		key, ok := idempotency(c)
+		if !ok {
+			return
+		}
+		target := c.Param("id")
+		id, e := uuid.Parse(target)
+		var input adminauth.RolesInput
+		if e != nil || id.String() != target || strictJSON(c, &input) != nil || input.Roles == nil || input.ExpectedVersion < 1 || strings.TrimSpace(input.Reason) == "" {
+			adminError(c, adminauth.ErrInvalid)
+			return
+		}
+		out, err := service.ChangeRoles(c.Request.Context(), token, key, c.GetString("request_id"), target, input)
+		if err != nil {
+			adminError(c, err)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
 	group.POST("/sessions", func(c *gin.Context) {
 		var input struct {
 			LoginName string `json:"login_name"`
@@ -176,6 +232,8 @@ func adminError(c *gin.Context, err error) {
 		status, code = 403, "FORBIDDEN"
 	case errors.Is(err, command.ErrNotFound):
 		status, code = 404, "NOT_FOUND"
+	case errors.Is(err, command.ErrVersionConflict):
+		status, code = 409, "VERSION_CONFLICT"
 	case errors.Is(err, adminauth.ErrConflict):
 		status, code = 409, "STATE_CONFLICT"
 	case errors.Is(err, command.ErrIdempotencyConflict):

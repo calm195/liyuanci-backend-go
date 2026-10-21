@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T008/REQ-018、019：随机隔离真实PostgreSQL/Redis验证后台身份，不部署业务。"""
+"""T008/REQ-002、014、018、019：隔离PG/Redis身份验证；学生微信/KMS为显式合成适配器。"""
 import json
 import os
 import pathlib
@@ -52,6 +52,10 @@ def main():
         env["APP_ADMINAUTH_TEST_DSN"] = "host=127.0.0.1 port=" + port(project + "-pg", "5432") + " user=postgres password=" + password + " dbname=adminauth sslmode=disable"
         env["APP_ADMINAUTH_TEST_REDIS"] = "127.0.0.1:" + port(project + "-redis", "6379")
         run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-v", "./internal/adminauth"], cwd=root)
+        run(["docker", "exec", project + "-pg", "createdb", "-U", "postgres", "studentauth"], stdout=subprocess.DEVNULL)
+        env["APP_STUDENTAUTH_TEST_DSN"] = env["APP_ADMINAUTH_TEST_DSN"].replace("dbname=adminauth", "dbname=studentauth")
+        env["APP_STUDENTAUTH_TEST_REDIS"] = env["APP_ADMINAUTH_TEST_REDIS"]
+        run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-v", "./internal/studentauth"], cwd=root)
     finally:
         # 仅停止/移除本次专用容器，保留卷，不使用force或prune。
         for name in reversed(started):
@@ -59,7 +63,7 @@ def main():
             run(["docker", "rm", name], stdout=subprocess.DEVNULL)
         if network_created:
             run(["docker", "network", "rm", project], stdout=subprocess.DEVNULL)
-    print("后台身份真实检查完成；微信、年级字典、生产TTL及整体验收不在范围", flush=True)
+    print("后台及学生身份隔离检查完成；实际微信/KMS、年级字典、生产TTL及整体验收不在范围", flush=True)
 
 
 if __name__ == "__main__":
