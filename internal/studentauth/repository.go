@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 type exchangeReceipt struct {
@@ -22,14 +24,19 @@ type exchangeReceipt struct {
 
 // claimExchange 用唯一code摘要保证只有一个调用者执行外部交换；冲突调用者不能抢占或重置。
 func claimExchange(ctx context.Context, db *gorm.DB, id string, code, request, nonce []byte, ttl time.Duration) (bool, error) {
-	result := db.WithContext(ctx).Exec(`INSERT INTO public.student_login_exchanges(id,code_hash,request_hash,nonce,expires_at)
- VALUES (?,?,?,?,clock_timestamp()+(? * interval '1 millisecond')) ON CONFLICT(code_hash) DO NOTHING`, id, code, request, nonce, ttl.Milliseconds())
+	// map 允许期限使用数据库表达式，避免跨进程时钟偏差；冲突处理由唯一约束原子裁决。
+	result := db.WithContext(ctx).Model(&entity.StudentLoginExchange{}).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "code_hash"}}, DoNothing: true,
+	}).Create(map[string]any{
+		"id": id, "code_hash": code, "request_hash": request, "nonce": nonce,
+		"expires_at": gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", ttl.Milliseconds()),
+	})
 	return result.RowsAffected == 1, result.Error
 }
 
 func readExchange(ctx context.Context, db *gorm.DB, hash []byte) (exchangeReceipt, error) {
 	var rows []exchangeReceipt
-	if e := db.WithContext(ctx).Raw("SELECT * FROM public.student_login_exchanges WHERE code_hash=?", hash).Scan(&rows).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.StudentLoginExchange{}).Where("code_hash = ?", hash).Find(&rows).Error; e != nil {
 		return exchangeReceipt{}, e
 	}
 	if len(rows) != 1 {
@@ -40,7 +47,7 @@ func readExchange(ctx context.Context, db *gorm.DB, hash []byte) (exchangeReceip
 
 func exchangeForUpdate(ctx context.Context, db *gorm.DB, hash []byte) (exchangeReceipt, error) {
 	var rows []exchangeReceipt
-	if e := db.WithContext(ctx).Raw("SELECT * FROM public.student_login_exchanges WHERE code_hash=? FOR UPDATE", hash).Scan(&rows).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.StudentLoginExchange{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("code_hash = ?", hash).Find(&rows).Error; e != nil {
 		return exchangeReceipt{}, e
 	}
 	if len(rows) != 1 {
@@ -50,7 +57,7 @@ func exchangeForUpdate(ctx context.Context, db *gorm.DB, hash []byte) (exchangeR
 }
 
 func finishExchange(ctx context.Context, db *gorm.DB, id, session string) error {
-	return db.WithContext(ctx).Exec("UPDATE public.student_login_exchanges SET status='completed',session_id=? WHERE id=?", session, id).Error
+	return db.WithContext(ctx).Model(&entity.StudentLoginExchange{}).Where("id = ?", id).Updates(map[string]any{"status": "completed", "session_id": session}).Error
 }
 
 func setTimeout(ctx context.Context, db *gorm.DB, timeout time.Duration) error {
@@ -62,11 +69,11 @@ func databaseNow(ctx context.Context, db *gorm.DB, out *time.Time) error {
 }
 
 func accountEpoch(ctx context.Context, db *gorm.DB, id string, out *int64) error {
-	return db.WithContext(ctx).Raw("SELECT auth_epoch FROM public.accounts WHERE id=? AND lifecycle='active'", id).Scan(out).Error
+	return db.WithContext(ctx).Model(&entity.Account{}).Select("auth_epoch").Where("id=? AND lifecycle='active'", id).Find(out).Error
 }
 
 func insertSession(ctx context.Context, db *gorm.DB, id, account string, hash []byte, epoch int64, expiry time.Time) error {
-	return db.WithContext(ctx).Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,?,?)", id, account, hash, epoch, expiry).Error
+	return db.WithContext(ctx).Create(&entity.Session{ID: id, AccountID: &account, TokenHash: hash, AuthEpoch: epoch, ExpiresAt: expiry}).Error
 }
 
 // authorize 遵循账号guard→会话锁序，所有读取投影和退出也复核当前主体状态。
@@ -76,7 +83,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 	}
 	hash := sha256.Sum256([]byte(token))
 	var refs []struct{ AccountID string }
-	if e := db.WithContext(ctx).Raw("SELECT account_id FROM public.sessions WHERE token_hash=? AND subject_kind='student'", hash[:]).Scan(&refs).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Session{}).Select("account_id").Where("token_hash=? AND subject_kind='student'", hash[:]).Find(&refs).Error; e != nil {
 		return "", now, e
 	}
 	if len(refs) != 1 {
@@ -95,7 +102,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 		ExpiresAt time.Time
 		RevokedAt *time.Time
 	}
-	if e := db.WithContext(ctx).Raw("SELECT account_id,auth_epoch,expires_at,revoked_at FROM public.sessions WHERE token_hash=? AND subject_kind='student' FOR UPDATE", hash[:]).Scan(&sessions).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Session{}).Select("account_id,auth_epoch,expires_at,revoked_at").Where("token_hash=? AND subject_kind='student'", hash[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&sessions).Error; e != nil {
 		return "", now, e
 	}
 	if e := databaseNow(ctx, db, &now); e != nil {
@@ -109,7 +116,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 
 func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me, error) {
 	var rows []Me
-	if e := db.WithContext(ctx).Raw("SELECT id,version,nickname,verification,hide_identity_tags FROM public.accounts WHERE id=? AND lifecycle='active'", id).Scan(&rows).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Account{}).Select("id,version,nickname,verification,hide_identity_tags").Where("id=? AND lifecycle='active'", id).Find(&rows).Error; e != nil {
 		return Me{}, e
 	}
 	if len(rows) != 1 {
@@ -117,12 +124,11 @@ func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me,
 	}
 	out := rows[0]
 	out.AllowedActions = []string{"deleteAuthSession"}
-	var restricted bool
-	if e := db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM public.penalties WHERE account_id=? AND action_kind IN ('mute','ban')
- AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?))`, id, now, now).Scan(&restricted).Error; e != nil {
+	var restrictions int64
+	if e := db.WithContext(ctx).Model(&entity.Penalty{}).Where("account_id = ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?)", id, []string{"mute", "ban"}, now, now).Count(&restrictions).Error; e != nil {
 		return Me{}, e
 	}
-	if restricted {
+	if restrictions > 0 {
 		out.Nickname = ""
 		out.PenaltyNotice = "当前账号交互权限受限"
 	} else {
@@ -132,10 +138,11 @@ func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me,
 	return out, nil
 }
 
+// replaceProfile 显式更新零值字段，避免结构体 Updates 忽略 false；版本递增仍在数据库内完成。
 func replaceProfile(ctx context.Context, db *gorm.DB, id string, input ProfileInput) error {
-	return db.WithContext(ctx).Exec("UPDATE public.accounts SET nickname=?,hide_identity_tags=?,version=version+1 WHERE id=?", input.Nickname, *input.HideIdentityTags, id).Error
+	return db.WithContext(ctx).Model(&entity.Account{}).Where("id = ?", id).Updates(map[string]any{"nickname": input.Nickname, "hide_identity_tags": *input.HideIdentityTags, "version": gorm.Expr("version + 1")}).Error
 }
 
 func revoke(ctx context.Context, db *gorm.DB, hash []byte, now time.Time) error {
-	return db.WithContext(ctx).Exec("UPDATE public.sessions SET revoked_at=? WHERE token_hash=? AND subject_kind='student'", now, hash).Error
+	return db.WithContext(ctx).Model(&entity.Session{}).Where("token_hash = ? AND subject_kind = ?", hash, "student").Update("revoked_at", now).Error
 }
