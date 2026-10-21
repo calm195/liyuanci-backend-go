@@ -89,3 +89,23 @@ moderation-extension.draft.json保持原字节/未跟踪，未提交、未激活
 状态：B07正式静态输入子范围本端验证通过；T002整体开发中（阻塞），B07/B14不整体关闭，等待两端按上述完整SHA消费并验证，资源/真实业务分别按原阻塞处理。INT-003仍仅准备，无本轮真实联调证据。本节覆盖前文“索引未提交”的时间状态，旧快照指纹保留为历史，不可用于本次正式接入。
 
 正式提交干净制品复验：`git archive f8c35f93fcc10cd2b4adc3f3b67ae4e4736b0b87 contracts`导出至`/tmp/liyuanci-b07-committed`，执行该副本build.py/validate.py均退出0；manifest八项指纹一致，目录中不存在moderation-extension.draft.json，证明可独立生成/校验。最终两仓git diff --check通过；后端阶段文档同步后make fmt/make check再次退出0。
+
+## R2实际隔离环境交付与准入剩余（2026-10-21）
+
+T002/T008/T010，REQ-002–008、015、018、019；本轮后台实际子范围REQ-002域隔离、018、019。开始分支feat/backend-foundation，完整HEAD `764fd9f8a044ea2cf275b77eece2743895cb8166`，工作区干净。共享docs正式输入 `f8c35f93fcc10cd2b4adc3f3b67ae4e4736b0b87`（0.2.0/index revision 1）；三份共享plans既有修改及审核草案保持原状，不提交、推送、部署生产或跨会话发消息。
+
+新增[准入包](../int003-r2-readiness.md)，补逐操作目标、允许条件/未定状态与版本来源；B05独立版本/处置资源身份与Wire兼容仍待评审，草案未激活；B07正式索引独立生成、指纹和失败关闭核验完成，不能据此关闭其余阻塞。后台TTL/角色刷新与学生策略分开，查询生命周期/重入技术建议、年级字典、标签更新清除未定项保留。T007领域worker、取消、管理审计及同一真实PG+MQ领域闭环/ACK故障单列，不在本轮实现。
+
+用户本轮指定Docker使用启动脚本。已通过init-dev/start创建专用liyuanci-int003项目：内部PG/Redis/NameServer/Broker、独立卷/网络；显式migrate up/permissions至七版，受限DB LOGIN int003_admin仅继承维护组；仓库外secret与测试参数明确；显式admin-init创建首超管，额外后台容器loopback18082。运行代码模块职责不变：迁移CLI管理版本/权限，装配层校验受限池与凭据，service处理身份，HTTP负责校验/状态映射。普通启动和18080基础API仍不启用后台；额外容器显式挂载配置及secret，不改Compose或运维入口。隔离用合成身份，无真实学生/外部密钥/私有桶。
+
+首次start中间件和基础API已起来，但未初始化探针表/主题，worker退出使脚本失败；通过原脚本显式bootstrap-probe/no-build恢复，最终start退出0。排查时直接Compose构建因缺外部密码环境拒绝，未传明文补救，仍回到正式启动脚本。宿主18082 healthz200、readyz503；迁移账本1–7，受限角色五项高权限均false，表/列缺注释计数均0。后台运行镜像ID及secret/账本/配置非敏感指纹记录于准入包，口令/DSN/token不入仓库或报告。环境保留，stop按项目标签覆盖新增容器且不删卷。临时secret目录需环境方接管，不宣称生产持久secret交付。
+
+真实验证：check-adminauth.py独立随机项目liyuanci-admin-check-3ecd54392ade退出0，真实PG/Redis/httptest、TestPostgresAdmin11.79s、包覆盖率80.4%；check-migrations.py --container退出0，制品liyuanci-migrate-check:7d3562d3a92c、正式CLI/UID10001/七版/注释/权限/回退验证通过；services单元13项通过。正式契约archive独立生成/校验退出0，83操作/130 schema/783示例及动作正反例，八项指纹一致，不依赖审核草案；初次Python3.9解包参数不兼容已修正，LibreSSL/RefResolver警告仍存在。
+
+状态：本端环境/材料已准备；INT-003未执行、未登记联调通过，需协调核对管理端完整SHA/正式消费指纹、真实传输与内存token/清理行为后准入；创建、登录、改密、退出四操作均纳入，普通合成账号在创建步骤产生。后台局部不等待T011准备，也不代表完整认证通过。B05/B07/B08–B10/B14和T007剩余边界保留。无Go/依赖/运行配置源码变更；本轮不以历史用户T005/T006验收冒称外部资源或学生闭环完成。
+
+最终验证：`make fmt`、`make check`（只读格式检查、go vet、go test -race -cover）及`git diff --check`退出0，常规单元含缓存，缺服务DSN的跳过不算真实集成；上文独立真实检查另计。`start.sh dev ... --no-build --probe`退出0，验证原有真实PG+MQ探针及worker回执，不是T007领域闭环。无Go/依赖变化，未另跑宿主`make build`；启动脚本及迁移镜像检查已实际构建全部五个Linux二进制。未改启停入口，未重跑完整check-services.py管理/监控栈；生产、真实学生、通知与跨端均未执行。
+
+## 文档提交与主分支合并复核（2026-10-21）
+
+按用户明确要求提交本项目变更并合入主分支。本次提交范围为T002/T008/T010、REQ-002–008、015、018、019的R2准入及交接文档，未新增运行能力，既有未完成和未验收边界保持上述状态。刷新远程分支后，仅有main与feat/backend-foundation，远程功能分支已包含于本地功能分支。提交前实际执行`make fmt`、`make check`和`git diff --check`均退出0；`make build`首次完成但有沙箱缓存写入警告，放开缓存写入后重跑退出0。此次未重跑真实中间件或跨端联调，历史证据不作为本轮新执行结果。不推送远程、不部署。
