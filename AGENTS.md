@@ -10,6 +10,8 @@ Use Go 1.25 or newer. Run `go mod tidy` after changing dependencies and commit b
 
 ## Coding Style & Naming Conventions
 
+SQL 强制为每张表和每个字段编写中文数据库注释（PostgreSQL 使用 `COMMENT ON TABLE` 与 `COMMENT ON COLUMN`），包括迁移账本、集成探针及后续新增字段；SQL 文件中的 `--` 注释不能替代数据库对象注释。迁移集成检查须验证数据库目录中表及字段注释非空。已应用迁移不得改写，注释变更通过新增迁移执行；尚未交付的迁移可在首次验收前补齐。
+
 Use gofmt with Tab indentation. Group imports as standard library, third-party packages, then this module, separated by blank lines. Expand multi-field configuration literals across lines and separate top-level declarations with blank lines. Use standard Go naming: lowercase package names, MixedCaps identifiers, and descriptive exported API comments. Accept `context.Context` as the first parameter for I/O operations. Pass dependencies explicitly; avoid mutable global clients. Keep HTTP validation and status mapping in handlers, business rules in services, and GORM queries in repositories. Use `WithContext` for database calls. Wrap errors with useful context without exposing credentials or internal errors in HTTP responses.
 
 ## Testing Guidelines
