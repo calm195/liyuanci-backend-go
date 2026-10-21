@@ -53,3 +53,8 @@ func resolveNameServers(ctx context.Context, addresses []string, resolver ipReso
 	}
 	return resolved, nil
 }
+
+// ResolveNameServers 为显式消息职责复用启动期解析；地址变化后由装配方重启客户端。
+func ResolveNameServers(ctx context.Context, addresses []string) ([]string, error) {
+	return resolveNameServers(ctx, addresses, net.DefaultResolver)
+}
