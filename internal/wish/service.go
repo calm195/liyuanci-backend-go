@@ -21,8 +21,10 @@ import (
 
 // ServiceConfig 要求显式配置命令期限与独立回执摘要密钥，不使用默认生产密钥。
 type ServiceConfig struct {
-	Command    command.Config
-	ReceiptKey []byte
+	// MaxStoryBytes 为正时显式启用故事及分享，字节预算不是业务字数限制。
+	MaxStoryBytes int
+	Command       command.Config
+	ReceiptKey    []byte
 }
 
 // CreatedDraft 仅返回当前可访问结果的技术元数据，不回放原文或历史权限。
@@ -45,7 +47,7 @@ type Service struct {
 
 // NewService 仅构造显式注入的心愿服务，不注册路由、不执行迁移。
 func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades Grades, cfg ServiceConfig) (*Service, error) {
-	if codec == nil || len(cfg.ReceiptKey) < 32 {
+	if codec == nil || len(cfg.ReceiptKey) < 32 || cfg.MaxStoryBytes < 0 {
 		return nil, command.ErrInvalid
 	}
 	engine, err := command.New(db, logger, cfg.Command)

@@ -227,3 +227,12 @@ GRANT SELECT ON public.conversations TO liyuanci_admin_api;
 GRANT UPDATE (next_delivery_seq,version) ON public.conversations TO liyuanci_admin_api;
 GRANT UPDATE (status,version,delivery_seq,delivered_at) ON public.messages TO liyuanci_admin_api;
 GRANT UPDATE (version) ON public.matches TO liyuanci_admin_api;
+
+-- 分享只持有技术引用，不授予运行身份DDL或历史正文快照能力。
+ALTER TABLE public.share_links OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.share_links FROM PUBLIC,liyuanci_api,liyuanci_domain_worker,liyuanci_admin_api,liyuanci_privacy_maintenance;
+GRANT SELECT,INSERT ON public.share_links TO liyuanci_api;
+GRANT SELECT,DELETE ON public.share_links TO liyuanci_privacy_maintenance;
+GRANT UPDATE (current_story_version) ON public.wishes TO liyuanci_admin_api;
+GRANT UPDATE (moderation_status,public_body,identity_tags,school_related,school_detection_version,school_detection_state,wordlist_version) ON public.story_versions TO liyuanci_admin_api;
+GRANT UPDATE (status,released_at) ON public.privacy_holds TO liyuanci_admin_api,liyuanci_domain_worker;

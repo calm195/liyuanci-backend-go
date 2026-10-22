@@ -193,6 +193,11 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, e
 		}
 	}
+	if wishes != nil && cfg.Wish.MaxStoryBytes > 0 {
+		if e = httpapi.RegisterStories(router, wishes); e != nil {
+			return nil, e
+		}
+	}
 	if contentReviews != nil {
 		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
 			return nil, e

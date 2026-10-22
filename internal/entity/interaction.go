@@ -7,6 +7,7 @@ import (
 
 // Wish 映射 public.wishes，字段注释描述数据库持久化语义。
 type Wish struct {
+	CurrentStoryVersion   int64      `gorm:"column:current_story_version;not null;default:0;comment:当前故事内容版本" json:"-"`
 	DraftDeletedAt        *time.Time `gorm:"column:draft_deleted_at;type:timestamptz;comment:草稿删除生效时间，保留技术引用但不再允许读取或复活" json:"-"`
 	DurationDays          int16      `gorm:"column:duration_days;type:smallint;not null;default:7;comment:有效期整数天数，默认七天" json:"-"`
 	ID                    string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
@@ -118,6 +119,12 @@ func (Message) TableName() string { return "public.messages" }
 
 // StoryVersion 映射 public.story_versions，字段注释描述数据库持久化语义。
 type StoryVersion struct {
+	ReviewTaskID           *string         `gorm:"column:review_task_id;type:uuid;comment:当前故事审核任务" json:"-"`
+	IdentityTags           json.RawMessage `gorm:"column:identity_tags;type:jsonb;not null;default:'{}';comment:最小已审标签" json:"-"`
+	WordlistVersion        *string         `gorm:"column:wordlist_version;type:uuid;comment:普通违规词库版本" json:"-"`
+	SourceMatchID          *string         `gorm:"column:source_match_id;type:uuid;comment:原匹配技术引用" json:"-"`
+	PeerEpoch              *int64          `gorm:"column:peer_epoch;comment:原应愿人权限代次" json:"-"`
+	ParentHoldEpoch        int64           `gorm:"column:parent_hold_epoch;not null;default:0;comment:父心愿屏障代次" json:"-"`
 	WishID                 string          `gorm:"column:wish_id;type:uuid;primaryKey;autoIncrement:false;comment:所属心愿" json:"-"`
 	StoryVersion           int64           `gorm:"column:story_version;type:bigint;primaryKey;autoIncrement:false;comment:故事内容版本" json:"-"`
 	AuthorID               string          `gorm:"column:author_id;type:uuid;not null;comment:故事作者，须为许愿人" json:"-"`

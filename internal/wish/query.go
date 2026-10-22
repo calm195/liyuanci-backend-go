@@ -29,6 +29,7 @@ type ReviewResult struct {
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
+	StoryReviewResult     *ReviewResult  `json:"story_review_result,omitempty"`
 	ID                    string         `json:"id"`
 	Version               int64          `json:"version"`
 	ContentVersion        int64          `json:"content_version"`
@@ -61,7 +62,7 @@ type PublicContent struct {
 	Category       string       `json:"category"`
 	Campus         string       `json:"campus"`
 	RewardMethod   string       `json:"reward_method"`
-	ExpiresAt      *time.Time   `json:"expires_at"`
+	ExpiresAt      *time.Time   `json:"expires_at,omitempty"`
 }
 
 // Query 约束公开筛选或本人状态筛选；游标绑定路由、主体及筛选，不能跨视图复用。
@@ -221,7 +222,43 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 			out.ReviewResult.RevisionSuggestion = a.task.RevisionSuggestion
 		}
 	}
-	if !a.snapshot.PrivacyHeld {
+	if a.row.CurrentStoryVersion > 0 {
+		v, e := storyRow(ctx, db, a.row.ID, a.row.CurrentStoryVersion)
+		if e != nil {
+			return out, e
+		}
+		holds, e := ReadStoryHolds(ctx, db, a.row.ID)
+		if e != nil {
+			return out, e
+		}
+		out.PrivacyReviewRequired = out.PrivacyReviewRequired || holds.Active
+		if v.ReviewTaskID != nil {
+			var t entity.ModerationTask
+			if e = db.WithContext(ctx).Where("id=?", *v.ReviewTaskID).Take(&t).Error; e != nil {
+				return out, e
+			}
+			decision := "pending"
+			if t.Status == "approved" || t.Status == "rejected" {
+				decision = t.Status
+			}
+			out.StoryReviewResult = &ReviewResult{Decision: decision, ContentVersion: v.StoryVersion}
+			if decision == "rejected" {
+				out.StoryReviewResult.Reason = t.Reason
+				out.StoryReviewResult.RevisionSuggestion = t.RevisionSuggestion
+			}
+		}
+		var storyRestrictions int64
+		if e = db.WithContext(ctx).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='story' AND c.entity_id=? AND r.active", a.row.ID).Count(&storyRestrictions).Error; e != nil {
+			return out, e
+		}
+		if storyRestrictions == 0 && s.config.MaxStoryBytes > 0 && a.owner.Active && a.owner.Verified && !a.owner.Restricted && !a.snapshot.Restricted {
+			out.AllowedActions = append(out.AllowedActions, "putWishesIdStory")
+			if v.WithdrawnAt == nil {
+				out.AllowedActions = append(out.AllowedActions, "postWishesIdStoryWithdraw")
+			}
+		}
+	}
+	if !out.PrivacyReviewRequired {
 		var envelope securedata.Envelope
 		if json.Unmarshal(a.content.BodyCipher, &envelope) != nil {
 			return Result{}, command.ErrUnavailable
@@ -270,6 +307,14 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 						return Result{}, e
 					}
 					capacity = n < 3
+				}
+				if ok && !denied && s.config.MaxStoryBytes > 0 {
+					if a.snapshot.State == Matching {
+						out.AllowedActions = append(out.AllowedActions, "postWishesIdComplete")
+					}
+					if a.snapshot.State == Realized && a.row.CurrentStoryVersion == 0 {
+						out.AllowedActions = append(out.AllowedActions, "postWishesIdStories")
+					}
 				}
 				if ok && !denied && capacity {
 					out.AllowedActions = append(out.AllowedActions, "postWishesIdRollback")

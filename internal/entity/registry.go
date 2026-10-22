@@ -25,6 +25,7 @@ func BusinessModels() []any {
 		&Conversation{},
 		&Message{},
 		&StoryVersion{},
+		&ShareLink{},
 		&ContentRegistry{},
 		&WordlistVersion{},
 		&WordlistEntry{},

@@ -84,7 +84,7 @@ func ordinaryScan(db *gorm.DB, id string) (out entity.ModerationScan, err error)
 	return
 }
 
-// Cases 列表只开放心愿、应愿留言及私聊的普通命中案件，危机正文不因普通审核权限而开放。
+// Cases 列表只开放心愿、应愿留言、私聊及故事的普通命中案件，危机正文不因普通审核权限而开放。
 func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit int) (out Page, err error) {
 	defer func() {
 		if err != nil {
@@ -105,7 +105,7 @@ func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit in
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
+		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message','story')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
@@ -162,9 +162,20 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 		if (row.message != nil && (!row.conversation.CanRead(row.message.SenderID) || row.message.Status == "cancelled")) || row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil || (row.application != nil && (row.application.Status == "withdrawn" || row.application.Status == "invalidated")) || !currentBinding(row) || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
 			return command.ErrNotFound
 		}
+		if row.story != nil {
+			ok, e := eligible(db, row)
+			if e != nil {
+				return e
+			}
+			if !ok {
+				return command.ErrNotFound
+			}
+		}
 		var held int64
-		if e = db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND (status='active' OR hold_epoch>?)", row.wish.ID, row.task.HoldEpoch).Count(&held).Error; e != nil {
-			return e
+		if row.story == nil {
+			if e = db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND (status='active' OR hold_epoch>?)", row.wish.ID, row.task.HoldEpoch).Count(&held).Error; e != nil {
+				return e
+			}
 		}
 		if held > 0 || row.task.SubjectEpoch != row.account.AuthEpoch {
 			return command.ErrNotFound
@@ -237,10 +248,18 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if !currentBinding(row) {
 			return "", command.ErrVersionConflict
 		}
-		// 屏障代次变化不能被旧案件放行；完整隐私重审释放由隐私领域另行接入。
+		// 屏障代次变化不能被旧案件放行；故事只释放新稿已覆盖的本域屏障，父心愿屏障独立。
 		var epoch int64
-		if e = db.Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)").Where("target_kind='wish' AND target_id=?", row.wish.ID).Scan(&epoch).Error; e != nil {
-			return "", e
+		if row.story != nil {
+			holds, e := wish.ReadStoryHolds(ctx, db, row.wish.ID)
+			if e != nil {
+				return "", e
+			}
+			epoch = holds.Epoch
+		} else {
+			if e = db.Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)").Where("target_kind='wish' AND target_id=?", row.wish.ID).Scan(&epoch).Error; e != nil {
+				return "", e
+			}
 		}
 		if epoch != row.task.HoldEpoch {
 			return "", command.ErrVersionConflict
@@ -254,6 +273,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if !ok {
 			status = "cancelled"
 			business = "cancelled"
+			if row.story != nil {
+				if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.task.ContentVersion).Updates(map[string]any{"moderation_status": "cancelled", "public_body": nil}).Error; e != nil {
+					return "", e
+				}
+			}
 			if row.message != nil {
 				if e = chat.CancelMessage(ctx, db, *row.message); e != nil {
 					return "", e
@@ -287,6 +311,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				body = &candidate.Body
 				tags, _ = json.Marshal(candidate.Tags)
 				business = "ready"
+				if row.story != nil {
+					business = "published"
+				}
 				if row.message != nil {
 					business = "delivered"
 				}
@@ -326,6 +353,16 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			business = "cancelled"
 		} else if *row.task.Decision == "approved" {
 			business = "ready"
+			if row.story != nil {
+				ok, e := eligible(tx.DB().WithContext(ctx), row)
+				if e != nil {
+					return e
+				}
+				business = "cancelled"
+				if ok {
+					business = "published"
+				}
+			}
 			if row.message != nil {
 				business = row.message.Status
 				if business != "delivered" {

@@ -17,6 +17,7 @@ import (
 )
 
 type current struct {
+	story        *entity.StoryVersion
 	message      *entity.Message
 	conversation chat.Snapshot
 	application  *entity.Application
@@ -37,8 +38,22 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	if err = db.Where("id=?", id).Take(&out.task).Error; err != nil {
 		return fail(err)
 	}
-	if err = db.Where("id=? AND kind IN ? AND content_version=?", out.task.ContentID, []string{"wish", "application", "message"}, out.task.ContentVersion).Take(&out.registry).Error; err != nil {
+	if err = db.Where("id=? AND kind IN ? AND content_version=?", out.task.ContentID, []string{"wish", "application", "message", "story"}, out.task.ContentVersion).Take(&out.registry).Error; err != nil {
 		return fail(err)
+	}
+	if out.registry.Kind == "story" {
+		var v entity.StoryVersion
+		if err = db.Where("wish_id=? AND story_version=? AND author_id=?", out.registry.EntityID, out.task.ContentVersion, out.registry.AuthorID).Take(&v).Error; err != nil {
+			return fail(err)
+		}
+		out.story = &v
+		if err = db.Where("id=?", v.WishID).Take(&out.wish).Error; err != nil {
+			return fail(err)
+		}
+		if err = db.Where("id=?", v.AuthorID).Take(&out.account).Error; err != nil {
+			return fail(err)
+		}
+		return out, nil
 	}
 	if out.registry.Kind == "message" {
 		var m entity.Message
@@ -88,6 +103,9 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 	if e != nil {
 		return command.Discovery{}, e
 	}
+	if row.story != nil {
+		return wish.DiscoverStory(ctx, db, row.wish.ID)
+	}
 	if row.message != nil {
 		p, e := chat.DiscoverConversation(ctx, db, row.message.ConversationID)
 		if e != nil {
@@ -104,6 +122,9 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 }
 
 func currentBinding(row current) bool {
+	if row.story != nil {
+		return row.wish.CurrentStoryVersion == row.task.ContentVersion && row.story.ReviewTaskID != nil && *row.story.ReviewTaskID == row.task.ID
+	}
 	if row.message != nil {
 		return row.message.ReviewTaskID != nil && *row.message.ReviewTaskID == row.task.ID && row.message.ContentVersion == row.task.ContentVersion
 	}
@@ -115,6 +136,9 @@ func currentBinding(row current) bool {
 
 // eligible 在账号和资源锁后复核当前任务绑定、资格、处罚及全部历史版本限制，不从旧事件恢复正文。
 func eligible(db *gorm.DB, row current) (bool, error) {
+	if row.story != nil {
+		return wish.StoryEligible(db.Statement.Context, db, row.wish, *row.story, row.task)
+	}
 	if row.message != nil {
 		if !currentBinding(row) {
 			return false, nil
@@ -167,6 +191,12 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 	return epoch == row.task.HoldEpoch, nil
 }
 func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte) error {
+	if row.story != nil {
+		if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
+			return e
+		}
+		return wish.ApplyStoryReview(db.Statement.Context, db, row.wish, *row.story, row.task, decision, body, tags)
+	}
 	if row.message != nil {
 		if decision == "approved" {
 			var now time.Time

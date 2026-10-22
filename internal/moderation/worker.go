@@ -63,7 +63,7 @@ type Worker struct {
 	cfg      WorkerConfig
 }
 
-// NewWorker 显式构造心愿、应愿留言及私聊扫描消费者，不启动循环、不迁移或自动发布规则。
+// NewWorker 显式构造心愿、应愿留言、私聊及还愿故事扫描消费者，不启动循环、不迁移或自动发布规则。
 func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer Analyzer, cfg WorkerConfig) (*Worker, error) {
 	if db == nil || log == nil || codec == nil || analyzer == nil || cfg.AnalysisTimeout <= 0 {
 		return nil, command.ErrInvalid
@@ -120,7 +120,7 @@ func subset(a, b wish.IdentityTags) bool {
 	return true
 }
 func candidateBody(row current, body string) bool {
-	if row.message != nil {
+	if row.message != nil || row.story != nil {
 		return utf8.ValidString(body) && strings.TrimSpace(body) != ""
 	}
 	if row.application != nil {
@@ -130,6 +130,10 @@ func candidateBody(row current, body string) bool {
 }
 
 func decryptContent(ctx context.Context, codec *securedata.Codec, row current) (out wish.Content, err error) {
+	if row.story != nil {
+		out.Body, err = wish.DecryptStory(ctx, codec, *row.story)
+		return
+	}
 	if row.message != nil {
 		out.Body, err = chat.DecryptBody(ctx, codec, *row.message)
 		return
@@ -311,6 +315,15 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			return "", e
 		}
 		if !ok || row.task.ContentVersion != work.TargetVersion || row.task.Status != "pending" {
+			if row.story != nil && !ok {
+				if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=? AND moderation_status IN ?", row.wish.ID, row.story.StoryVersion, []string{"pending", "human_required"}).Updates(map[string]any{"moderation_status": "cancelled", "public_body": nil}).Error; e != nil {
+					return "", e
+				}
+				if e = db.Model(&entity.ModerationTask{}).Where("id=? AND status='pending'", row.task.ID).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+					return "", e
+				}
+			}
+
 			if row.message != nil && !ok {
 				if e = chat.CancelMessage(ctx, db, *row.message); e != nil {
 					return "", e
@@ -339,13 +352,18 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 		decision := any(nil)
 		detection := a.DetectorVersion + "/" + scan.SchoolVersion
 		models := []any{&entity.ContentRegistry{}}
-		if row.application == nil && row.message == nil {
+		if row.story != nil {
+			models = append(models, &entity.StoryVersion{})
+		}
+		if row.application == nil && row.message == nil && row.story == nil {
 			models = append(models, &entity.WishVersion{})
 		}
 		for _, model := range models {
 			q := db.Model(model)
 			if _, ok := model.(*entity.ContentRegistry); ok {
 				q = q.Where("id=?", row.registry.ID)
+			} else if row.story != nil {
+				q = q.Where("wish_id=? AND story_version=?", row.wish.ID, row.task.ContentVersion)
 			} else {
 				q = q.Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion)
 			}
@@ -353,7 +371,12 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 				return "", e
 			}
 		}
-		if row.application == nil && row.message == nil {
+		if row.story != nil {
+			if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.task.ContentVersion).Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
+				return "", e
+			}
+		}
+		if row.application == nil && row.message == nil && row.story == nil {
 			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
 				return "", e
 			}
@@ -367,6 +390,11 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			decision = "approved"
 			tags, _ := json.Marshal(a.Tags)
 			if e = setReview(db, w.codec, row, "approved", &a.Body, tags); e != nil {
+				return "", e
+			}
+		}
+		if row.story != nil && status == "human_required" {
+			if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.task.ContentVersion).Update("moderation_status", "human_required").Error; e != nil {
 				return "", e
 			}
 		}

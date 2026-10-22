@@ -239,3 +239,25 @@ func TestOptionalChatAssembly(t *testing.T) {
 		t.Fatal("聊天脱离父领域仍启用")
 	}
 }
+
+// TestStoryAssembly 验证八项入口整体装配，基础心愿配置不隐式启用故事。
+func TestStoryAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32), MaxStoryBytes: 65536}
+	router, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(router.Routes()) != 37 {
+		t.Fatal("故事路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes/id/complete"}, {"POST", "/api/v1/wishes/id/stories"}, {"PUT", "/api/v1/wishes/id/story"}, {"POST", "/api/v1/wishes/id/story/withdraw"}, {"POST", "/api/v1/share-links"}} {
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))
+		if out.Code != 401 {
+			t.Fatal(tc, out.Code)
+		}
+	}
+}
