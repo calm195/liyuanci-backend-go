@@ -40,6 +40,18 @@ func (a developmentAnalyzer) Analyze(ctx context.Context, _ wish.Content) (out m
 	return moderation.Assessment{Body: "[开发合成审核正文]", DetectorVersion: "development-synthetic-v1"}, nil
 }
 
+// AnalyzeMessage 在显式合成模式只产生分类结果，保留私聊主动发送的联系方式。
+func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out moderation.MessageAssessment, err error) {
+	defer completed(a.logger, "development_message_analysis", time.Now(), &err)
+	if err = ctx.Err(); err != nil {
+		return out, err
+	}
+	if !a.synthetic {
+		return out, command.ErrUnavailable
+	}
+	return moderation.MessageAssessment{DetectorVersion: "development-synthetic-private-v1"}, nil
+}
+
 // ValidateContentWorker 在任何数据库或消息客户端启动前拒绝生产环境、未知分析模式及跨领域事件。
 func ValidateContentWorker(environment string, cfg Settings, options ContentWorkerConfig) error {
 	if environment != "integration" || cfg.WorkerDSN == "" || len(cfg.WrapKey) != 32 || len(cfg.LookupKey) != 32 ||
@@ -84,6 +96,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 	scanner, err := moderation.NewWorker(db, logger, codec, developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"}, moderation.WorkerConfig{
 		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},
 		AnalysisTimeout: 5 * time.Second,
+		MessageAnalyzer: developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"},
 	})
 	if err != nil {
 		return err

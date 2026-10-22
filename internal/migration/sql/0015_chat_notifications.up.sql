@@ -1,0 +1,10 @@
+ALTER TABLE public.conversations ADD COLUMN version bigint NOT NULL DEFAULT 1 CHECK (version > 0);
+COMMENT ON COLUMN public.conversations.version IS '会话聚合版本，送达或写权限变化时递增';
+ALTER TABLE public.notifications ADD COLUMN version bigint NOT NULL DEFAULT 1 CHECK (version > 0);
+COMMENT ON COLUMN public.notifications.version IS '通知独立乐观版本，首次已读时递增';
+ALTER TABLE public.messages ALTER COLUMN client_message_id TYPE text USING client_message_id::text;
+COMMENT ON COLUMN public.messages.client_message_id IS '客户端不透明幂等标识，不限定为UUID';
+ALTER TABLE public.messages ADD COLUMN review_task_id uuid REFERENCES public.moderation_tasks(id) DEFERRABLE INITIALLY DEFERRED, ADD COLUMN peer_epoch bigint, ADD COLUMN request_digest bytea;
+COMMENT ON COLUMN public.messages.review_task_id IS '当前精确审核任务，历史空值不能授权送达';
+COMMENT ON COLUMN public.messages.peer_epoch IS '提交时接收方权限代次，变化后旧消息不能复活';
+COMMENT ON COLUMN public.messages.request_digest IS '客户端消息请求带密钥摘要，不保存明文请求';

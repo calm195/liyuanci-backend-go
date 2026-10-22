@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
@@ -35,8 +36,20 @@ type Analyzer interface {
 	Analyze(context.Context, wish.Content) (Assessment, error)
 }
 
+// MessageAssessment 只允许分类，不允许改写私聊原文或公开身份标签。
+type MessageAssessment struct {
+	OrdinaryHit, CrisisHit bool
+	DetectorVersion        string
+}
+
+// MessageAnalyzer 与公开脱敏分析器隔离；缺少实现时私聊失败关闭。
+type MessageAnalyzer interface {
+	AnalyzeMessage(context.Context, string) (MessageAssessment, error)
+}
+
 // WorkerConfig 限制外部分析和最终数据库事务；调度生命周期由宿主负责。
 type WorkerConfig struct {
+	MessageAnalyzer MessageAnalyzer
 	Consumer        durable.ConsumerConfig
 	AnalysisTimeout time.Duration
 }
@@ -50,7 +63,7 @@ type Worker struct {
 	cfg      WorkerConfig
 }
 
-// NewWorker 显式构造心愿及应愿留言扫描消费者，不启动循环、不迁移或自动发布规则。
+// NewWorker 显式构造心愿、应愿留言及私聊扫描消费者，不启动循环、不迁移或自动发布规则。
 func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer Analyzer, cfg WorkerConfig) (*Worker, error) {
 	if db == nil || log == nil || codec == nil || analyzer == nil || cfg.AnalysisTimeout <= 0 {
 		return nil, command.ErrInvalid
@@ -107,6 +120,9 @@ func subset(a, b wish.IdentityTags) bool {
 	return true
 }
 func candidateBody(row current, body string) bool {
+	if row.message != nil {
+		return utf8.ValidString(body) && strings.TrimSpace(body) != ""
+	}
 	if row.application != nil {
 		return utf8.ValidString(body) && utf8.RuneCountInString(body) <= 100
 	}
@@ -114,6 +130,10 @@ func candidateBody(row current, body string) bool {
 }
 
 func decryptContent(ctx context.Context, codec *securedata.Codec, row current) (out wish.Content, err error) {
+	if row.message != nil {
+		out.Body, err = chat.DecryptBody(ctx, codec, *row.message)
+		return
+	}
 	if row.application != nil {
 		var envelope securedata.Envelope
 		if json.Unmarshal(row.application.MessageCipher, &envelope) != nil {
@@ -226,6 +246,13 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 					e = durable.ErrConfiguration
 				}
 			}()
+			if source.message != nil {
+				if w.cfg.MessageAnalyzer == nil {
+					return a, command.ErrUnavailable
+				}
+				result, e := w.cfg.MessageAnalyzer.AnalyzeMessage(analysis, input.Body)
+				return Assessment{Body: input.Body, OrdinaryHit: result.OrdinaryHit, CrisisHit: result.CrisisHit, DetectorVersion: result.DetectorVersion}, e
+			}
 			return w.analyzer.Analyze(analysis, input)
 		}()
 		if e == nil {
@@ -238,7 +265,9 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 			prep = durable.ErrConfiguration
 		} else {
 			a.CrisisHit = a.CrisisHit || hit(input.Body, snapshot.crisisEntries)
-			a.SchoolRelated = a.SchoolRelated || hit(input.Body, snapshot.schoolEntries)
+			if source.message == nil {
+				a.SchoolRelated = a.SchoolRelated || hit(input.Body, snapshot.schoolEntries)
+			}
 			a.OrdinaryHit = a.OrdinaryHit || hit(input.Body, snapshot.ordinaryEntries)
 			candidate, _ := json.Marshal(struct {
 				Body string
@@ -282,6 +311,11 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			return "", e
 		}
 		if !ok || row.task.ContentVersion != work.TargetVersion || row.task.Status != "pending" {
+			if row.message != nil && !ok {
+				if e = chat.CancelMessage(ctx, db, *row.message); e != nil {
+					return "", e
+				}
+			}
 			if row.application != nil && (row.application.Status == "pending_scan" || row.application.Status == "pending_review" || row.application.Status == "active") {
 				if e = wish.CancelApplication(ctx, db, *row.application, "invalidated", "eligibility_changed"); e != nil {
 					return "", e
@@ -305,7 +339,7 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 		decision := any(nil)
 		detection := a.DetectorVersion + "/" + scan.SchoolVersion
 		models := []any{&entity.ContentRegistry{}}
-		if row.application == nil {
+		if row.application == nil && row.message == nil {
 			models = append(models, &entity.WishVersion{})
 		}
 		for _, model := range models {
@@ -319,7 +353,7 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 				return "", e
 			}
 		}
-		if row.application == nil {
+		if row.application == nil && row.message == nil {
 			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
 				return "", e
 			}
@@ -333,6 +367,11 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			decision = "approved"
 			tags, _ := json.Marshal(a.Tags)
 			if e = setReview(db, w.codec, row, "approved", &a.Body, tags); e != nil {
+				return "", e
+			}
+		}
+		if row.message != nil && status == "human_required" {
+			if e = db.Model(&entity.Message{}).Where("id=?", row.message.ID).Updates(map[string]any{"status": "pending_review", "version": gorm.Expr("version+1")}).Error; e != nil {
 				return "", e
 			}
 		}

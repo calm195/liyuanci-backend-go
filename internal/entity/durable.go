@@ -53,6 +53,7 @@ func (ConsumerReceipt) TableName() string { return "public.consumer_receipts" }
 
 // Notification 映射 public.notifications，字段注释描述数据库持久化语义。
 type Notification struct {
+	Version     int64      `gorm:"column:version;not null;default:1;comment:通知已读乐观版本" json:"-"`
 	ID          string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	RecipientID string     `gorm:"column:recipient_id;type:uuid;not null;comment:通知接收人" json:"-"`
 	Type        string     `gorm:"column:type;type:text;not null;comment:通用通知类型" json:"-"`

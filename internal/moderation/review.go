@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
@@ -67,10 +68,23 @@ func ordinaryScan(db *gorm.DB, id string) (out entity.ModerationScan, err error)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = command.ErrNotFound
 	}
+	if err == nil {
+		var c entity.ContentRegistry
+		var t entity.ModerationTask
+		if e := db.Where("id=?", id).Take(&t).Error; e != nil {
+			return out, e
+		}
+		if e := db.Where("id=?", t.ContentID).Take(&c).Error; e != nil {
+			return out, e
+		}
+		if c.Kind == "message" && !out.OrdinaryHit {
+			return out, command.ErrNotFound
+		}
+	}
 	return
 }
 
-// Cases 列表只开放心愿及应愿留言的普通命中案件，危机正文不因普通审核权限而开放。
+// Cases 列表只开放心愿、应愿留言及私聊的普通命中案件，危机正文不因普通审核权限而开放。
 func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit int) (out Page, err error) {
 	defer func() {
 		if err != nil {
@@ -91,7 +105,7 @@ func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit in
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.school_related OR s.ordinary_hit) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
+		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
@@ -145,7 +159,7 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 		if e != nil {
 			return e
 		}
-		if row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil || (row.application != nil && (row.application.Status == "withdrawn" || row.application.Status == "invalidated")) || !currentBinding(row) || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
+		if (row.message != nil && (!row.conversation.CanRead(row.message.SenderID) || row.message.Status == "cancelled")) || row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil || (row.application != nil && (row.application.Status == "withdrawn" || row.application.Status == "invalidated")) || !currentBinding(row) || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
 			return command.ErrNotFound
 		}
 		var held int64
@@ -202,7 +216,7 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if _, e = ordinaryScan(tx.DB().WithContext(ctx), id); e != nil {
 			return e
 		}
-		if row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil {
+		if (row.message != nil && (!row.conversation.CanRead(row.message.SenderID) || row.message.Status == "cancelled")) || row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil {
 			return command.ErrNotFound
 		}
 		return nil
@@ -240,6 +254,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if !ok {
 			status = "cancelled"
 			business = "cancelled"
+			if row.message != nil {
+				if e = chat.CancelMessage(ctx, db, *row.message); e != nil {
+					return "", e
+				}
+			}
 			if row.application != nil {
 				if e = wish.CancelApplication(ctx, db, *row.application, "invalidated", "eligibility_changed"); e != nil {
 					return "", e
@@ -268,6 +287,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				body = &candidate.Body
 				tags, _ = json.Marshal(candidate.Tags)
 				business = "ready"
+				if row.message != nil {
+					business = "delivered"
+				}
 				if row.application != nil {
 					business = "active"
 				}
@@ -304,6 +326,12 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			business = "cancelled"
 		} else if *row.task.Decision == "approved" {
 			business = "ready"
+			if row.message != nil {
+				business = row.message.Status
+				if business != "delivered" {
+					business = "cancelled"
+				}
+			}
 			if row.application != nil {
 				business = "active"
 			}

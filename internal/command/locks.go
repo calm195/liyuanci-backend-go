@@ -42,6 +42,8 @@ func rank(kind ResourceKind) int {
 		return 6
 	case Message:
 		return 7
+	case Notification:
+		return 8
 	default:
 		return -1
 	}
@@ -165,9 +167,12 @@ func (t *Tx) lockResources(resources []Resource) error {
 			model = &entity.Match{}
 		case Conversation:
 			model = &entity.Conversation{}
-			columns = append(columns, "write_epoch")
+			columns = append(columns, "write_epoch", "version")
 		case ModerationTask:
 			model = &entity.ModerationTask{}
+			columns = append(columns, "version")
+		case Notification:
+			model = &entity.Notification{}
 			columns = append(columns, "version")
 		case Message:
 			model = &entity.Message{}

@@ -87,7 +87,7 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification}, check.Target.Kind) {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":

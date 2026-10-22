@@ -40,6 +40,9 @@ func DiscoverInteraction(ctx context.Context, db *gorm.DB, id string) (plan comm
 				return plan, err
 			}
 			for _, msg := range messages {
+				if msg.ReviewTaskID != nil {
+					plan.Resources = append(plan.Resources, command.Resource{Kind: command.ModerationTask, ID: *msg.ReviewTaskID})
+				}
 				plan.Resources = append(plan.Resources, command.Resource{Kind: command.Message, ID: msg.ID})
 			}
 		}

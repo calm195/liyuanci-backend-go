@@ -161,7 +161,7 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 
 func cancelConversation(ctx context.Context, tx *command.Tx, c entity.Conversation) error {
 	db := tx.DB().WithContext(ctx)
-	if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).Update("write_epoch", gorm.Expr("write_epoch+1")).Error; e != nil {
+	if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).Error; e != nil {
 		return e
 	}
 	var ids []string
@@ -169,6 +169,19 @@ func cancelConversation(ctx context.Context, tx *command.Tx, c entity.Conversati
 		return e
 	}
 	if e := db.Model(&entity.Message{}).Where("id IN ?", ids).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+		return e
+	}
+	var tasks []string
+	if e := db.Model(&entity.Message{}).Where("id IN ? AND review_task_id IS NOT NULL", ids).Pluck("review_task_id", &tasks).Error; e != nil {
+		return e
+	}
+	if e := db.Model(&entity.ModerationTask{}).Where("id IN ? AND status IN ?", tasks, []string{"pending", "human_required"}).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+		return e
+	}
+	if e := db.Model(&entity.ContentRegistry{}).Where("kind='message' AND entity_id IN ?", ids).Update("status", "cancelled").Error; e != nil {
+		return e
+	}
+	if e := obsoleteWork(ctx, tx, "moderation_task", tasks); e != nil {
 		return e
 	}
 	return obsoleteWork(ctx, tx, "message", ids)

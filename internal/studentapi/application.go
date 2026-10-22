@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
@@ -52,6 +53,8 @@ type Dependencies struct {
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
+	// Chat 仅在心愿模块与技术预算同时显式配置时启用。
+	Chat *chat.Config
 	// Moderation 仅在显式提供独立游标密钥后注册正式后台审核能力。
 	Moderation *moderation.Config
 	// Wish 为空时保持认证应用原有能力，不虚报心愿写动作。
@@ -114,6 +117,24 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, failureNew
 		}
 	}
+	var chats *chat.Service
+	if cfg.Chat != nil {
+		if wishes == nil {
+			return nil, command.ErrInvalid
+		}
+		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey} {
+			if bytes.Equal(key, cfg.Chat.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		if cfg.Moderation != nil && bytes.Equal(cfg.Moderation.CursorKey, cfg.Chat.Key) {
+			return nil, command.ErrInvalid
+		}
+		chats, e = chat.New(d.WishDB, d.Logger, d.Codec, *cfg.Chat)
+		if e != nil {
+			return nil, e
+		}
+	}
 	cfg.Auth.Wishes = wishes != nil
 	// 路由由本构造器整体注册，动作提示只在同一成功装配中开启，不采纳调用方的过期标志。
 	cfg.Auth.StudentCardAssets = true
@@ -164,6 +185,11 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, e
 		}
 		if e = httpapi.RegisterApplications(router, wishes); e != nil {
+			return nil, e
+		}
+	}
+	if chats != nil {
+		if e = httpapi.RegisterChat(router, chats); e != nil {
 			return nil, e
 		}
 	}

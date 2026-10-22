@@ -85,6 +85,8 @@ const (
 	ModerationTask ResourceKind = "moderation_task"
 	// Message 在审核任务后锁定。
 	Message ResourceKind = "message"
+	// Notification 在消息之后锁定通知。
+	Notification ResourceKind = "notification"
 )
 
 // Resource 是需要按层级和 UUID 锁定的技术引用。

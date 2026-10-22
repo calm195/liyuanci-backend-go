@@ -104,7 +104,7 @@ func TestPostgresMigrations(t *testing.T) {
 		t.Fatalf("表或字段缺少数据库注释：%d，错误：%v", missingComments, err)
 	}
 	var count int64
-	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 14 {
+	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 15 {
 		t.Fatalf("迁移账本版本数量不符：%v", err)
 	}
 	for _, statement := range []string{

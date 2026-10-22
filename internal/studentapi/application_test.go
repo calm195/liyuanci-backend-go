@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
@@ -205,5 +206,36 @@ func TestOptionalWishAssembly(t *testing.T) {
 	cfg.Wish.ReceiptKey = cfg.Auth.SessionKey
 	if router, err := New(d, cfg); err == nil || router != nil {
 		t.Fatal("允许复用用途密钥")
+	}
+}
+
+// TestOptionalChatAssembly 验证六路由与独立密钥，基础认证应用仍按原配置启用。
+func TestOptionalChatAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
+	cfg.Chat = &chat.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{5}, 32), MaxBodyBytes: 64 << 10}
+	router, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(router.Routes()) != 35 {
+		t.Fatal("聊天路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/me/conversations"}, {"GET", "/api/v1/conversations/id/messages"}, {"POST", "/api/v1/conversations/id/messages"}, {"GET", "/api/v1/me/messages/id/status"}, {"GET", "/api/v1/me/notifications"}, {"POST", "/api/v1/me/notifications/id/read"}} {
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))
+		if out.Code != 401 {
+			t.Fatal(tc, out.Code)
+		}
+	}
+	cfg.Chat.Key = cfg.Wish.ReceiptKey
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("聊天复用心愿密钥")
+	}
+	cfg.Wish = nil
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("聊天脱离父领域仍启用")
 	}
 }

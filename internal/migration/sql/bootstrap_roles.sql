@@ -221,3 +221,9 @@ GRANT SELECT ON public.blocks TO liyuanci_domain_worker,liyuanci_admin_api;
 GRANT UPDATE (status,version,public_message_cipher) ON public.applications TO liyuanci_admin_api;
 GRANT SELECT,INSERT ON public.notifications TO liyuanci_admin_api;
 GRANT SELECT ON public.matches TO liyuanci_admin_api;
+
+-- 私聊终审沿用统一锁序，只授予送达所需字段写权限。
+GRANT SELECT ON public.conversations TO liyuanci_admin_api;
+GRANT UPDATE (next_delivery_seq,version) ON public.conversations TO liyuanci_admin_api;
+GRANT UPDATE (status,version,delivery_seq,delivered_at) ON public.messages TO liyuanci_admin_api;
+GRANT UPDATE (version) ON public.matches TO liyuanci_admin_api;

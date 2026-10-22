@@ -4,24 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
-	"github.com/google/uuid"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 type current struct {
-	application *entity.Application
-	task        entity.ModerationTask
-	registry    entity.ContentRegistry
-	wish        entity.Wish
-	content     entity.WishVersion
-	account     entity.Account
+	message      *entity.Message
+	conversation chat.Snapshot
+	application  *entity.Application
+	task         entity.ModerationTask
+	registry     entity.ContentRegistry
+	wish         entity.Wish
+	content      entity.WishVersion
+	account      entity.Account
 }
 
 func load(db *gorm.DB, id string) (out current, err error) {
@@ -34,8 +37,23 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	if err = db.Where("id=?", id).Take(&out.task).Error; err != nil {
 		return fail(err)
 	}
-	if err = db.Where("id=? AND kind IN ? AND content_version=?", out.task.ContentID, []string{"wish", "application"}, out.task.ContentVersion).Take(&out.registry).Error; err != nil {
+	if err = db.Where("id=? AND kind IN ? AND content_version=?", out.task.ContentID, []string{"wish", "application", "message"}, out.task.ContentVersion).Take(&out.registry).Error; err != nil {
 		return fail(err)
+	}
+	if out.registry.Kind == "message" {
+		var m entity.Message
+		if err = db.Where("id=? AND sender_id=? AND content_version=?", out.registry.EntityID, out.registry.AuthorID, out.task.ContentVersion).Take(&m).Error; err != nil {
+			return fail(err)
+		}
+		out.message = &m
+		if out.conversation, err = chat.LoadConversation(db.Statement.Context, db, m.ConversationID); err != nil {
+			return fail(err)
+		}
+		out.wish = out.conversation.Wish
+		if err = db.Where("id=?", m.SenderID).Take(&out.account).Error; err != nil {
+			return fail(err)
+		}
+		return out, nil
 	}
 	wishID, author, version := out.registry.EntityID, out.registry.AuthorID, out.task.ContentVersion
 	if out.registry.Kind == "application" {
@@ -70,6 +88,14 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 	if e != nil {
 		return command.Discovery{}, e
 	}
+	if row.message != nil {
+		p, e := chat.DiscoverConversation(ctx, db, row.message.ConversationID)
+		if e != nil {
+			return p, e
+		}
+		p.Resources = append(p.Resources, command.Resource{Kind: command.ModerationTask, ID: id}, command.Resource{Kind: command.Message, ID: row.message.ID})
+		return p, nil
+	}
 	if row.application != nil {
 		return command.Discovery{Accounts: []string{row.account.ID, row.wish.OwnerID}, Resources: []command.Resource{{Kind: command.Wish, ID: row.wish.ID}, {Kind: command.Application, ID: row.application.ID}, {Kind: command.ModerationTask, ID: id}}}, nil
 	}
@@ -78,6 +104,9 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 }
 
 func currentBinding(row current) bool {
+	if row.message != nil {
+		return row.message.ReviewTaskID != nil && *row.message.ReviewTaskID == row.task.ID && row.message.ContentVersion == row.task.ContentVersion
+	}
 	if row.application != nil {
 		return row.application.WishContentVersion == row.wish.CurrentContentVersion && row.application.ReviewTaskID != nil && *row.application.ReviewTaskID == row.task.ID && row.application.ContentVersion == row.task.ContentVersion
 	}
@@ -86,6 +115,16 @@ func currentBinding(row current) bool {
 
 // eligible 在账号和资源锁后复核当前任务绑定、资格、处罚及全部历史版本限制，不从旧事件恢复正文。
 func eligible(db *gorm.DB, row current) (bool, error) {
+	if row.message != nil {
+		if !currentBinding(row) {
+			return false, nil
+		}
+		var now time.Time
+		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
+			return false, e
+		}
+		return chat.EligibleMessage(db.Statement.Context, db, *row.message, now)
+	}
 	if row.application != nil {
 		if !currentBinding(row) {
 			return false, nil
@@ -128,6 +167,25 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 	return epoch == row.task.HoldEpoch, nil
 }
 func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte) error {
+	if row.message != nil {
+		if decision == "approved" {
+			var now time.Time
+			if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
+				return e
+			}
+			if e := chat.Deliver(db.Statement.Context, db, *row.message, now); e != nil {
+				return e
+			}
+		} else {
+			if e := db.Model(&entity.Message{}).Where("id=?", row.message.ID).Updates(map[string]any{"status": "rejected", "version": gorm.Expr("version+1")}).Error; e != nil {
+				return e
+			}
+			if e := db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: row.message.SenderID, Type: "message_reviewed", TargetRef: row.message.ID}).Error; e != nil {
+				return e
+			}
+		}
+		return db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error
+	}
 	if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
 		return e
 	}

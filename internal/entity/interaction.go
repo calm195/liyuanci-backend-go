@@ -83,6 +83,7 @@ func (Match) TableName() string { return "public.matches" }
 
 // Conversation 映射 public.conversations，字段注释描述数据库持久化语义。
 type Conversation struct {
+	Version         int64     `gorm:"column:version;not null;default:1;comment:会话聚合版本" json:"-"`
 	ID              string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	MatchID         string    `gorm:"column:match_id;type:uuid;not null;unique;comment:唯一对应的匹配关系" json:"-"`
 	WriteEpoch      int64     `gorm:"column:write_epoch;type:bigint;not null;default:1;comment:写权限代次，旧异步任务必须复核" json:"-"`
@@ -95,13 +96,16 @@ func (Conversation) TableName() string { return "public.conversations" }
 
 // Message 映射 public.messages，字段注释描述数据库持久化语义。
 type Message struct {
+	ReviewTaskID    *string         `gorm:"column:review_task_id;type:uuid;comment:当前审核任务" json:"-"`
+	PeerEpoch       *int64          `gorm:"column:peer_epoch;comment:接收方权限代次" json:"-"`
+	RequestDigest   []byte          `gorm:"column:request_digest;type:bytea;comment:客户端消息请求带密钥摘要" json:"-"`
 	ID              string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	ConversationID  string          `gorm:"column:conversation_id;type:uuid;not null;comment:所属会话" json:"-"`
 	SenderID        string          `gorm:"column:sender_id;type:uuid;not null;comment:发送者，是否为原参与者须命令复核" json:"-"`
 	DeliverySeq     *int64          `gorm:"column:delivery_seq;type:bigint;comment:送达顺序号，未送达时为空" json:"-"`
 	DeliveredAt     *time.Time      `gorm:"column:delivered_at;type:timestamptz;comment:最终送达时间，未送达时为空" json:"-"`
 	Version         int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
-	ClientMessageID string          `gorm:"column:client_message_id;type:uuid;not null;comment:客户端随机幂等标识" json:"-"`
+	ClientMessageID string          `gorm:"column:client_message_id;type:text;not null;comment:客户端随机幂等标识" json:"-"`
 	BodyCipher      json.RawMessage `gorm:"column:body_cipher;type:jsonb;not null;comment:消息正文，保存信封密文而非明文" json:"-"`
 	ContentVersion  int64           `gorm:"column:content_version;type:bigint;not null;default:1;comment:消息内容版本" json:"-"`
 	Status          string          `gorm:"column:status;type:text;not null;default:'pending_scan';comment:审核与送达状态" json:"-"`
