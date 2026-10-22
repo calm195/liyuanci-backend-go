@@ -11,6 +11,7 @@ import (
 // Config 保存服务设置及可选中间件配置。
 type Config struct {
 	Environment string
+	DevAppFile  string
 	AdminAuth   struct {
 		Enabled                                                   bool
 		DSN, InitialPasswordFile, ReceiptKeyFile                  string
@@ -43,6 +44,7 @@ type Config struct {
 func Load(path string) (Config, error) {
 	v := viper.New()
 	v.SetDefault("environment", "foundation")
+	v.SetDefault("devappfile", "")
 	v.SetDefault("adminauth.enabled", false)
 	v.SetDefault("adminauth.dsn", "")
 	v.SetDefault("adminauth.initialpasswordfile", "")
@@ -106,6 +108,9 @@ func Load(path string) (Config, error) {
 	}
 	if c.AdminAuth.Enabled && (c.AdminAuth.DSN == "" || c.AdminAuth.InitialPasswordFile == "" || c.AdminAuth.ReceiptKeyFile == "" || !c.Redis.Enabled || c.AdminAuth.SessionTTL <= 0 || c.AdminAuth.Timeout <= 0 || c.AdminAuth.LockTimeout < time.Millisecond || c.AdminAuth.LockTimeout > c.AdminAuth.Timeout || c.AdminAuth.ReceiptTTL <= 0 || c.AdminAuth.LoginWindow < time.Millisecond || c.AdminAuth.LoginLimit < 1 || c.AdminAuth.MaxAttempts < 1 || c.AdminAuth.MaxAttempts > 10) {
 		return c, fmt.Errorf("后台身份启用时必须显式配置独立数据库、凭据文件、期限、重试及共享限流")
+	}
+	if c.DevAppFile != "" && (c.Environment != "integration" || c.AdminAuth.Enabled) {
+		return c, fmt.Errorf("本地业务适配器仅允许隔离集成环境且不能重复装配后台身份")
 	}
 	return c, nil
 }

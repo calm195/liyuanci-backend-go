@@ -17,7 +17,7 @@ services:
     command: ["-config", "configs/integration.yaml"]
     # API增加独立入口网络供loopback发布端口；中间件仍仅在internal网络。
     networks: [foundation, ingress]
-    ports: ["127.0.0.1:18080:8080"]
+    ports: ["127.0.0.1:${LIYUANCI_DEV_API_PORT:-18080}:8080"]
     healthcheck:
       # 基础阶段仅存活可通过；认证/密钥未实现的readyz仍应503。
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]

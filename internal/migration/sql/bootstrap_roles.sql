@@ -171,3 +171,24 @@ GRANT SELECT, INSERT ON public.command_receipts TO liyuanci_identity_maintenance
 GRANT UPDATE (request_hash, result_ref, expires_at) ON public.command_receipts TO liyuanci_identity_maintenance;
 GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_identity_maintenance;
 GRANT SELECT ON public.penalties TO liyuanci_identity_maintenance;
+
+-- 学生卡暂存与外部处理分配给独立领域身份；普通后台列表不能读取图片密文。
+ALTER TABLE public.student_card_payloads OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.student_card_payloads FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_evidence_reader,liyuanci_evidence_writer,liyuanci_evidence_purger;
+GRANT SELECT,INSERT ON public.assets,public.student_card_payloads TO liyuanci_identity_maintenance;
+GRANT SELECT,INSERT ON public.work_items,public.outbox_events TO liyuanci_identity_maintenance;
+GRANT SELECT,UPDATE ON public.assets TO liyuanci_domain_worker;
+GRANT SELECT,DELETE ON public.student_card_payloads TO liyuanci_domain_worker;
+GRANT SELECT,DELETE ON public.student_card_payloads TO liyuanci_privacy_maintenance;
+
+-- 人工认证按用途隔离数据库池；审核通过时只授予必要的加密身份绑定权限。
+GRANT SELECT, INSERT, UPDATE ON public.identity_reviews TO liyuanci_identity_maintenance;
+GRANT UPDATE (verification) ON public.accounts TO liyuanci_identity_maintenance;
+GRANT SELECT ON public.identity_lookup_keys, public.identity_lookup_claims TO liyuanci_admin_api;
+GRANT INSERT ON public.identity_lookup_claims, public.identity_secrets, public.identity_names TO liyuanci_admin_api;
+-- PostgreSQL行锁要求至少一列UPDATE权限；只授予版本列，不允许审核入口改写对象键或扫描结果。
+GRANT UPDATE (version) ON public.assets TO liyuanci_identity_maintenance, liyuanci_admin_api;
+
+-- 心愿命令只使旧审核/工作失效，不允许学生接口写入人工结论或删除历史审核记录。
+GRANT UPDATE (status) ON public.moderation_tasks TO liyuanci_api;
+GRANT UPDATE (status, lease_until, version) ON public.work_items TO liyuanci_api;

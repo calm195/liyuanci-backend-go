@@ -56,6 +56,13 @@ def main():
         env["APP_STUDENTAUTH_TEST_DSN"] = env["APP_ADMINAUTH_TEST_DSN"].replace("dbname=adminauth", "dbname=studentauth")
         env["APP_STUDENTAUTH_TEST_REDIS"] = env["APP_ADMINAUTH_TEST_REDIS"]
         run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-v", "./internal/studentauth"], cwd=root)
+        run(["docker", "exec", project + "-pg", "createdb", "-U", "postgres", "studentcard"], stdout=subprocess.DEVNULL)
+        env["APP_STUDENTCARD_TEST_DSN"] = env["APP_ADMINAUTH_TEST_DSN"].replace("dbname=adminauth", "dbname=studentcard")
+        env["APP_STUDENTCARD_TEST_REDIS"] = env["APP_ADMINAUTH_TEST_REDIS"]
+        run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-v", "./internal/studentcard"], cwd=root)
+        run(["docker", "exec", project + "-pg", "createdb", "-U", "postgres", "verification"], stdout=subprocess.DEVNULL)
+        env["APP_VERIFICATION_TEST_DSN"] = env["APP_ADMINAUTH_TEST_DSN"].replace("dbname=adminauth", "dbname=verification")
+        run(["go", "test", "-race", "-cover", "-count=1", "-timeout=180s", "-v", "./internal/verification"], cwd=root)
     finally:
         # 仅停止/移除本次专用容器，保留卷，不使用force或prune。
         for name in reversed(started):

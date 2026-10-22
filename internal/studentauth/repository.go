@@ -134,7 +134,7 @@ func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me,
 	} else {
 		out.AllowedActions = append(out.AllowedActions, "putMeProfile")
 	}
-	// 尚未实现的认证、心愿等写操作不列入允许动作，认证状态本身也不会授予未装配路由。
+	// 基础投影只提供现有会话和资料动作，领域动作由显式装配开关追加，认证本身不授予未装配路由。
 	return out, nil
 }
 

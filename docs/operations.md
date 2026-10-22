@@ -7,6 +7,8 @@
 ```sh
 # 首次初始化：只创建缺失的仓库外开发凭据，不写仓库、不覆盖旧值。
 ./scripts/init-dev.sh
+# 显式初始化独立开发业务库、检索引用及首个后台账号。
+python3 scripts/init-business-dev.py --admin-login developer
 # 首次需要探针表/主题时显式执行；探针是真实MQ往返，不是认证验收。
 ./scripts/start.sh dev --bootstrap-probe --probe
 # 日常启动默认重新构建API/worker；复用镜像可加--no-build。
@@ -95,3 +97,11 @@ docker logs --tail 100 liyuanci-observability-dev-grafana-1
 存量规范清理（T004；REQ-018、020）：启停入口及共用实现的注释只说明功能与业务约束；结构化完成日志增加中文说明，不再输出任务 ID/REQ，保留操作、阶段、环境、结果和耗时字段。
 
 本次清理验证（2026-10-20）：`python3 -m unittest discover -s scripts -p test_services.py -v`（13 项）与 `python3 scripts/check-services.py` 均通过；真实隔离项目 `liyuanci-dev-ops-df574141ac` 完成启动、探针往返、日志查询、停止、无隐式迁移重启及移除后卷保留检查。`make fmt/check/build` 通过；未执行生产启动或远端 CI。
+
+## 开发业务启动更新
+
+T004/T008/T011/T014、REQ-002/003/015/018/020：前述“没有业务认证能力”及“Compose配置不变”是原阶段描述，当前以本节和[开发业务装配](development-business.md)为准。`init-business-dev.py` 显式创建独立业务库、专用迁移身份及四个最小权限运行身份，应用当前迁移和权限，初始化检索引用和首个后台账号。普通start不调用初始化脚本，不执行DDL或重置账号。重复初始化保留既有账号和凭据，旧库缺原业务配置时拒绝生成新密钥。
+
+初始化成功后将仓库外 `business.json` 登记到operations.env的 `LIYUANCI_DEV_BUSINESS_FILE`；start仅在dev加载 `compose.business-dev.yaml`，只读挂载单个业务凭据文件，私有密文保存在本项目 `business-objects` 卷。默认API仍18080，可在环境文件中设置 `LIYUANCI_DEV_API_PORT`，容器内8080。受保护接口未登录401，匿名心愿列表可查询，`/api/v1`本身仍404。未初始化时保留健康模式并提示命令。整体readyz503，学校规则等真实依赖仍缺；真实微信需填配置。学校姓名/学号规则仅在开发宿主模拟通过；独立card-worker在开发环境模拟通过学生卡扫描，探针worker未变，心愿审核不会自动完成。
+
+自定义环境初始化须同时指定 `--project NAME --env-file /仓库外/operations.env`。所有业务口令和密钥只保存在原配置文件，不回显，不提交。恢复须同时恢复原业务配置、数据库和对象卷。stop/remove均保留卷；production不加载开发覆盖文件，本轮未执行生产部署或验收。

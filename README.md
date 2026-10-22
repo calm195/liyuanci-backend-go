@@ -4,7 +4,7 @@
 
 鲤源池后端采用 Go 模块化单体 API 与独立 worker，模块为 `github.com/calm195/liyuanci-backend-go`。PostgreSQL 是业务权威，Redis 与 RocketMQ 提供配套能力，事务发件箱组件供后续领域服务接入。
 
-当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及数据库事务与当前授权命令库、持久工作同事务写入、发件箱租约转发、数据库幂等消费、到期补偿和受控重驱动组件、独立业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和待密钥供应商接入的信封及有界对象加密组件。API 仅提供健康端点；认证、实际领域处理与业务接口尚未实现，无业务 Mock 路由，当前不能作为完整生产服务。
+当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及数据库事务与当前授权命令库、持久工作同事务写入、发件箱租约转发、数据库幂等消费、到期补偿和受控重驱动组件、独立业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和信封及有界对象加密组件。已提供后台认证、学生wx.login会话、学生卡与人工认证及心愿生命周期HTTP库，并接入显式初始化后的Docker开发API进程；基础模式仍仅提供健康端点。真实外部供应商及领域消费者仍待接入，无业务Mock路由，当前不能作为完整生产服务。
 
 阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
@@ -24,10 +24,17 @@ cmd/
   worker/             独立集成探针消费者
   probe/              集成探针生产与回执检查
   migrate/            版本迁移与实体 AutoMigrate 命令
+  dev-init/           显式开发检索与首个后台账号初始化
 internal/
   command/            短事务、排序锁、幂等回执及当前会话/权限复核
   adminauth/          显式启用的后台账号、口令及数据库会话
   studentauth/        可注入的wx.login交换、学生会话及本人资料
+  studentcard/        可注入的学生卡加密上传、扫描任务与状态
+  studentapi/         学生登录、学生卡与人工认证的整体应用装配
+  devapp/             隔离开发业务资源、文件密钥与私有密文对象适配
+  wish/               心愿字段、草稿及生命周期事务（编辑/送审/上架/撤下/删除）、状态/额度/到期与本人/公开分页查询
+  cardworker/         学生卡消息消费、发件箱与补偿调度装配
+  verification/       可注入的人工认证申请、重提、后台审核及访问留迹
   durable/            持久工作、转发/消费、数据库补偿和受控重驱动
   transportmq/        显式装配的最小 RocketMQ 运输适配
   identity/           加密身份存储、唯一占用及受控轮换
@@ -59,13 +66,15 @@ compose.*.yaml        按用途拆分的 Docker 编排
 make run
 ```
 
-默认监听 `127.0.0.1:8080`；`GET /healthz` 返回 200，`GET /readyz` 当前返回 503（认证及密钥能力尚未实现），其他路径返回 404。
+基础模式默认监听 `127.0.0.1:8080`；`GET /healthz` 返回 200，`GET /readyz` 返回 503，其他路径返回 404。Docker 开发业务模式按下述步骤启用。
 
 完整 Docker 开发环境：
 
 ```sh
 # 首次初始化仓库外开发凭据；不覆盖已有口令。
 ./scripts/init-dev.sh
+# 显式迁移独立业务库、初始化检索引用及首个后台账号；登录名自行指定。
+python3 scripts/init-business-dev.py --admin-login developer
 # 首次显式创建探针表、主题并验证往返。
 ./scripts/start.sh dev --bootstrap-probe --probe
 # 日常启动不执行迁移或重置账号。
@@ -78,7 +87,7 @@ make run
 
 | 入口 | 默认地址 | 说明 |
 | --- | --- | --- |
-| Docker API | http://127.0.0.1:18080/healthz | 存活 200，就绪端点仍为 503 |
+| Docker API | http://127.0.0.1:18080/healthz | 业务初始化后开放具体业务接口；缺少外部能力时就绪仍为 503 |
 | pgAdmin | http://127.0.0.1:15050 | 默认邮箱 `developer@example.com` |
 | Redis Insight | http://127.0.0.1:15540 | 容器内连接 `redis:6379` |
 | RocketMQ Dashboard | http://127.0.0.1:18081 | 发现地址 `namesrv:9876` |
@@ -88,13 +97,15 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
+业务初始化成功后，`./scripts/start.sh dev` 自动装配后台、学生、学生卡、人工认证及心愿接口。仓库外 `~/.config/liyuanci/dev/business.json` 保存用途分离密钥、独立数据库身份和 `AdminPassword`，不要提交或输出文件正文。真实微信登录需同时填写 `WeChatAppID`、`WeChatSecret` 后重启；未配置时合法登录请求返回503。学生卡扫描在开发环境模拟通过并由独立worker处理；学校姓名/学号规则仅在开发环境模拟通过，认证申请仍需人工审核；真实学校规则及心愿审核消费者仍缺，整体就绪仍503。`/api/v1` 本身不是接口，仍404；`GET /api/v1/me` 未登录401，`GET /api/v1/wishes` 可匿名查询。未初始化时保留健康模式并提示初始化命令。详见[开发业务装配](docs/development-business.md)及[心愿模块](docs/wish.md)。
+
 ## 4. 开发规范与须知
 
 常规数据库增删改查使用 `internal/entity` 中按功能模块拆分的实体和 GORM；显式处理 NULL、零值和数据库默认值。行锁与冲突更新使用 GORM Clauses，保留 PostgreSQL 专用锁函数、原子 CTE、队列租约及 LATERAL 关联逻辑；受限身份的插入回读列须符合现有列级授权。
 
-领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；当前未接入业务路由，外部副作用须留待持久工作链路。
+领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；开发业务路由已接入上述模块，外部副作用须留待持久工作链路。
 
-`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行九版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
+`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行当前全部版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
 
 账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
 
@@ -120,6 +131,10 @@ make build # Go 代码或依赖变更时必需；输出 server、worker、probe�
 
 真实运输适配独立检查：`python3 scripts/check-mq.py`。在随机 Docker 项目中使用固定镜像运行 Broker、NameServer 和合成处理器，验证发送/重投/重复/晚到与退出，保留卷，不代表领域消费或整体需求验收；不连接生产服务。
 
-后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行九版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
+后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行当前全部版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
 
 学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](docs/student-auth.md)。
+
+学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。`studentapi.New`可整体构造学生登录、学生卡及人工认证入口，要求独立学生/后台审核池及显式供应商；`cardworker.Open`组合真实MQ适配器、发件箱和数据库扫描补偿，提供取消与等待在途结束的关闭入口。现有server及独立探针worker不自动启用这些模块；接入顺序与未完成范围见[应用装配说明](docs/application-assembly.md)。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及实际供应商、物理清理等未完成范围见[学生卡说明](docs/student-card.md)。
+
+人工认证通过`verification.New`和`httpapi.RegisterVerification`显式注入，支持本人申请/驳回重提/状态、后台脱敏队列/详情/原卡代理/版本审核。申请时在同事务绑定唯一学号，通过时核验绑定、加密姓名并更新资格；敏感读取与审核保留访问留迹。学生与后台分别使用受限池，学校规则/密钥/私有对象没有默认实现；生产进程尚未装配，接入与外部缺口见[人工认证说明](docs/verification.md)。
