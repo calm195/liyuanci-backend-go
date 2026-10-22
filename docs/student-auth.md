@@ -30,3 +30,7 @@ SessionTTL为学生绝对会话期限，ExchangeTTL为同code成功回执期限�
 ## 验证边界
 
 python3 scripts/check-adminauth.py分别创建独立后台/学生数据库，真实Docker PG/Redis、实际HTTP处理器；微信和KMS使用明确合成适配器。微信HTTP适配器固定域名/参数、禁止重定向、限制响应大小、拒绝重复字段/尾随JSON；HTTP协议通过注入Transport合成测试。官方参考为[wx.login登录流程](https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/login.html)及[code2Session](https://developers.weixin.qq.com/miniprogram/dev/server/API/user-login/api_code2session.html)；本轮工具无法打开官方页面，未据此宣称真实供应商验证。无微信实机、生产KMS或跨端联调。
+
+## 开发进程接线更新
+
+T008/REQ-002/014/018：显式初始化后的Docker开发API进程已通过devapp装配学生认证，使用独立身份维护登录及文件密钥；初始化器显式配置检索引用，普通启动不写配置。以上server未装配描述为原阶段状态。真实微信需在仓库外business.json填写AppID/Secret，未填写时合法登录503，不提供模拟学生身份。详见[开发业务装配](development-business.md)。

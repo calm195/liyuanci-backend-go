@@ -4,7 +4,7 @@
 
 鲤源池后端采用 Go 模块化单体 API 与独立 worker，模块为 `github.com/calm195/liyuanci-backend-go`。PostgreSQL 是业务权威，Redis 与 RocketMQ 提供配套能力，事务发件箱组件供后续领域服务接入。
 
-当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及数据库事务与当前授权命令库、持久工作同事务写入、发件箱租约转发、数据库幂等消费、到期补偿和受控重驱动组件、独立业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和待密钥供应商接入的信封及有界对象加密组件。已提供后台认证，以及学生wx.login会话、学生卡上传扫描与人工认证的显式注入HTTP库；默认API仍仅提供健康端点，学生业务进程装配及真实外部接入待完成，无业务Mock路由，当前不能作为完整生产服务。
+当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及数据库事务与当前授权命令库、持久工作同事务写入、发件箱租约转发、数据库幂等消费、到期补偿和受控重驱动组件、独立业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和信封及有界对象加密组件。已提供后台认证、学生wx.login会话、学生卡与人工认证及心愿生命周期HTTP库，并接入显式初始化后的Docker开发API进程；基础模式仍仅提供健康端点。真实外部供应商及领域消费者仍待接入，无业务Mock路由，当前不能作为完整生产服务。
 
 阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
@@ -24,12 +24,14 @@ cmd/
   worker/             独立集成探针消费者
   probe/              集成探针生产与回执检查
   migrate/            版本迁移与实体 AutoMigrate 命令
+  dev-init/           显式开发检索与首个后台账号初始化
 internal/
   command/            短事务、排序锁、幂等回执及当前会话/权限复核
   adminauth/          显式启用的后台账号、口令及数据库会话
   studentauth/        可注入的wx.login交换、学生会话及本人资料
   studentcard/        可注入的学生卡加密上传、扫描任务与状态
   studentapi/         学生登录、学生卡与人工认证的整体应用装配
+  devapp/             隔离开发业务资源、文件密钥与私有密文对象适配
   wish/               心愿字段、草稿及生命周期事务（编辑/送审/上架/撤下/删除）、状态/额度/到期与本人/公开分页查询
   cardworker/         学生卡消息消费、发件箱与补偿调度装配
   verification/       可注入的人工认证申请、重提、后台审核及访问留迹
@@ -64,13 +66,15 @@ compose.*.yaml        按用途拆分的 Docker 编排
 make run
 ```
 
-默认监听 `127.0.0.1:8080`；`GET /healthz` 返回 200，`GET /readyz` 当前返回 503（认证及密钥能力尚未实现），其他路径返回 404。
+基础模式默认监听 `127.0.0.1:8080`；`GET /healthz` 返回 200，`GET /readyz` 返回 503，其他路径返回 404。Docker 开发业务模式按下述步骤启用。
 
 完整 Docker 开发环境：
 
 ```sh
 # 首次初始化仓库外开发凭据；不覆盖已有口令。
 ./scripts/init-dev.sh
+# 显式迁移独立业务库、初始化检索引用及首个后台账号；登录名自行指定。
+python3 scripts/init-business-dev.py --admin-login developer
 # 首次显式创建探针表、主题并验证往返。
 ./scripts/start.sh dev --bootstrap-probe --probe
 # 日常启动不执行迁移或重置账号。
@@ -83,7 +87,7 @@ make run
 
 | 入口 | 默认地址 | 说明 |
 | --- | --- | --- |
-| Docker API | http://127.0.0.1:18080/healthz | 存活 200，就绪端点仍为 503 |
+| Docker API | http://127.0.0.1:18080/healthz | 业务初始化后开放具体业务接口；缺少外部能力时就绪仍为 503 |
 | pgAdmin | http://127.0.0.1:15050 | 默认邮箱 `developer@example.com` |
 | Redis Insight | http://127.0.0.1:15540 | 容器内连接 `redis:6379` |
 | RocketMQ Dashboard | http://127.0.0.1:18081 | 发现地址 `namesrv:9876` |
@@ -93,13 +97,13 @@ pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pg
 
 管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
-心愿生命周期与查询通过 `httpapi.RegisterWishes` 显式注册，学生应用可配置 `Config.Wish` 并提供独立业务池；默认进程尚未接线。依赖、请求、迁移及隔离检查见 [心愿模块](docs/wish.md)。
+业务初始化成功后，`./scripts/start.sh dev` 自动装配后台、学生、学生卡、人工认证及心愿接口。仓库外 `~/.config/liyuanci/dev/business.json` 保存用途分离密钥、独立数据库身份和 `AdminPassword`，不要提交或输出文件正文。真实微信登录需同时填写 `WeChatAppID`、`WeChatSecret` 后重启；未配置时合法登录请求返回503。学生卡扫描在开发环境模拟通过并由独立worker处理；学校姓名/学号规则仅在开发环境模拟通过，认证申请仍需人工审核；真实学校规则及心愿审核消费者仍缺，整体就绪仍503。`/api/v1` 本身不是接口，仍404；`GET /api/v1/me` 未登录401，`GET /api/v1/wishes` 可匿名查询。未初始化时保留健康模式并提示初始化命令。详见[开发业务装配](docs/development-business.md)及[心愿模块](docs/wish.md)。
 
 ## 4. 开发规范与须知
 
 常规数据库增删改查使用 `internal/entity` 中按功能模块拆分的实体和 GORM；显式处理 NULL、零值和数据库默认值。行锁与冲突更新使用 GORM Clauses，保留 PostgreSQL 专用锁函数、原子 CTE、队列租约及 LATERAL 关联逻辑；受限身份的插入回读列须符合现有列级授权。
 
-领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；当前未接入业务路由，外部副作用须留待持久工作链路。
+领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；开发业务路由已接入上述模块，外部副作用须留待持久工作链路。
 
 `durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行当前全部版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
 
