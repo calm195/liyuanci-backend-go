@@ -2,11 +2,13 @@
 run:
 	go run ./cmd/server
 build:
+	go build -trimpath -o bin/card-worker ./cmd/card-worker
 	go build -trimpath -o bin/server ./cmd/server
 	go build -trimpath -o bin/worker ./cmd/worker
 	go build -trimpath -o bin/probe ./cmd/probe
 	go build -trimpath -o bin/migrate ./cmd/migrate
 	go build -trimpath -o bin/admin-init ./cmd/admin-init
+	go build -trimpath -o bin/dev-init ./cmd/dev-init
 test:
 	go test -race -cover ./...
 fmt:
