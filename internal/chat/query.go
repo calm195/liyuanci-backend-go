@@ -152,6 +152,9 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 		return out, command.ErrInvalid
 	}
 	err = s.read(ctx, token, func(db *gorm.DB, actor string, now time.Time) error {
+		if e := readChatAllowed(db, actor, now); e != nil {
+			return e
+		}
 		scope := "conversations/" + actor
 		after, e := s.decode(q.Cursor, scope)
 		if e != nil {
@@ -198,7 +201,10 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 	if !validID(id) || !validQuery(q) {
 		return out, command.ErrInvalid
 	}
-	err = s.read(ctx, token, func(db *gorm.DB, actor string, _ time.Time) error {
+	err = s.read(ctx, token, func(db *gorm.DB, actor string, now time.Time) error {
+		if e := readChatAllowed(db, actor, now); e != nil {
+			return e
+		}
 		v, e := LoadConversation(ctx, db, id)
 		if e != nil {
 			return e
@@ -217,7 +223,7 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 		out.NextAfterSeq = seq
 		out.Items = []DeliveredMessage{}
 		var rows []entity.Message
-		if e = db.Where("conversation_id=? AND status='delivered' AND delivery_seq>?", id, seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
+		if e = db.Where("conversation_id=? AND status='delivered' AND delivery_seq>? AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)", id, seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
 			return e
 		}
 		for _, m := range rows {
@@ -248,6 +254,9 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 		return out, command.ErrInvalid
 	}
 	err = s.read(ctx, token, func(db *gorm.DB, actor string, now time.Time) error {
+		if e := readChatAllowed(db, actor, now); e != nil {
+			return e
+		}
 		var m entity.Message
 		if e := db.Where("id=? AND sender_id=?", id, actor).Take(&m).Error; e != nil {
 			if errors.Is(e, gorm.ErrRecordNotFound) {
@@ -297,6 +306,29 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 }
 func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (Notification, error) {
 	out := Notification{ID: row.ID, Version: row.Version, Kind: row.Type, Read: row.ReadAt != nil, Notice: "有新进展，请打开应用查看"}
+	if row.Type == "penalty_notice" {
+		var p entity.Penalty
+		e := db.WithContext(ctx).Where("id=? AND account_id=?", row.TargetRef, row.RecipientID).Take(&p).Error
+		if e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return out, e
+		}
+		if e == nil {
+			ref := p.ID
+			out.TargetRef = &ref
+			out.Notice = "账号有新的处置，请查看警告或申诉入口"
+		}
+	}
+	if row.Type == "appeal_result" {
+		var a entity.Appeal
+		e := db.WithContext(ctx).Where("id=? AND account_id=?", row.TargetRef, row.RecipientID).Take(&a).Error
+		if e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return out, e
+		}
+		if e == nil {
+			ref := a.ID
+			out.TargetRef = &ref
+		}
+	}
 	if row.Type == "message_delivered" {
 		v, e := LoadConversation(ctx, db, row.TargetRef)
 		if e != nil && !errors.Is(e, command.ErrNotFound) {
@@ -321,13 +353,18 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 	if !validQuery(q) || q.AfterSeq != nil {
 		return out, command.ErrInvalid
 	}
-	err = s.read(ctx, token, func(db *gorm.DB, actor string, _ time.Time) error {
+	err = s.read(ctx, token, func(db *gorm.DB, actor string, now time.Time) error {
 		scope := "notifications/" + actor
 		after, e := s.decode(q.Cursor, scope)
 		if e != nil {
 			return e
 		}
 		query := db.Where("recipient_id=?", actor)
+		if e := readChatAllowed(db, actor, now); errors.Is(e, command.ErrForbidden) {
+			query = query.Where("type IN ('penalty_notice','appeal_result')")
+		} else if e != nil {
+			return e
+		}
 		if after.ID != "" {
 			query = query.Where("id<?", after.ID)
 		}
@@ -383,6 +420,18 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 		if n != 1 {
 			return command.ErrNotFound
 		}
+		if e := readChatAllowed(tx.DB().WithContext(ctx), tx.Actor().ID, tx.Now()); e != nil {
+			if !errors.Is(e, command.ErrForbidden) {
+				return e
+			}
+			var row entity.Notification
+			if e := tx.DB().WithContext(ctx).Where("id=?", id).Take(&row).Error; e != nil {
+				return e
+			}
+			if row.Type != "penalty_notice" && row.Type != "appeal_result" {
+				return command.ErrForbidden
+			}
+		}
 		return nil
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
@@ -400,4 +449,16 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	}
 	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: version, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Notification, ID: id}, Value: version}}})
 	return
+}
+
+// readChatAllowed 允许禁言账号读取历史，永久封禁只保留申诉及处置通知视图。
+func readChatAllowed(db *gorm.DB, actor string, now time.Time) error {
+	var n int64
+	if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind='ban' AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
+		return e
+	}
+	if n > 0 {
+		return command.ErrForbidden
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -50,14 +51,18 @@ func (ModerationTask) TableName() string { return "public.moderation_tasks" }
 
 // Report 映射 public.reports，字段注释描述数据库持久化语义。
 type Report struct {
-	ID         string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	ReporterID string    `gorm:"column:reporter_id;type:uuid;not null;comment:举报账号，注销需清理普通关联" json:"-"`
-	TargetKind string    `gorm:"column:target_kind;type:text;not null;comment:被举报类型" json:"-"`
-	TargetID   string    `gorm:"column:target_id;type:uuid;not null;comment:被举报对象标识，按类型由命令复核" json:"-"`
-	TypeCode   string    `gorm:"column:type_code;type:text;not null;comment:交付举报类型清单中的稳定码" json:"-"`
-	Status     string    `gorm:"column:status;type:text;not null;default:'pending';comment:举报处置状态" json:"-"`
-	HandlerID  *string   `gorm:"column:handler_id;type:uuid;comment:处理人" json:"-"`
-	CreatedAt  time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	Version           int64           `gorm:"column:version;not null;default:1;comment:举报案件独立乐观版本" json:"-"`
+	ContentID         *string         `gorm:"column:content_id;type:uuid;comment:举报时可见的精确内容注册" json:"-"`
+	DescriptionCipher json.RawMessage `gorm:"column:description_cipher;type:jsonb;comment:举报说明信封密文" json:"-"`
+	DecisionReason    *string         `gorm:"column:decision_reason;type:text;comment:后台处置理由" json:"-"`
+	ID                string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	ReporterID        string          `gorm:"column:reporter_id;type:uuid;not null;comment:举报账号，注销需清理普通关联" json:"-"`
+	TargetKind        string          `gorm:"column:target_kind;type:text;not null;comment:被举报类型" json:"-"`
+	TargetID          string          `gorm:"column:target_id;type:uuid;not null;comment:被举报对象标识，按类型由命令复核" json:"-"`
+	TypeCode          string          `gorm:"column:type_code;type:text;not null;comment:交付举报类型清单中的稳定码" json:"-"`
+	Status            string          `gorm:"column:status;type:text;not null;default:'pending';comment:举报处置状态" json:"-"`
+	HandlerID         *string         `gorm:"column:handler_id;type:uuid;comment:处理人" json:"-"`
+	CreatedAt         time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
@@ -65,12 +70,14 @@ func (Report) TableName() string { return "public.reports" }
 
 // ContentRestriction 映射 public.content_restrictions，字段注释描述数据库持久化语义。
 type ContentRestriction struct {
-	ID        string `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	ContentID string `gorm:"column:content_id;type:uuid;not null;comment:受限制的精确内容注册" json:"-"`
-	Kind      string `gorm:"column:kind;type:text;not null;comment:限制来源类型" json:"-"`
-	SourceRef string `gorm:"column:source_ref;type:uuid;not null;comment:限制来源标识，不复制正文" json:"-"`
-	Active    bool   `gorm:"column:active;type:boolean;not null;default:true;comment:该限制原因是否仍有效" json:"-"`
-	Version   int64  `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
+	ReasonCipher        json.RawMessage `gorm:"column:reason_cipher;type:jsonb;comment:人工下线理由信封密文" json:"-"`
+	ReleaseReasonCipher json.RawMessage `gorm:"column:release_reason_cipher;type:jsonb;comment:解除普通限制的理由信封密文" json:"-"`
+	ID                  string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	ContentID           string          `gorm:"column:content_id;type:uuid;not null;comment:受限制的精确内容注册" json:"-"`
+	Kind                string          `gorm:"column:kind;type:text;not null;comment:限制来源类型" json:"-"`
+	SourceRef           string          `gorm:"column:source_ref;type:uuid;not null;comment:限制来源标识，不复制正文" json:"-"`
+	Active              bool            `gorm:"column:active;type:boolean;not null;default:true;comment:该限制原因是否仍有效" json:"-"`
+	Version             int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

@@ -44,6 +44,12 @@ func rank(kind ResourceKind) int {
 		return 7
 	case Notification:
 		return 8
+	case Report:
+		return 9
+	case Penalty:
+		return 10
+	case Appeal:
+		return 11
 	default:
 		return -1
 	}
@@ -173,6 +179,15 @@ func (t *Tx) lockResources(resources []Resource) error {
 			columns = append(columns, "version")
 		case Notification:
 			model = &entity.Notification{}
+			columns = append(columns, "version")
+		case Report:
+			model = &entity.Report{}
+			columns = append(columns, "version")
+		case Penalty:
+			model = &entity.Penalty{}
+			columns = append(columns, "version")
+		case Appeal:
+			model = &entity.Appeal{}
 			columns = append(columns, "version")
 		case Message:
 			model = &entity.Message{}

@@ -13,6 +13,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
@@ -53,6 +54,8 @@ type Dependencies struct {
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
+	// Safety 仅在显式给出独立密钥和技术预算时注册安全治理路由。
+	Safety *safety.Config
 	// Chat 仅在心愿模块与技术预算同时显式配置时启用。
 	Chat *chat.Config
 	// Moderation 仅在显式提供独立游标密钥后注册正式后台审核能力。
@@ -135,6 +138,33 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, e
 		}
 	}
+	var studentSafety, adminSafety *safety.Service
+	if cfg.Safety != nil {
+		if wishes == nil {
+			return nil, command.ErrInvalid
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		for _, key := range keys {
+			if bytes.Equal(key, cfg.Safety.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		studentSafety, e = safety.New(d.WishDB, d.Logger, d.Codec, *cfg.Safety)
+		if e != nil {
+			return nil, e
+		}
+		adminSafety, e = safety.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Safety)
+		if e != nil {
+			return nil, e
+		}
+	}
+	cfg.Auth.Safety = studentSafety != nil
 	cfg.Auth.Wishes = wishes != nil
 	// 路由由本构造器整体注册，动作提示只在同一成功装配中开启，不采纳调用方的过期标志。
 	cfg.Auth.StudentCardAssets = true
@@ -200,6 +230,11 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 	}
 	if contentReviews != nil {
 		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
+			return nil, e
+		}
+	}
+	if studentSafety != nil {
+		if e = httpapi.RegisterSafety(router, studentSafety, adminSafety); e != nil {
 			return nil, e
 		}
 	}

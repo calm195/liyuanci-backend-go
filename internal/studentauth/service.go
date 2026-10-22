@@ -38,6 +38,8 @@ type Limiter interface {
 
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
+	// Safety 仅在安全治理路由全部成功装配时提示受限申诉及警告操作。
+	Safety bool
 	// Wishes 只在本域全部入口已成功装配时提示创建动作。
 	Wishes bool
 	// StudentCardAssets 仅在同一装配显式注册学生卡路由后启用动作提示。
@@ -381,6 +383,12 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 	}
 	if e == nil && s.config.Wishes && out.Verification == "verified" && slices.Contains(out.AllowedActions, "putMeProfile") {
 		out.AllowedActions = append(out.AllowedActions, "postWishes")
+	}
+	if e == nil && s.config.Safety {
+		out.AllowedActions = append(out.AllowedActions, "postMeAppeals", "getMeAppeals", "getMeWarnings", "postMeWarningsIdDisplay", "postMeWarningsIdAck")
+		if slices.Contains(out.AllowedActions, "putMeProfile") {
+			out.AllowedActions = append(out.AllowedActions, "postMeBlocks", "deleteMeBlocks", "postReports", "getReportTypes")
+		}
 	}
 	return out, e
 }

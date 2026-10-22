@@ -22,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/identity"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentapi"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
@@ -112,7 +113,7 @@ func pool(ctx context.Context, dsn, role string) (*gorm.DB, func() error, error)
 	}
 	// 运行身份不读取迁移账本；只经系统目录核对本进程必需的结构。
 	var schemaReady bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.share_links') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='current_story_version' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.messages') AND attname='peer_epoch' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.notifications') AND attname='version' AND NOT attisdropped) AND to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.applications') AND attname='public_message_cipher' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.matches') AND attname='application_id' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.report_types') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.appeals') AND attname='version' AND NOT attisdropped) AND to_regclass('public.share_links') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='current_story_version' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.messages') AND attname='peer_epoch' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.notifications') AND attname='version' AND NOT attisdropped) AND to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.applications') AND attname='public_message_cipher' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.matches') AND attname='application_id' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
 		return fail()
 	}
 	return db, sqlDB.Close, nil
@@ -209,6 +210,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		Rules:     developmentSchoolRules{logger},
 	}, studentapi.Config{
 		Moderation: moderationConfig,
+		Safety:     &safety.Config{Command: cmd, Key: safety.DeriveKey(cfg.WishKey), MaxTextBytes: 64 << 10},
 		Auth: studentauth.Config{
 			SessionTTL:  24 * time.Hour,
 			ExchangeTTL: time.Minute,

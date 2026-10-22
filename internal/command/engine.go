@@ -87,7 +87,7 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal}, check.Target.Kind) {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":
@@ -337,7 +337,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -361,6 +361,8 @@ func resultCode(err error) string {
 		return "success"
 	}
 	switch {
+	case errors.Is(err, ErrWarningWait):
+		return "warning_wait_required"
 	case errors.Is(err, ErrInvalid):
 		return "invalid"
 	case errors.Is(err, ErrUnauthenticated):

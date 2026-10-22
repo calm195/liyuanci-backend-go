@@ -236,3 +236,13 @@ GRANT SELECT,DELETE ON public.share_links TO liyuanci_privacy_maintenance;
 GRANT UPDATE (current_story_version) ON public.wishes TO liyuanci_admin_api;
 GRANT UPDATE (moderation_status,public_body,identity_tags,school_related,school_detection_version,school_detection_state,wordlist_version) ON public.story_versions TO liyuanci_admin_api;
 GRANT UPDATE (status,released_at) ON public.privacy_holds TO liyuanci_admin_api,liyuanci_domain_worker;
+
+-- 安全治理仍区分学生可确认警告列和后台可写处罚列，不开放DDL或任意处罚写权限。
+ALTER TABLE public.report_types OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.report_types FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance;
+GRANT SELECT ON public.report_types TO liyuanci_api,liyuanci_admin_api;
+GRANT DELETE ON public.blocks TO liyuanci_api;
+GRANT UPDATE (first_displayed_at,confirmable_at,acknowledged_at,version) ON public.penalties TO liyuanci_api;
+GRANT UPDATE (restriction_epoch) ON public.wishes TO liyuanci_admin_api;
+GRANT UPDATE (write_epoch) ON public.conversations TO liyuanci_admin_api;
+GRANT UPDATE (cancel_reason) ON public.applications TO liyuanci_admin_api;

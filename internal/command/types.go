@@ -31,6 +31,8 @@ var (
 	ErrActiveWishLimit = errors.New("活跃心愿额度已满")
 	// ErrDuplicateApplication 表示同人同心愿已有未终结申请。
 	ErrDuplicateApplication = errors.New("已有未终结申请")
+	// ErrWarningWait 表示警告尚未达到服务器确认时刻。
+	ErrWarningWait = errors.New("警告展示时间不足")
 	// ErrBlockedInteraction 表示双方当前存在拉黑限制。
 	ErrBlockedInteraction = errors.New("当前不可交互")
 	// ErrReviewPending 表示申请尚未获准生效。
@@ -85,6 +87,12 @@ const (
 	ModerationTask ResourceKind = "moderation_task"
 	// Message 在审核任务后锁定。
 	Message ResourceKind = "message"
+	// Penalty 是账号之后的处罚资源。
+	Penalty ResourceKind = "penalty"
+	// Report 是精确举报案件资源。
+	Report ResourceKind = "report"
+	// Appeal 是处罚申诉资源。
+	Appeal ResourceKind = "appeal"
 	// Notification 在消息之后锁定通知。
 	Notification ResourceKind = "notification"
 )

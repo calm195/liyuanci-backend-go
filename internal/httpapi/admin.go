@@ -230,6 +230,8 @@ func adminError(c *gin.Context, err error) {
 		status, code = 401, "UNAUTHENTICATED"
 	case errors.Is(err, adminauth.ErrForbidden):
 		status, code = 403, "FORBIDDEN"
+	case errors.Is(err, command.ErrWarningWait):
+		status, code = 409, "WARNING_WAIT_REQUIRED"
 	case errors.Is(err, command.ErrAssetNotReady):
 		status, code = 409, "ASSET_NOT_READY"
 	case errors.Is(err, command.ErrNotFound):

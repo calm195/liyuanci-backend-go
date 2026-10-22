@@ -33,6 +33,7 @@ func BusinessModels() []any {
 		&ModerationTask{},
 		&ModerationScan{},
 		&Report{},
+		&ReportType{},
 		&ContentRestriction{},
 		&PrivacyHold{},
 		&WorkItem{},
