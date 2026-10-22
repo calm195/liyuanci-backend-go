@@ -35,3 +35,7 @@ GET /api/v1/me/student-card-assets/{id}先按guard→学生会话锁序核验主
 人工认证申请、重提和后台审核的可注入模块已在后续交付，见[人工认证说明](verification.md)及[第七阶段](milestones/phase-07.md)；本文件原“人工认证未实现”仅表示上传/扫描模块当时的阶段边界，当前外部供应商和进程装配缺口仍保留。
 
 后续已补可注入应用装配：studentapi.New 整体注册学生登录、学生卡与人工认证；cardworker.Open 组合发件箱、MQ 订阅和数据库补偿循环，并等待在途操作后关闭客户端。详见[应用装配说明](application-assembly.md)及[第八阶段](milestones/phase-08.md)。因此“业务 worker 循环未交付”是原阶段状态，当前仍缺正式供应商、进程配置与执行身份接入、异常待办及物理清理；本轮按用户要求不执行联调，不扩大真实能力验收。
+
+## 开发进程接线更新
+
+T011/REQ-002/015/018：显式初始化后的Docker开发API进程已接入上传/状态路由和私有密文对象卷，以上默认server未装配描述为原阶段状态。真实图片扫描供应商仍未接入；开发环境通过独立card-worker轮询任务并模拟通过，无原卡公开URL。详见[开发业务装配](development-business.md)。
