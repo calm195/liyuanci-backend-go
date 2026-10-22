@@ -317,86 +317,101 @@ func TestBusinessMessageChain(t *testing.T) {
 		}
 		verify(t, work, "completed")
 	})
-	t.Run("真实工作进程启动和TERM关闭", func(t *testing.T) {
-		binary := os.Getenv("APP_BUSINESS_TEST_WORKER_BINARY")
-		if binary == "" {
-			t.Skip("未指定隔离工作进程制品")
-		}
-		// 独立受限登录只继承领域工作组；不向真实进程注入迁移管理员连接。
-		login, password := "chain_worker_"+strings.ReplaceAll(uuid.NewString(), "-", ""), uuid.NewString()
-		if root.Exec("CREATE ROLE "+login+" LOGIN PASSWORD '"+password+"' IN ROLE liyuanci_domain_worker").Error != nil {
-			t.Fatal("创建隔离工作身份失败")
-		}
-		defer func() {
-			if root.Exec("DROP ROLE "+login).Error != nil {
-				t.Error("清理隔离工作身份失败")
+	for _, process := range []struct{ name, binary, ready, config string }{
+		{"学生卡消息", "APP_BUSINESS_TEST_WORKER_BINARY", "开发学生卡消息工作进程启动完成", "APP_CARD_MQFILE"},
+		{"内容数据库", "APP_CONTENT_TEST_WORKER_BINARY", "开发内容工作进程启动完成", ""},
+		{"内容消息", "APP_CONTENT_TEST_WORKER_BINARY", "开发内容工作进程启动完成", "APP_CONTENT_MQFILE"},
+	} {
+		t.Run("真实工作进程启动和TERM关闭/"+process.name, func(t *testing.T) {
+			binary := os.Getenv(process.binary)
+			if binary == "" {
+				t.Skip("未指定隔离工作进程制品")
 			}
-		}()
-		workerDSN := strings.Replace(dsn, "user=liyuanci ", "user="+login+" ", 1)
-		for _, field := range strings.Fields(workerDSN) {
-			if strings.HasPrefix(field, "password=") {
-				workerDSN = strings.Replace(workerDSN, field, "password="+password, 1)
-				break
+			// 独立受限登录只继承领域工作组；不向真实进程注入迁移管理员连接。
+			login, password := "chain_worker_"+strings.ReplaceAll(uuid.NewString(), "-", ""), uuid.NewString()
+			if root.Exec("CREATE ROLE "+login+" LOGIN PASSWORD '"+password+"' IN ROLE liyuanci_domain_worker").Error != nil {
+				t.Fatal("创建隔离工作身份失败")
 			}
-		}
-		directory := t.TempDir()
-		settings := devapp.Settings{StudentDSN: "unused", ReviewDSN: "unused", WishDSN: "unused", AdminDSN: "unused", WorkerDSN: workerDSN, AdminPassword: "synthetic-unused-password", ObjectDirectory: directory}
-		keys := []*[]byte{&settings.WrapKey, &settings.LookupKey, &settings.SessionKey, &settings.CardKey, &settings.VerificationKey, &settings.WishKey, &settings.AdminKey}
-		for i, key := range keys {
-			*key = bytes.Repeat([]byte{byte(i + 1)}, 32)
-		}
-		write := func(name string, value any) string {
-			t.Helper()
-			path := filepath.Join(directory, name)
-			data, err := json.Marshal(value)
-			if err != nil || os.WriteFile(path, data, 0600) != nil {
-				t.Fatal("写隔离进程配置失败")
-			}
-			return path
-		}
-		mq.Instance += "_process"
-		mq.ProducerGroup += "_process"
-		mq.ConsumerGroup += "_process"
-		workerConfig := cardworker.Config{MQ: mq, Relay: relayCfg, RelayInterval: time.Second, ScanInterval: time.Second, OperationTimeout: 10 * time.Second}
-		child := exec.CommandContext(ctx, binary)
-		child.Env = append(os.Environ(), "APP_ENVIRONMENT=integration", "APP_DEVAPPFILE="+write("business.json", settings), "APP_CARD_MQFILE="+write("mq.json", workerConfig))
-		output, err := child.StdoutPipe()
-		if err != nil {
-			t.Fatal("创建进程输出失败")
-		}
-		if err = child.Start(); err != nil {
-			t.Fatal("启动隔离制品失败")
-		}
-		defer child.Process.Kill()
-		started := make(chan struct{}, 1)
-		readDone := make(chan struct{})
-		go func() {
-			defer close(readDone)
-			reader := bufio.NewScanner(output)
-			for reader.Scan() {
-				if strings.Contains(reader.Text(), "开发学生卡消息工作进程启动完成") {
-					started <- struct{}{}
+			defer func() {
+				if root.Exec("DROP ROLE "+login).Error != nil {
+					t.Error("清理隔离工作身份失败")
+				}
+			}()
+			workerDSN := strings.Replace(dsn, "user=liyuanci ", "user="+login+" ", 1)
+			for _, field := range strings.Fields(workerDSN) {
+				if strings.HasPrefix(field, "password=") {
+					workerDSN = strings.Replace(workerDSN, field, "password="+password, 1)
+					break
 				}
 			}
-		}()
-		select {
-		case <-started:
-		case <-readDone:
-			_ = child.Wait()
-			t.Fatal("工作进程在完成消息装配前退出")
-		case <-ctx.Done():
-			_ = child.Process.Kill()
-			_ = child.Wait()
-			t.Fatal("真实进程启动超时")
-		}
-		if child.Process.Signal(syscall.SIGTERM) != nil {
-			t.Fatal("发送停止信号失败")
-		}
-		if child.Wait() != nil {
-			t.Fatal("真实工作进程未正常关闭")
-		}
-		<-readDone
-	})
+			directory := t.TempDir()
+			settings := devapp.Settings{StudentDSN: "unused", ReviewDSN: "unused", WishDSN: "unused", AdminDSN: "unused", WorkerDSN: workerDSN, AdminPassword: "synthetic-unused-password", ObjectDirectory: directory}
+			keys := []*[]byte{&settings.WrapKey, &settings.LookupKey, &settings.SessionKey, &settings.CardKey, &settings.VerificationKey, &settings.WishKey, &settings.AdminKey}
+			for i, key := range keys {
+				*key = bytes.Repeat([]byte{byte(i + 1)}, 32)
+			}
+			write := func(name string, value any) string {
+				t.Helper()
+				path := filepath.Join(directory, name)
+				data, err := json.Marshal(value)
+				if err != nil || os.WriteFile(path, data, 0600) != nil {
+					t.Fatal("写隔离进程配置失败")
+				}
+				return path
+			}
+			mq.Instance += "_process"
+			mq.ProducerGroup += "_process"
+			mq.ConsumerGroup += "_process"
+			workerConfig := cardworker.Config{MQ: mq, Relay: relayCfg, RelayInterval: time.Second, ScanInterval: time.Second, OperationTimeout: 10 * time.Second}
+			child := exec.CommandContext(ctx, binary)
+			child.Env = append(os.Environ(), "APP_ENVIRONMENT=integration", "APP_DEVAPPFILE="+write("business.json", settings), "APP_CONTENT_ANALYZER=unavailable")
+			if process.config == "APP_CONTENT_MQFILE" {
+				workerConfig.MQ.Topic = "liyuanci_content_review_v1"
+				workerConfig.MQ.EventType = "wish.review_requested"
+				workerConfig.MQ.HandlerTimeout = 20 * time.Second
+				workerConfig.OperationTimeout = 20 * time.Second
+			}
+			if process.config != "" {
+				child.Env = append(child.Env, process.config+"="+write("mq.json", workerConfig))
+			}
+			output, err := child.StdoutPipe()
+			if err != nil {
+				t.Fatal("创建进程输出失败")
+			}
+			if err = child.Start(); err != nil {
+				t.Fatal("启动隔离制品失败")
+			}
+			defer child.Process.Kill()
+			started := make(chan struct{}, 1)
+			readDone := make(chan struct{})
+			go func() {
+				defer close(readDone)
+				reader := bufio.NewScanner(output)
+				for reader.Scan() {
+					if strings.Contains(reader.Text(), process.ready) {
+						started <- struct{}{}
+					}
+				}
+			}()
+			select {
+			case <-started:
+			case <-readDone:
+				_ = child.Wait()
+				t.Fatal("工作进程在完成消息装配前退出")
+			case <-ctx.Done():
+				_ = child.Process.Kill()
+				_ = child.Wait()
+				t.Fatal("真实进程启动超时")
+			}
+			if child.Process.Signal(syscall.SIGTERM) != nil {
+				t.Fatal("发送停止信号失败")
+			}
+			if child.Wait() != nil {
+				t.Fatal("真实工作进程未正常关闭")
+			}
+			<-readDone
+		})
+	}
 	if observed.FilterMessage("消息确认决策完成").FilterField(zap.String("result", "nack")).Len() == 0 {
 		t.Fatal("未观察到真实NACK")
 	}

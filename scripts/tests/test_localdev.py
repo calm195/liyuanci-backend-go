@@ -37,11 +37,17 @@ class LocalDevelopmentTest(unittest.TestCase):
             self.assertEqual(source.read_bytes(), before)
             self.assertEqual(Path(result['APP_DEVAPPFILE']).stat().st_mode & 0o777, 0o600)
             self.assertNotIn('APP_CARD_MQFILE', result)
+            self.assertNotIn('APP_CONTENT_MQFILE', result)
+            self.assertNotIn('APP_CONTENT_ANALYZER', result)
             mq_file = Path(directory) / 'card-mq.yaml'
             mq_file.write_text('mq: {}\n')
             selected = localdev.app_environment(entry, dict(env, LIYUANCI_LOCAL_CARD_MQ_FILE=str(mq_file)))
             self.assertEqual(selected['APP_CARD_MQFILE'], str(mq_file.resolve()))
             self.assertEqual(selected['APP_ROCKETMQ_ENABLED'], 'false')
+            selected = localdev.app_environment(entry, dict(env, LIYUANCI_LOCAL_CONTENT_MQ_FILE=str(mq_file), LIYUANCI_LOCAL_CONTENT_ANALYZER='synthetic'))
+            self.assertEqual(selected['APP_CONTENT_MQFILE'], str(mq_file.resolve()))
+            self.assertEqual(selected['APP_CONTENT_ANALYZER'], 'synthetic')
+            self.assertNotIn('APP_CARD_MQFILE', selected)
 
     def test_native_defaults_and_password_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -142,6 +148,22 @@ class LocalDevelopmentTest(unittest.TestCase):
                 with self.assertRaises(OperationError):
                     dev.stop_apps(entry)
                 kill.assert_not_called()
+
+
+    def test_stop_tracks_content_worker_and_protects_unrelated_pid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / 'operations.env'
+            pidfile = Path(directory) / 'content-worker.pid'
+            pidfile.write_text('123')
+            unrelated = subprocess.CompletedProcess([], 0, '/another/content-worker', '')
+            with patch.object(dev.subprocess, 'run', return_value=unrelated), patch.object(dev.os, 'kill') as kill:
+                with self.assertRaises(OperationError):
+                    dev.stop_apps(entry)
+                kill.assert_not_called()
+            exited = subprocess.CompletedProcess([], 1, '', '')
+            with patch.object(dev.subprocess, 'run', return_value=exited):
+                dev.stop_apps(entry)
+            self.assertFalse(pidfile.exists())
 
 
 if __name__ == '__main__':

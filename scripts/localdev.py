@@ -86,6 +86,10 @@ def app_environment(entry, env):
     # 单独指定领域消息配置；保留清除终端APP覆盖的边界，不隐式复用探针客户端。
     if env.get('LIYUANCI_LOCAL_CARD_MQ_FILE'):
         result['APP_CARD_MQFILE'] = str(private_path(env['LIYUANCI_LOCAL_CARD_MQ_FILE']))
+    if env.get('LIYUANCI_LOCAL_CONTENT_MQ_FILE'):
+        result['APP_CONTENT_MQFILE'] = str(private_path(env['LIYUANCI_LOCAL_CONTENT_MQ_FILE']))
+    if env.get('LIYUANCI_LOCAL_CONTENT_ANALYZER'):
+        result['APP_CONTENT_ANALYZER'] = env['LIYUANCI_LOCAL_CONTENT_ANALYZER']
     if native(env) and env.get('LIYUANCI_NATIVE_REDIS_PASSWORD_FILE'):
         result['APP_REDIS_PASSWORD'] = private_path(env['LIYUANCI_NATIVE_REDIS_PASSWORD_FILE']).read_text().strip()
     return result

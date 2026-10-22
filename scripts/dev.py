@@ -93,7 +93,7 @@ def binary(entry, name, env):
 
 
 def application(args, env):
-    name = 'server' if args.action == 'api' else 'card-worker'
+    name = {'api': 'server', 'worker': 'card-worker', 'content-worker': 'content-worker'}[args.action]
     state = private_path(args.env_file).parent
     # 锁覆盖编译、派生配置和进程生存期，拒绝同一配置下重复运行相同应用。
     with (state / (name + '.lock')).open('a') as lock:
@@ -129,7 +129,7 @@ def application(args, env):
 def stop_apps(entry):
     """只向所选配置记录且命令匹配的宿主进程发TERM，绝不全局按名称杀进程。"""
     state = private_path(entry).parent
-    for name in ('server', 'card-worker'):
+    for name in ('server', 'card-worker', 'content-worker'):
         pidfile = state / (name + '.pid')
         if not pidfile.exists():
             continue
@@ -169,7 +169,7 @@ def doctor(args, env):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['init', 'infra', 'api', 'worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
+    parser.add_argument('action', choices=['init', 'infra', 'api', 'worker', 'content-worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
     parser.add_argument('--native', action='store_true', help='使用已经运行的宿主PG/Redis，Docker仅按需管理MQ')
     parser.add_argument('--project')
     parser.add_argument('--env-file')
@@ -254,7 +254,7 @@ def main(argv=None):
         port(env, name, default)
     if args.action == 'infra':
         infrastructure(args, env)
-    elif args.action in ('api', 'worker'):
+    elif args.action in ('api', 'worker', 'content-worker'):
         application(args, env)
     elif args.action == 'doctor':
         doctor(args, env)

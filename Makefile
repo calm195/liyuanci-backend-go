@@ -2,6 +2,7 @@
 run:
 	go run ./cmd/server
 build:
+	go build -trimpath -o bin/content-worker ./cmd/content-worker
 	go build -trimpath -o bin/card-worker ./cmd/card-worker
 	go build -trimpath -o bin/server ./cmd/server
 	go build -trimpath -o bin/worker ./cmd/worker

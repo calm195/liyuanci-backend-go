@@ -329,9 +329,9 @@ func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err 
 	}()
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
-	ctx = bounded
 	var events []durable.Event
-	err = w.db.WithContext(ctx).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) ORDER BY w.next_at,w.id LIMIT 1`, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, wish.ReviewRoute().EventType).Scan(&events).Error
+	err = w.db.WithContext(bounded).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) ORDER BY w.next_at,w.id LIMIT 1`, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, wish.ReviewRoute().EventType).Scan(&events).Error
+	cancel()
 	if err != nil {
 		return durable.Consumption{}, durable.ErrUnavailable
 	}

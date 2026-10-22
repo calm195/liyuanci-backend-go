@@ -59,6 +59,7 @@ services:
       APP_BUSINESS_TEST_REDIS: redis:6379
       APP_BUSINESS_TEST_NAMESERVER: namesrv:9876
       APP_BUSINESS_TEST_WORKER_BINARY: /card-worker
+      APP_CONTENT_TEST_WORKER_BINARY: /content-worker
     networks: [foundation]
     restart: "no"
   migrate:

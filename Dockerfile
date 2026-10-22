@@ -8,7 +8,8 @@ ARG GOPROXY=https://goproxy.cn,direct
 RUN GOPROXY="$GOPROXY" go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -o /artifacts/card-worker ./cmd/card-worker && \
+RUN CGO_ENABLED=0 go build -trimpath -o /artifacts/content-worker ./cmd/content-worker && \
+    CGO_ENABLED=0 go build -trimpath -o /artifacts/card-worker ./cmd/card-worker && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/server ./cmd/server && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/worker ./cmd/worker && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/probe ./cmd/probe && \
@@ -24,6 +25,7 @@ FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 COPY --from=business-test-build /artifacts/business.test /artifacts/durable.test /artifacts/moderation.test /
 COPY --from=builder /artifacts/card-worker /card-worker
+COPY --from=builder /artifacts/content-worker /content-worker
 USER app
 ENTRYPOINT ["/business.test"]
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8

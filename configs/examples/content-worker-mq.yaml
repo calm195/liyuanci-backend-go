@@ -1,0 +1,24 @@
+# 仅供隔离宿主开发；复制到.local后显式设置APP_CONTENT_MQFILE，主题须提前建立。
+# 生产必须使用独立资源与凭据，不使用此开发模拟扫描进程。
+mq:
+  nameservers: [127.0.0.1:9876]
+  topic: liyuanci_content_review_v1
+  eventtype: wish.review_requested
+  producergroup: liyuanci_content_relay
+  consumergroup: liyuanci_content_scan
+  instance: liyuanci_content_host
+  allowunauthenticated: true
+  sendtimeout: 3s
+  handlertimeout: 20s
+  concurrency: 2
+  maxreconsume: 3
+  retrydelaylevel: 1
+relay:
+  databasetimeout: 3s
+  sendtimeout: 3s
+  leaseduration: 15s
+  retrydelay: 5s
+  maxattempts: 5
+relayinterval: 200ms
+scaninterval: 5s
+operationtimeout: 20s

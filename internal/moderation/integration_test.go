@@ -32,6 +32,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
 type testKeys struct{}
@@ -605,6 +606,57 @@ func TestModerationCore(t *testing.T) {
 			t.Fatal("正式审核HTTP失败", rec.Code)
 		}
 	})
+
+	// 下列生命周期用例使用同一真实运行权限与持久任务；供应商保持合成。
+	t.Run("数据库补偿分析预算独立", func(t *testing.T) {
+		// 隔离本用例待处理目标，避免历史失败夹具占用有界的一条候选。
+		must(root.Model(&entity.WorkItem{}).Where("kind=? AND status IN ?", wish.ReviewRoute().Kind, []string{"pending", "retry_wait", "leased"}).Update("next_at", time.Now().Add(time.Hour)).Error)
+		draft, event := submit("较慢合成分析")
+		provider.set(false, func() { time.Sleep(700 * time.Millisecond) })
+		defer provider.set(false, nil)
+		slow, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 2 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 400 * time.Millisecond, LockTimeout: 100 * time.Millisecond, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+		must(e)
+		out, e := slow.ProcessNext(ctx)
+		must(e)
+		if !out.Applied || state(draft.ID).State != "ready" {
+			t.Fatal("查询预算提前取消了独立分析")
+		}
+		checkReceipt(event)
+	})
+	t.Run("常驻补偿关闭与重启恢复", func(t *testing.T) {
+		draft, event := submit("后台补偿合成正文")
+		must(root.Model(&entity.OutboxEvent{}).Where("event_id=?", event.EventID).Update("sent_at", time.Now()).Error)
+		run, e := workrunner.OpenDatabase(ctx, worker, logger, 10*time.Millisecond, 30*time.Second)
+		must(e)
+		// 即使最终断言失败也先关闭调度，避免释放池后仍有在途操作。
+		defer run.Close()
+		deadline := time.Now().Add(5 * time.Second)
+		for state(draft.ID).State != "ready" && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		must(run.Close())
+		if state(draft.ID).State != "ready" {
+			t.Fatal("常驻进程未补偿已确认的唤醒")
+		}
+		checkReceipt(event)
+		draft, event = submit("重启恢复合成正文")
+		time.Sleep(30 * time.Millisecond)
+		if state(draft.ID).State != "pending_review" {
+			t.Fatal("关闭后仍处理新工作")
+		}
+		run, e = workrunner.OpenDatabase(ctx, worker, logger, 10*time.Millisecond, 30*time.Second)
+		must(e)
+		defer run.Close()
+		deadline = time.Now().Add(5 * time.Second)
+		for state(draft.ID).State != "ready" && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		must(run.Close())
+		if state(draft.ID).State != "ready" {
+			t.Fatal("重启未恢复数据库待办")
+		}
+		checkReceipt(event)
+	})
 	if nameserver := os.Getenv("APP_MODERATION_TEST_NAMESERVER"); nameserver != "" {
 		t.Run("真实MQ提交后NACK重投", func(t *testing.T) {
 			_, event := submit("普通命中消息往返")
@@ -633,6 +685,35 @@ func TestModerationCore(t *testing.T) {
 			}
 			checkReceipt(event)
 		})
+		t.Run("常驻消息转发与内容订阅", func(t *testing.T) {
+			unique := "runtime_" + uuid.NewString()[:8]
+			cfg := workrunner.Config{
+				MQ:            transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 30 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1},
+				Relay:         durable.Config{DatabaseTimeout: 3 * time.Second, SendTimeout: 3 * time.Second, LeaseDuration: 15 * time.Second, RetryDelay: time.Second, MaxAttempts: 5},
+				RelayInterval: 10 * time.Millisecond, ScanInterval: time.Hour, OperationTimeout: 30 * time.Second,
+			}
+			// 先让补偿首轮完成，再提交新任务，使本目标只能经真实MQ消费或测试超时。
+			run, e := workrunner.Open(ctx, workerDB, worker, logger, cfg, wish.ReviewRoute())
+			must(e)
+			defer run.Close()
+			time.Sleep(100 * time.Millisecond)
+			draft, event := submit("常驻消息合成正文")
+			deadline := time.Now().Add(20 * time.Second)
+			for state(draft.ID).State != "ready" && time.Now().Before(deadline) {
+				time.Sleep(20 * time.Millisecond)
+			}
+			must(run.Close())
+			if state(draft.ID).State != "ready" {
+				t.Fatal("常驻消息链未完成审核")
+			}
+			var row entity.OutboxEvent
+			must(root.Where("event_id=?", event.EventID).Take(&row).Error)
+			if row.SentAt == nil {
+				t.Fatal("领域结果缺消息转发确认")
+			}
+			checkReceipt(event)
+		})
+
 	}
 	for _, entry := range logs.All() {
 		if strings.Contains(entry.Message, "SYNTHETIC_PROVIDER_SECRET") || strings.Contains(entry.Message, "合成个人姓名") {
