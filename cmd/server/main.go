@@ -16,6 +16,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
@@ -41,6 +42,17 @@ func run() error {
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
 	defer func() { _ = log.Sync() }()
+	var development *devapp.Settings
+	if cfg.DevAppFile != "" {
+		settings, e := devapp.Load(cfg.DevAppFile)
+		if e != nil {
+			log.Error("开发业务配置读取失败")
+			return errors.New("开发业务配置读取失败")
+		}
+		development = &settings
+		// 开发业务进程的共享健康连接也使用业务运行身份，不能保留探针管理员连接。
+		cfg.Database.DSN = settings.WishDSN
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -69,6 +81,17 @@ func run() error {
 		}
 		return errors.New("学生认证与密钥就绪检查尚未实现")
 	})
+	if cfg.DevAppFile != "" {
+		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, resources.Ready)
+		cancel()
+		if e != nil {
+			log.Error("开发业务装配失败，请显式初始化数据库和凭据")
+			return errors.New("开发业务装配失败")
+		}
+		defer func() { _ = closeBusiness() }()
+		router = businessRouter
+	}
 	if cfg.AdminAuth.Enabled {
 		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		service, closePool, e := adminauth.Open(initCtx, cfg, resources.Redis, log)
