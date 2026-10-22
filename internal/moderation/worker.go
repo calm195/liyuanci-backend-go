@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -49,7 +50,7 @@ type Worker struct {
 	cfg      WorkerConfig
 }
 
-// NewWorker 显式构造心愿扫描消费者，不启动循环、不迁移或自动发布规则。
+// NewWorker 显式构造心愿及应愿留言扫描消费者，不启动循环、不迁移或自动发布规则。
 func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer Analyzer, cfg WorkerConfig) (*Worker, error) {
 	if db == nil || log == nil || codec == nil || analyzer == nil || cfg.AnalysisTimeout <= 0 {
 		return nil, command.ErrInvalid
@@ -105,7 +106,26 @@ func subset(a, b wish.IdentityTags) bool {
 	}
 	return true
 }
+func candidateBody(row current, body string) bool {
+	if row.application != nil {
+		return utf8.ValidString(body) && utf8.RuneCountInString(body) <= 100
+	}
+	return text(body, 500)
+}
+
 func decryptContent(ctx context.Context, codec *securedata.Codec, row current) (out wish.Content, err error) {
+	if row.application != nil {
+		var envelope securedata.Envelope
+		if json.Unmarshal(row.application.MessageCipher, &envelope) != nil {
+			return out, command.ErrUnavailable
+		}
+		data, e := codec.Decrypt(ctx, securedata.Binding{Purpose: "application_content", ObjectID: row.application.ID, Version: uint64(row.application.ContentVersion)}, envelope)
+		defer clear(data)
+		if e != nil || json.Unmarshal(data, &out.Body) != nil || !candidateBody(row, out.Body) {
+			return wish.Content{}, command.ErrUnavailable
+		}
+		return out, nil
+	}
 	var envelope securedata.Envelope
 	if json.Unmarshal(row.content.BodyCipher, &envelope) != nil {
 		return out, command.ErrUnavailable
@@ -131,7 +151,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 			out = durable.Consumption{}
 			result = "failure"
 		}
-		w.logger.Info("心愿内容扫描完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("applied", out.Applied), zap.Bool("cancelled", out.Cancelled), zap.Bool("replayed", out.Replayed))
+		w.logger.Info("心愿相关内容扫描完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("applied", out.Applied), zap.Bool("cancelled", out.Cancelled), zap.Bool("replayed", out.Replayed))
 	}()
 	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.EventType != wish.ReviewRoute().EventType || event.AggregateVersion < 1 || event.CreatedAt.IsZero() {
 		return out, durable.ErrInvalid
@@ -144,7 +164,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 	var snapshot rules
 	var input wish.Content
 	var work entity.WorkItem
-	var valid bool
+	var valid, hasInput bool
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
 	prep := w.db.WithContext(bounded).Transaction(func(db *gorm.DB) error {
@@ -186,6 +206,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 			return e
 		}
 		input, e = decryptContent(db.Statement.Context, w.codec, source)
+		hasInput = e == nil
 		return e
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if !valid {
@@ -197,7 +218,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 	}
 	var scan *entity.ModerationScan
 	var assessment *Assessment
-	if prep == nil && input.Body != "" {
+	if prep == nil && hasInput {
 		analysis, stop := context.WithTimeout(ctx, w.cfg.AnalysisTimeout)
 		a, e := func() (a Assessment, e error) {
 			defer func() {
@@ -213,7 +234,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 		stop()
 		if e != nil {
 			prep = durable.ErrTemporary
-		} else if !text(a.Body, 500) || !text(a.DetectorVersion, 80) || !subset(a.Tags, input.IdentityTags) {
+		} else if !candidateBody(source, a.Body) || !text(a.DetectorVersion, 80) || !subset(a.Tags, input.IdentityTags) {
 			prep = durable.ErrConfiguration
 		} else {
 			a.CrisisHit = a.CrisisHit || hit(input.Body, snapshot.crisisEntries)
@@ -261,6 +282,11 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			return "", e
 		}
 		if !ok || row.task.ContentVersion != work.TargetVersion || row.task.Status != "pending" {
+			if row.application != nil && (row.application.Status == "pending_scan" || row.application.Status == "pending_review" || row.application.Status == "active") {
+				if e = wish.CancelApplication(ctx, db, *row.application, "invalidated", "eligibility_changed"); e != nil {
+					return "", e
+				}
+			}
 			return durable.Obsolete, nil
 		}
 		if prepare != nil {
@@ -278,7 +304,11 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 		status := "human_required"
 		decision := any(nil)
 		detection := a.DetectorVersion + "/" + scan.SchoolVersion
-		for _, model := range []any{&entity.ContentRegistry{}, &entity.WishVersion{}} {
+		models := []any{&entity.ContentRegistry{}}
+		if row.application == nil {
+			models = append(models, &entity.WishVersion{})
+		}
+		for _, model := range models {
 			q := db.Model(model)
 			if _, ok := model.(*entity.ContentRegistry); ok {
 				q = q.Where("id=?", row.registry.ID)
@@ -289,8 +319,10 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 				return "", e
 			}
 		}
-		if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
-			return "", e
+		if row.application == nil {
+			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
+				return "", e
+			}
 		}
 		if a.CrisisHit {
 			if e = db.Create(&entity.ContentRestriction{ID: uuid.NewString(), ContentID: row.registry.ID, Kind: "crisis", SourceRef: row.task.ID, Active: true, Version: 1}).Error; e != nil {
@@ -300,7 +332,12 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			status = "approved"
 			decision = "approved"
 			tags, _ := json.Marshal(a.Tags)
-			if e = setReview(db, row, "approved", &a.Body, tags); e != nil {
+			if e = setReview(db, w.codec, row, "approved", &a.Body, tags); e != nil {
+				return "", e
+			}
+		}
+		if row.application != nil && status == "human_required" {
+			if e = db.Model(&entity.Application{}).Where("id=?", row.application.ID).Updates(map[string]any{"status": "pending_review", "version": gorm.Expr("version+1")}).Error; e != nil {
 				return "", e
 			}
 		}

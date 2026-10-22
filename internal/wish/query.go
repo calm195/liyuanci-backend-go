@@ -38,6 +38,7 @@ type Result struct {
 	PrivacyReviewRequired bool           `json:"privacy_review_required,omitempty"`
 	OwnContent            *ContentInput  `json:"own_content,omitempty"`
 	Public                *PublicContent `json:"public,omitempty"`
+	Participant           *PublicContent `json:"participant,omitempty"`
 	ReviewResult          *ReviewResult  `json:"review_result,omitempty"`
 }
 
@@ -247,6 +248,35 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 			}
 		}
 	}
+	if ordinary(a.owner, a.snapshot) {
+		if a.snapshot.State == Matching || a.snapshot.State == Realized {
+			var matches []entity.Match
+			if e := db.WithContext(ctx).Where("wish_id=? AND status='current'", a.row.ID).Find(&matches).Error; e != nil {
+				return Result{}, e
+			}
+			for _, m := range matches {
+				ok, e := participantAllowed(ctx, db, m.HelperID, now)
+				if e != nil {
+					return Result{}, e
+				}
+				denied, e := blocked(ctx, db, m.RequesterID, m.HelperID)
+				if e != nil {
+					return Result{}, e
+				}
+				capacity := true
+				if a.snapshot.State == Realized {
+					var n int64
+					if e := db.WithContext(ctx).Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))", a.row.OwnerID, now).Count(&n).Error; e != nil {
+						return Result{}, e
+					}
+					capacity = n < 3
+				}
+				if ok && !denied && capacity {
+					out.AllowedActions = append(out.AllowedActions, "postWishesIdRollback")
+				}
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -282,11 +312,46 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 			out, e = s.ownResult(ctx, db, rid, now, a)
 			return e
 		}
+		if actor != "" && (a.snapshot.State == Matching || a.snapshot.State == Realized || a.snapshot.State == Fulfilled) {
+			var count int64
+			if e = db.Model(&entity.Match{}).Where("wish_id=? AND helper_id=? AND status='current'", id, actor).Count(&count).Error; e != nil {
+				return e
+			}
+			if count == 1 {
+				if !a.owner.Active || a.snapshot.PrivacyHeld || a.snapshot.Restricted || !reviewReady(a.snapshot) {
+					return command.ErrNotFound
+				}
+				p := PublicContent{ID: id, Body: a.snapshot.Review.PublicBody, ContentVersion: a.row.CurrentContentVersion, SchoolRelated: *a.snapshot.Review.SchoolRelated, NoticeCodes: []string{}, Author: PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname}, Category: a.row.Category, Campus: a.row.Campus, RewardMethod: a.content.RewardMethod, ExpiresAt: a.row.ExpiresAt}
+				if !a.owner.HideIdentityTags {
+					p.Author.IdentityTags = copyTags(a.snapshot.Review.Tags)
+				}
+				if p.SchoolRelated {
+					p.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
+					p.NoticeText = "未经证实"
+				}
+				out = Result{ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: a.snapshot.State, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Participant: &p}
+				return nil
+			}
+		}
 		p, e := s.publicContent(rid, now, a)
 		if e != nil {
 			return command.ErrNotFound
 		}
 		out = Result{ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: Published, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Public: &p}
+		if actor != "" {
+			gate := applicationTarget(ctx, db, a, actor, now)
+			if gate == nil {
+				var count int64
+				if e = db.Model(&entity.Application{}).Where("wish_id=? AND applicant_id=? AND status IN ?", id, actor, []string{"pending_scan", "pending_review", "active"}).Count(&count).Error; e != nil {
+					return e
+				}
+				if count == 0 {
+					out.AllowedActions = append(out.AllowedActions, "postWishesIdApplications")
+				}
+			} else if !errors.Is(gate, command.ErrForbidden) && !errors.Is(gate, command.ErrConflict) && !errors.Is(gate, command.ErrBlockedInteraction) {
+				return gate
+			}
+		}
 		return nil
 	})
 	return out, err

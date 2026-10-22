@@ -111,7 +111,7 @@ func pool(ctx context.Context, dsn, role string) (*gorm.DB, func() error, error)
 	}
 	// 运行身份不读取迁移账本；只经系统目录核对本进程必需的结构。
 	var schemaReady bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.applications') AND attname='public_message_cipher' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.matches') AND attname='application_id' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
 		return fail()
 	}
 	return db, sqlDB.Close, nil

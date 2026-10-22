@@ -163,6 +163,9 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		if e = httpapi.RegisterWishes(router, wishes); e != nil {
 			return nil, e
 		}
+		if e = httpapi.RegisterApplications(router, wishes); e != nil {
+			return nil, e
+		}
 	}
 	if contentReviews != nil {
 		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {

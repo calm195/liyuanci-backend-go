@@ -236,6 +236,14 @@ func adminError(c *gin.Context, err error) {
 		status, code = 404, "NOT_FOUND"
 	case errors.Is(err, command.ErrVersionConflict):
 		status, code = 409, "VERSION_CONFLICT"
+	case errors.Is(err, command.ErrActiveWishLimit):
+		status, code = 409, "ACTIVE_WISH_LIMIT"
+	case errors.Is(err, command.ErrDuplicateApplication):
+		status, code = 409, "DUPLICATE_APPLICATION"
+	case errors.Is(err, command.ErrBlockedInteraction):
+		status, code = 409, "BLOCKED_INTERACTION"
+	case errors.Is(err, command.ErrReviewPending):
+		status, code = 409, "REVIEW_PENDING"
 	case errors.Is(err, adminauth.ErrConflict):
 		status, code = 409, "STATE_CONFLICT"
 	case errors.Is(err, command.ErrIdempotencyConflict):

@@ -187,10 +187,10 @@ func TestOptionalWishAssembly(t *testing.T) {
 	if cfg.Auth.Wishes {
 		t.Fatal("修改调用方配置")
 	}
-	if len(router.Routes()) != 23 {
+	if len(router.Routes()) != 29 {
 		t.Fatal("心愿路由不完整", len(router.Routes()))
 	}
-	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes"}, {"PUT", "/api/v1/wishes/id/content"}, {"POST", "/api/v1/wishes/id/submit-review"}, {"POST", "/api/v1/wishes/id/publish"}, {"POST", "/api/v1/wishes/id/withdraw"}, {"DELETE", "/api/v1/wishes/id/draft"}, {"GET", "/api/v1/me/wishes"}} {
+	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes"}, {"PUT", "/api/v1/wishes/id/content"}, {"POST", "/api/v1/wishes/id/submit-review"}, {"POST", "/api/v1/wishes/id/publish"}, {"POST", "/api/v1/wishes/id/withdraw"}, {"DELETE", "/api/v1/wishes/id/draft"}, {"GET", "/api/v1/me/wishes"}, {"POST", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/me/applications"}, {"POST", "/api/v1/applications/id/withdraw"}, {"POST", "/api/v1/applications/id/accept"}, {"POST", "/api/v1/wishes/id/rollback"}} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
 		if response.Code != 401 {

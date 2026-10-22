@@ -27,6 +27,14 @@ var (
 	ErrAssetNotReady = errors.New("资源尚未就绪")
 	// ErrConflict 表示数据库业务约束冲突。
 	ErrConflict = errors.New("业务约束冲突")
+	// ErrActiveWishLimit 表示保留匹配的回退将超过活跃心愿额度。
+	ErrActiveWishLimit = errors.New("活跃心愿额度已满")
+	// ErrDuplicateApplication 表示同人同心愿已有未终结申请。
+	ErrDuplicateApplication = errors.New("已有未终结申请")
+	// ErrBlockedInteraction 表示双方当前存在拉黑限制。
+	ErrBlockedInteraction = errors.New("当前不可交互")
+	// ErrReviewPending 表示申请尚未获准生效。
+	ErrReviewPending = errors.New("申请仍待审核")
 	// ErrRetry 表示并发状态变化且达到上限后可再次请求。
 	ErrRetry = errors.New("并发状态变化，请重试")
 	// ErrUnavailable 表示数据库操作无法安全完成。

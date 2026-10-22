@@ -91,7 +91,7 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 }
 
 // discoverWish 在主体guard之前只读发现完整参与者；引擎在取锁后重发现，集合变化会回滚重试。
-func discoverWish(ctx context.Context, db *gorm.DB, id string) (plan command.Discovery, err error) {
+func discoverWishBase(ctx context.Context, db *gorm.DB, id string) (plan command.Discovery, err error) {
 	db = db.WithContext(ctx)
 	var row entity.Wish
 	if err = db.Where("id=?", id).Take(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
@@ -102,7 +102,7 @@ func discoverWish(ctx context.Context, db *gorm.DB, id string) (plan command.Dis
 	plan.Accounts = []string{row.OwnerID}
 	plan.Resources = []command.Resource{{Kind: command.Wish, ID: id}}
 	var apps []entity.Application
-	if err = db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active"}).Order("id").Find(&apps).Error; err != nil {
+	if err = db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active", "accepted"}).Order("id").Find(&apps).Error; err != nil {
 		return plan, err
 	}
 	for _, a := range apps {
@@ -110,7 +110,7 @@ func discoverWish(ctx context.Context, db *gorm.DB, id string) (plan command.Dis
 		plan.Resources = append(plan.Resources, command.Resource{Kind: command.Application, ID: a.ID})
 	}
 	var tasks []entity.ModerationTask
-	if err = db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.kind='wish' AND c.entity_id=?", id).Order("t.id").Find(&tasks).Error; err != nil {
+	if err = db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("(c.kind='wish' AND c.entity_id=?) OR (c.kind='application' AND c.entity_id IN (SELECT id FROM public.applications WHERE wish_id=?))", id, id).Order("t.id").Find(&tasks).Error; err != nil {
 		return plan, err
 	}
 	for _, task := range tasks {
@@ -177,20 +177,13 @@ func invalidate(ctx context.Context, tx *command.Tx, id string, applications boo
 		return err
 	}
 	if applications {
-		var apps []entity.Application
-		if err := db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active"}).Order("id").Find(&apps).Error; err != nil {
-			return err
-		}
-		var appIDs []string
-		for _, a := range apps {
-			appIDs = append(appIDs, a.ID)
-		}
-		if err := db.Model(&entity.Application{}).Where("id IN ?", appIDs).Updates(map[string]any{"status": "invalidated", "cancel_reason": reason, "version": gorm.Expr("version+1")}).Error; err != nil {
-			return err
-		}
-		if err := obsoleteWork(ctx, tx, "application", appIDs); err != nil {
-			return err
-		}
+		return invalidateApplications(ctx, tx, id, reason)
 	}
+
 	return nil
+}
+
+// discoverWish 让心愿修改与互动命令共享完整锁集合，避免失效旧申请时倒序等待账号或案件。
+func discoverWish(ctx context.Context, db *gorm.DB, id string) (command.Discovery, error) {
+	return DiscoverInteraction(ctx, db, id)
 }

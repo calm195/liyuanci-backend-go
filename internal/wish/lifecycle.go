@@ -261,12 +261,19 @@ func invalidateApplications(ctx context.Context, tx *command.Tx, id, reason stri
 	if e := db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active"}).Order("id").Find(&apps).Error; e != nil {
 		return e
 	}
-	var ids []string
+	var tasks, applicationIDs []string
 	for _, a := range apps {
-		ids = append(ids, a.ID)
+		applicationIDs = append(applicationIDs, a.ID)
+		if e := CancelApplication(ctx, db, a, "invalidated", reason); e != nil {
+			return e
+		}
+		if a.ReviewTaskID != nil {
+			tasks = append(tasks, *a.ReviewTaskID)
+		}
 	}
-	if e := db.Model(&entity.Application{}).Where("id IN ?", ids).Updates(map[string]any{"status": "invalidated", "cancel_reason": reason, "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := obsoleteWork(ctx, tx, "moderation_task", tasks); e != nil {
 		return e
 	}
-	return obsoleteWork(ctx, tx, "application", ids)
+	// 历史领域工作可能直接以申请为目标，升级后仍须永久取消，不能只处理新增案件路由。
+	return obsoleteWork(ctx, tx, "application", applicationIDs)
 }

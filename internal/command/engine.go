@@ -337,7 +337,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -375,6 +375,14 @@ func resultCode(err error) string {
 		return "idempotency_conflict"
 	case errors.Is(err, ErrAssetNotReady):
 		return "asset_not_ready"
+	case errors.Is(err, ErrActiveWishLimit):
+		return "active_wish_limit"
+	case errors.Is(err, ErrDuplicateApplication):
+		return "duplicate_application"
+	case errors.Is(err, ErrBlockedInteraction):
+		return "blocked_interaction"
+	case errors.Is(err, ErrReviewPending):
+		return "review_pending"
 	case errors.Is(err, ErrConflict):
 		return "conflict"
 	case errors.Is(err, ErrRetry):

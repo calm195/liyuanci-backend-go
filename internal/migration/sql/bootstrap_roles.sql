@@ -215,3 +215,9 @@ GRANT UPDATE (status,version) ON public.wordlist_versions TO liyuanci_admin_api;
 
 -- 最终扫描复核读取当前处罚元数据，领域工作组仍没有处罚写入权。
 GRANT SELECT ON public.penalties TO liyuanci_domain_worker;
+
+-- 应愿审核与匹配复核只读双向拉黑，不授予领域消费者操作黑名单的权限。
+GRANT SELECT ON public.blocks TO liyuanci_domain_worker,liyuanci_admin_api;
+GRANT UPDATE (status,version,public_message_cipher) ON public.applications TO liyuanci_admin_api;
+GRANT SELECT,INSERT ON public.notifications TO liyuanci_admin_api;
+GRANT SELECT ON public.matches TO liyuanci_admin_api;

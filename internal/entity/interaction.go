@@ -47,16 +47,19 @@ func (WishVersion) TableName() string { return "public.wish_versions" }
 
 // Application 映射 public.applications，字段注释描述数据库持久化语义。
 type Application struct {
-	ID                 string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	WishID             string          `gorm:"column:wish_id;type:uuid;not null;comment:应愿目标心愿" json:"-"`
-	WishContentVersion int64           `gorm:"column:wish_content_version;type:bigint;not null;comment:申请时的目标心愿版本" json:"-"`
-	ApplicantID        string          `gorm:"column:applicant_id;type:uuid;not null;comment:申请人" json:"-"`
-	Status             string          `gorm:"column:status;type:text;not null;default:'pending_scan';comment:应愿状态" json:"-"`
-	Version            int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
-	MessageCipher      json.RawMessage `gorm:"column:message_cipher;type:jsonb;not null;comment:应愿留言，保存信封密文而非明文" json:"-"`
-	ContentVersion     int64           `gorm:"column:content_version;type:bigint;not null;default:1;comment:申请内容版本" json:"-"`
-	CancelReason       *string         `gorm:"column:cancel_reason;type:text;comment:终结的稳定原因码，不存身份正文" json:"-"`
-	CreatedAt          time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	ReviewTaskID        *string         `gorm:"column:review_task_id;type:uuid;comment:当前留言审核任务，旧审核不得恢复已撤销或失效申请" json:"-"`
+	OwnerEpoch          *int64          `gorm:"column:owner_epoch;type:bigint;comment:申请时许愿人权限代次，历史空值不能作为生效授权" json:"-"`
+	PublicMessageCipher json.RawMessage `gorm:"column:public_message_cipher;type:jsonb;comment:审核允许的脱敏留言密文，仅当前有效申请向许愿人解密" json:"-"`
+	ID                  string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	WishID              string          `gorm:"column:wish_id;type:uuid;not null;comment:应愿目标心愿" json:"-"`
+	WishContentVersion  int64           `gorm:"column:wish_content_version;type:bigint;not null;comment:申请时的目标心愿版本" json:"-"`
+	ApplicantID         string          `gorm:"column:applicant_id;type:uuid;not null;comment:申请人" json:"-"`
+	Status              string          `gorm:"column:status;type:text;not null;default:'pending_scan';comment:应愿状态" json:"-"`
+	Version             int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
+	MessageCipher       json.RawMessage `gorm:"column:message_cipher;type:jsonb;not null;comment:应愿留言，保存信封密文而非明文" json:"-"`
+	ContentVersion      int64           `gorm:"column:content_version;type:bigint;not null;default:1;comment:申请内容版本" json:"-"`
+	CancelReason        *string         `gorm:"column:cancel_reason;type:text;comment:终结的稳定原因码，不存身份正文" json:"-"`
+	CreatedAt           time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
@@ -64,13 +67,15 @@ func (Application) TableName() string { return "public.applications" }
 
 // Match 映射 public.matches，字段注释描述数据库持久化语义。
 type Match struct {
-	ID          string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	WishID      string     `gorm:"column:wish_id;type:uuid;not null;comment:对应心愿" json:"-"`
-	RequesterID string     `gorm:"column:requester_id;type:uuid;not null;comment:许愿人，与目标心愿作者一致" json:"-"`
-	HelperID    string     `gorm:"column:helper_id;type:uuid;not null;comment:应愿人" json:"-"`
-	Status      string     `gorm:"column:status;type:text;not null;default:'current';comment:匹配生命周期" json:"-"`
-	StartedAt   time.Time  `gorm:"column:started_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:匹配开始时间" json:"-"`
-	EndedAt     *time.Time `gorm:"column:ended_at;type:timestamptz;comment:匹配结束时间" json:"-"`
+	ApplicationID *string    `gorm:"column:application_id;type:uuid;comment:形成匹配的精确申请，历史空值不推断来源" json:"-"`
+	Version       int64      `gorm:"column:version;type:bigint;not null;default:1;comment:匹配关系自身的乐观版本，不是心愿或申请版本" json:"-"`
+	ID            string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	WishID        string     `gorm:"column:wish_id;type:uuid;not null;comment:对应心愿" json:"-"`
+	RequesterID   string     `gorm:"column:requester_id;type:uuid;not null;comment:许愿人，与目标心愿作者一致" json:"-"`
+	HelperID      string     `gorm:"column:helper_id;type:uuid;not null;comment:应愿人" json:"-"`
+	Status        string     `gorm:"column:status;type:text;not null;default:'current';comment:匹配生命周期" json:"-"`
+	StartedAt     time.Time  `gorm:"column:started_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:匹配开始时间" json:"-"`
+	EndedAt       *time.Time `gorm:"column:ended_at;type:timestamptz;comment:匹配结束时间" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

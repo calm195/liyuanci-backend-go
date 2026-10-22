@@ -49,7 +49,7 @@ type Decision struct {
 	ExpectedVersion    int64  `json:"expected_version"`
 }
 
-// Outcome 区分内容判定与业务执行结果；通过审核只能进入待上架，不自动发布。
+// Outcome 区分内容判定与业务执行结果；心愿批准只到待上架，申请批准仍须复核当前交互资格。
 type Outcome struct {
 	ContentDecision string `json:"content_decision"`
 	BusinessOutcome string `json:"business_outcome"`
@@ -70,7 +70,7 @@ func ordinaryScan(db *gorm.DB, id string) (out entity.ModerationScan, err error)
 	return
 }
 
-// Cases 列表只开放心愿的普通命中案件，危机正文不因普通审核权限而开放。
+// Cases 列表只开放心愿及应愿留言的普通命中案件，危机正文不因普通审核权限而开放。
 func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit int) (out Page, err error) {
 	defer func() {
 		if err != nil {
@@ -91,7 +91,7 @@ func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit in
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind='wish'").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.school_related OR s.ordinary_hit) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
+		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.school_related OR s.ordinary_hit) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
@@ -145,7 +145,7 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 		if e != nil {
 			return e
 		}
-		if row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != id || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
+		if row.account.Lifecycle != "active" || row.wish.DraftDeletedAt != nil || (row.application != nil && (row.application.Status == "withdrawn" || row.application.Status == "invalidated")) || !currentBinding(row) || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
 			return command.ErrNotFound
 		}
 		var held int64
@@ -220,7 +220,7 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if row.task.Status != "human_required" {
 			return "", command.ErrConflict
 		}
-		if row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != id {
+		if !currentBinding(row) {
 			return "", command.ErrVersionConflict
 		}
 		// 屏障代次变化不能被旧案件放行；完整隐私重审释放由隐私领域另行接入。
@@ -240,6 +240,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if !ok {
 			status = "cancelled"
 			business = "cancelled"
+			if row.application != nil {
+				if e = wish.CancelApplication(ctx, db, *row.application, "invalidated", "eligibility_changed"); e != nil {
+					return "", e
+				}
+			}
 		} else {
 			var envelope securedata.Envelope
 			if json.Unmarshal(scan.ProjectionCipher, &envelope) != nil {
@@ -254,7 +259,7 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				Body string
 				Tags wish.IdentityTags
 			}
-			if json.Unmarshal(plain, &candidate) != nil || !text(candidate.Body, 500) {
+			if json.Unmarshal(plain, &candidate) != nil || !candidateBody(row, candidate.Body) {
 				return "", command.ErrUnavailable
 			}
 			var body *string
@@ -263,8 +268,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				body = &candidate.Body
 				tags, _ = json.Marshal(candidate.Tags)
 				business = "ready"
+				if row.application != nil {
+					business = "active"
+				}
 			}
-			if e = setReview(db, row, in.Decision, body, tags); e != nil {
+			if e = setReview(db, s.codec, row, in.Decision, body, tags); e != nil {
 				return "", e
 			}
 		}
@@ -296,6 +304,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			business = "cancelled"
 		} else if *row.task.Decision == "approved" {
 			business = "ready"
+			if row.application != nil {
+				business = "active"
+			}
 		}
 		out = Outcome{*row.task.Decision, business, row.task.Version}
 		return nil
