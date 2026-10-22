@@ -55,6 +55,14 @@ func valid(c Config) bool {
 	return event && c.Topic != "liyuanci_foundation_probe_v1" && c.Topic != "TBW102" && len(c.NameServers) > 0 && c.SendTimeout > 0 && c.HandlerTimeout > 0 && c.Concurrency >= 1 && c.Concurrency <= 128 && c.MaxReconsume >= 1 && c.MaxReconsume <= 100 && c.RetryDelayLevel >= 1 && c.RetryDelayLevel <= 18 && !partial && (keys || c.AllowUnauthenticated) && (keys || c.Credentials.SecurityToken == "")
 }
 
+// Validate 在启动客户端前核对通道、身份及预算，不访问网络或创建主题。
+func Validate(c Config) error {
+	if !valid(c) {
+		return durable.ErrInvalid
+	}
+	return nil
+}
+
 // ConfigureSDKLogging 由进程装配方在任何消息客户端启动前调用一次，禁止运行中替换 SDK 全局日志器。
 // SDK 仅提供进程级日志接口；丢弃其自由文本/字段，防止内部错误携带原始消息或鉴权信息。
 func ConfigureSDKLogging(logger *zap.Logger) error {

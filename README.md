@@ -2,7 +2,7 @@
 
 ## 1. 项目介绍
 
-Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-backend-go`。PostgreSQL是业务权威，Redis负责共享限流等能力，RocketMQ按需用于运输验证。已有后台认证、学生会话、学生卡、人工认证及心愿的部分业务能力；真实外部供应商和部分领域消费者尚未齐备，不能作为完整生产服务。
+Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-backend-go`。PostgreSQL是业务权威，Redis负责共享限流等能力，RocketMQ可显式用于学生卡业务唤醒。已有后台认证、学生会话、学生卡、人工认证及心愿的部分业务能力；真实外部供应商和部分领域消费者尚未齐备，不能作为完整生产服务。
 
 过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
@@ -65,6 +65,8 @@ make dev-infra-stop
 
 两种模式均可通过`DEV_ARGS="--project liyuanci-local-主题 --env-file /实际目录/operations.env"`选择独立配置。端口变量为`LIYUANCI_LOCAL_PG_PORT/REDIS_PORT/API_PORT/NAMESRV_PORT`；Broker10911/10909固定。`make dev-config`或`dev-native-config`刷新宿主派生文件，IDE环境见[当前开发操作说明](../docs/development/backend/host-development.md)。
 
+学生卡worker默认仅轮询数据库。需要消息模式时，先按需启动所选项目MQ，并由该项目Broker显式建立主题`liyuanci_student_card_scan_v1`；复制[消息配置模板](configs/examples/card-worker-mq.yaml)到对应`.local/<模式>/`并核对地址、主题、组和预算。在`operations.env`中设置`LIYUANCI_LOCAL_CARD_MQ_FILE=/绝对路径/card-worker-mq.yaml`，再启动`dev-worker`或`dev-native-worker`。直接运行二进制时使用`APP_CARD_MQFILE`指定文件。消息模式同时运行发件箱转发、订阅和数据库补偿，关闭时等待在途工作后释放数据库；扫描仍是隔离开发模拟，生产拒绝该进程。诊断入口只核对数据库与对象目录，不代表MQ主题和权限可用。
+
 首次初始化会在目标尚不存在时复制旧`~/.config/liyuanci/<模式>/`的配置、口令和对象，重写文件引用；原目录保留，已有目标绝不覆盖，旧应用运行中拒绝导入。仅迁移可执行`make dev-import`或`make dev-native-import`，不连接业务库或重置账号。旧Docker完整环境使用`.local/dev/operations.env`，`./scripts/init-dev.sh`也支持旧目录导入。
 
 完整Docker入口仍为`./scripts/init-dev.sh`、`python3 scripts/init-business-dev.py --admin-login 自定登录名`、`./scripts/start.sh dev`和`./scripts/stop.sh dev`。普通启动不执行迁移或重置账号；停止保留卷，不操作其他项目。Compose已迁入`deploy/compose/`，手工操作需使用新路径。
@@ -85,6 +87,6 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 make integration
 ```
 
-专项验收脚本按用户要求已删除；CI保留完整Go质量检查、离线入口单测及Make直接声明的真实中间件往返。变更需要的额外验证临时执行并记录实际结果，不新增长期专项脚本。`make integration`仅用于隔离项目，调用者显式维护其凭据与停止清理；不连接生产。
+专项验收脚本按用户要求已删除；CI保留完整Go质量检查、离线入口单测及Make直接声明的真实中间件往返。变更需要的额外验证临时执行并记录实际结果，不新增长期专项脚本。`make integration`在原探针往返后，以锁定Go构建的独立测试镜像运行真实PG持久工作/重驱动审计和同一PG、Redis、MQ学生卡领域链；覆盖提交后NACK重投、重复、取消晚到、外部失败及过期租约恢复。外部扫描、密钥和对象均为合成夹具，故障用例不等于真实杀进程或生产验收。该入口会迁移并清理隔离业务测试数据，仅用于独立测试项目，调用者显式维护其凭据与停止清理；不连接日常业务库或生产。
 
 同一任务复用未固定记录，一次完整交付新增阶段记录和证据；历史记录保持只读。两仓库使用同名`codex/<主题>`分支，提交需用户授权，不自动推送、合并或部署。完整规则见[AGENTS.md](AGENTS.md)。

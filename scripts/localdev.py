@@ -83,6 +83,9 @@ def app_environment(entry, env):
                   APP_REDIS_ENABLED='true', APP_REDIS_ADDRESS='127.0.0.1:' + port(env, 'REDIS', 6379 if native(env) else 16379),
                   APP_ROCKETMQ_ENABLED='false',
                   APP_SERVER_ADDRESS='127.0.0.1:' + port(env, 'API', 18080))
+    # 单独指定领域消息配置；保留清除终端APP覆盖的边界，不隐式复用探针客户端。
+    if env.get('LIYUANCI_LOCAL_CARD_MQ_FILE'):
+        result['APP_CARD_MQFILE'] = str(private_path(env['LIYUANCI_LOCAL_CARD_MQ_FILE']))
     if native(env) and env.get('LIYUANCI_NATIVE_REDIS_PASSWORD_FILE'):
         result['APP_REDIS_PASSWORD'] = private_path(env['LIYUANCI_NATIVE_REDIS_PASSWORD_FILE']).read_text().strip()
     return result

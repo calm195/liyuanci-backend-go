@@ -42,6 +42,17 @@ type Worker struct {
 
 type closer interface{ Close() error }
 
+// Validate 在创建任何消息客户端前校验完整预算，避免部分启动后才发现调度配置无效。
+func Validate(cfg Config) error {
+	if transportmq.Validate(cfg.MQ) != nil || cfg.MQ.EventType != studentcard.Route().EventType ||
+		cfg.RelayInterval < time.Millisecond || cfg.ScanInterval < time.Millisecond || cfg.OperationTimeout <= 0 ||
+		cfg.Relay.DatabaseTimeout <= 0 || cfg.Relay.SendTimeout <= 0 || cfg.Relay.LeaseDuration <= cfg.Relay.SendTimeout ||
+		cfg.Relay.LeaseDuration < time.Millisecond || cfg.Relay.RetryDelay < time.Millisecond || cfg.Relay.MaxAttempts < 1 || cfg.Relay.MaxAttempts > 1000 {
+		return durable.ErrInvalid
+	}
+	return nil
+}
+
 // Open 在调用方完成依赖构造及 SDK 日志配置后启动，不执行迁移、初始化凭据或启用探针。
 func Open(ctx context.Context, db *gorm.DB, scanner Scanner, logger *zap.Logger, cfg Config) (out *Worker, err error) {
 	if logger == nil {
@@ -49,7 +60,7 @@ func Open(ctx context.Context, db *gorm.DB, scanner Scanner, logger *zap.Logger,
 	}
 	start := time.Now()
 	defer func() { complete(logger, "open", start, err) }()
-	if db == nil || db.Statement == nil || scanner == nil || cfg.MQ.EventType != studentcard.Route().EventType || cfg.RelayInterval < time.Millisecond || cfg.ScanInterval < time.Millisecond || cfg.OperationTimeout <= 0 || ctx.Err() != nil {
+	if db == nil || db.Statement == nil || scanner == nil || Validate(cfg) != nil || ctx.Err() != nil {
 		return nil, durable.ErrInvalid
 	}
 	sender, err := transportmq.OpenSender(ctx, cfg.MQ, logger)

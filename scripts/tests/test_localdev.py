@@ -36,6 +36,12 @@ class LocalDevelopmentTest(unittest.TestCase):
             self.assertTrue(Path(derived['ObjectDirectory']).is_dir())
             self.assertEqual(source.read_bytes(), before)
             self.assertEqual(Path(result['APP_DEVAPPFILE']).stat().st_mode & 0o777, 0o600)
+            self.assertNotIn('APP_CARD_MQFILE', result)
+            mq_file = Path(directory) / 'card-mq.yaml'
+            mq_file.write_text('mq: {}\n')
+            selected = localdev.app_environment(entry, dict(env, LIYUANCI_LOCAL_CARD_MQ_FILE=str(mq_file)))
+            self.assertEqual(selected['APP_CARD_MQFILE'], str(mq_file.resolve()))
+            self.assertEqual(selected['APP_ROCKETMQ_ENABLED'], 'false')
 
     def test_native_defaults_and_password_file(self):
         with tempfile.TemporaryDirectory() as directory:

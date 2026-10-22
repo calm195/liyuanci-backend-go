@@ -122,6 +122,8 @@ func TestPostgresDurable(t *testing.T) {
 		}
 		return status
 	}
+	// 专用测试库可重复运行，事务夹具账号随本测试退出清理。
+	defer exec("DELETE FROM public.accounts WHERE id=?", uid(999))
 	t.Run("业务工作事件同事务", func(t *testing.T) {
 		exec("INSERT INTO public.accounts(id,nickname) VALUES (?,'合成事务账号')", uid(999))
 		if failure := Append(ctx, db, log, route(), draft(1)); failure != ErrInvalid {

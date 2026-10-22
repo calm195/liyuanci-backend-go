@@ -1,0 +1,24 @@
+# 仅供隔离宿主开发；复制到.local后显式设置APP_CARD_MQFILE，主题须提前建立。
+# 生产必须使用独立资源与凭据，不使用此开发模拟扫描进程。
+mq:
+  nameservers: [127.0.0.1:9876]
+  topic: liyuanci_student_card_scan_v1
+  eventtype: student_card.scan_requested
+  producergroup: liyuanci_card_relay
+  consumergroup: liyuanci_card_scan
+  instance: liyuanci_card_host
+  allowunauthenticated: true
+  sendtimeout: 3s
+  handlertimeout: 10s
+  concurrency: 2
+  maxreconsume: 3
+  retrydelaylevel: 1
+relay:
+  databasetimeout: 3s
+  sendtimeout: 3s
+  leaseduration: 15s
+  retrydelay: 5s
+  maxattempts: 5
+relayinterval: 200ms
+scaninterval: 5s
+operationtimeout: 10s

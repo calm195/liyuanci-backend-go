@@ -10,6 +10,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/cardworker"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
@@ -21,6 +23,13 @@ func main() {
 	}
 	start := time.Now()
 	cfg, err := devapp.Load(os.Getenv("APP_DEVAPPFILE"))
+	if path := os.Getenv("APP_CARD_MQFILE"); err == nil && path != "" {
+		cfg.CardMQ = &cardworker.Config{}
+		err = config.LoadCardWorkerMQ(path, cfg.CardMQ)
+		if err == nil {
+			err = cardworker.Validate(*cfg.CardMQ)
+		}
+	}
 	if err == nil {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		err = devapp.RunCardWorker(ctx, os.Getenv("APP_ENVIRONMENT"), cfg, logger)

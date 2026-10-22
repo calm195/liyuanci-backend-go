@@ -70,6 +70,7 @@ func TestPostgresRecovery(t *testing.T) {
 	defer exec("DELETE FROM public.admin_accounts WHERE id=?", admin)
 	defer exec("DELETE FROM public.accounts WHERE id=?", owner)
 	clear := func() {
+		exec("DELETE FROM public.access_audits WHERE actor_id=?", admin)
 		exec("DELETE FROM public.command_receipts WHERE actor_id=?", admin)
 		exec("DELETE FROM public.consumer_receipts")
 		exec("DELETE FROM public.outbox_events")
@@ -279,6 +280,9 @@ func TestPostgresRecovery(t *testing.T) {
 		if scalar("SELECT count(*) FROM public.work_items") != 1 || scalar("SELECT count(*) FROM public.outbox_events") != 2 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 1 {
 			t.Fatal("并发命令必须复用回执且只创建新唤醒一次")
 		}
+		if scalar("SELECT count(*) FROM public.access_audits WHERE purpose='work.redrive.resumed' AND outcome='allowed' AND subject_ref=?", draft(1021).WorkID) != 1 {
+			t.Fatal("并发重放应只提交一份重驱动审计")
+		}
 	})
 	t.Run("重放仍复核当前授权", func(t *testing.T) {
 		clear()
@@ -323,6 +327,9 @@ func TestPostgresRecovery(t *testing.T) {
 		if scalar("SELECT count(*) FROM public.consumer_receipts") != 1 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 0 {
 			t.Fatal("无操作终结应持久化")
 		}
+		if scalar("SELECT count(*) FROM public.access_audits WHERE purpose='work.redrive.cancelled' AND outcome='allowed' AND subject_ref=?", event.CorrelationID) != 1 {
+			t.Fatal("失效终结缺少同事务审计")
+		}
 		clear()
 		makeWork(1014, "attention")
 		exec("INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES (?,?)", definition.ConsumerKind, draft(1014).OperationID)
@@ -348,6 +355,23 @@ func TestPostgresRecovery(t *testing.T) {
 		}
 		if status(draft(1015).WorkID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 || scalar("SELECT count(*) FROM public.outbox_events") != 1 {
 			t.Fatal("后续命令失败必须回滚全部重驱动变更")
+		}
+		if scalar("SELECT count(*) FROM public.access_audits WHERE actor_id=?", admin) != 0 {
+			t.Fatal("失败命令不能留下成功审计")
+		}
+	})
+	t.Run("审计失败回滚工作和唤醒", func(t *testing.T) {
+		clear()
+		makeWork(1023, "attention")
+		exec("CREATE FUNCTION public.reject_redrive_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic audit failure'; END $$")
+		exec("CREATE TRIGGER reject_redrive_audit BEFORE INSERT ON public.access_audits FOR EACH ROW EXECUTE FUNCTION public.reject_redrive_audit()")
+		defer exec("DROP FUNCTION public.reject_redrive_audit()")
+		defer exec("DROP TRIGGER reject_redrive_audit ON public.access_audits")
+		if _, failure := run(1023, "audit-failure", policy, 5, false); failure != command.ErrUnavailable {
+			t.Fatal("审计失败必须拒绝重驱动", failure)
+		}
+		if status(draft(1023).WorkID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events") != 1 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 || scalar("SELECT count(*) FROM public.command_receipts WHERE actor_id=?", admin) != 0 {
+			t.Fatal("审计失败留下部分重驱动结果")
 		}
 	})
 	t.Run("旧转发者不能覆盖新周期", func(t *testing.T) {

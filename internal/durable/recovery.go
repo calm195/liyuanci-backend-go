@@ -261,6 +261,9 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 		if failure := tx.DB().WithContext(ctx).Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).Error; failure != nil {
 			return out, command.ErrUnavailable
 		}
+		if err = recordRedrive(ctx, tx, work.ID, "cancelled"); err != nil {
+			return out, err
+		}
 		out.Cancelled = true
 		return out, nil
 	}
@@ -274,8 +277,24 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 	if failure := tx.DB().WithContext(ctx).Create(&entity.OutboxEvent{EventID: id, WorkID: work.ID, AggregateID: current.TargetID, AggregateVersion: current.TargetVersion, EventType: c.definition.Route.EventType}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
+	if err = recordRedrive(ctx, tx, work.ID, "resumed"); err != nil {
+		return out, err
+	}
 	out.Resumed = true
 	return out, nil
+}
+
+// recordRedrive 将后台操作审计与工作、唤醒替代及命令回执放在同一事务。
+// 只保存管理员和随机工作引用，不复制学生身份、正文或凭据；审计失败必须回滚重驱动。
+func recordRedrive(ctx context.Context, tx *command.Tx, workID, outcome string) error {
+	id, err := eventUUID()
+	if err != nil {
+		return command.ErrInternal
+	}
+	if tx.DB().WithContext(ctx).Create(&entity.AccessAudit{ID: id, ActorID: tx.Actor().ID, SubjectRef: workID, Purpose: "work.redrive." + outcome, Outcome: "allowed"}).Error != nil {
+		return command.ErrUnavailable
+	}
+	return nil
 }
 
 func holdsPlan(tx *command.Tx, plan command.Discovery) error {

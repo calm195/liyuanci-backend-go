@@ -41,6 +41,24 @@ services:
     profiles: [tools]
     entrypoint: ["./probe"]
     command: ["-config", "configs/app/integration.yaml"]
+  business-test:
+    profiles: [tools]
+    build:
+      context: ../..
+      target: business-test
+      args:
+        GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://goproxy.cn,direct}
+    init: true
+    entrypoint: [/bin/sh, -c]
+    command: ["/durable.test -test.v -test.run '^TestPostgres' -test.timeout 180s && exec /business.test -test.v -test.run '^TestBusinessMessageChain$$' -test.timeout 180s"]
+    environment:
+      APP_DURABLE_TEST_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
+      APP_BUSINESS_TEST_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
+      APP_BUSINESS_TEST_REDIS: redis:6379
+      APP_BUSINESS_TEST_NAMESERVER: namesrv:9876
+      APP_BUSINESS_TEST_WORKER_BINARY: /card-worker
+    networks: [foundation]
+    restart: "no"
   migrate:
     image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
     profiles: [tools]

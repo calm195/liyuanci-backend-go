@@ -16,6 +16,7 @@ import (
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
+	"github.com/calm195/liyuanci-backend-go/internal/cardworker"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/identity"
@@ -29,6 +30,8 @@ import (
 
 // Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
 type Settings struct {
+	// CardMQ 由进程入口显式加载，不接受业务凭据文件隐式启用消息模式。
+	CardMQ                                                                      *cardworker.Config `json:"-"`
 	StudentDSN, ReviewDSN, WishDSN, AdminDSN, WorkerDSN                         string
 	WrapKey, LookupKey, SessionKey, CardKey, VerificationKey, WishKey, AdminKey []byte
 	AdminPassword, WeChatAppID, WeChatSecret                                    string
