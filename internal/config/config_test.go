@@ -89,3 +89,23 @@ func TestAdminExplicitConfiguration(t *testing.T) {
 		t.Fatal("未定TTL不得自行选择")
 	}
 }
+
+// TestDevAdaptersRejectProduction 追溯 T008/T011/T014、REQ-018：本地开发资源不能通过环境配置进入生产或基础模式。
+func TestDevAdaptersRejectProduction(t *testing.T) {
+	t.Setenv("APP_DEVAPPFILE", "/outside/business.json")
+	if _, err := Load(""); err == nil {
+		t.Fatal("基础模式不能装配开发业务")
+	}
+	t.Setenv("APP_ENVIRONMENT", "production")
+	t.Setenv("APP_DATABASE_DRIVER", "postgres")
+	t.Setenv("APP_DATABASE_DSN", "unused")
+	t.Setenv("APP_REDIS_ENABLED", "true")
+	t.Setenv("APP_ROCKETMQ_ENABLED", "true")
+	if _, err := Load(""); err == nil {
+		t.Fatal("生产不能装配本地开发资源")
+	}
+	t.Setenv("APP_ENVIRONMENT", "integration")
+	if _, err := Load(""); err != nil {
+		t.Fatal(err)
+	}
+}
