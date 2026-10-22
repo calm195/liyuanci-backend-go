@@ -198,5 +198,24 @@ class ServicesTest(unittest.TestCase):
         self.assertTrue(all(str(services.ROOT) in " ".join(row["argv"]) for row in records[:-1]))
 
 
+
+
+class BusinessOverlayTest(unittest.TestCase):
+    """T008/T011/T014、REQ-018：业务配置只改变开发装配，普通启动无初始化副作用。"""
+
+    def test_development_overlay_only(self):
+        args = services.parser().parse_args(['start', 'dev'])
+        instance = services.Services(args, {'LIYUANCI_DEV_BUSINESS_FILE': '/outside/business.json'})
+        self.assertTrue(any('compose.business-dev.yaml' in item for item in instance.compose()))
+        self.assertTrue(any('card-worker' in argv for argv, _ in instance.start_plan()))
+        for argv, _ in instance.start_plan():
+            self.assertNotIn('./dev-init', argv)
+            self.assertNotIn('permissions', argv)
+        args = services.parser().parse_args(['start', 'production'])
+        instance = services.Services(args, {'LIYUANCI_DEV_BUSINESS_FILE': '/outside/business.json'})
+        self.assertFalse(any('compose.business-dev.yaml' in item for item in instance.compose()))
+        self.assertFalse(any('card-worker' in argv for argv, _ in instance.start_plan()))
+
+
 if __name__ == "__main__":
     unittest.main()
