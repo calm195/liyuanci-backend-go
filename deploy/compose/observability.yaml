@@ -25,7 +25,7 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - ${LIYUANCI_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
-      - ./configs/observability/docker-log-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ../../configs/observability/docker-log-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     networks: [docker-logs]
   alloy:
     <<: *runtime
@@ -36,7 +36,7 @@ services:
       LOG_ENVIRONMENT: ${LIYUANCI_LOG_ENVIRONMENT:?set development or production}
       LOG_HOST: ${LIYUANCI_LOG_HOST:?set safe host alias}
     volumes:
-      - ./configs/observability/config.alloy:/etc/alloy/config.alloy:ro
+      - ../../configs/observability/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy
     networks: [docker-logs, telemetry]
     depends_on: [docker-log-proxy, loki]
@@ -47,7 +47,7 @@ services:
     environment:
       LOG_RETENTION: ${LIYUANCI_LOG_RETENTION:-72h}
     volumes:
-      - ./configs/observability/loki.yaml:/etc/loki/config.yaml:ro
+      - ../../configs/observability/loki.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
     networks: [telemetry]
     depends_on:
@@ -67,8 +67,9 @@ services:
     ports: ["127.0.0.1:${LIYUANCI_GRAFANA_PORT:-13000}:3000"]
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./configs/observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./configs/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../configs/observability/grafana/provisioning/datasources/loki.yaml:/etc/grafana/provisioning/datasources/loki.yaml:ro
+      - ../../configs/observability/grafana/provisioning/dashboards/default.yaml:/etc/grafana/provisioning/dashboards/default.yaml:ro
+      - ../../configs/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [telemetry, ingress]
     depends_on: [loki]
 networks:

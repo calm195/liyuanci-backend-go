@@ -1,0 +1,8 @@
+# 仅供宿主开发入口叠加；固定镜像和数据卷定义复用集成编排。
+services:
+  postgres:
+    ports: ["127.0.0.1:${LIYUANCI_LOCAL_PG_PORT:-15432}:5432"]
+    networks: [foundation, ingress]
+  redis:
+    ports: ["127.0.0.1:${LIYUANCI_LOCAL_REDIS_PORT:-16379}:6379"]
+    networks: [foundation, ingress]

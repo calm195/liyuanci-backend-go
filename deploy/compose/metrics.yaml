@@ -8,7 +8,7 @@ services:
       - --storage.tsdb.retention.time=7d
       - --storage.tsdb.retention.size=1GB
     volumes:
-      - ./configs/observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ../../configs/observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - prometheus-data:/prometheus
     networks: [telemetry]
     restart: unless-stopped
@@ -17,7 +17,7 @@ services:
       options: {max-size: "10m", max-file: "5"}
   grafana:
     volumes:
-      - ./configs/observability/prometheus-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
-      - ./configs/observability/metrics-alerts.json:/etc/grafana/provisioning/alerting/metrics.json:ro
+      - ../../configs/observability/prometheus-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ../../configs/observability/metrics-alerts.json:/etc/grafana/provisioning/alerting/metrics.json:ro
 volumes:
   prometheus-data:

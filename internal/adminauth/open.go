@@ -16,7 +16,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 )
 
-// Open 创建独立后台连接池，读取仓库外凭据；返回的关闭函数只在调用方等待所有请求退出后执行。
+// Open 创建独立后台连接池，读取忽略目录内或显式外部凭据；返回的关闭函数只在调用方等待所有请求退出后执行。
 // 不执行迁移、权限配置或创建账号，生产参数缺失时由配置校验拒绝启用。
 func Open(ctx context.Context, c config.Config, client redis.UniversalClient, logger *zap.Logger) (service *Service, closePool func() error, err error) {
 	if logger == nil {

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import services
+import configuration
 
 
 class Docker:
@@ -52,6 +53,9 @@ class ServicesTest(unittest.TestCase):
         home = patch.object(services.Path, "home", return_value=self.root)
         home.start()
         self.addCleanup(home.stop)
+        private = patch.object(configuration, "LOCAL_ROOT", self.root / "local")
+        private.start()
+        self.addCleanup(private.stop)
 
     def service(self, command, env=None, docker=None):
         return services.Services(services.parser().parse_args(command), env or {}, docker or Docker())
@@ -150,6 +154,23 @@ class ServicesTest(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
 
+    def test_init_reuses_imported_secret_paths(self):
+        directory = self.root / "config"
+        service = self.service(["init-dev", "--config-dir", str(directory)])
+        service.init_dev()
+        original = directory / "observability/grafana-password"
+        imported = directory / "secrets/grafana-password"
+        imported.parent.mkdir()
+        original.rename(imported)
+        entry = directory / "operations.env"
+        entry.write_text(entry.read_text().replace(str(original), str(imported)))
+        before = imported.read_bytes()
+        docker = Docker()
+        docker.volumes = ["liyuanci-observability-dev_grafana-data"]
+        self.service(["init-dev", "--config-dir", str(directory)], docker=docker).init_dev()
+        self.assertEqual(imported.read_bytes(), before)
+        self.assertFalse(original.exists())
+
     def test_env_is_literal_and_cannot_change_path(self):
         filename = self.root / "operations.env"
         marker = self.root / "executed"
@@ -206,14 +227,14 @@ class BusinessOverlayTest(unittest.TestCase):
     def test_development_overlay_only(self):
         args = services.parser().parse_args(['start', 'dev'])
         instance = services.Services(args, {'LIYUANCI_DEV_BUSINESS_FILE': '/outside/business.json'})
-        self.assertTrue(any('compose.business-dev.yaml' in item for item in instance.compose()))
+        self.assertTrue(any('deploy/compose/business-dev.yaml' in item for item in instance.compose()))
         self.assertTrue(any('card-worker' in argv for argv, _ in instance.start_plan()))
         for argv, _ in instance.start_plan():
             self.assertNotIn('./dev-init', argv)
             self.assertNotIn('permissions', argv)
         args = services.parser().parse_args(['start', 'production'])
         instance = services.Services(args, {'LIYUANCI_DEV_BUSINESS_FILE': '/outside/business.json'})
-        self.assertFalse(any('compose.business-dev.yaml' in item for item in instance.compose()))
+        self.assertFalse(any('deploy/compose/business-dev.yaml' in item for item in instance.compose()))
         self.assertFalse(any('card-worker' in argv for argv, _ in instance.start_plan()))
 
 

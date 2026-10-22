@@ -1,4 +1,4 @@
-.PHONY: run build test fmt fmt-check vet check tidy
+.PHONY: run build test fmt fmt-check vet check tidy integration
 run:
 	go run ./cmd/server
 build:
@@ -23,10 +23,21 @@ tidy:
 
 # 真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
 integration:
-	docker compose -f compose.integration.yaml up -d --wait postgres redis namesrv broker
-	docker compose -f compose.integration.yaml run --rm migrate
+	docker compose -f deploy/compose/integration.yaml up -d --wait postgres redis namesrv broker
+	docker compose -f deploy/compose/integration.yaml run --rm migrate
 	# 订阅前显式建立探针主题，不能依赖首次生产才自动创建。
-	docker compose -f compose.integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1
-	docker compose -f compose.integration.yaml up -d --build --wait api worker
-	docker compose -f compose.integration.yaml run --rm probe
-	python3 scripts/check-container-api.py
+	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1
+	docker compose -f deploy/compose/integration.yaml up -d --build --wait api worker
+	docker compose -f deploy/compose/integration.yaml run --rm probe
+
+# 日常迭代只验证相关包；交付前执行check，CI仍保留全量质量检查。
+.PHONY: check-fast
+PACKAGES ?= ./...
+DEV_ARGS ?=
+check-fast: fmt-check
+	go test $(PACKAGES)
+# 原生模式规则先于通用规则，兼容macOS自带GNU Make 3.81。
+dev-native-%:
+	python3 scripts/dev.py $* --native $(DEV_ARGS)
+dev-%:
+	python3 scripts/dev.py $* $(DEV_ARGS)

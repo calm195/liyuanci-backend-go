@@ -26,4 +26,4 @@ services:
       options: {max-size: "10m", max-file: "5"}
   prometheus:
     volumes:
-      - ./configs/observability/targets/linux.json:/etc/prometheus/targets/linux.json:ro
+      - ../../configs/observability/targets/linux.json:/etc/prometheus/targets/linux.json:ro

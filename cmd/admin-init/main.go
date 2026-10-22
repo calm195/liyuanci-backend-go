@@ -23,7 +23,7 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "configs/config.yaml", "配置路径")
+	path := flag.String("config", "", "配置路径")
 	flag.Parse()
 	c, err := config.Load(*path)
 	if err != nil {

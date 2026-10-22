@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,5 +108,31 @@ func TestDevAdaptersRejectProduction(t *testing.T) {
 	t.Setenv("APP_ENVIRONMENT", "integration")
 	if _, err := Load(""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDevelopmentWithoutMQ 验证显式开发业务可以仅使用PG/Redis，完整集成和生产不降级。
+func TestDevelopmentWithoutMQ(t *testing.T) {
+	for _, tc := range []struct {
+		name, environment, file string
+		redis, wantOK           bool
+	}{
+		{"local", "integration", "/outside/business.host.json", true, true},
+		{"full integration", "integration", "", true, false},
+		{"production", "production", "/outside/business.host.json", true, false},
+		{"missing redis", "integration", "/outside/business.host.json", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APP_ENVIRONMENT", tc.environment)
+			t.Setenv("APP_DEVAPPFILE", tc.file)
+			t.Setenv("APP_DATABASE_DRIVER", "postgres")
+			t.Setenv("APP_DATABASE_DSN", "devapp")
+			t.Setenv("APP_REDIS_ENABLED", fmt.Sprint(tc.redis))
+			t.Setenv("APP_ROCKETMQ_ENABLED", "false")
+			_, err := Load("")
+			if (err == nil) != tc.wantOK {
+				t.Fatalf("配置判定错误: %v", err)
+			}
+		})
 	}
 }

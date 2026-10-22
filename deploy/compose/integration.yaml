@@ -2,7 +2,7 @@
 name: liyuanci-foundation
 x-app: &app
   build:
-    context: .
+    context: ../..
     args:
       GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://goproxy.cn,direct}
   init: true
@@ -14,7 +14,7 @@ x-app: &app
 services:
   api:
     <<: *app
-    command: ["-config", "configs/integration.yaml"]
+    command: ["-config", "configs/app/integration.yaml"]
     # API增加独立入口网络供loopback发布端口；中间件仍仅在internal网络。
     networks: [foundation, ingress]
     ports: ["127.0.0.1:${LIYUANCI_DEV_API_PORT:-18080}:8080"]
@@ -31,7 +31,7 @@ services:
   worker:
     <<: *app
     entrypoint: ["./worker"]
-    command: ["-config", "configs/integration.yaml"]
+    command: ["-config", "configs/app/integration.yaml"]
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -40,14 +40,14 @@ services:
     <<: *app
     profiles: [tools]
     entrypoint: ["./probe"]
-    command: ["-config", "configs/integration.yaml"]
+    command: ["-config", "configs/app/integration.yaml"]
   migrate:
     image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
     profiles: [tools]
     environment:
       PGPASSWORD: ${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password}
     entrypoint: [psql, -h, postgres, -U, liyuanci, -d, liyuanci, -v, ON_ERROR_STOP=1, -f, /migrations/0001_probe.up.sql]
-    volumes: ["./migrations/integration:/migrations:ro"]
+    volumes: ["../../migrations/integration:/migrations:ro"]
     networks: [foundation]
   postgres:
     image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
@@ -72,45 +72,13 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
-  # 官方镜像非root用户无法写Docker新建的root属主卷。
-  # 仅初始化专用MQ卷权限；Broker继续以镜像的rocketmq用户运行。
   mq-init:
-    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
-    user: "0:0"
-    network_mode: none
-    read_only: true
-    cap_drop: [ALL]
-    cap_add: [CHOWN, FOWNER]
-    working_dir: /
-    entrypoint: [sh, -c]
-    command: ["chown rocketmq:rocketmq /mq-store && chmod 750 /mq-store"]
-    volumes: ["mq-data:/mq-store"]
+    extends: {file: mq.yaml, service: mq-init}
   namesrv:
-    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
-    command: sh mqnamesrv
-    environment: {JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"}
-    networks: [foundation]
-    healthcheck:
-      test: [CMD-SHELL, "sh mqadmin clusterList -n localhost:9876 >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 5s
-      retries: 40
+    extends: {file: mq.yaml, service: namesrv}
   broker:
-    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
-    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
-    environment: {JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"}
-    depends_on:
-      namesrv: {condition: service_healthy}
-      mq-init: {condition: service_completed_successfully}
-    volumes:
-      - ./configs/broker.conf:/home/rocketmq/broker.conf:ro
-      - mq-data:/home/rocketmq/store
-    networks: [foundation]
-    healthcheck:
-      test: [CMD-SHELL, "sh mqadmin clusterList -n namesrv:9876 | grep -q broker-a"]
-      interval: 5s
-      timeout: 5s
-      retries: 40
+    extends: {file: mq.yaml, service: broker}
+
 networks:
   foundation: {internal: true}
   ingress: {}

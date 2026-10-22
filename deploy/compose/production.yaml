@@ -30,7 +30,7 @@ services:
     secrets: [redis_acl]
     volumes:
       - redis-data:/data
-      - ./configs/redis.production.conf:/usr/local/etc/redis/redis.conf:ro
+      - ../../configs/middleware/redis.production.conf:/usr/local/etc/redis/redis.conf:ro
     networks: [foundation]
     healthcheck:
       test: [CMD-SHELL, "redis-cli ping 2>&1 | grep -q NOAUTH"]
@@ -70,7 +70,7 @@ services:
       namesrv: {condition: service_healthy}
       mq-init: {condition: service_completed_successfully}
     volumes:
-      - ./configs/broker.production.conf:/home/rocketmq/broker.conf:ro
+      - ../../configs/middleware/broker.production.conf:/home/rocketmq/broker.conf:ro
       - type: bind
         source: ${LIYUANCI_MQ_ACL_FILE:?set external plain_acl.yml path}
         target: /home/rocketmq/rocketmq-5.3.2/conf/plain_acl.yml

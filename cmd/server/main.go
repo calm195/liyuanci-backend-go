@@ -29,11 +29,15 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "configs/config.yaml", "YAML配置路径；留空时仅使用环境变量")
+	path := flag.String("config", "", "YAML配置路径；留空时仅使用环境变量")
+	check := flag.Bool("check", false, "仅检查开发业务依赖和装配，不监听HTTP")
 	flag.Parse()
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
+	}
+	if *check && cfg.DevAppFile == "" {
+		return errors.New("开发诊断必须显式提供业务配置")
 	}
 	log, err := platform.NewLogger(cfg.Log.Level)
 	if err != nil {
@@ -103,6 +107,16 @@ func run() error {
 		if e = httpapi.RegisterAdmin(router, service); e != nil {
 			return errors.New("后台身份路由装配失败")
 		}
+	}
+	if *check {
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := devapp.CheckCardWorker(checkCtx, *development, log); err != nil {
+			log.Error("开发工作进程诊断失败")
+			return errors.New("开发工作进程诊断失败")
+		}
+		log.Info("开发业务诊断完成", zap.String("result", "success"))
+		return nil
 	}
 	server := &http.Server{
 		Addr: cfg.Server.Address,

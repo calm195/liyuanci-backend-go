@@ -29,7 +29,7 @@ import (
 func TestPostgresCreateDraft(t *testing.T) {
 	dsn := os.Getenv("APP_WISH_TEST_DSN")
 	if dsn == "" {
-		t.Skip("需显式隔离PostgreSQL：python3 scripts/check-wish.py")
+		t.Skip("需显式隔离PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	ctx := context.Background()
 	core, logs := observer.New(zap.InfoLevel)

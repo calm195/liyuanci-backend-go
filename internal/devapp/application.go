@@ -27,7 +27,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
-// Settings 只从仓库外只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
+// Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
 type Settings struct {
 	StudentDSN, ReviewDSN, WishDSN, AdminDSN, WorkerDSN                         string
 	WrapKey, LookupKey, SessionKey, CardKey, VerificationKey, WishKey, AdminKey []byte

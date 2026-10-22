@@ -29,7 +29,7 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "configs/integration.yaml", "隔离配置路径")
+	path := flag.String("config", "configs/app/integration.yaml", "隔离配置路径")
 	connectionsOnly := flag.Bool("connections-only", false, "仅验证真实PostgreSQL/Redis，不签MQ通过")
 	flag.Parse()
 	c, err := config.Load(*path)

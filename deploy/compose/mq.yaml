@@ -1,0 +1,45 @@
+# 中间件MQ共用定义；生产使用独立ACL配置，不复用开发设置。
+services:
+  # 官方镜像非root用户无法写Docker新建的root属主卷。
+  # 仅初始化专用MQ卷权限；Broker继续以镜像的rocketmq用户运行。
+  mq-init:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    working_dir: /
+    entrypoint: [sh, -c]
+    command: ["chown rocketmq:rocketmq /mq-store && chmod 750 /mq-store"]
+    volumes: ["mq-data:/mq-store"]
+  namesrv:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    command: sh mqnamesrv
+    environment: {JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"}
+    networks: [foundation]
+    healthcheck:
+      test: [CMD-SHELL, "sh mqadmin clusterList -n localhost:9876 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  broker:
+    image: ${LIYUANCI_ROCKETMQ_IMAGE:-apache/rocketmq:5.3.2@sha256:4a80ff5cd4b0a3d3ef6dc338ce2028a85bd995648cb3aa5c3e753746d2dbc587}
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    environment: {JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"}
+    depends_on:
+      namesrv: {condition: service_healthy}
+      mq-init: {condition: service_completed_successfully}
+    volumes:
+      - ../../configs/middleware/broker.conf:/home/rocketmq/broker.conf:ro
+      - mq-data:/home/rocketmq/store
+    networks: [foundation]
+    healthcheck:
+      test: [CMD-SHELL, "sh mqadmin clusterList -n namesrv:9876 | grep -q broker-a"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+networks:
+  foundation: {internal: true}
+volumes:
+  mq-data:

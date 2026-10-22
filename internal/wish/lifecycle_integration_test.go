@@ -34,7 +34,7 @@ func lifecycleSetup(t *testing.T) *lifecycleFixture {
 	t.Helper()
 	dsn := os.Getenv("APP_WISH_LIFECYCLE_TEST_DSN")
 	if dsn == "" {
-		t.Skip("需隔离PG：python3 scripts/check-wish.py")
+		t.Skip("需隔离PG：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	open := func(role string) *gorm.DB {
 		t.Helper()

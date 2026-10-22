@@ -90,7 +90,7 @@ func TestPostgresIdentity(t *testing.T) {
 	// T005/REQ-002、018、020：专用 Docker 数据库中验证真实事务和唯一约束，无真实个人资料。
 	dsn := os.Getenv("APP_MIGRATION_TEST_DSN")
 	if dsn == "" {
-		t.Skip("需显式专用 PostgreSQL；运行 python3 scripts/check-migrations.py")
+		t.Skip("需显式专用 PostgreSQL；运行 按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: gormlog.Default.LogMode(gormlog.Silent)})
 	if err != nil {

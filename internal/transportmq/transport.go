@@ -22,7 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
 
-// Config 的通道、组和技术参数由服务端固定，凭据只从仓库外注入，不接收客户端策略。
+// Config 的通道、组和技术参数由服务端固定，凭据只从忽略目录内或显式外部注入，不接收客户端策略。
 type Config struct {
 	NameServers          []string
 	Topic                string

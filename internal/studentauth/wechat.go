@@ -23,7 +23,7 @@ type WeChat struct {
 	logger        *zap.Logger
 }
 
-// NewWeChat 必须注入有界HTTP客户端和仓库外AppSecret；克隆客户端并禁止跳转，避免凭据随重定向外泄。
+// NewWeChat 必须注入有界HTTP客户端和忽略目录内或显式外部AppSecret；克隆客户端并禁止跳转，避免凭据随重定向外泄。
 func NewWeChat(client *http.Client, appID, secret string, logger *zap.Logger) (*WeChat, error) {
 	if client == nil || client.Timeout <= 0 || strings.TrimSpace(appID) == "" || secret == "" || logger == nil {
 		return nil, command.ErrInvalid

@@ -146,7 +146,7 @@ func picture(t *testing.T, c color.Color) []byte {
 func TestPostgresStudentCards(t *testing.T) {
 	dsn, address := os.Getenv("APP_STUDENTCARD_TEST_DSN"), os.Getenv("APP_STUDENTCARD_TEST_REDIS")
 	if dsn == "" || address == "" {
-		t.Skip("需真实隔离PG/Redis：python3 scripts/check-adminauth.py")
+		t.Skip("需真实隔离PG/Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	ctx := context.Background()
 	core, logs := observer.New(zap.InfoLevel)

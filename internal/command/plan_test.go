@@ -21,7 +21,7 @@ func TestBackgroundPlan(t *testing.T) {
 	}
 	dsn := os.Getenv("APP_COMMAND_TEST_DSN")
 	if dsn == "" {
-		t.Skip("需专用 PostgreSQL：python3 scripts/check-migrations.py")
+		t.Skip("需专用 PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: gormlog.Default.LogMode(gormlog.Silent)})
 	if err != nil {

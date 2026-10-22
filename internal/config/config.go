@@ -103,7 +103,9 @@ func Load(path string) (Config, error) {
 	if c.Environment != "foundation" && c.Environment != "integration" && c.Environment != "production" {
 		return c, fmt.Errorf("不支持的运行环境")
 	}
-	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || !c.RocketMQ.Enabled) {
+	// 显式开发业务使用数据库轮询，允许不启用MQ；生产和完整集成仍要求全部中间件。
+	localBusiness := c.Environment == "integration" && c.DevAppFile != ""
+	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || (!c.RocketMQ.Enabled && !localBusiness)) {
 		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
 	}
 	if c.AdminAuth.Enabled && (c.AdminAuth.DSN == "" || c.AdminAuth.InitialPasswordFile == "" || c.AdminAuth.ReceiptKeyFile == "" || !c.Redis.Enabled || c.AdminAuth.SessionTTL <= 0 || c.AdminAuth.Timeout <= 0 || c.AdminAuth.LockTimeout < time.Millisecond || c.AdminAuth.LockTimeout > c.AdminAuth.Timeout || c.AdminAuth.ReceiptTTL <= 0 || c.AdminAuth.LoginWindow < time.Millisecond || c.AdminAuth.LoginLimit < 1 || c.AdminAuth.MaxAttempts < 1 || c.AdminAuth.MaxAttempts > 10) {

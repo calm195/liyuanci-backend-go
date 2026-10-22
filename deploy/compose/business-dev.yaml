@@ -13,7 +13,7 @@ services:
       - business-objects:/var/lib/liyuanci/objects
   # 独立受限数据库身份，仅开发模式从持久任务轮询，不依赖消息唤醒。
   card-worker:
-    build: {context: .}
+    build: {context: ../..}
     init: true
     entrypoint: ["./card-worker"]
     environment:

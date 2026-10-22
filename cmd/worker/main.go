@@ -24,7 +24,7 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "configs/integration.yaml", "隔离环境配置路径")
+	path := flag.String("config", "configs/app/integration.yaml", "隔离环境配置路径")
 	flag.Parse()
 	c, err := config.Load(*path)
 	if err != nil {

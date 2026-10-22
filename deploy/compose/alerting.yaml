@@ -5,4 +5,4 @@ services:
       GF_UNIFIED_ALERTING_ENABLED: "true"
       GF_UNIFIED_ALERTING_MIN_INTERVAL: 10s
     volumes:
-      - ./configs/observability/alerting:/etc/grafana/provisioning/alerting:ro
+      - ../../configs/observability/alerting/rules.json:/etc/grafana/provisioning/alerting/rules.json:ro

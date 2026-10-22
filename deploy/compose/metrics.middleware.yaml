@@ -30,10 +30,10 @@ services:
     # Broker自带PROM接口只在业务内部网络；不开放5557/9187/9121宿主端口。
     networks: [telemetry, monitored]
     volumes:
-      - ./configs/observability/targets/middleware.json:/etc/prometheus/targets/middleware.json:ro
+      - ../../configs/observability/targets/middleware.json:/etc/prometheus/targets/middleware.json:ro
   grafana:
     volumes:
-      - ./configs/observability/middleware-alerts.json:/etc/grafana/provisioning/alerting/middleware.json:ro
+      - ../../configs/observability/middleware-alerts.json:/etc/grafana/provisioning/alerting/middleware.json:ro
 networks:
   monitored:
     external: true

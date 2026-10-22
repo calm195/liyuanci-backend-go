@@ -95,7 +95,7 @@ func (e *exchange) Exchange(_ context.Context, code string) ([]byte, error) {
 func TestPostgresStudent(t *testing.T) {
 	dsn, address := os.Getenv("APP_STUDENTAUTH_TEST_DSN"), os.Getenv("APP_STUDENTAUTH_TEST_REDIS")
 	if dsn == "" || address == "" {
-		t.Skip("需专用PG/Redis：python3 scripts/check-adminauth.py")
+		t.Skip("需专用PG/Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	ctx := context.Background()
 	core, logs := observer.New(zap.InfoLevel)

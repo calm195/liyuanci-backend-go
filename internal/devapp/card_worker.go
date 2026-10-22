@@ -32,6 +32,24 @@ func (workerSessions) Current(context.Context, string, string) (studentauth.Me, 
 	return studentauth.Me{}, command.ErrUnavailable
 }
 
+// CheckCardWorker 验证工作身份、业务结构和共享目录，不消费或修改持久任务。
+func CheckCardWorker(ctx context.Context, cfg Settings, logger *zap.Logger) (err error) {
+	defer completed(logger, "card_worker_check", time.Now(), &err)
+	_, closePool, err := pool(ctx, cfg.WorkerDSN, "liyuanci_domain_worker")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closePool() != nil {
+			err = command.ErrUnavailable
+		}
+	}()
+	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
+		return command.ErrUnavailable
+	}
+	return nil
+}
+
 // RunCardWorker 仅在隔离开发环境轮询数据库权威任务；不迁移、不发送MQ或重置历史任务。
 // 先等当前处理返回再关闭池，取消中的租约由后续启动恢复。
 func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger *zap.Logger) (err error) {

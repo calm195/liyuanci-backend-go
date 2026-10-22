@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+from configuration import ROOT, directory, import_legacy, private_path
 MANAGEMENT = ["pgadmin", "redisinsight", "rocketmq-dashboard"]
 MIDDLEWARE = ["postgres", "redis", "namesrv", "broker"]
 
@@ -88,12 +88,12 @@ class Services:
         self.call(["docker", "info", "--format", "{{.ServerVersion}}"], "Docker引擎检查")
 
     def defaults(self):
-        base = Path.home() / ".config/liyuanci/dev"
+        base = directory("dev")
         defaults = {
             "LIYUANCI_TEST_DB_PASSWORD_FILE": str(base / "postgres-password"),
             "LIYUANCI_PGADMIN_PASSWORD_FILE": str(base / "pgadmin-password"),
             "LIYUANCI_DASHBOARD_PROPERTIES_FILE": str(base / "dashboard.properties"),
-            "LIYUANCI_GRAFANA_PASSWORD_FILE": str(Path.home() / ".config/liyuanci/observability-dev/grafana-password"),
+            "LIYUANCI_GRAFANA_PASSWORD_FILE": str(base / "observability/grafana-password"),
             "LIYUANCI_PGADMIN_EMAIL": "developer@example.com",
         }
         if self.mode == "dev":
@@ -113,31 +113,29 @@ class Services:
         return value
 
     def secret_file(self, key, empty=False):
-        path = Path(self.required(key)).expanduser().resolve()
-        if path == ROOT or ROOT in path.parents:
-            raise OperationError(key + "必须引用仓库外文件")
+        path = private_path(self.required(key))
         if not path.is_file() or (not empty and path.stat().st_size == 0):
             raise OperationError(key + "对应文件不存在或为空")
         self.env[key] = str(path)
         return path
 
     def compose(self, monitoring=False):
-        files = ["compose.observability.yaml"] if monitoring else [
-            "compose.integration.yaml" if self.mode == "dev" else "compose.production.yaml"]
+        files = ["deploy/compose/observability.yaml"] if monitoring else [
+            "deploy/compose/integration.yaml" if self.mode == "dev" else "deploy/compose/production.yaml"]
         if not monitoring and self.mode == "dev" and self.env.get("LIYUANCI_DEV_BUSINESS_FILE"):
-            files.append("compose.business-dev.yaml")
+            files.append("deploy/compose/business-dev.yaml")
         if monitoring:
             if self.mode == "production":
-                files.append("compose.observability.production.yaml")
-            files.extend(["compose.alerting.yaml", "compose.metrics.yaml"])
+                files.append("deploy/compose/observability.production.yaml")
+            files.extend(["deploy/compose/alerting.yaml", "deploy/compose/metrics.yaml"])
             if self.args.middleware_metrics:
-                files.append("compose.metrics.middleware.yaml")
+                files.append("deploy/compose/metrics.middleware.yaml")
             if self.args.linux_host:
-                files.append("compose.metrics.linux.yaml")
+                files.append("deploy/compose/metrics.linux.yaml")
             if self.args.notifications:
-                files.append("compose.notifications.yaml")
+                files.append("deploy/compose/notifications.yaml")
         elif not self.args.without_management:
-            files.append("compose.management.yaml")
+            files.append("deploy/compose/management.yaml")
         command = ["docker", "compose", "-p", self.monitor if monitoring else self.project]
         for name in files:
             command += ["-f", str(ROOT / name)]
@@ -175,7 +173,9 @@ class Services:
             raise OperationError("--linux-host仅用于Linux宿主，不能用Docker VM冒充macOS宿主")
         path = self.args.env_file
         if not path and self.mode == "dev":
-            default = Path.home() / ".config/liyuanci/dev/operations.env"
+            if not self.args.dry_run:
+                import_legacy("dev")
+            default = directory("dev") / "operations.env"
             path = str(default) if default.is_file() else None
         if path:
             self.env = load_env(Path(path).expanduser(), self.env)
@@ -265,17 +265,22 @@ class Services:
         return "stopped"
 
     def init_dev(self):
-        base = Path(self.args.config_dir).expanduser().resolve() if self.args.config_dir else Path.home() / ".config/liyuanci/dev"
-        monitoring = base / "observability" if self.args.config_dir else Path.home() / ".config/liyuanci/observability-dev"
+        base = private_path(self.args.config_dir) if self.args.config_dir else directory("dev")
+        if not self.args.config_dir and not self.args.dry_run:
+            import_legacy("dev")
+        monitoring = base / "observability"
         paths = {"LIYUANCI_TEST_DB_PASSWORD_FILE": base / "postgres-password",
                  "LIYUANCI_PGADMIN_PASSWORD_FILE": base / "pgadmin-password",
                  "LIYUANCI_DASHBOARD_PROPERTIES_FILE": base / "dashboard.properties",
                  "LIYUANCI_GRAFANA_PASSWORD_FILE": monitoring / "grafana-password"}
+        entry = base / "operations.env"
+        if entry.is_file():
+            previous = load_env(entry, {})
+            paths.update({key: private_path(previous[key]) for key in paths if previous.get(key)})
         if any("\n" in str(path) or "\r" in str(path) for path in paths.values()):
             raise OperationError("凭据路径不能包含换行")
-        for directory in (base, monitoring):
-            if directory.resolve() == ROOT or ROOT in directory.resolve().parents:
-                raise OperationError("开发凭据必须保存在仓库外")
+        for folder in (base, monitoring):
+            private_path(folder)
         if self.args.dry_run:
             print(json.dumps({"create_missing_files": [str(path) for path in paths.values()], "overwrite": False}))
             return "planned"
@@ -290,9 +295,9 @@ class Services:
             if path.exists() and (not path.is_file() or (path.name != "dashboard.properties" and not path.stat().st_size)):
                 raise OperationError("已有凭据路径无效，不覆盖已有文件")
         # 只创建缺失文件；拒绝放宽现有目录权限或重置已有账号。
-        for directory in (base, monitoring):
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if directory.stat().st_mode & 0o077:
+        for folder in (base, monitoring):
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if folder.stat().st_mode & 0o077:
                 raise OperationError("凭据目录权限过宽，请由操作者设置为0700")
         for path in paths.values():
             if not path.exists():

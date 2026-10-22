@@ -20,7 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 RUN mkdir -p /var/lib/liyuanci/objects && chown app:app /var/lib/liyuanci/objects && chmod 700 /var/lib/liyuanci/objects
 WORKDIR /app
 COPY --from=builder /artifacts/ ./
-COPY configs/config.yaml configs/integration.yaml ./configs/
+COPY configs/app ./configs/app
 USER app
 EXPOSE 8080
 ENTRYPOINT ["./server"]

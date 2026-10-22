@@ -1,0 +1,12 @@
+# 宿主客户端端口与公布地址；与共用MQ定义叠加。
+services:
+  namesrv:
+    ports: ["127.0.0.1:${LIYUANCI_LOCAL_NAMESRV_PORT:-9876}:9876"]
+    networks: [foundation, ingress]
+  broker:
+    ports: ["127.0.0.1:10911:10911", "127.0.0.1:10909:10909"]
+    networks: [foundation, ingress]
+    volumes:
+      - ../../configs/middleware/broker.local.conf:/home/rocketmq/broker.conf:ro
+networks:
+  ingress: {}

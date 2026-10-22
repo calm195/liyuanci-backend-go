@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""显式初始化隔离开发业务库、窄权限身份、仓库外密钥与首个后台账号；不重置已有账号。"""
+"""显式初始化隔离开发业务库、窄权限身份、忽略目录内或显式外部密钥与首个后台账号；不重置已有账号。"""
 import argparse
 import base64
 import json
@@ -10,30 +10,43 @@ import subprocess
 import time
 
 from services import ROOT, OperationError, load_env
+from configuration import directory, private_path
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--env-file', default=str(Path.home() / '.config/liyuanci/dev/operations.env'))
+    parser.add_argument('--env-file', default=str(directory('dev') / 'operations.env'))
     parser.add_argument('--project', default='liyuanci-dev')
     parser.add_argument('--admin-login', required=True)
+    parser.add_argument('--host', action='store_true', help='通过宿主Go命令迁移和初始化')
+    parser.add_argument('--native', action='store_true', help='使用已经运行的宿主PG/Redis，不访问Docker')
     args = parser.parse_args()
+    if args.native and not args.host:
+        raise OperationError('--native必须与--host一起使用')
     # 与启停入口共用项目名校验，拒绝误用生产项目。
     import re
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', args.project) or 'production' in args.project:
         raise OperationError('业务初始化只允许隔离开发项目')
     entry = Path(args.env_file).expanduser().resolve()
     env = load_env(entry, dict(os.environ))
-    password_file = Path(env['LIYUANCI_TEST_DB_PASSWORD_FILE'])
-    if ROOT in entry.parents or ROOT in password_file.resolve().parents:
-        raise OperationError('凭据必须放在仓库外')
-    env['LIYUANCI_TEST_DB_PASSWORD'] = password_file.read_text().strip()
+    private_path(entry)
+    if args.native:
+        from localdev import native_database_environment
+        if env.get('LIYUANCI_LOCAL_MIDDLEWARE') != 'native':
+            raise OperationError('原生初始化必须使用独立native配置')
+        env = native_database_environment(env)
+    else:
+        password_file = Path(env['LIYUANCI_TEST_DB_PASSWORD_FILE'])
+        private_path(password_file)
+        env['LIYUANCI_TEST_DB_PASSWORD'] = password_file.read_text().strip()
     manifest = Path(env.get('LIYUANCI_DEV_BUSINESS_FILE', str(entry.parent / 'business.json'))).resolve()
     if '\n' in str(manifest) or '\r' in str(manifest):
         raise OperationError('业务配置路径不能包含换行')
-    if ROOT in manifest.parents:
-        raise OperationError('业务配置必须放在仓库外')
-    base = ['docker', 'compose', '-p', args.project, '-f', str(ROOT / 'compose.integration.yaml')]
+    private_path(manifest)
+    base = ['docker', 'compose', '-p', args.project, '-f', str(ROOT / 'deploy/compose/integration.yaml')]
+
+    if args.host:
+        base += ['-f', str(ROOT / 'deploy/compose/host-dev.yaml')]
 
     def run(argv, stage, data=None):
         started = time.monotonic()
@@ -46,10 +59,14 @@ def main():
         return result.stdout
 
     def sql(statement, database='postgres'):
+        if args.native:
+            return run(['psql', '-X', '-w', '-d', database, '-v', 'ON_ERROR_STOP=1', '-At'],
+                       '执行本地数据库显式初始化', statement)
         return run(base + ['exec', '-T', 'postgres', 'psql', '-U', 'liyuanci', '-d', database,
                           '-v', 'ON_ERROR_STOP=1', '-At'], '执行显式数据库初始化', statement)
 
-    run(base + ['up', '-d', '--wait', 'postgres', 'redis'], '启动隔离数据库与缓存')
+    if not args.native:
+        run(base + ['up', '-d', '--wait', 'postgres', 'redis'], '启动隔离数据库与缓存')
     exists = sql("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname='liyuanci_business');\n").strip() == 't'
     if not manifest.exists():
         # 旧数据库缺密钥时绝不生成替代文件，以免永久失去历史密文和身份检索能力。
@@ -112,17 +129,36 @@ def main():
     if not exists:
         sql('CREATE DATABASE liyuanci_business OWNER dev_migrator;\n')
     # 迁移以专用迁移登录身份执行，权限矩阵由隔离数据库管理员显式应用。
-    run(base + ['build', 'api'], '构建开发业务工具')
-    env['APP_DATABASE_DSN'] = migration_dsn
-    run(base + ['run', '--rm', '--no-deps', '-e', 'APP_DATABASE_DSN', '--entrypoint', './migrate', 'api', 'up'], '显式迁移业务库')
-    env['APP_DATABASE_DSN'] = 'host=postgres user=liyuanci password=' + env['LIYUANCI_TEST_DB_PASSWORD'] + ' dbname=liyuanci_business sslmode=disable'
-    run(base + ['run', '--rm', '--no-deps', '-e', 'APP_DATABASE_DSN', '--entrypoint', './migrate', 'api', 'permissions'], '显式配置业务权限')
-    env['LIYUANCI_DEV_BUSINESS_FILE'] = str(manifest)
-    env['APP_ENVIRONMENT'] = 'integration'
-    env['APP_ADMIN_BOOTSTRAP_LOGIN'] = args.admin_login
-    overlay = base + ['-f', str(ROOT / 'compose.business-dev.yaml')]
-    run(overlay + ['run', '--rm', '--no-deps', '-e', 'APP_ENVIRONMENT', '-e', 'APP_ADMIN_BOOTSTRAP_LOGIN',
-                   '--entrypoint', './dev-init', 'api'], '显式初始化检索与后台账号')
+    if args.host:
+        from localdev import app_environment, host_dsn
+        # 宿主不构建应用镜像；只有显式初始化使用迁移身份和数据库管理员。
+        env['APP_DATABASE_DSN'] = host_dsn(migration_dsn, env)
+        run(['go', 'run', './cmd/migrate', 'up'], '显式迁移宿主业务库')
+        if args.native:
+            # libpq环境供Go驱动连接本地管理员；业务运行身份仍来自独立文件。
+            env['PGDATABASE'] = 'liyuanci_business'
+            env['APP_DATABASE_DSN'] = 'sslmode=disable'
+        else:
+            env['APP_DATABASE_DSN'] = 'host=127.0.0.1 port=' + str(env.get('LIYUANCI_LOCAL_PG_PORT', '15432')) + ' user=liyuanci password=' + env['LIYUANCI_TEST_DB_PASSWORD'] + ' dbname=liyuanci_business sslmode=disable'
+        run(['go', 'run', './cmd/migrate', 'permissions'], '显式配置宿主业务权限')
+        if args.native:
+            env = {key: value for key, value in env.items() if not key.startswith('PG')}
+        env['LIYUANCI_DEV_BUSINESS_FILE'] = str(manifest)
+        env = app_environment(entry, {key: value for key, value in env.items() if not key.startswith('APP_')})
+        env['APP_ADMIN_BOOTSTRAP_LOGIN'] = args.admin_login
+        run(['go', 'run', './cmd/dev-init'], '显式初始化宿主检索与后台账号')
+    else:
+        run(base + ['build', 'api'], '构建开发业务工具')
+        env['APP_DATABASE_DSN'] = migration_dsn
+        run(base + ['run', '--rm', '--no-deps', '-e', 'APP_DATABASE_DSN', '--entrypoint', './migrate', 'api', 'up'], '显式迁移业务库')
+        env['APP_DATABASE_DSN'] = 'host=postgres user=liyuanci password=' + env['LIYUANCI_TEST_DB_PASSWORD'] + ' dbname=liyuanci_business sslmode=disable'
+        run(base + ['run', '--rm', '--no-deps', '-e', 'APP_DATABASE_DSN', '--entrypoint', './migrate', 'api', 'permissions'], '显式配置业务权限')
+        env['LIYUANCI_DEV_BUSINESS_FILE'] = str(manifest)
+        env['APP_ENVIRONMENT'] = 'integration'
+        env['APP_ADMIN_BOOTSTRAP_LOGIN'] = args.admin_login
+        overlay = base + ['-f', str(ROOT / 'deploy/compose/business-dev.yaml')]
+        run(overlay + ['run', '--rm', '--no-deps', '-e', 'APP_ENVIRONMENT', '-e', 'APP_ADMIN_BOOTSTRAP_LOGIN',
+                       '--entrypoint', './dev-init', 'api'], '显式初始化检索与后台账号')
     # 所有步骤成功后才发布到日常启动配置；重复初始化保留现有密钥与账号。
     current = entry.read_text()
     if not any(line.startswith('LIYUANCI_DEV_BUSINESS_FILE=') for line in current.splitlines()):

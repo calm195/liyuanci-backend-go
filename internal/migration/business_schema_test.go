@@ -18,7 +18,7 @@ func schemaDB(t *testing.T, env string) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv(env)
 	if dsn == "" {
-		t.Skip("需专用 Docker 数据库；运行 python3 scripts/check-migrations.py")
+		t.Skip("需专用 Docker 数据库；运行 按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {

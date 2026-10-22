@@ -1,0 +1,9 @@
+# Dashboard与Broker共用网络命名空间，使宿主公布的127.0.0.1在两侧均可达。
+# 需支持!reset的Docker Compose；只在宿主管理工具入口叠加。
+services:
+  broker:
+    ports: ["127.0.0.1:18081:8080"]
+  rocketmq-dashboard:
+    network_mode: service:broker
+    networks: !reset []
+    ports: !reset []

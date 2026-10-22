@@ -35,7 +35,7 @@ import (
 func TestPostgresAdmin(t *testing.T) {
 	dsn, address := os.Getenv("APP_ADMINAUTH_TEST_DSN"), os.Getenv("APP_ADMINAUTH_TEST_REDIS")
 	if dsn == "" || address == "" {
-		t.Skip("需隔离真实PostgreSQL与Redis：python3 scripts/check-adminauth.py")
+		t.Skip("需隔离真实PostgreSQL与Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}
 	ctx := context.Background()
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: gormlog.Default.LogMode(gormlog.Silent)})
