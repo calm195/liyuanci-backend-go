@@ -1,0 +1,34 @@
+# 仅由开发启停入口加载；业务凭据只读挂载，对象密文保存在独立卷。
+services:
+  api:
+    environment:
+      APP_DEVAPPFILE: /run/liyuanci/business.json
+      # 实际运行DSN由只读文件装配，API环境不能继承探针管理员凭据。
+      APP_DATABASE_DSN: devapp
+    volumes:
+      - type: bind
+        source: ${LIYUANCI_DEV_BUSINESS_FILE:?run scripts/init-business-dev.py first}
+        target: /run/liyuanci/business.json
+        read_only: true
+      - business-objects:/var/lib/liyuanci/objects
+  # 独立受限数据库身份，仅开发模式从持久任务轮询，不依赖消息唤醒。
+  card-worker:
+    build: {context: .}
+    init: true
+    entrypoint: ["./card-worker"]
+    environment:
+      APP_ENVIRONMENT: integration
+      APP_DEVAPPFILE: /run/liyuanci/business.json
+    volumes:
+      - type: bind
+        source: ${LIYUANCI_DEV_BUSINESS_FILE:?run scripts/init-business-dev.py first}
+        target: /run/liyuanci/business.json
+        read_only: true
+      - business-objects:/var/lib/liyuanci/objects
+    networks: [foundation]
+    depends_on:
+      postgres: {condition: service_healthy}
+    stop_grace_period: 30s
+    restart: "no"
+volumes:
+  business-objects:

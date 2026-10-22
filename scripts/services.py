@@ -124,6 +124,8 @@ class Services:
     def compose(self, monitoring=False):
         files = ["compose.observability.yaml"] if monitoring else [
             "compose.integration.yaml" if self.mode == "dev" else "compose.production.yaml"]
+        if not monitoring and self.mode == "dev" and self.env.get("LIYUANCI_DEV_BUSINESS_FILE"):
+            files.append("compose.business-dev.yaml")
         if monitoring:
             if self.mode == "production":
                 files.append("compose.observability.production.yaml")
@@ -155,7 +157,7 @@ class Services:
                          (primary + ["exec", "-T", "broker", "sh", "mqadmin", "updateTopic", "-n", "namesrv:9876",
                                      "-c", "DefaultCluster", "-t", "liyuanci_foundation_probe_v1"], "显式创建探针主题")]
             plan.append((primary + ["up", "-d", "--wait", "--wait-timeout", "120"] +
-                         (["--no-build"] if self.args.no_build else ["--build"]) + ["api", "worker"], "启动API与worker"))
+                         (["--no-build"] if self.args.no_build else ["--build"]) + ["api", "worker"] + (["card-worker"] if self.env.get("LIYUANCI_DEV_BUSINESS_FILE") else []), "启动API与worker"))
             if self.args.probe:
                 plan.append((primary + ["run", "--rm", "probe"], "验证探针往返"))
         if not self.args.without_management:
@@ -189,6 +191,10 @@ class Services:
             if not password or any(char in password for char in "\r\n\x00"):
                 raise OperationError("开发数据库口令文件必须为单行非空值")
             self.env["LIYUANCI_TEST_DB_PASSWORD"] = password
+            if self.env.get("LIYUANCI_DEV_BUSINESS_FILE"):
+                self.secret_file("LIYUANCI_DEV_BUSINESS_FILE")
+            else:
+                print("开发业务尚未初始化；当前仅健康入口。请显式运行 python3 scripts/init-business-dev.py --admin-login 自定登录名")
         else:
             for key in ("LIYUANCI_POSTGRES_PASSWORD_FILE", "LIYUANCI_REDIS_ACL_FILE", "LIYUANCI_MQ_ACL_FILE"):
                 self.secret_file(key)
