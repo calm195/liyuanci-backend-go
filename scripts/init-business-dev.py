@@ -13,6 +13,19 @@ from services import ROOT, OperationError, load_env
 from configuration import directory, private_path
 
 
+def complete_settings(cfg):
+    """显式初始化仅补新用途密钥/工作身份；不替换原有历史配置。"""
+    configuration_changed = False
+    if not cfg.get('ModerationKey'):
+        cfg['ModerationKey'] = base64.b64encode(secrets.token_bytes(32)).decode()
+        configuration_changed = True
+    if not cfg.get('WorkerDSN'):
+        cfg['WorkerDSN'] = 'host=postgres user=dev_domain_worker password=' + secrets.token_hex(24) + ' dbname=liyuanci_business sslmode=disable'
+        configuration_changed = True
+    return configuration_changed
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file', default=str(directory('dev') / 'operations.env'))
@@ -73,7 +86,7 @@ def main():
         if exists:
             raise OperationError('已有业务数据库但缺原业务配置，请恢复原文件，禁止生成新密钥')
         cfg = {name: base64.b64encode(secrets.token_bytes(32)).decode() for name in
-               ('WrapKey', 'LookupKey', 'SessionKey', 'CardKey', 'VerificationKey', 'WishKey', 'AdminKey')}
+               ('WrapKey', 'LookupKey', 'SessionKey', 'CardKey', 'VerificationKey', 'WishKey', 'AdminKey', 'ModerationKey')}
         cfg.update(AdminPassword=secrets.token_urlsafe(24), WeChatAppID='', WeChatSecret='',
                    ObjectDirectory='/var/lib/liyuanci/objects')
         roles = {'StudentDSN': 'identity_maintenance', 'ReviewDSN': 'admin_api', 'WishDSN': 'api',
@@ -105,9 +118,8 @@ def main():
             json.dump(cfg, output, indent=2)
         saved.chmod(0o644)
         saved.replace(manifest)
-    # 已有配置只补独立工作身份，不替换历史密钥、口令或已有连接。
-    if not cfg.get('WorkerDSN'):
-        cfg['WorkerDSN'] = 'host=postgres user=dev_domain_worker password=' + secrets.token_hex(24) + ' dbname=liyuanci_business sslmode=disable'
+    configuration_changed = complete_settings(cfg)
+    if configuration_changed:
         saved = manifest.with_name('business.json.pending')
         with saved.open('w') as output:
             json.dump(cfg, output, indent=2)

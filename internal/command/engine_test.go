@@ -76,6 +76,16 @@ func TestCommandValidation(t *testing.T) {
 		t.Fatal("缺失必填版本应拒绝")
 	}
 	in = input("key")
+	in.Expectations[0].Target.Kind = ModerationTask
+	taskHash, failure := requestHash(d, in)
+	if failure != nil {
+		t.Fatal("案件独立版本不能校验", failure)
+	}
+	in.Expectations[0].Target.Kind = Wish
+	wishHash, failure := requestHash(d, in)
+	if failure != nil || bytes.Equal(taskHash, wishHash) {
+		t.Fatal("案件版本不能与心愿版本共用摘要")
+	}
 	in.Expectations[0].Target.Kind = Conversation
 	if _, err = requestHash(d, in); err != ErrInvalid {
 		t.Fatal("会话代次不能混用版本")

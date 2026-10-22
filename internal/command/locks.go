@@ -168,6 +168,7 @@ func (t *Tx) lockResources(resources []Resource) error {
 			columns = append(columns, "write_epoch")
 		case ModerationTask:
 			model = &entity.ModerationTask{}
+			columns = append(columns, "version")
 		case Message:
 			model = &entity.Message{}
 			columns = append(columns, "version")

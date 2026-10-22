@@ -73,7 +73,7 @@ const (
 	Match ResourceKind = "match"
 	// Conversation 在匹配后锁定。
 	Conversation ResourceKind = "conversation"
-	// ModerationTask 在会话后锁定。
+	// ModerationTask 在会话后锁定，expected_version绑定案件独立版本。
 	ModerationTask ResourceKind = "moderation_task"
 	// Message 在审核任务后锁定。
 	Message ResourceKind = "message"

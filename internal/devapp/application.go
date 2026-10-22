@@ -20,6 +20,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/identity"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentapi"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
@@ -30,6 +31,8 @@ import (
 
 // Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
 type Settings struct {
+	// ModerationKey 缺省时不启用新增审核路由，由显式初始化补齐独立用途密钥。
+	ModerationKey []byte
 	// CardMQ 由进程入口显式加载，不接受业务凭据文件隐式启用消息模式。
 	CardMQ                                                                      *cardworker.Config `json:"-"`
 	StudentDSN, ReviewDSN, WishDSN, AdminDSN, WorkerDSN                         string
@@ -50,6 +53,9 @@ func Load(path string) (Settings, error) {
 		return cfg, command.ErrInvalid
 	}
 	keys := [][]byte{cfg.WrapKey, cfg.LookupKey, cfg.SessionKey, cfg.CardKey, cfg.VerificationKey, cfg.WishKey, cfg.AdminKey}
+	if len(cfg.ModerationKey) > 0 {
+		keys = append(keys, cfg.ModerationKey)
+	}
 	for i, key := range keys {
 		if len(key) != 32 {
 			return cfg, command.ErrInvalid
@@ -105,7 +111,7 @@ func pool(ctx context.Context, dsn, role string) (*gorm.DB, func() error, error)
 	}
 	// 运行身份不读取迁移账本；只经系统目录核对本进程必需的结构。
 	var schemaReady bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
 		return fail()
 	}
 	return db, sqlDB.Close, nil
@@ -183,6 +189,10 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		return command.ErrUnavailable
 	}
 	cmd := commandConfig()
+	var moderationConfig *moderation.Config
+	if len(cfg.ModerationKey) > 0 {
+		moderationConfig = &moderation.Config{Command: cmd, CursorKey: cfg.ModerationKey, MaxEntries: 2000}
+	}
 	router, e = studentapi.New(studentapi.Dependencies{
 		StudentDB: databases[0],
 		ReviewDB:  databases[1],
@@ -197,6 +207,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		Scanner:   developmentScanner{logger},
 		Rules:     developmentSchoolRules{logger},
 	}, studentapi.Config{
+		Moderation: moderationConfig,
 		Auth: studentauth.Config{
 			SessionTTL:  24 * time.Hour,
 			ExchangeTTL: time.Minute,

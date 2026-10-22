@@ -173,7 +173,9 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 			return ErrUnavailable
 		}
 		if len(rows) != 1 {
-			return ErrLeaseLost
+			// 候选联表快照可能早于另一领取者提交；条件更新未命中时尚未拥有租约。
+			// 作为本轮空闲处理，不能把正常竞争误记为已持租约失效或发送失败。
+			return nil
 		}
 		// 上次发送在确认前中断也占一次尝试；重领时先耗尽检查，防止持续崩溃无限发送。
 		if rows[0].Attempts > r.config.MaxAttempts {

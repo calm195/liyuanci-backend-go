@@ -164,7 +164,7 @@ func invalidate(ctx context.Context, tx *command.Tx, id string, applications boo
 	for _, t := range tasks {
 		taskIDs = append(taskIDs, t.ID)
 	}
-	if err := db.Model(&entity.ModerationTask{}).Where("id IN ?", taskIDs).Update("status", "obsolete").Error; err != nil {
+	if err := db.Model(&entity.ModerationTask{}).Where("id IN ?", taskIDs).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; err != nil {
 		return err
 	}
 	if err := db.Model(&entity.ContentRegistry{}).Where("id IN ?", registryIDs).Update("status", "obsolete").Error; err != nil {

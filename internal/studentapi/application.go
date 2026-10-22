@@ -11,6 +11,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
@@ -51,6 +52,8 @@ type Dependencies struct {
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
+	// Moderation 仅在显式提供独立游标密钥后注册正式后台审核能力。
+	Moderation *moderation.Config
 	// Wish 为空时保持认证应用原有能力，不虚报心愿写动作。
 	Wish         *wish.ServiceConfig
 	Auth         studentauth.Config
@@ -131,6 +134,21 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 	if e != nil {
 		return nil, e
 	}
+	var contentReviews *moderation.Service
+	if cfg.Moderation != nil {
+		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
+			if bytes.Equal(key, cfg.Moderation.CursorKey) {
+				return nil, command.ErrInvalid
+			}
+		}
+		if cfg.Wish != nil && bytes.Equal(cfg.Wish.ReceiptKey, cfg.Moderation.CursorKey) {
+			return nil, command.ErrInvalid
+		}
+		contentReviews, e = moderation.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Moderation)
+		if e != nil {
+			return nil, e
+		}
+	}
 	router := httpapi.New(d.Logger, d.Ready)
 	if e = httpapi.RegisterStudent(router, auth); e != nil {
 		return nil, e
@@ -143,6 +161,11 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 	}
 	if wishes != nil {
 		if e = httpapi.RegisterWishes(router, wishes); e != nil {
+			return nil, e
+		}
+	}
+	if contentReviews != nil {
+		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
 			return nil, e
 		}
 	}

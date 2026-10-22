@@ -180,10 +180,7 @@ func TestPostgresDurable(t *testing.T) {
 			if event.CorrelationID != draft(2).WorkID {
 				t.Error("关联工作引用错误")
 			}
-			// 外部连接此时能拿到工作锁，证明没有持有领取事务跨越外部发送。
-			return db.Transaction(func(tx *gorm.DB) error {
-				return tx.Exec("SELECT id FROM public.work_items WHERE id=? FOR UPDATE NOWAIT", event.CorrelationID).Error
-			})
+			return nil
 		}))
 		var wg sync.WaitGroup
 		failures := make(chan error, 8)
@@ -205,6 +202,19 @@ func TestPostgresDurable(t *testing.T) {
 		db.Raw("SELECT sent_at IS NOT NULL FROM public.outbox_events").Scan(&sent)
 		if !sent {
 			t.Fatal("成功确认未落库")
+		}
+	})
+	t.Run("发送不持有领取事务", func(t *testing.T) {
+		clear()
+		appendWork(2)
+		// 此处只运行一个转发者，排除其他合法领取者短暂持锁对NOWAIT断言的干扰。
+		r := relay(sendFunc(func(_ context.Context, event Event) error {
+			return db.Transaction(func(tx *gorm.DB) error {
+				return tx.Exec("SELECT id FROM public.work_items WHERE id=? FOR UPDATE NOWAIT", event.CorrelationID).Error
+			})
+		}))
+		if claimed, failure := r.Once(ctx); failure != nil || !claimed {
+			t.Fatal("发送仍持有领取事务", failure)
 		}
 	})
 	t.Run("临时重试与异常待办", func(t *testing.T) {

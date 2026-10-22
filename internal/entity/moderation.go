@@ -6,11 +6,12 @@ import (
 
 // WordlistVersion 映射 public.wordlist_versions，字段注释描述数据库持久化语义。
 type WordlistVersion struct {
-	ID        string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	Type      string    `gorm:"column:type;type:text;not null;comment:词库用途类型，实际业务资料待交付" json:"-"`
-	Version   int64     `gorm:"column:version;type:bigint;not null;comment:同类型词库版本" json:"-"`
-	Status    string    `gorm:"column:status;type:text;not null;default:'draft';comment:词库生命周期" json:"-"`
-	CreatedAt time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	BaseEffectiveID *string   `gorm:"column:base_effective_id;type:uuid;comment:创建完整快照时的生效基准，发布时须与当前生效版本一致" json:"-"`
+	ID              string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	Type            string    `gorm:"column:type;type:text;not null;comment:词库用途类型，实际业务资料待交付" json:"-"`
+	Version         int64     `gorm:"column:version;type:bigint;not null;comment:快照资源状态乐观版本，不是类型基准代次" json:"-"`
+	Status          string    `gorm:"column:status;type:text;not null;default:'draft';comment:词库生命周期" json:"-"`
+	CreatedAt       time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
@@ -29,6 +30,7 @@ func (WordlistEntry) TableName() string { return "public.wordlist_entries" }
 
 // ModerationTask 映射 public.moderation_tasks，字段注释描述数据库持久化语义。
 type ModerationTask struct {
+	Version            int64     `gorm:"column:version;type:bigint;not null;default:1;comment:审核案件独立乐观版本，不是内容版本或心愿版本" json:"-"`
 	RestrictionEpoch   *int64    `gorm:"column:restriction_epoch;type:bigint;comment:提交时内容限制代次，历史空值不得作为当前心愿上架依据" json:"-"`
 	ID                 string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	ContentID          string    `gorm:"column:content_id;type:uuid;not null;comment:注册内容标识" json:"-"`

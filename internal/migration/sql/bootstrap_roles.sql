@@ -190,5 +190,28 @@ GRANT INSERT ON public.identity_lookup_claims, public.identity_secrets, public.i
 GRANT UPDATE (version) ON public.assets TO liyuanci_identity_maintenance, liyuanci_admin_api;
 
 -- 心愿命令只使旧审核/工作失效，不允许学生接口写入人工结论或删除历史审核记录。
-GRANT UPDATE (status) ON public.moderation_tasks TO liyuanci_api;
+GRANT UPDATE (status,version) ON public.moderation_tasks TO liyuanci_api;
 GRANT UPDATE (status, lease_until, version) ON public.work_items TO liyuanci_api;
+
+-- 词库与扫描快照采用独立窄权限；普通API不读取待放行脱敏候选。
+ALTER TABLE public.wordlist_heads OWNER TO liyuanci_migrator;
+ALTER TABLE public.moderation_scans OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.wordlist_heads,public.moderation_scans FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_evidence_reader,liyuanci_evidence_writer,liyuanci_evidence_purger;
+GRANT SELECT,UPDATE ON public.wordlist_heads TO liyuanci_admin_api;
+GRANT SELECT ON public.wordlist_heads TO liyuanci_domain_worker;
+GRANT SELECT ON public.moderation_scans TO liyuanci_admin_api;
+GRANT SELECT,INSERT ON public.moderation_scans TO liyuanci_domain_worker;
+GRANT SELECT,DELETE ON public.moderation_scans TO liyuanci_privacy_maintenance;
+GRANT INSERT ON public.content_restrictions TO liyuanci_domain_worker;
+GRANT SELECT ON public.wishes,public.privacy_holds TO liyuanci_admin_api;
+GRANT UPDATE (state,version) ON public.wishes TO liyuanci_admin_api;
+GRANT UPDATE (moderation_status,public_body,identity_tags,school_related,school_detection_version,school_detection_state,wordlist_version) ON public.wish_versions TO liyuanci_admin_api;
+GRANT UPDATE (status,school_related,school_detection_version,school_detection_state) ON public.content_registry TO liyuanci_admin_api;
+
+-- 草案和归档内容不提供编辑能力，状态转换只允许资源版本及生命周期列。
+REVOKE UPDATE,DELETE ON public.wordlist_entries FROM liyuanci_admin_api;
+REVOKE UPDATE ON public.wordlist_versions FROM liyuanci_admin_api;
+GRANT UPDATE (status,version) ON public.wordlist_versions TO liyuanci_admin_api;
+
+-- 最终扫描复核读取当前处罚元数据，领域工作组仍没有处罚写入权。
+GRANT SELECT ON public.penalties TO liyuanci_domain_worker;
