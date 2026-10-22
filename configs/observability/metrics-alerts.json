@@ -72,7 +72,7 @@
           "for": "1m",
           "annotations": {
             "summary": "监控目标不可用",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -144,7 +144,7 @@
           "for": "0s",
           "annotations": {
             "summary": "日志投递丢弃",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -216,7 +216,7 @@
           "for": "0s",
           "annotations": {
             "summary": "敏感日志已阻断",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -288,7 +288,7 @@
           "for": "5m",
           "annotations": {
             "summary": "Linux磁盘空间不足",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -360,7 +360,7 @@
           "for": "5m",
           "annotations": {
             "summary": "Linux内存使用率过高",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"

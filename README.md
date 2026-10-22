@@ -6,7 +6,7 @@
 
 当前已提供工程基础、真实中间件集成探针、开发启停、管理工具和日志/指标设施，以及数据库事务与当前授权命令库、持久工作同事务写入、发件箱租约转发、数据库幂等消费、到期补偿和受控重驱动组件、独立业务结构/恢复日志迁移工具、身份唯一占用、受控双代轮换和信封及有界对象加密组件。已提供后台认证、学生wx.login会话、学生卡与人工认证及心愿生命周期HTTP库，并接入显式初始化后的Docker开发API进程；基础模式仍仅提供健康端点。真实外部供应商及领域消费者仍待接入，无业务Mock路由，当前不能作为完整生产服务。
 
-阶段实施、任务 ID/REQ、设计取舍及历史验收记录统一存放于 [docs/milestones](docs/milestones/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
+开发过程、阶段记录、运维说明与验证证据统一见 [后端文档索引](../docs/development/backend/README.md)。共享接口定义见[契约入口](../docs/contracts/README.md)，契约定义不代表接口已实现。
 
 ## 2. 项目选项与目录结构
 
@@ -48,15 +48,10 @@ internal/
 configs/              配置示例与监控配置
 migrations/           集成探针 SQL（业务版本 SQL 位于 internal/migration/sql）
 scripts/              初始化、启停及隔离验收脚本
-docs/
-  milestones/         按阶段分文件的实施与验收记录
-  operations.md       启停参数与故障排查
-  docker-middleware.md 中间件与管理工具操作
-  observability.md    日志、指标及告警操作
 compose.*.yaml        按用途拆分的 Docker 编排
 ```
 
-应用配置使用 `APP_` 前缀；脚本及 Compose 参数使用 `LIYUANCI_` 等专用变量，详见配置示例与[启停说明](docs/operations.md)。构建默认使用 `https://goproxy.cn,direct`，可用 `LIYUANCI_BUILD_GOPROXY` 覆盖，保留 go.sum/GOSUMDB 校验。
+应用配置使用 `APP_` 前缀；脚本及 Compose 参数使用 `LIYUANCI_` 等专用变量，详见配置示例与[启停说明](../docs/development/backend/operations.md)。构建默认使用 `https://goproxy.cn,direct`，可用 `LIYUANCI_BUILD_GOPROXY` 覆盖，保留 go.sum/GOSUMDB 校验。
 
 ## 3. 项目启动方式
 
@@ -83,7 +78,7 @@ python3 scripts/init-business-dev.py --admin-login developer
 ./scripts/stop.sh dev
 ```
 
-旧卷缺失原口令时初始化会拒绝生成，应恢复原凭据。默认配置文件位于 `~/.config/liyuanci/dev/operations.env`，按字面读取，不执行 shell。详细参数、手工操作及生产限制见[启停说明](docs/operations.md)与[中间件说明](docs/docker-middleware.md)。
+旧卷缺失原口令时初始化会拒绝生成，应恢复原凭据。默认配置文件位于 `~/.config/liyuanci/dev/operations.env`，按字面读取，不执行 shell。详细参数、手工操作及生产限制见[启停说明](../docs/development/backend/operations.md)与[中间件说明](../docs/development/backend/docker-middleware.md)。
 
 | 入口 | 默认地址 | 说明 |
 | --- | --- | --- |
@@ -95,19 +90,19 @@ python3 scripts/init-business-dev.py --admin-login developer
 
 pgAdmin 与 Grafana 口令分别保存在仓库外的 `~/.config/liyuanci/dev/pgadmin-password` 和 `~/.config/liyuanci/observability-dev/grafana-password`，自定义配置时以实际路径为准。pgAdmin 连接 PostgreSQL 使用 `postgres:5432`，数据库与用户名均为 `liyuanci`，口令来自开发目录的 `postgres-password`。已有卷不会因修改初始化文件而重置账号。
 
-管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](docs/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
+管理端口仅绑定 loopback，远程通过 SSH 隧道访问。开发集成 Redis 无密码、Broker 无 ACL，不得用于生产。监控扩展与查询见[监控说明](../docs/development/backend/observability.md)；真实通知和生产验收尚未完成。上述地址为配置默认值，不代表服务当前在线。
 
-业务初始化成功后，`./scripts/start.sh dev` 自动装配后台、学生、学生卡、人工认证及心愿接口。仓库外 `~/.config/liyuanci/dev/business.json` 保存用途分离密钥、独立数据库身份和 `AdminPassword`，不要提交或输出文件正文。真实微信登录需同时填写 `WeChatAppID`、`WeChatSecret` 后重启；未配置时合法登录请求返回503。学生卡扫描在开发环境模拟通过并由独立worker处理；学校姓名/学号规则仅在开发环境模拟通过，认证申请仍需人工审核；真实学校规则及心愿审核消费者仍缺，整体就绪仍503。`/api/v1` 本身不是接口，仍404；`GET /api/v1/me` 未登录401，`GET /api/v1/wishes` 可匿名查询。未初始化时保留健康模式并提示初始化命令。详见[开发业务装配](docs/development-business.md)及[心愿模块](docs/wish.md)。
+业务初始化成功后，`./scripts/start.sh dev` 自动装配后台、学生、学生卡、人工认证及心愿接口。仓库外 `~/.config/liyuanci/dev/business.json` 保存用途分离密钥、独立数据库身份和 `AdminPassword`，不要提交或输出文件正文。真实微信登录需同时填写 `WeChatAppID`、`WeChatSecret` 后重启；未配置时合法登录请求返回503。学生卡扫描在开发环境模拟通过并由独立worker处理；学校姓名/学号规则仅在开发环境模拟通过，认证申请仍需人工审核；真实学校规则及心愿审核消费者仍缺，整体就绪仍503。`/api/v1` 本身不是接口，仍404；`GET /api/v1/me` 未登录401，`GET /api/v1/wishes` 可匿名查询。未初始化时保留健康模式并提示初始化命令。详见[开发业务装配](../docs/development/backend/development-business.md)及[心愿模块](../docs/development/backend/wish.md)。
 
 ## 4. 开发规范与须知
 
 常规数据库增删改查使用 `internal/entity` 中按功能模块拆分的实体和 GORM；显式处理 NULL、零值和数据库默认值。行锁与冲突更新使用 GORM Clauses，保留 PostgreSQL 专用锁函数、原子 CTE、队列租约及 LATERAL 关联逻辑；受限身份的插入回读列须符合现有列级授权。
 
-领域服务可复用[命令框架](docs/command-framework.md)，需显式声明锁集合、权限与版本字段；开发业务路由已接入上述模块，外部副作用须留待持久工作链路。
+领域服务可复用[命令框架](../docs/development/backend/command-framework.md)，需显式声明锁集合、权限与版本字段；开发业务路由已接入上述模块，外部副作用须留待持久工作链路。
 
-`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行当前全部版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](docs/milestones/phase-04.md)。
+`durable.Append` 在现有事务内写工作/事件，`Relay.Once` 提交租约后才发送，需显式注入 Sender；`Consumer.Consume` 从数据库持久源复核，将业务回调、终态和回执同事务提交；`Compensate`/`RunCompensator` 提供显式到期补偿，`RedriveCommand` 在后台命令中重新授权并替代旧唤醒；需先显式执行当前全部版本迁移与 permissions，普通启动不运行补偿。`transportmq` 提供固定通道发送、订阅与 ACK/NACK、停止接收/等待在途后关闭；由进程在启动任何 MQ 客户端前显式配置 SDK 脱敏日志。业务 worker 尚未装配领域消费者，使用边界见[阶段说明](../docs/development/backend/milestones/phase-04.md)。
 
-账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](docs/data-foundation.md)。
+账号/身份迁移须使用外部注入的 `APP_DATABASE_DSN` 显式执行 `bin/migrate up`；专用数据库管理员另可显式执行 `bin/migrate permissions` 配置无登录权限组。`bin/migrate down` 逆序回退全部版本，账号或身份配置非空时拒绝。普通启动不执行迁移或权限配置；已覆盖业务表及隔离证据域结构；恢复日志须用独立 `APP_RECOVERY_DATABASE_DSN` 执行 `journal-up` 和 `journal-permissions`，拒绝与业务表混建。密钥组件无默认密钥或生产适配器，操作和限制见[迁移与加密说明](../docs/development/backend/data-foundation.md)。
 
 - 使用 Go 1.25+、gofmt 与标准 Go 命名；测试与源码相邻，单元测试无需中间件。依赖变化后执行 `go mod tidy`，同步维护 `go.mod`、`go.sum`。
 - 按领域组织功能；HTTP 层负责校验及状态映射，service 负责业务规则，repository 负责 GORM 查询。I/O 首参使用 `context.Context`，数据库调用使用 `WithContext`，依赖显式注入。
@@ -123,18 +118,18 @@ make check  # 只读格式检查、go vet、race 测试与覆盖率
 make build # Go 代码或依赖变更时必需；输出 server、worker、probe、migrate
 ```
 
-业务迁移验证可执行 `python3 scripts/check-migrations.py --container`，包含正式镜像及非 root CLI 验证；外部资源交付见[依赖清单](docs/dependency-deliverables.md)。真实中间件往返独立执行 `sh scripts/integration.sh`；启停、监控及中间件指标变更的专项检查见 [AGENTS.md](AGENTS.md)，具体历史结果按阶段记录。
+业务迁移验证可执行 `python3 scripts/check-migrations.py --container`，包含正式镜像及非 root CLI 验证；外部资源交付见[依赖清单](../docs/development/backend/dependency-deliverables.md)。真实中间件往返独立执行 `sh scripts/integration.sh`；启停、监控及中间件指标变更的专项检查见 [AGENTS.md](AGENTS.md)，具体历史结果按阶段记录。
 
-功能完成时在上述四部分更新必要的项目说明、选项或用法；详细功能设计、任务 ID/REQ、范围、未完成项、真实/模拟状态及验证命令和实际结果写入 `docs/milestones/` 对应阶段文件，不在 README 累积里程碑记录。阶段文档不得把未实现或未经验证的能力描述为完成。
+README 仅维护上述四部分的项目说明、选项与用法；本工程不保留阶段产物。任何工程变动前同步准备本工程与 docs 的同名 `codex/<主题>` 分支，过程材料写入 docs 工程对应端；固定阶段记录不修改，后续交付、勘误或补证据另建文件并引用完整源码提交，详见 [文档规范](../docs/governance/README.md)。
 
 保留既有历史和无关修改，遵循 Conventional Commits；PR 说明问题、行为、验证及配置/迁移步骤。工作台审批、需求和设计只读，共享新增契约限共享 `docs/contracts`。未经明确授权不自动提交、推送或部署。完整协作要求见 [AGENTS.md](AGENTS.md)。
 
 真实运输适配独立检查：`python3 scripts/check-mq.py`。在随机 Docker 项目中使用固定镜像运行 Broker、NameServer 和合成处理器，验证发送/重投/重复/晚到与退出，保留卷，不代表领域消费或整体需求验收；不连接生产服务。
 
-后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行当前全部版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](docs/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
+后台身份入口默认关闭；显式配置独立数据库、仓库外凭据文件、会话/幂等期限及共享限流后启用账号创建、分页列表、角色修改、登录、改密与退出。先显式执行当前全部版本迁移/权限，首个超管仅通过 `bin/admin-init` 线下初始化；普通启动不创建或重置账号。配置、接口及未完成范围见[后台操作说明](../docs/development/backend/admin-auth.md)，真实隔离验证运行 `python3 scripts/check-adminauth.py`。未确定的年级字典和生产TTL没有默认值。
 
-学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](docs/student-auth.md)。
+学生身份按小程序`wx.login`临时code→后端微信`code2Session`→本系统会话实现。`studentauth.New`显式注入交换器、身份加密/检索Store、共享限流与独立会话密钥；`httpapi.RegisterStudent`注册四个学生身份操作。当前尚未接入server启动装配，无默认合成身份/密钥，普通启动不开放学生路由。开发验证允许合成微信/KMS，真实PG/Redis/HTTP检查复用`python3 scripts/check-adminauth.py`；接口、期限与外部缺口见[学生会话说明](../docs/development/backend/student-auth.md)。
 
-学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。`studentapi.New`可整体构造学生登录、学生卡及人工认证入口，要求独立学生/后台审核池及显式供应商；`cardworker.Open`组合真实MQ适配器、发件箱和数据库扫描补偿，提供取消与等待在途结束的关闭入口。现有server及独立探针worker不自动启用这些模块；接入顺序与未完成范围见[应用装配说明](docs/application-assembly.md)。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及实际供应商、物理清理等未完成范围见[学生卡说明](docs/student-card.md)。
+学生卡上传/状态通过`studentcard.New`及`httpapi.RegisterStudentCards`显式注入，参数、私有对象及图片安全供应商没有默认实现。上传将规范化图片信封密文和工作/事件同事务暂存；`Process`/`ProcessNext`在事务外调用私有对象/扫描并锁后提交结果，`Consume`可供MQ订阅器注入。`studentapi.New`可整体构造学生登录、学生卡及人工认证入口，要求独立学生/后台审核池及显式供应商；`cardworker.Open`组合真实MQ适配器、发件箱和数据库扫描补偿，提供取消与等待在途结束的关闭入口。现有server及独立探针worker不自动启用这些模块；接入顺序与未完成范围见[应用装配说明](../docs/development/backend/application-assembly.md)。真实隔离PG/Redis/HTTP验证复用`python3 scripts/check-adminauth.py`；完整流程及实际供应商、物理清理等未完成范围见[学生卡说明](../docs/development/backend/student-card.md)。
 
-人工认证通过`verification.New`和`httpapi.RegisterVerification`显式注入，支持本人申请/驳回重提/状态、后台脱敏队列/详情/原卡代理/版本审核。申请时在同事务绑定唯一学号，通过时核验绑定、加密姓名并更新资格；敏感读取与审核保留访问留迹。学生与后台分别使用受限池，学校规则/密钥/私有对象没有默认实现；生产进程尚未装配，接入与外部缺口见[人工认证说明](docs/verification.md)。
+人工认证通过`verification.New`和`httpapi.RegisterVerification`显式注入，支持本人申请/驳回重提/状态、后台脱敏队列/详情/原卡代理/版本审核。申请时在同事务绑定唯一学号，通过时核验绑定、加密姓名并更新资格；敏感读取与审核保留访问留迹。学生与后台分别使用受限池，学校规则/密钥/私有对象没有默认实现；生产进程尚未装配，接入与外部缺口见[人工认证说明](../docs/development/backend/verification.md)。

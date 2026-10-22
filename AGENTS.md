@@ -1,52 +1,35 @@
-# Repository Guidelines
+# 后端协作规则
 
-## Project Structure & Module Organization
+## 工程与代码规范
 
-This module is `github.com/calm195/liyuanci-backend-go`. `cmd/server` assembles dependencies and manages the HTTP server lifecycle. `internal/config` loads YAML and environment configuration; `internal/platform` owns logging and middleware clients. `internal/httpapi` contains Gin handlers and middleware. `cmd/worker` runs the isolated T004 probe consumer; domain services will be added by later tasks. Keep new features grouped by domain under `internal`. Configuration examples live in `configs`; database-specific SQL lives in `migrations`. Tests sit beside source files.
+- 模块为 github.com/calm195/liyuanci-backend-go，采用已批准方案 B；PostgreSQL 是业务权威。API 与 worker 分别构建，基础模式只提供健康端点；生产真实服务必须显式配置，无模板用户示例或业务 Mock 路由。
+- cmd/server 负责 API 依赖装配与生命周期；cmd/worker 是隔离集成探针消费者。配置加载放 internal/config，日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
+- 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 默认无需外部服务；make build 构建当前 Makefile 列出的进程。真实中间件往返用 sh scripts/integration.sh。
+- gofmt 使用 Tab；导入按标准库、第三方、本模块分组。多字段配置换行，顶层声明间留空行；包名小写，符号 MixedCaps。I/O 首参为 context.Context，显式注入依赖，避免可变全局客户端。HTTP 校验与状态映射在 handler，业务规则在 service，GORM 查询在 repository 并使用 WithContext；包装错误保留上下文，不向 HTTP 暴露凭据或内部错误。
+- APP_ 为应用环境前缀；不提交密钥、本地覆盖或生产 DSN。GORM AutoMigrate 仅在显式迁移入口由专用身份执行；普通 API/worker 启动不隐式 DDL，运行身份不授 DDL 权限。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
+- SQL 每表、每字段必须有中文数据库对象注释（COMMENT ON TABLE/COLUMN），含迁移账本与探针；SQL 行注释不能替代。迁移集成检查验证目录注释非空。已应用迁移不改写，通过新增迁移变更；未交付迁移首次验收前可补齐。
+- 注释默认中文，覆盖包、导出符号、关键逻辑和测试说明；导出注释以 Go 标识符开头。技术术语、工具指令如 //go:build 及生成代码保留原样；用户明确要求其他语言时遵循用户。
+- 非测试代码的标识符、注释、字符串和日志不出现任务/里程碑编号；追踪在测试和 docs 工程。日志消息与人类说明使用中文，字段名、协议值和必要技术标识稳定。关键业务规则、生命周期、资源归属、恢复及非显然决策变动必须同步准确注释。
+- 改动的运行操作在所属边界使用注入的 *zap.Logger 记录结构化完成日志，按需含 request ID、耗时、结果或安全标识；成功后才记录成功，失败/恢复仍保留请求完成日志。不记录凭据、DSN、请求体或个人数据。
+- 保留 Git 历史及无关改动，使用 Conventional Commits；PR 说明问题、结果、验证、配置及迁移步骤，只有可见 UI 变化才需截图。
 
-## Build, Test, and Development Commands
+## 验证
 
-Use Go 1.25 or newer. Run `go mod tidy` after changing dependencies and commit both `go.mod` and `go.sum`. `make run` starts the API without external services by default. `make build` produces `bin/server`, `bin/worker`, and `bin/probe`. `make fmt` applies gofmt; `make check` runs vet, race-enabled tests, coverage reporting, and formatting checks. `sh scripts/integration.sh` starts the isolated middleware verification described in README.md.
+每轮修改后运行 make fmt、make check；check 须只读校验格式、go vet ./...、go test -race -cover ./...，CI 保持执行。Go 源码或依赖变化再运行 make build。测试用标准 testing/net/http/httptest，文件 *_test.go、名称 TestBehavior；校验与 HTTP 失败优先表驱动。单测无需中间件，不设覆盖率硬阈值；真实数据库、Redis、RocketMQ 变化须显式集成检查并说明服务依赖。
 
-## Coding Style & Naming Conventions
+失败修复并复跑；环境受限报告命令和原因，未运行不得宣称通过。文档变动报告完成与验证，另在 docs 工程运行文档检查与固定指纹检查。运维专项检查继续按下文执行。
 
-SQL 强制为每张表和每个字段编写中文数据库注释（PostgreSQL 使用 `COMMENT ON TABLE` 与 `COMMENT ON COLUMN`），包括迁移账本、集成探针及后续新增字段；SQL 文件中的 `--` 注释不能替代数据库对象注释。迁移集成检查须验证数据库目录中表及字段注释非空。已应用迁移不得改写，注释变更通过新增迁移执行；尚未交付的迁移可在首次验收前补齐。
 
-Use gofmt with Tab indentation. Group imports as standard library, third-party packages, then this module, separated by blank lines. Expand multi-field configuration literals across lines and separate top-level declarations with blank lines. Use standard Go naming: lowercase package names, MixedCaps identifiers, and descriptive exported API comments. Accept `context.Context` as the first parameter for I/O operations. Pass dependencies explicitly; avoid mutable global clients. Keep HTTP validation and status mapping in handlers, business rules in services, and GORM queries in repositories. Use `WithContext` for database calls. Wrap errors with useful context without exposing credentials or internal errors in HTTP responses.
+## 跨仓库文档与分支规则
 
-## Testing Guidelines
-
-Use the standard `testing` package and `net/http/httptest`. Name files `*_test.go` and tests `TestBehavior`; prefer table-driven cases for validation and HTTP failures. Unit tests must run without middleware. Add explicit integration tests when changing real database, Redis, or RocketMQ behavior, and document required services. No minimum coverage percentage is enforced. Run `make check` and `make build` before submitting changes.
-
-## Commit & Pull Request Guidelines
-
-Preserve the existing Git history and unrelated changes. Use Conventional Commits such as `feat: add user lookup` or `fix: close redis client`. PRs should describe the problem, resulting behavior, test commands and outcomes, linked issues, and any configuration or schema migration steps. Include screenshots only for visible UI changes.
-
-## Configuration & Agent Instructions
-
-Environment variables use the `APP_` prefix. Never commit secrets, local overrides, or production DSNs. 在显式迁移入口启用 GORM AutoMigrate，以实体结构体维护常规字段；PostgreSQL 专用约束、生成列、RLS、锁函数和权限仍通过版本 SQL 维护。API/worker 普通启动不隐式执行 DDL。每张实体表对应独立结构体，按功能模块分文件存放，禁止将所有实体堆入单一文件。 Codex should read this guide before editing, preserve unrelated changes, keep scope focused, and report checks that could not run. Never claim tests passed without execution.
-
-## 项目文档与阶段记录要求
-
-README.md 仅保留四部分：项目介绍、项目选项与目录结构、项目启动方式、开发规范与须知。功能变更涉及项目能力、选项、目录或启动方式时，同步更新对应部分，内容与最终实现一致；不得在 README 累积里程碑、实施流水或验收记录。
-
-每个功能的完整修改完成后，必须在 docs/milestones/ 对应阶段文件中说明已实现功能、实际行为、关键流程、模块职责、依赖与设计取舍，引用任务 ID 与 REQ，并记录实现范围、未完成部分、真实/模拟状态、验证命令与实际结果。新增阶段另建文件并更新阶段索引；详细设计可链接至本仓库文档或共享契约，但阶段文件必须保留必要说明，不能仅提供链接。阶段记录更新是功能完成及提交前的必要条件；不得将尚未实现或未经验证的能力描述为已完成。
-
-## Required Checks After Every Change
-
-After every modification, run `make fmt` and `make check` before declaring the work complete. `make check` must verify formatting without modifying files, run `go vet ./...`, and run `go test -race -cover ./...`. Also run `make build` after Go code or dependency changes. Fix all reported issues and rerun affected checks. If environment restrictions prevent a check, report the command and reason explicitly; do not skip it silently or claim it passed. Keep this workflow enforced in CI.
-
-## Required Comments & Completion Logging
-
-注释默认使用中文，包括包注释、导出符号文档、关键逻辑和测试说明。导出符号注释仍以对应的 Go 标识符开头；保留必要的技术术语及工具指令（如 `//go:build`），不修改生成代码中的注释。用户明确要求其他语言时遵循用户要求。
-
-非测试代码不得出现 `T00x` 等任务或里程碑编号，包括注释、标识符、字符串和日志；注释只描述中文的功能、业务规则及必要的设计原因，不记录实施批次或任务进度。运行日志的消息及面向人的说明使用中文，不包含任务或里程碑编号；结构化字段名、协议值和必要的技术标识保持稳定。任务 ID 与 REQ 的追溯记录放在测试和文档中，不写入非测试代码。
-
-Every change must add or update comments at the affected critical points: business rules, lifecycle ordering, resource ownership, recovery, and non-obvious decisions. Explain why the code exists and keep comments accurate. Every changed runtime operation must emit a structured completion log using injected `*zap.Logger` (`go.uber.org/zap`), with request ID, duration, result, or safe identifiers as applicable. Log success only after the operation succeeds; record failures at the owning boundary. Never log credentials, DSNs, request bodies, or personal data. Preserve request completion logs on failure and recovery paths. Documentation-only changes must report completion and validation in the final response. Update relevant log assertions and run the required checks after every change.
-
-## 鲤源池实施边界
-
-用户已授权本仓库实施。T004/REQ-001、018、020：模块为 github.com/calm195/liyuanci-backend-go，固定方案B；只用PostgreSQL作为业务权威。API与独立worker分别构建。默认仅健康端点，无模板用户示例、无业务Mock路由；生产必须显式配置真实中间件；GORM AutoMigrate 由显式迁移入口及专用迁移身份执行，运行身份不授予 DDL 权限。新增实现须在对应文档中引用任务ID和REQ，测试保留任务ID和REQ追溯，非测试代码遵循上述中文注释与日志规范。docs工作台审批/需求/设计只读，共享新增契约限docs/contracts。不得自动提交、推送、部署。
+- 统一遵循 [docs 文档规范](../docs/governance/README.md)；本端文档入口为 [端内索引](../docs/development/backend/README.md)。
+- 开发工程不保留 docs/、里程碑、设计、评审、联调或验证报告；所有过程产物写入 docs 工程 `development/backend/`。源码旁必要用法说明和根 README/AGENTS 可保留；README 只维护项目介绍、选项/目录、启动及开发须知。
+- 任何工程变动前先核对两仓库分支、完整 HEAD、工作区，并同步准备同名 `codex/<主题>` 分支。保护已有修改；docs 分支无法安全准备时停止受影响交付。并行不同任务用独立工作树，不切换他人工作区。
+- 已固定阶段文件不修改、不追加、不格式化、不删除；每次完整交付新增 `development/backend/milestones/YYYY-MM-DD-<主题>-rN.md`，证据放同端 `validation/`。注明任务/REQ、源码分支/完整提交、docs 基点、契约版本、实现与未完成范围、取舍、真实/模拟边界、实际检查及依赖，交付时追加 docs 固定清单。
+- 勘误或补证据另建文件引用原记录与指纹，更新端内索引；不重写历史完成状态。共享进度/阻塞/联调台账由 docs 协调者维护。契约疑问写 docs 对应端新记录；后端仅在既有授权范围协调共享 contracts/，改变批准语义先评审。
+- requirements/original.md 只读；既有需求、审批及设计不覆盖，变更新版本按影响重新评审并由用户确认。AI 不签发 G1/G2/G3；受阻前置只停止依赖它的工作。
+- 按功能范围提交；需有用户授权。先提交开发工程，再将精确源码提交写入本次尚未固定的 docs 记录并提交 docs；检查暂存范围，不混入无关改动。已明确授权的动作不重复索取确认；不因本规则自动获得推送、合并、部署或上线权限。
+- 修改前说明计划，完成后列出变更文件、风险与实际验证结果；文档用中文，代码标识符保留英文。事实、假设、建议和待确认问题分开。业务需求使用 REQ-001 格式和可测试验收标准，设计/任务引用原 REQ；协作治理不编造业务 REQ。
 
 ## 中间件部署约定
 
@@ -54,7 +37,7 @@ T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、Ro
 
 ## 可观测性变更约定
 
-T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集/告警变更运行`python3 scripts/check-observability.py --alerts --metrics`；真实中间件指标变更运行`python3 scripts/check-management.py --middleware-only --metrics`，Broker行为变更还运行原有集成往返。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须更新对应阶段记录，按需同步 README，并完成规定质量检查。
+T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集/告警变更运行`python3 scripts/check-observability.py --alerts --metrics`；真实中间件指标变更运行`python3 scripts/check-management.py --middleware-only --metrics`，Broker行为变更还运行原有集成往返。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须在 docs 工程新增阶段记录，按需同步 README，并完成规定质量检查。
 
 ## 启停入口维护
 

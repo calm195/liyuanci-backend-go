@@ -72,7 +72,7 @@
           "for": "0s",
           "annotations": {
             "summary": "API请求处理异常",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -144,7 +144,7 @@
           "for": "2m",
           "annotations": {
             "summary": "API服务端错误比例过高",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "warning"
@@ -216,7 +216,7 @@
           "for": "1m",
           "annotations": {
             "summary": "工作进程处理失败",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "warning"
@@ -288,7 +288,7 @@
           "for": "1m",
           "annotations": {
             "summary": "API进程心跳缺失",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "warning"
@@ -360,7 +360,7 @@
           "for": "1m",
           "annotations": {
             "summary": "工作进程心跳缺失",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "warning"

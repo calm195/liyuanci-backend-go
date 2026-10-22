@@ -72,7 +72,7 @@
           "for": "1m",
           "annotations": {
             "summary": "PostgreSQL监控连接失败",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -144,7 +144,7 @@
           "for": "1m",
           "annotations": {
             "summary": "PostgreSQL指标采集失败",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -216,7 +216,7 @@
           "for": "1m",
           "annotations": {
             "summary": "Redis监控连接失败",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
@@ -288,7 +288,7 @@
           "for": "1m",
           "annotations": {
             "summary": "Redis指标采集失败",
-            "runbook_url": "docs/observability.md"
+            "runbook_url": "../docs/development/backend/observability.md"
           },
           "labels": {
             "severity": "critical"
