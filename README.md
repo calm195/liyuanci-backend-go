@@ -79,6 +79,8 @@ make dev-infra-stop
 
 隔离链路调试可在所选`operations.env`中显式设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=synthetic`：此模式将正文替换为固定合成文本并清空标签，不提供隐私检测能力；生产拒绝该开发进程。规则仍必须通过后台显式创建/发布，普通/涉校/危机命中逻辑继续读取原始正文，不自动初始化词库。需MQ时，先显式建立`liyuanci_content_review_v1`主题，再复制[内容消息配置模板](configs/examples/content-worker-mq.yaml)到忽略目录，设置`LIYUANCI_LOCAL_CONTENT_MQ_FILE`；直接运行二进制对应`APP_CONTENT_ANALYZER`、`APP_CONTENT_MQFILE`。两个worker分别使用独立主题和消费组，`dev-stop`等待两者退出并保留中间件及卷。正式规则和安全分析供应商未交付时，隔离测试中的合成样例不构成生产审核验收。
 
+原文人工联调可在所选`operations.env`设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=manual`，再启动`dev-content-worker`。心愿、应愿留言、私聊和还愿故事全部保留原文并强制转管理端人工复核，不自动批准；批准后使用原文候选，不提供自动隐私脱敏。三类词库仍须显式发布，已发布危机规则命中优先隔离，不进入普通审核。该模式仅限隔离开发，生产拒绝运行。
+
 ## 4. 开发规范与验证
 
 I/O首参context.Context，依赖显式注入；HTTP负责校验和状态映射，service处理规则，repository通过GORM WithContext查询。运行身份不执行DDL；迁移、RLS、锁函数和数据库中文对象注释按版本管理。日志中文、结构化、成功后记录完成，不写凭据、正文或个人数据。

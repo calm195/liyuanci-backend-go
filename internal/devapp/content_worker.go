@@ -15,7 +15,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
-// ContentWorkerConfig 显式选择隔离分析模式和总预算，缺省不提供放行能力。
+// ContentWorkerConfig 显式选择隔离分析模式和总预算，缺省不提供放行能力，manual强制人工复核。
 // 消息配置为空时仅补偿数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
@@ -25,12 +25,18 @@ type ContentWorkerConfig struct {
 type developmentAnalyzer struct {
 	logger    *zap.Logger
 	synthetic bool
+	manual    bool
 }
 
-func (a developmentAnalyzer) Analyze(ctx context.Context, _ wish.Content) (out moderation.Assessment, err error) {
+func (a developmentAnalyzer) Analyze(ctx context.Context, input wish.Content) (out moderation.Assessment, err error) {
 	defer completed(a.logger, "development_content_analysis", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return out, err
+	}
+	// 人工模式保留原文和原标签，只生成必须复核的候选，绝不自动批准。
+	if a.manual {
+		a.logger.Info("开发内容提交人工复核", zap.Bool("manual_review", true), zap.String("result", "success"))
+		return moderation.Assessment{Body: input.Body, Tags: input.IdentityTags, OrdinaryHit: true, DetectorVersion: "development-manual-v1"}, nil
 	}
 	if !a.synthetic {
 		return out, command.ErrUnavailable
@@ -40,11 +46,14 @@ func (a developmentAnalyzer) Analyze(ctx context.Context, _ wish.Content) (out m
 	return moderation.Assessment{Body: "[开发合成审核正文]", DetectorVersion: "development-synthetic-v1"}, nil
 }
 
-// AnalyzeMessage 在显式合成模式只产生分类结果，保留私聊主动发送的联系方式。
+// AnalyzeMessage 保留私聊原文；合成模式只产生分类，人工模式强制交人工复核。
 func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out moderation.MessageAssessment, err error) {
 	defer completed(a.logger, "development_message_analysis", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return out, err
+	}
+	if a.manual {
+		return moderation.MessageAssessment{OrdinaryHit: true, DetectorVersion: "development-manual-private-v1"}, nil
 	}
 	if !a.synthetic {
 		return out, command.ErrUnavailable
@@ -55,7 +64,7 @@ func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out 
 // ValidateContentWorker 在任何数据库或消息客户端启动前拒绝生产环境、未知分析模式及跨领域事件。
 func ValidateContentWorker(environment string, cfg Settings, options ContentWorkerConfig) error {
 	if environment != "integration" || cfg.WorkerDSN == "" || len(cfg.WrapKey) != 32 || len(cfg.LookupKey) != 32 ||
-		(options.Analyzer != "" && options.Analyzer != "unavailable" && options.Analyzer != "synthetic") {
+		(options.Analyzer != "" && options.Analyzer != "unavailable" && options.Analyzer != "synthetic" && options.Analyzer != "manual") {
 		return command.ErrInvalid
 	}
 	if options.MQ != nil && (workrunner.Validate(*options.MQ, wish.ReviewRoute()) != nil || options.MQ.OperationTimeout < 20*time.Second || options.MQ.MQ.HandlerTimeout < 20*time.Second) {
@@ -64,7 +73,7 @@ func ValidateContentWorker(environment string, cfg Settings, options ContentWork
 	return nil
 }
 
-// RunContentWorker 装配心愿内容常驻进程；默认无供应商失败关闭，只有显式 synthetic 才使用合成结果。
+// RunContentWorker 装配内容常驻进程；默认无供应商失败关闭，synthetic使用合成结果，manual保留原文并强制人工复核。
 // 不发布规则、不迁移、不创建主题；词库缺失与分析故障由领域持久任务重试或转异常待办。
 // 取消后先关闭调度和消息消费，再关闭池，保证在途事务不会使用已释放依赖。
 func RunContentWorker(ctx context.Context, environment string, cfg Settings, options ContentWorkerConfig, logger *zap.Logger) (err error) {
@@ -93,11 +102,12 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 	if err != nil {
 		return err
 	}
-	scanner, err := moderation.NewWorker(db, logger, codec, developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"}, moderation.WorkerConfig{
+	analyzer := developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic", manual: options.Analyzer == "manual"}
+	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
 		Care:            cfg.Care,
 		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},
 		AnalysisTimeout: 5 * time.Second,
-		MessageAnalyzer: developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"},
+		MessageAnalyzer: analyzer,
 	})
 	if err != nil {
 		return err
@@ -119,7 +129,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 			err = command.ErrUnavailable
 		}
 	}()
-	logger.Info("开发内容工作进程启动完成", zap.Bool("simulated", options.Analyzer == "synthetic"), zap.Bool("mq_enabled", options.MQ != nil), zap.String("result", "success"))
+	logger.Info("开发内容工作进程启动完成", zap.Bool("simulated", options.Analyzer == "synthetic"), zap.Bool("manual_review", options.Analyzer == "manual"), zap.Bool("mq_enabled", options.MQ != nil), zap.String("result", "success"))
 	<-ctx.Done()
 	return nil
 }
