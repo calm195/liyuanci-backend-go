@@ -180,7 +180,7 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 		}
 		var held int64
 		if row.story == nil {
-			if e = db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND (status='active' OR hold_epoch>?)", row.wish.ID, row.task.HoldEpoch).Count(&held).Error; e != nil {
+			if e = db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND ((status='active' AND NOT (? AND required_content_version<=?)) OR hold_epoch>?)", row.wish.ID, row.task.PrivacyRecheck, row.task.ContentVersion, row.task.HoldEpoch).Count(&held).Error; e != nil {
 				return e
 			}
 		}

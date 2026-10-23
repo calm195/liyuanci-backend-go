@@ -106,6 +106,11 @@ func (AccessAudit) TableName() string { return "public.access_audits" }
 
 // DeletionJob 映射 public.deletion_jobs，字段注释描述数据库持久化语义。
 type DeletionJob struct {
+	Scope           string          `gorm:"column:scope;type:text;not null;default:account;comment:删除范围，普通账号或独立证据" json:"-"`
+	TargetRef       *string         `gorm:"column:target_ref;type:uuid;comment:清理期间技术目标，完成后清空，不绑定普通身份外键" json:"-"`
+	ExpiresAt       time.Time       `gorm:"column:expires_at;type:timestamptz;not null;default:(CURRENT_TIMESTAMP + interval '7 days');comment:匿名回执绝对失效时间，清理工作不因回执过期停止" json:"-"`
+	NextAt          time.Time       `gorm:"column:next_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:下一次清理时间，失败继续持久重试" json:"-"`
+	Attempts        int             `gorm:"column:attempts;not null;default:0;comment:清理尝试次数，不保存底层错误" json:"-"`
 	JobID           string          `gorm:"column:job_id;type:uuid;primaryKey;autoIncrement:false;comment:随机删除回执句柄" json:"-"`
 	SubjectRef      *string         `gorm:"column:subject_ref;type:uuid;comment:工作期间主体关联，完成后必须清空" json:"-"`
 	Phase           string          `gorm:"column:phase;type:text;not null;default:'intent';comment:清理阶段" json:"-"`

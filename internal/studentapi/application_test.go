@@ -17,6 +17,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
@@ -297,5 +298,63 @@ func TestOptionalCrisisAssembly(t *testing.T) {
 	cfg.Crisis.CursorKey = cfg.Auth.SessionKey
 	if r, e := New(d, cfg); e == nil || r != nil {
 		t.Fatal("危机复用身份用途密钥")
+	}
+}
+
+type deletionJournalStub struct{}
+
+func (deletionJournalStub) Append(context.Context, privacy.Intent) error { return nil }
+func (deletionJournalStub) Pending(context.Context, string, int) ([]privacy.Intent, error) {
+	return nil, nil
+}
+func (deletionJournalStub) Confirm(context.Context, string) error { return nil }
+
+// TestOptionalPrivacyAssembly 验证删除入口缺省关闭、独立池/日志必需且用途密钥不能复用。
+func TestOptionalPrivacyAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	base, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg.Privacy = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{97}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("缺日志和独立池仍启用")
+	}
+	d.PrivacyDB = d.StudentDB
+	d.DeletionJournal = deletionJournalStub{}
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("允许复用身份连接池")
+	}
+	other, _ := dependencies(t)
+	d.PrivacyDB = other.StudentDB
+	r, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(base.Routes())+2 {
+		t.Fatal("注销路由不完整")
+	}
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest("POST", "/api/v1/me/deletion-requests", nil))
+	if rr.Code != 401 {
+		t.Fatal("注销未鉴权")
+	}
+	cfg.Privacy.Key = cfg.Auth.SessionKey
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("删除用途复用会话密钥")
+	}
+	cfg.Privacy = nil
+	cfg.EvidenceDeletion = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{98}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	d.EvidenceDeletionDB = d.ReviewDB
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("证据删除复用普通审核池")
+	}
+	d.EvidenceDeletionDB = other.StudentDB
+	r, e = New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(base.Routes())+2 {
+		t.Fatal("证据删除路由不完整")
 	}
 }

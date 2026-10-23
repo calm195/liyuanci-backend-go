@@ -134,6 +134,11 @@ func ordinary(e Eligibility, s Snapshot) bool {
 	return e.Active && e.Verified && !e.Restricted && !s.Restricted && !s.PrivacyHeld
 }
 
+// manageable允许隐私屏障下替换原稿并提交新审；公开及交互仍由ordinary拒绝。
+func manageable(e Eligibility, s Snapshot, a Action) bool {
+	return ordinary(e, s) || (s.PrivacyHeld && e.Active && e.Verified && !e.Restricted && !s.Restricted && (a == Edit || a == SubmitReview || a == DeleteDraft))
+}
+
 func cloneSnapshot(s Snapshot) Snapshot {
 	if s.ExpiresAt != nil {
 		value := *s.ExpiresAt
@@ -164,7 +169,7 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 	if now.IsZero() || !validSnapshot(current) || change.ExpectedVersion < 1 || activeCount < 0 {
 		return out, command.ErrInvalid
 	}
-	if !ordinary(owner, current) {
+	if !manageable(owner, current, change.Action) {
 		return out, command.ErrForbidden
 	}
 	if change.ExpectedVersion != current.Version {
@@ -176,7 +181,7 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 	out.Next = cloneSnapshot(current)
 	switch change.Action {
 	case Edit:
-		if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Withdrawn, Expired}, current.State) {
+		if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Withdrawn, Expired}, current.State) && !(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State)) {
 			return out, command.ErrConflict
 		}
 		if change.DurationDays < 1 || change.DurationDays > 30 {
@@ -187,6 +192,9 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 		}
 		// 修改先回草稿并使旧审核失效，随后需显式提交；仅刷新期限同样不能沿用批准。
 		out.Next.State = Draft
+		if current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) {
+			out.Next.State = current.State
+		}
 		out.Next.ContentVersion++
 		out.Next.DurationDays = change.DurationDays
 		out.Next.RefreshOnPublish = change.RefreshExpiry
@@ -194,7 +202,7 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 		out.InvalidateReview = true
 		out.InvalidateApplications = current.State == Published
 	case SubmitReview:
-		if current.State != Draft && current.State != Rejected {
+		if current.State != Draft && current.State != Rejected && !(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled, Withdrawn}, current.State)) {
 			return out, command.ErrConflict
 		}
 		if change.ExpectedContentVersion < 1 {
@@ -204,6 +212,9 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 			return out, command.ErrVersionConflict
 		}
 		out.Next.State = PendingReview
+		if current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) {
+			out.Next.State = current.State
+		}
 		out.Next.Review = Review{}
 		out.InvalidateReview = true
 		out.EnqueueReview = true

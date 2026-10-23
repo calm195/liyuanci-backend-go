@@ -287,7 +287,7 @@ func TestBusinessSchema(t *testing.T) {
 }
 
 func TestRecoverySchema(t *testing.T) {
-	// T005/REQ-018、020：独立逻辑库结构测试，不代表独立物理持久化或恢复验收。
+	// T005/T031/REQ-018、020：支持独立日志容器；仍不代表正式故障域、备份及恢复放行验收。
 	db := schemaDB(t, "APP_RECOVERY_TEST_DSN")
 	ctx := context.Background()
 	core, observed := observer.New(zap.InfoLevel)
@@ -330,6 +330,10 @@ func TestRecoverySchema(t *testing.T) {
 	}
 	if underRole(db, "liyuanci_recovery_reader", "SELECT * FROM public.recovery_delete_journal") != nil {
 		t.Fatal("恢复读取角色应可读意图")
+	}
+	// 独立服务器不应自带业务组；仅在专用测试库的权限夹具中显式创建合成组。
+	if err := db.Exec(`DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='liyuanci_api') THEN CREATE ROLE liyuanci_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`).Error; err != nil {
+		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_api", "SELECT * FROM public.recovery_delete_journal") == nil {
 		t.Fatal("业务角色不能读恢复日志")

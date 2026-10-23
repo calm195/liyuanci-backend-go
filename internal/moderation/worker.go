@@ -246,6 +246,16 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 		out.Missing = true
 		return out, nil
 	}
+	// 父心愿隐私新稿尚未审批时，故事保持持久待处理，不消耗重试或取消新稿。
+	if prep == nil && source.story != nil && source.task.PrivacyRecheck {
+		holds, e := wish.ReadStoryHolds(ctx, w.db, source.wish.ID)
+		if e != nil {
+			return out, durable.ErrUnavailable
+		}
+		if holds.ParentActive {
+			return durable.Consumption{Deferred: true}, nil
+		}
+	}
 	var scan *entity.ModerationScan
 	var assessment *Assessment
 	if prep == nil && hasInput {
@@ -278,7 +288,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 			if source.message == nil {
 				a.SchoolRelated = a.SchoolRelated || hit(input.Body, snapshot.schoolEntries)
 			}
-			a.OrdinaryHit = a.OrdinaryHit || hit(input.Body, snapshot.ordinaryEntries)
+			a.OrdinaryHit = a.OrdinaryHit || source.task.PrivacyRecheck || hit(input.Body, snapshot.ordinaryEntries)
 			candidate, _ := json.Marshal(struct {
 				Body string
 				Tags wish.IdentityTags
@@ -422,6 +432,7 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 }
 
 // ProcessNext 从数据库扫描一条当前有效事件，补偿丢失或已确认的MQ唤醒，不重建工作。
+// 等待父隐私审批的故事暂不占候选位，避免其阻塞其他内容扫描。
 func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err error) {
 	start := time.Now()
 	defer func() {
@@ -441,7 +452,7 @@ func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err 
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
 	var events []durable.Event
-	err = w.db.WithContext(bounded).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) ORDER BY w.next_at,w.id LIMIT 1`, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, wish.ReviewRoute().EventType).Scan(&events).Error
+	err = w.db.WithContext(bounded).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE t.id=w.target_id AND t.privacy_recheck AND c.kind='story' AND EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='wish' AND h.target_id=c.entity_id AND h.status='active')) ORDER BY w.next_at,w.id LIMIT 1`, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, wish.ReviewRoute().EventType).Scan(&events).Error
 	cancel()
 	if err != nil {
 		return durable.Consumption{}, durable.ErrUnavailable

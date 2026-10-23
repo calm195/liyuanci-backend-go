@@ -269,7 +269,7 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 			return "", e
 		}
 		epoch := a.row.RestrictionEpoch
-		if e = db.Create(&entity.ModerationTask{ID: taskID, ContentID: registryID, ContentVersion: nextVersion, SubjectEpoch: tx.Actor().AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: holds.Epoch, CreatedAt: tx.Now()}).Error; e != nil {
+		if e = db.Create(&entity.ModerationTask{PrivacyRecheck: holds.Active || holds.ParentActive, ID: taskID, ContentID: registryID, ContentVersion: nextVersion, SubjectEpoch: tx.Actor().AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: holds.Epoch, CreatedAt: tx.Now()}).Error; e != nil {
 			return "", e
 		}
 		if e = db.Create(&entity.StoryVersion{WishID: id, StoryVersion: nextVersion, AuthorID: a.row.OwnerID, BodyCipher: raw, ReviewTaskID: &taskID, SchoolDetectionVersion: "pending", SourceMatchID: source, PeerEpoch: peerEpoch, ParentHoldEpoch: holds.ParentEpoch}).Error; e != nil {

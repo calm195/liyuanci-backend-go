@@ -87,7 +87,7 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase}, check.Target.Kind) {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":
@@ -289,6 +289,11 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 					}
 					if actual != check.Value {
 						return ErrVersionConflict
+					}
+				}
+				if d.PersistIntent != nil {
+					if failure = d.PersistIntent(ctx, tx); failure != nil {
+						return failure
 					}
 				}
 				ref, failure := d.Apply(ctx, tx)

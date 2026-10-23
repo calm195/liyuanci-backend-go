@@ -31,6 +31,7 @@ func (WordlistEntry) TableName() string { return "public.wordlist_entries" }
 
 // ModerationTask 映射 public.moderation_tasks，字段注释描述数据库持久化语义。
 type ModerationTask struct {
+	PrivacyRecheck bool `gorm:"column:privacy_recheck;not null;default:false;comment:注销脱敏新稿强制人工复核，不沿用旧批准" json:"-"`
 	// CrisisRecheck 只由危机误报命令创建，不把历史送达改成新发送。
 	CrisisRecheck      bool      `gorm:"column:crisis_recheck;not null;default:false;comment:危机误报后新建普通人工复核标志" json:"-"`
 	Version            int64     `gorm:"column:version;type:bigint;not null;default:1;comment:审核案件独立乐观版本，不是内容版本或心愿版本" json:"-"`

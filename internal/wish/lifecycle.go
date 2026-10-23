@@ -124,7 +124,7 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 		if failure != nil {
 			return failure
 		}
-		if !ordinary(current.owner, current.snapshot) {
+		if !manageable(current.owner, current.snapshot, change.Action) {
 			return command.ErrForbidden
 		}
 		return nil
@@ -196,7 +196,7 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 			if transition.EnqueueReview {
 				taskID := uuid.NewString()
 				epoch := a.row.RestrictionEpoch
-				task := entity.ModerationTask{ID: taskID, ContentID: a.registry.ID, ContentVersion: a.content.ContentVersion, SubjectEpoch: a.account.AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: a.snapshot.HoldEpoch, Status: "pending", CreatedAt: tx.Now()}
+				task := entity.ModerationTask{PrivacyRecheck: a.snapshot.PrivacyHeld, ID: taskID, ContentID: a.registry.ID, ContentVersion: a.content.ContentVersion, SubjectEpoch: a.account.AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: a.snapshot.HoldEpoch, Status: "pending", CreatedAt: tx.Now()}
 				if e = tx.DB().WithContext(ctx).Create(&task).Error; e != nil {
 					return "", e
 				}

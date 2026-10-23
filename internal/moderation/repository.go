@@ -163,7 +163,7 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 		}
 		return wish.ApplicationEligible(db.Statement.Context, db, *row.application, now)
 	}
-	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != row.task.ID || row.task.SubjectEpoch != row.account.AuthEpoch || row.task.RestrictionEpoch == nil || *row.task.RestrictionEpoch != row.wish.RestrictionEpoch || (row.wish.State != "pending_review" && !(row.task.CrisisRecheck && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State))) {
+	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != row.task.ID || row.task.SubjectEpoch != row.account.AuthEpoch || row.task.RestrictionEpoch == nil || *row.task.RestrictionEpoch != row.wish.RestrictionEpoch || (row.wish.State != "pending_review" && !((row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State))) {
 		return false, nil
 	}
 	var n int64
@@ -188,7 +188,7 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 		if hold.HoldEpoch > epoch {
 			epoch = hold.HoldEpoch
 		}
-		if hold.Status == "active" {
+		if hold.Status == "active" && (!row.task.PrivacyRecheck || row.task.ContentVersion < hold.RequiredContentVersion) {
 			return false, nil
 		}
 	}
@@ -266,11 +266,16 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 	if e := db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags)}).Error; e != nil {
 		return e
 	}
+	if decision == "approved" && row.task.PrivacyRecheck {
+		if e := db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND status='active' AND hold_epoch<=? AND required_content_version<=?", row.wish.ID, row.task.HoldEpoch, row.task.ContentVersion).Updates(map[string]any{"status": "released", "released_at": gorm.Expr("clock_timestamp()")}).Error; e != nil {
+			return e
+		}
+	}
 	state := "ready"
 	if decision == "rejected" {
 		state = "rejected"
 	}
-	if row.task.CrisisRecheck && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {
+	if (row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {
 		state = row.wish.State
 	}
 	return db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).Updates(map[string]any{"state": state, "version": gorm.Expr("version+1")}).Error

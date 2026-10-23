@@ -2,6 +2,7 @@ package wish
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
@@ -72,6 +73,10 @@ func (p *Policy) EditDraft(ctx context.Context, requestID string, now time.Time,
 	content, err := p.ValidateContent(ctx, requestID, input)
 	if err != nil {
 		return out, err
+	}
+	// 隐私修订不借编辑已建立关系刷新期限或改变期限配置。
+	if slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) && (refreshExpiry || content.DurationDays != current.DurationDays) {
+		return out, command.ErrConflict
 	}
 	transition.Next.DurationDays = content.DurationDays
 	out.Content = content

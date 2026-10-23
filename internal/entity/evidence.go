@@ -7,6 +7,7 @@ import (
 
 // EvidenceCase 映射 evidence.evidence_cases，字段注释描述数据库持久化语义。
 type EvidenceCase struct {
+	Version   int64     `gorm:"column:version;not null;default:1;comment:证据范围版本，删除命令绑定此版本" json:"-"`
 	ID        string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	Kind      string    `gorm:"column:kind;type:text;not null;comment:证据范围来源" json:"-"`
 	SourceRef string    `gorm:"column:source_ref;type:uuid;not null;comment:来源事件技术标识，不外键绑定普通数据" json:"-"`

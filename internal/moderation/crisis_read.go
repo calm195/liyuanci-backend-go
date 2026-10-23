@@ -195,7 +195,7 @@ func (s *Service) CrisisEvidence(ctx context.Context, token, rid, id string) (ou
 		if e = decryptEvidence(ctx, s.codec, "crisis_body", item.ID, item.BodyCipher, &body); e != nil {
 			return e
 		}
-		out = EvidenceView{ID: item.ID, Version: c.Version, CaseID: c.ID, Body: body, StudentNumber: subject.StudentNumber, Status: c.Status}
+		out = EvidenceView{ID: item.ID, Version: ec.Version, CaseID: c.ID, Body: body, StudentNumber: subject.StudentNumber, Status: c.Status}
 		return crisisAction(ctx, db, s.codec, c, actor, "evidence_view", "限定证据授权查看", time.Now().UTC())
 	})
 	return

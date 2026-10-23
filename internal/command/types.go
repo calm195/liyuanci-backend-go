@@ -95,6 +95,8 @@ const (
 	Appeal ResourceKind = "appeal"
 	// CrisisCase 在普通业务资源之后锁定危机案件。
 	CrisisCase ResourceKind = "crisis_case"
+	// EvidenceCase 在危机案件之后锁定证据范围。
+	EvidenceCase ResourceKind = "evidence_case"
 	// Notification 在消息之后锁定通知。
 	Notification ResourceKind = "notification"
 )
@@ -158,8 +160,11 @@ type Definition struct {
 	RequiredExpectations []string
 	Discover             func(context.Context, *gorm.DB, Subject) (Discovery, error)
 	Authorize            func(context.Context, *Tx) error
-	Apply                func(context.Context, *Tx) (string, error)
-	Resolve              func(context.Context, *Tx, string) error
+	// PersistIntent 仅供不可撤销删除：在授权、版本及幂等复核后，先提交独立恢复日志。
+	// 此回调禁止业务写入或外部发送；成功后即使本库事务失败也必须由恢复消费者继续删除。
+	PersistIntent func(context.Context, *Tx) error
+	Apply         func(context.Context, *Tx) (string, error)
+	Resolve       func(context.Context, *Tx, string) error
 }
 
 // Outcome 只返回技术结果引用，不保留历史状态或正文投影。

@@ -2,6 +2,7 @@
 run:
 	go run ./cmd/server
 build:
+	go build -trimpath -o bin/privacy-worker ./cmd/privacy-worker
 	go build -trimpath -o bin/content-worker ./cmd/content-worker
 	go build -trimpath -o bin/card-worker ./cmd/card-worker
 	go build -trimpath -o bin/server ./cmd/server
@@ -24,7 +25,7 @@ tidy:
 
 # 真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
 integration:
-	docker compose -f deploy/compose/integration.yaml up -d --wait postgres redis namesrv broker
+	docker compose -f deploy/compose/integration.yaml up -d --wait postgres recovery-postgres redis namesrv broker
 	docker compose -f deploy/compose/integration.yaml run --rm migrate
 	# 订阅前显式建立探针主题，不能依赖首次生产才自动创建。
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1

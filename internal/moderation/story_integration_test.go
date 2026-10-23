@@ -593,6 +593,13 @@ func TestStorySharing(t *testing.T) {
 		if v.SourceMatchID != nil || v.PeerEpoch != nil {
 			t.Fatal("脱敏重审保留已注销对方关联")
 		}
+		// 注销隐私新稿必须人工确认，不能把扫描完成当作重新公开。
+		tr := storyTask(f.w.ID)
+		if tr.Status != "human_required" {
+			t.Fatal("隐私新稿未强制人工复核")
+		}
+		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "privacy-review", tr.ID, moderation.Decision{Decision: "approved", ExpectedVersion: tr.Version})
+		must(e)
 		if _, e = wishes.ResolveShare(ctx, "", "new-public", link.Ref); e != nil {
 			t.Fatal("新脱敏审核不能恢复分享", e)
 		}

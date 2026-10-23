@@ -13,6 +13,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
@@ -38,26 +39,34 @@ type Objects interface {
 type Dependencies struct {
 	// WishDB 使用独立普通业务运行池，仅在显式启用心愿模块时必填。
 	// CrisisDB 使用独立危机运行身份；普通后台池不获得证据域权限。
-	CrisisDB  *gorm.DB
-	WishDB    *gorm.DB
-	Grades    wish.Grades
-	StudentDB *gorm.DB
-	ReviewDB  *gorm.DB
-	Logger    *zap.Logger
-	Ready     httpapi.Readiness
-	Exchange  studentauth.Exchanger
-	Identity  Identity
-	Limiter   studentauth.Limiter
-	Codec     *securedata.Codec
-	Objects   Objects
-	Scanner   studentcard.Scanner
-	Rules     verification.Rules
+	// PrivacyDB及EvidenceDeletionDB分别使用普通隐私维护与证据删除受理身份。
+	PrivacyDB          *gorm.DB
+	EvidenceDeletionDB *gorm.DB
+	DeletionJournal    privacy.Journal
+	Eraser             privacy.Eraser
+	CrisisDB           *gorm.DB
+	WishDB             *gorm.DB
+	Grades             wish.Grades
+	StudentDB          *gorm.DB
+	ReviewDB           *gorm.DB
+	Logger             *zap.Logger
+	Ready              httpapi.Readiness
+	Exchange           studentauth.Exchanger
+	Identity           Identity
+	Limiter            studentauth.Limiter
+	Codec              *securedata.Codec
+	Objects            Objects
+	Scanner            studentcard.Scanner
+	Rules              verification.Rules
 }
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
 	// Crisis 显式启用独立危机后台服务。
 	Crisis *moderation.Config
+	// Privacy与EvidenceDeletion显式启用删除能力，不借用普通API或危机读取连接池。
+	Privacy          *privacy.Config
+	EvidenceDeletion *privacy.Config
 	// Safety 仅在显式给出独立密钥和技术预算时注册安全治理路由。
 	Safety *safety.Config
 	// Chat 仅在心愿模块与技术预算同时显式配置时启用。
@@ -168,6 +177,67 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, e
 		}
 	}
+	var accountDeletion, evidenceDeletion *privacy.Service
+	for _, spec := range []struct {
+		cfg *privacy.Config
+		db  *gorm.DB
+		out **privacy.Service
+	}{
+		{cfg.Privacy, d.PrivacyDB, &accountDeletion}, {cfg.EvidenceDeletion, d.EvidenceDeletionDB, &evidenceDeletion},
+	} {
+		if spec.cfg == nil {
+			continue
+		}
+		if spec.db == nil || d.DeletionJournal == nil {
+			return nil, command.ErrInvalid
+		}
+		p, e := spec.db.DB()
+		if e != nil {
+			return nil, command.ErrInvalid
+		}
+		for _, other := range []*gorm.DB{d.StudentDB, d.ReviewDB, d.WishDB, d.CrisisDB} {
+			if other == nil {
+				continue
+			}
+			o, e := other.DB()
+			if e != nil || p == o {
+				return nil, command.ErrInvalid
+			}
+		}
+		if cfg.Privacy != nil && cfg.EvidenceDeletion != nil && d.PrivacyDB != nil && d.EvidenceDeletionDB != nil {
+			a, e := d.PrivacyDB.DB()
+			b, f := d.EvidenceDeletionDB.DB()
+			if e != nil || f != nil || a == b {
+				return nil, command.ErrInvalid
+			}
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
+		if cfg.Wish != nil {
+			keys = append(keys, cfg.Wish.ReceiptKey)
+		}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Safety != nil {
+			keys = append(keys, cfg.Safety.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		if cfg.Crisis != nil {
+			keys = append(keys, cfg.Crisis.CursorKey)
+		}
+		for _, key := range keys {
+			if bytes.Equal(key, spec.cfg.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		*spec.out, e = privacy.New(spec.db, d.DeletionJournal, d.Codec, d.Eraser, d.Logger, *spec.cfg)
+		if e != nil {
+			return nil, e
+		}
+	}
+	cfg.Auth.DeletionRequests = accountDeletion != nil
 	cfg.Auth.Safety = studentSafety != nil
 	cfg.Auth.Wishes = wishes != nil
 	// 路由由本构造器整体注册，动作提示只在同一成功装配中开启，不采纳调用方的过期标志。
@@ -244,6 +314,16 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		}
 	}
 	router := httpapi.New(d.Logger, d.Ready)
+	if accountDeletion != nil {
+		if e = httpapi.RegisterPrivacy(router, accountDeletion); e != nil {
+			return nil, e
+		}
+	}
+	if evidenceDeletion != nil {
+		if e = httpapi.RegisterEvidenceDeletion(router, evidenceDeletion); e != nil {
+			return nil, e
+		}
+	}
 	if crisisReviews != nil {
 		if e = httpapi.RegisterCrisis(router, crisisReviews); e != nil {
 			return nil, e

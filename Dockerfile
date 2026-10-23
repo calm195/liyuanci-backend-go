@@ -8,7 +8,8 @@ ARG GOPROXY=https://goproxy.cn,direct
 RUN GOPROXY="$GOPROXY" go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -o /artifacts/content-worker ./cmd/content-worker && \
+RUN CGO_ENABLED=0 go build -trimpath -o /artifacts/privacy-worker ./cmd/privacy-worker && \
+    CGO_ENABLED=0 go build -trimpath -o /artifacts/content-worker ./cmd/content-worker && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/card-worker ./cmd/card-worker && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/server ./cmd/server && \
     CGO_ENABLED=0 go build -trimpath -o /artifacts/worker ./cmd/worker && \

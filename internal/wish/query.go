@@ -29,6 +29,8 @@ type ReviewResult struct {
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
+	// PeerDeleted只提供通用提示，不返回原应愿人的账号或身份。
+	PeerDeleted           bool           `json:"peer_deleted,omitempty"`
 	StoryReviewResult     *ReviewResult  `json:"story_review_result,omitempty"`
 	ID                    string         `json:"id"`
 	Version               int64          `json:"version"`
@@ -210,7 +212,7 @@ func effectiveState(a aggregate, now time.Time) State {
 	return a.snapshot.State
 }
 func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now time.Time, a aggregate) (out Result, err error) {
-	out = Result{ID: a.row.ID, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: effectiveState(a, now), AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, PrivacyReviewRequired: a.snapshot.PrivacyHeld}
+	out = Result{PeerDeleted: a.row.PeerDeleted, ID: a.row.ID, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: effectiveState(a, now), AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, PrivacyReviewRequired: a.snapshot.PrivacyHeld}
 	if a.task != nil {
 		decision := "pending"
 		if a.task.Status == "approved" || a.task.Status == "rejected" {
@@ -274,7 +276,7 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		}
 		out.OwnContent = &ContentInput{Category: c.Category, Body: c.Body, Campus: c.Campus, IdentityTags: &c.IdentityTags, RewardMethod: &c.RewardMethod, DurationDays: &c.DurationDays}
 	}
-	if ordinary(a.owner, a.snapshot) {
+	if manageable(a.owner, a.snapshot, Edit) {
 		for _, candidate := range []struct {
 			action Action
 			code   string
@@ -374,7 +376,7 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 					p.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
 					p.NoticeText = "未经证实"
 				}
-				out = Result{ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: a.snapshot.State, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Participant: &p}
+				out = Result{PeerDeleted: a.row.PeerDeleted, ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: a.snapshot.State, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Participant: &p}
 				return nil
 			}
 		}
@@ -382,7 +384,7 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 		if e != nil {
 			return command.ErrNotFound
 		}
-		out = Result{ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: Published, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Public: &p}
+		out = Result{PeerDeleted: a.row.PeerDeleted, ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: Published, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Public: &p}
 		if actor != "" {
 			gate := applicationTarget(ctx, db, a, actor, now)
 			if gate == nil {

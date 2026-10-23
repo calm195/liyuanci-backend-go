@@ -1,0 +1,13 @@
+ALTER TABLE public.deletion_jobs ADD COLUMN scope text NOT NULL DEFAULT 'account' CHECK (scope IN ('account','evidence')), ADD COLUMN target_ref uuid, ADD COLUMN expires_at timestamptz NOT NULL DEFAULT (CURRENT_TIMESTAMP + interval '7 days'), ADD COLUMN next_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN attempts integer NOT NULL DEFAULT 0 CHECK (attempts>=0);
+COMMENT ON COLUMN public.deletion_jobs.scope IS '删除范围，普通账号或独立证据';
+COMMENT ON COLUMN public.deletion_jobs.target_ref IS '清理期间技术目标，完成后清空，不绑定普通身份外键';
+COMMENT ON COLUMN public.deletion_jobs.expires_at IS '匿名回执绝对失效时间，清理工作不因回执过期停止';
+COMMENT ON COLUMN public.deletion_jobs.next_at IS '下一次清理时间，失败继续持久重试';
+COMMENT ON COLUMN public.deletion_jobs.attempts IS '清理尝试次数，不保存底层错误';
+CREATE INDEX deletion_jobs_pending_idx ON public.deletion_jobs(next_at,job_id) WHERE phase<>'completed';
+ALTER TABLE evidence.evidence_cases ADD COLUMN version bigint NOT NULL DEFAULT 1 CHECK (version>0);
+COMMENT ON COLUMN evidence.evidence_cases.version IS '证据范围版本，删除命令绑定此版本';
+ALTER TABLE public.wishes ADD COLUMN peer_deleted boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.wishes.peer_deleted IS '原应愿人注销后的通用提示，不保留原账号或身份';
+ALTER TABLE public.moderation_tasks ADD COLUMN privacy_recheck boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.moderation_tasks.privacy_recheck IS '注销脱敏新稿强制人工复核，不沿用旧批准';

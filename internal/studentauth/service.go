@@ -39,7 +39,9 @@ type Limiter interface {
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
 	// Safety 仅在安全治理路由全部成功装配时提示受限申诉及警告操作。
-	Safety bool
+	// DeletionRequests只在显式装配注销入口后提示受罚本人可用的隐私动作。
+	DeletionRequests bool
+	Safety           bool
 	// Wishes 只在本域全部入口已成功装配时提示创建动作。
 	Wishes bool
 	// StudentCardAssets 仅在同一装配显式注册学生卡路由后启用动作提示。
@@ -375,6 +377,9 @@ func (s *Service) Logout(ctx context.Context, token, key, requestID string) (err
 // project 仅提示显式装配且当前资格允许的动作，不把静态协议目录当成实际授权。
 func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.Time) (Me, error) {
 	out, e := projection(ctx, db, id, at)
+	if e == nil && s.config.DeletionRequests {
+		out.AllowedActions = append(out.AllowedActions, "postMeDeletionRequests")
+	}
 	if e == nil && s.config.StudentCardAssets && slices.Contains(out.AllowedActions, "putMeProfile") {
 		out.AllowedActions = append(out.AllowedActions, "postMeStudentCardAssets")
 	}

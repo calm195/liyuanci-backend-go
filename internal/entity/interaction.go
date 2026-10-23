@@ -7,6 +7,7 @@ import (
 
 // Wish 映射 public.wishes，字段注释描述数据库持久化语义。
 type Wish struct {
+	PeerDeleted           bool       `gorm:"column:peer_deleted;not null;default:false;comment:原应愿人注销后的通用提示，不保留原账号或身份" json:"-"`
 	CurrentStoryVersion   int64      `gorm:"column:current_story_version;not null;default:0;comment:当前故事内容版本" json:"-"`
 	DraftDeletedAt        *time.Time `gorm:"column:draft_deleted_at;type:timestamptz;comment:草稿删除生效时间，保留技术引用但不再允许读取或复活" json:"-"`
 	DurationDays          int16      `gorm:"column:duration_days;type:smallint;not null;default:7;comment:有效期整数天数，默认七天" json:"-"`

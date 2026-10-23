@@ -22,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/identity"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentapi"
@@ -34,8 +35,12 @@ import (
 // Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
 type Settings struct {
 	// Care 由仓库外文件显式提供已核验援助资料，缺失时保留危机关怀待办。
-	Care      *moderation.CareResources
-	CrisisDSN string
+	// 删除能力只在外部凭据显式给出时启用，不自动创建身份或独立日志。
+	PrivacyDSN, EvidenceDeletionDSN, EvidencePurgerDSN string
+	RecoveryWriterDSN, RecoveryReaderDSN               string
+	RecoveryWrapKey                                    []byte
+	Care                                               *moderation.CareResources
+	CrisisDSN                                          string
 	// ModerationKey 缺省时不启用新增审核路由，由显式初始化补齐独立用途密钥。
 	ModerationKey []byte
 	// CardMQ 由进程入口显式加载，不接受业务凭据文件隐式启用消息模式。
@@ -58,6 +63,9 @@ func Load(path string) (Settings, error) {
 		return cfg, command.ErrInvalid
 	}
 	keys := [][]byte{cfg.WrapKey, cfg.LookupKey, cfg.SessionKey, cfg.CardKey, cfg.VerificationKey, cfg.WishKey, cfg.AdminKey}
+	if len(cfg.RecoveryWrapKey) > 0 {
+		keys = append(keys, cfg.RecoveryWrapKey)
+	}
 	if len(cfg.ModerationKey) > 0 {
 		keys = append(keys, cfg.ModerationKey)
 	}
@@ -113,6 +121,13 @@ func pool(ctx context.Context, dsn, role string) (*gorm.DB, func() error, error)
  FROM pg_roles r WHERE r.rolname=current_user`, role, role).Scan(&safe).Error
 	if err != nil || !safe {
 		return fail()
+	}
+	if role == "liyuanci_recovery_writer" || role == "liyuanci_recovery_reader" {
+		var ready bool
+		if db.WithContext(ctx).Raw("SELECT to_regclass('public.recovery_delete_journal') IS NOT NULL AND to_regclass('public.accounts') IS NULL").Scan(&ready).Error != nil || !ready {
+			return fail()
+		}
+		return db, sqlDB.Close, nil
 	}
 	// 运行身份不读取迁移账本；只经系统目录核对本进程必需的结构。
 	var schemaReady bool
@@ -209,7 +224,38 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		closes = append(closes, closeCrisis)
 		crisisConfig = &moderation.Config{Command: cmd, CursorKey: safety.DeriveKey(append(append([]byte(nil), cfg.WishKey...), []byte("crisis")...)), MaxEntries: 2000}
 	}
+	var privacyDB, evidenceDeletionDB *gorm.DB
+	var deletionJournal privacy.Journal
+	var accountCfg, evidenceCfg *privacy.Config
+	if cfg.PrivacyDSN != "" || cfg.EvidenceDeletionDSN != "" {
+		var closeJournal func()
+		deletionJournal, closeJournal, e = openDeletionJournal(ctx, cfg, logger)
+		if e != nil {
+			return nil, closeAll, e
+		}
+		closes = append(closes, func() error { closeJournal(); return nil })
+		for _, spec := range []struct {
+			dsn, role string
+			db        **gorm.DB
+			conf      **privacy.Config
+		}{
+			{cfg.PrivacyDSN, "liyuanci_privacy_maintenance", &privacyDB, &accountCfg}, {cfg.EvidenceDeletionDSN, "liyuanci_evidence_delete_api", &evidenceDeletionDB, &evidenceCfg},
+		} {
+			if spec.dsn == "" {
+				continue
+			}
+			db, closePool, e := pool(ctx, spec.dsn, spec.role)
+			if e != nil {
+				return nil, closeAll, e
+			}
+			closes = append(closes, closePool)
+			*spec.db = db
+			c := privacyConfig(cfg)
+			*spec.conf = &c
+		}
+	}
 	router, e = studentapi.New(studentapi.Dependencies{
+		PrivacyDB: privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
 		CrisisDB:  crisisDB,
 		StudentDB: databases[0],
 		ReviewDB:  databases[1],
@@ -224,6 +270,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		Scanner:   developmentScanner{logger},
 		Rules:     developmentSchoolRules{logger},
 	}, studentapi.Config{
+		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,
 		Moderation: moderationConfig,
 		Safety:     &safety.Config{Command: cmd, Key: safety.DeriveKey(cfg.WishKey), MaxTextBytes: 64 << 10},
