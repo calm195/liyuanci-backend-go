@@ -55,6 +55,53 @@ class LocalDevelopmentTest(unittest.TestCase):
             source.write_text(json.dumps(settings))
             self.assertNotIn('CrisisDSN', json.loads(localdev.prepare(entry, env).read_text()))
 
+    def test_privacy_connections_keep_clusters_and_credentials_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / 'operations.env'
+            entry.write_text('')
+            import privacydev
+            cfg = {field: 'host=postgres user=dev_api password=' + 'a' * 48 + ' dbname=liyuanci_business sslmode=disable'
+                   for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN')}
+            cfg['WrapKey'] = 'historical-wrap'
+            privacydev.complete(cfg)
+            before = cfg.copy()
+            privacydev.complete(cfg)
+            self.assertEqual(cfg, before)
+            self.assertNotEqual(cfg['RecoveryWriterDSN'], cfg['RecoveryReaderDSN'])
+            source = Path(directory) / 'business.json'
+            source.write_text(json.dumps(cfg))
+            derived = json.loads(localdev.prepare(entry, {'LIYUANCI_LOCAL_RECOVERY_PG_PORT': '25433'}).read_text())
+            for field in privacydev.BUSINESS_ROLES:
+                self.assertIn('port=15432', derived[field])
+            for field in privacydev.RECOVERY_ROLES:
+                self.assertIn('port=25433', derived[field])
+                self.assertIn('dbname=liyuanci_recovery', derived[field])
+            self.assertEqual(derived['RecoveryWrapKey'], cfg['RecoveryWrapKey'])
+            self.assertEqual(json.loads(source.read_text()), before)
+            with self.assertRaises(OperationError):
+                localdev.recovery_host_dsn(cfg['PrivacyDSN'], {})
+
+    def test_existing_recovery_database_missing_keys_refuses_replacement(self):
+        import privacydev
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / 'operations.env'
+            entry.write_text('')
+            manifest = Path(directory) / 'business.json'
+            manifest.write_text('{"WrapKey":"historical"}')
+            original = manifest.read_bytes()
+            def run(command, stage, data=None):
+                return 't' if data and 'SELECT EXISTS' in data else ''
+            with self.assertRaises(OperationError):
+                privacydev.initialize({'WrapKey': 'historical'}, manifest, entry, {}, [], run, unittest.mock.Mock())
+            self.assertEqual(manifest.read_bytes(), original)
+            self.assertFalse(manifest.with_name('recovery-migration.json').exists())
+
+    def test_native_privacy_init_refuses_docker_side_effects(self):
+        with patch.object(dev.subprocess, 'run') as run:
+            with self.assertRaises(OperationError):
+                dev.main(['privacy-init', '--native'])
+            run.assert_not_called()
+
     def test_native_defaults_and_password_file(self):
         with tempfile.TemporaryDirectory() as directory:
             entry = Path(directory) / 'operations.env'

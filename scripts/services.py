@@ -245,12 +245,12 @@ class Services:
                 self.call(["docker", "stop", "--time", "30"] + [row[0] for row in rows], "停止所选项目容器")
 
         # API/worker退出时采集链路仍在线；先停止exporter再关闭其依赖中间件。
-        stop_rows([row for row in primary if len(row) < 2 or row[1] not in MIDDLEWARE])
+        stop_rows([row for row in primary if len(row) < 2 or row[1] not in MIDDLEWARE + ["recovery-postgres"]])
         for group in ({"alloy", "postgres-exporter", "redis-exporter", "node-exporter"}, {"grafana", "prometheus"}, {"loki"}):
             stop_rows([row for row in monitor if len(row) > 1 and row[1] in group])
         stop_rows([row for row in monitor if len(row) < 2 or row[1] not in {
             "alloy", "postgres-exporter", "redis-exporter", "node-exporter", "grafana", "prometheus", "loki"}])
-        for service in ("broker", "namesrv", "redis", "postgres"):
+        for service in ("broker", "namesrv", "redis", "recovery-postgres", "postgres"):
             stop_rows([row for row in primary if len(row) > 1 and row[1] == service])
         if self.args.remove:
             for project in (self.monitor, self.project):

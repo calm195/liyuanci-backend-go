@@ -53,8 +53,12 @@ def prepare(entry, env):
     for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN'):
         cfg[field] = host_dsn(cfg[field], env)
     # 危机后台显式启用并使用独立身份；旧配置在显式初始化前仍可运行普通业务。
-    if cfg.get('CrisisDSN'):
-        cfg['CrisisDSN'] = host_dsn(cfg['CrisisDSN'], env)
+    for field in ('CrisisDSN', 'PrivacyDSN', 'EvidenceDeletionDSN', 'EvidencePurgerDSN'):
+        if cfg.get(field):
+            cfg[field] = host_dsn(cfg[field], env)
+    for field in ('RecoveryWriterDSN', 'RecoveryReaderDSN'):
+        if cfg.get(field):
+            cfg[field] = recovery_host_dsn(cfg[field], env)
     directory = entry.parent / 'objects'
     directory.mkdir(mode=0o700, exist_ok=True)
     cfg['ObjectDirectory'] = str(directory)
@@ -67,6 +71,13 @@ def prepare(entry, env):
     pending.chmod(0o600)
     pending.replace(target)
     return target
+
+
+def recovery_host_dsn(dsn, env):
+    """独立恢复集群使用自己的loopback端口，不能派生到业务数据库。"""
+    if not re.fullmatch(r'host=recovery-postgres user=dev_recovery_(writer|reader|migrator) password=[0-9a-f]{48} dbname=liyuanci_recovery sslmode=disable', dsn):
+        raise OperationError('恢复日志连接格式不匹配，请恢复原配置')
+    return dsn.replace('host=recovery-postgres ', 'host=127.0.0.1 port=' + port(env, 'RECOVERY_PG', 15433) + ' ', 1)
 
 
 def environment(entry):

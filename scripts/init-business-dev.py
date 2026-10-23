@@ -36,7 +36,10 @@ def main():
     parser.add_argument('--admin-login', required=True)
     parser.add_argument('--host', action='store_true', help='通过宿主Go命令迁移和初始化')
     parser.add_argument('--native', action='store_true', help='使用已经运行的宿主PG/Redis，不访问Docker')
+    parser.add_argument('--privacy', action='store_true', help='显式初始化Docker独立恢复日志及隐私运行身份')
     args = parser.parse_args()
+    if args.privacy and (not args.host or args.native):
+        raise OperationError('--privacy当前要求Docker中间件与--host')
     if args.native and not args.host:
         raise OperationError('--native必须与--host一起使用')
     # 与启停入口共用项目名校验，拒绝误用生产项目。
@@ -156,6 +159,9 @@ def main():
         else:
             env['APP_DATABASE_DSN'] = 'host=127.0.0.1 port=' + str(env.get('LIYUANCI_LOCAL_PG_PORT', '15432')) + ' user=liyuanci password=' + env['LIYUANCI_TEST_DB_PASSWORD'] + ' dbname=liyuanci_business sslmode=disable'
         run(['go', 'run', './cmd/migrate', 'permissions'], '显式配置宿主业务权限')
+        if args.privacy:
+            from privacydev import initialize
+            initialize(cfg, manifest, entry, env, base, run, sql)
         if args.native:
             env = {key: value for key, value in env.items() if not key.startswith('PG')}
         env['LIYUANCI_DEV_BUSINESS_FILE'] = str(manifest)

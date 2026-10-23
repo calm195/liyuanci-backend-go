@@ -57,6 +57,8 @@ def infrastructure(args, env):
     manager = service_manager(args, env)
     manager.env['LIYUANCI_TEST_DB_PASSWORD'] = manager.secret_file('LIYUANCI_TEST_DB_PASSWORD_FILE').read_text().strip()
     selected = ['postgres', 'redis']
+    if env.get('LIYUANCI_LOCAL_PRIVACY_ENABLED') == 'true':
+        selected += ['recovery-postgres']
     if args.mq:
         selected += ['namesrv', 'broker']
     if args.management:
@@ -93,7 +95,8 @@ def binary(entry, name, env):
 
 
 def application(args, env):
-    name = {'api': 'server', 'worker': 'card-worker', 'content-worker': 'content-worker'}[args.action]
+    name = {'api': 'server', 'worker': 'card-worker', 'content-worker': 'content-worker',
+            'privacy-worker': 'privacy-account-worker', 'evidence-worker': 'privacy-evidence-worker'}[args.action]
     state = private_path(args.env_file).parent
     # 锁覆盖编译、派生配置和进程生存期，拒绝同一配置下重复运行相同应用。
     with (state / (name + '.lock')).open('a') as lock:
@@ -102,7 +105,10 @@ def application(args, env):
         except BlockingIOError:
             raise OperationError('同一配置的应用已在运行，请先停止') from None
         app_env = app_environment(args.env_file, env)
-        path = binary(args.env_file, name, app_env)
+        privacy = args.action in ('privacy-worker', 'evidence-worker')
+        if privacy:
+            app_env['APP_PRIVACY_SCOPE'] = 'account' if args.action == 'privacy-worker' else 'evidence'
+        path = binary(args.env_file, 'privacy-worker' if privacy else name, app_env)
         command = [str(path)] + (['-config', ''] if name == 'server' else [])
         child = subprocess.Popen(command, cwd=ROOT, env=app_env, start_new_session=True, pass_fds=(lock.fileno(),))
         pidfile = state / (name + '.pid')
@@ -129,12 +135,12 @@ def application(args, env):
 def stop_apps(entry):
     """只向所选配置记录且命令匹配的宿主进程发TERM，绝不全局按名称杀进程。"""
     state = private_path(entry).parent
-    for name in ('server', 'card-worker', 'content-worker'):
+    for name in ('server', 'card-worker', 'content-worker', 'privacy-account-worker', 'privacy-evidence-worker'):
         pidfile = state / (name + '.pid')
         if not pidfile.exists():
             continue
         pid = int(pidfile.read_text().strip())
-        expected = str(state / 'bin' / name)
+        expected = str(state / 'bin' / ('privacy-worker' if name.startswith('privacy-') else name))
         command = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], text=True, capture_output=True)
         if command.returncode:
             pidfile.unlink(missing_ok=True)
@@ -169,7 +175,7 @@ def doctor(args, env):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['init', 'infra', 'api', 'worker', 'content-worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
+    parser.add_argument('action', choices=['init', 'privacy-init', 'infra', 'api', 'worker', 'content-worker', 'privacy-worker', 'evidence-worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
     parser.add_argument('--native', action='store_true', help='使用已经运行的宿主PG/Redis，Docker仅按需管理MQ')
     parser.add_argument('--project')
     parser.add_argument('--env-file')
@@ -178,6 +184,11 @@ def main(argv=None):
     parser.add_argument('--management', action='store_true')
     parser.add_argument('--monitoring', action='store_true')
     args = parser.parse_args(argv)
+    privacy_init = args.action == 'privacy-init'
+    if privacy_init:
+        if args.native:
+            raise OperationError('隐私初始化当前仅支持Docker独立恢复集群，请显式提供原生恢复资源后装配')
+        args.action = 'init'
     if args.action in ('mq', 'management', 'monitoring'):
         setattr(args, args.action, True)
         args.action = 'infra'
@@ -228,6 +239,8 @@ def main(argv=None):
                 output.write('LIYUANCI_LOCAL_PROJECT=' + args.project + '\n')
         command = [sys.executable, str(ROOT / 'scripts/init-business-dev.py'), '--host', '--project', args.project,
                    '--env-file', args.env_file, '--admin-login', args.admin_login]
+        if privacy_init:
+            command.append('--privacy')
         if subprocess.run(command, cwd=ROOT).returncode:
             raise OperationError('宿主业务初始化失败')
         return
@@ -254,7 +267,7 @@ def main(argv=None):
         port(env, name, default)
     if args.action == 'infra':
         infrastructure(args, env)
-    elif args.action in ('api', 'worker', 'content-worker'):
+    elif args.action in ('api', 'worker', 'content-worker', 'privacy-worker', 'evidence-worker'):
         application(args, env)
     elif args.action == 'doctor':
         doctor(args, env)

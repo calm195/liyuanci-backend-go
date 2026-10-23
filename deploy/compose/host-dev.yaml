@@ -6,3 +6,6 @@ services:
   redis:
     ports: ["127.0.0.1:${LIYUANCI_LOCAL_REDIS_PORT:-16379}:6379"]
     networks: [foundation, ingress]
+  recovery-postgres:
+    ports: ["127.0.0.1:${LIYUANCI_LOCAL_RECOVERY_PG_PORT:-15433}:5432"]
+    networks: [foundation, ingress]
