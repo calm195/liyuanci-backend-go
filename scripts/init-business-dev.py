@@ -14,13 +14,16 @@ from configuration import directory, private_path
 
 
 def complete_settings(cfg):
-    """显式初始化仅补新用途密钥/工作身份；不替换原有历史配置。"""
+    """显式初始化仅补新用途密钥及独立运行身份；不替换原有历史配置。"""
     configuration_changed = False
     if not cfg.get('ModerationKey'):
         cfg['ModerationKey'] = base64.b64encode(secrets.token_bytes(32)).decode()
         configuration_changed = True
     if not cfg.get('WorkerDSN'):
         cfg['WorkerDSN'] = 'host=postgres user=dev_domain_worker password=' + secrets.token_hex(24) + ' dbname=liyuanci_business sslmode=disable'
+        configuration_changed = True
+    if not cfg.get('CrisisDSN'):
+        cfg['CrisisDSN'] = 'host=postgres user=dev_crisis_api password=' + secrets.token_hex(24) + ' dbname=liyuanci_business sslmode=disable'
         configuration_changed = True
     return configuration_changed
 
@@ -90,7 +93,7 @@ def main():
         cfg.update(AdminPassword=secrets.token_urlsafe(24), WeChatAppID='', WeChatSecret='',
                    ObjectDirectory='/var/lib/liyuanci/objects')
         roles = {'StudentDSN': 'identity_maintenance', 'ReviewDSN': 'admin_api', 'WishDSN': 'api',
-                 'AdminDSN': 'admin_maintenance', 'WorkerDSN': 'domain_worker', 'MigrationDSN': 'migrator'}
+                 'AdminDSN': 'admin_maintenance', 'WorkerDSN': 'domain_worker', 'CrisisDSN': 'crisis_api', 'MigrationDSN': 'migrator'}
         for field, role in roles.items():
             cfg[field] = 'host=postgres user=dev_' + role + ' password=' + secrets.token_hex(24) + ' dbname=liyuanci_business sslmode=disable'
         manifest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -127,7 +130,7 @@ def main():
         saved.replace(manifest)
     migration_dsn = json.loads(migration_file.read_text())['DSN']
     roles = {'StudentDSN': 'identity_maintenance', 'ReviewDSN': 'admin_api', 'WishDSN': 'api',
-             'AdminDSN': 'admin_maintenance', 'WorkerDSN': 'domain_worker', 'MigrationDSN': 'migrator'}
+             'AdminDSN': 'admin_maintenance', 'WorkerDSN': 'domain_worker', 'CrisisDSN': 'crisis_api', 'MigrationDSN': 'migrator'}
     for field, role in roles.items():
         # 所有进入 SQL 的身份和口令必须匹配本脚本固定生成格式；外部修改不作为 SQL 执行。
         dsn = migration_dsn if field == 'MigrationDSN' else cfg[field]

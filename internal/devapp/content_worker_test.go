@@ -15,6 +15,35 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
+// TestRuntimeCrisisPool 显式验证危机独立登录可通过启动保护并读取证据域，不授予普通池额外权限。
+func TestRuntimeCrisisPool(t *testing.T) {
+	path := os.Getenv("APP_DEVAPP_TEST_FILE")
+	if path == "" {
+		t.Skip("需显式提供隔离开发配置验证危机数据库身份")
+	}
+	cfg, err := Load(path)
+	if err != nil || cfg.CrisisDSN == "" {
+		t.Fatal("缺少有效危机开发配置")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db, closePool, err := pool(ctx, cfg.CrisisDSN, "liyuanci_crisis_api")
+	if err != nil {
+		t.Fatal("危机独立身份无法通过启动保护")
+	}
+	defer closePool()
+	var allowed bool
+	if err = db.WithContext(ctx).Raw("SELECT has_schema_privilege(current_user,'evidence','USAGE') AND has_table_privilege(current_user,'evidence.crisis_cases','SELECT') AND has_table_privilege(current_user,'evidence.evidence_items','SELECT')").Scan(&allowed).Error; err != nil || !allowed {
+		t.Fatal("危机独立身份缺少限定证据读取权限")
+	}
+	// 即使其他身份有可用连接，也不能替代危机身份装配。
+	_, closeWrong, err := pool(ctx, cfg.ReviewDSN, "liyuanci_crisis_api")
+	if err == nil {
+		closeWrong()
+		t.Fatal("普通后台身份被错误接受为危机身份")
+	}
+}
+
 // TestRuntimePoolWithoutEvidenceAccess 显式读取开发配置，以真实受限身份检查启动不要求普通池访问证据模式。
 // 仅执行目录查询，不迁移、不消费任务、不创建测试账号。
 func TestRuntimePoolWithoutEvidenceAccess(t *testing.T) {

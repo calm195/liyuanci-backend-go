@@ -81,6 +81,8 @@ make dev-infra-stop
 
 原文人工联调可在所选`operations.env`设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=manual`，再启动`dev-content-worker`。心愿、应愿留言、私聊和还愿故事全部保留原文并强制转管理端人工复核，不自动批准；批准后使用原文候选，不提供自动隐私脱敏。三类词库仍须显式发布，已发布危机规则命中优先隔离，不进入普通审核。该模式仅限隔离开发，生产拒绝运行。
 
+本地危机后台由`make dev-init`（原生模式为`make dev-native-init`）显式补齐独立`dev_crisis_api`登录及`CrisisDSN`，复用已有凭据且不重置后台账号。初始化后重启API，具有`crisis_operator`或`super_admin`角色的账号可联调`/api/v1/admin/crisis-cases`及人工升级、处置、误报回退接口；普通启动只转换宿主连接地址，不创建身份或迁移。`manual`模式不提供真实危机识别，本地不配置正式关怀资料或真实通知，相关投递保留待办。详见[危机后台本地联调](../docs/development/backend/host-development.md#危机案件与关怀)。
+
 ## 4. 开发规范与验证
 
 I/O首参context.Context，依赖显式注入；HTTP负责校验和状态映射，service处理规则，repository通过GORM WithContext查询。运行身份不执行DDL；迁移、RLS、锁函数和数据库中文对象注释按版本管理。日志中文、结构化、成功后记录完成，不写凭据、正文或个人数据。

@@ -11,7 +11,7 @@ spec.loader.exec_module(module)
 
 class BusinessInitializationTest(unittest.TestCase):
     def test_upgrade_preserves_historical_keys_and_worker_identity(self):
-        cfg = {'WrapKey': 'historical-wrap', 'LookupKey': 'historical-lookup', 'AdminPassword': 'historical-password', 'WorkerDSN': 'historical-worker'}
+        cfg = {'WrapKey': 'historical-wrap', 'LookupKey': 'historical-lookup', 'AdminPassword': 'historical-password', 'WorkerDSN': 'historical-worker', 'CrisisDSN': 'historical-crisis'}
         before = cfg.copy()
         self.assertTrue(module.complete_settings(cfg))
         self.assertEqual(len(base64.b64decode(cfg['ModerationKey'])), 32)
@@ -25,3 +25,7 @@ class BusinessInitializationTest(unittest.TestCase):
         self.assertTrue(module.complete_settings(cfg))
         self.assertEqual(cfg['ModerationKey'], 'historical-moderation')
         self.assertIn('user=dev_domain_worker', cfg['WorkerDSN'])
+        self.assertRegex(cfg['CrisisDSN'], r'^host=postgres user=dev_crisis_api password=[0-9a-f]{48} dbname=liyuanci_business sslmode=disable$')
+        saved = cfg.copy()
+        self.assertFalse(module.complete_settings(cfg))
+        self.assertEqual(cfg, saved)

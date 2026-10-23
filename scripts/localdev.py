@@ -52,6 +52,9 @@ def prepare(entry, env):
     cfg = json.loads(source.read_text())
     for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN'):
         cfg[field] = host_dsn(cfg[field], env)
+    # 危机后台显式启用并使用独立身份；旧配置在显式初始化前仍可运行普通业务。
+    if cfg.get('CrisisDSN'):
+        cfg['CrisisDSN'] = host_dsn(cfg['CrisisDSN'], env)
     directory = entry.parent / 'objects'
     directory.mkdir(mode=0o700, exist_ok=True)
     cfg['ObjectDirectory'] = str(directory)

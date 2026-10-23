@@ -6,6 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlog "gorm.io/gorm/logger"
+
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
@@ -15,17 +28,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	gormlog "gorm.io/gorm/logger"
-	"net/http/httptest"
-	"os"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 // crisisNotifier 只记录稳定投递引用；失败不发送正文和身份。
@@ -406,6 +408,78 @@ func TestCrisisCare(t *testing.T) {
 			t.Fatal("举报升级串案")
 		}
 
+	})
+	// 经正式HTTP入口验证人工升级和处置，使用独立测试库合成资料，不依赖真实识别或通知。
+	t.Run("HTTP人工升级处置与误报回退", func(t *testing.T) {
+		router := httpapi.New(logger, func(context.Context) error { return nil })
+		must(httpapi.RegisterCrisis(router, crisis))
+		post := func(path, token, key string, in moderation.CrisisCommand, status int) moderation.CrisisView {
+			t.Helper()
+			body, err := json.Marshal(in)
+			must(err)
+			req := httptest.NewRequest("POST", "/api/v1/admin"+path, strings.NewReader(string(body)))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", key)
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+			if rr.Code != status || rr.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("危机HTTP响应不符: %s %d", path, rr.Code)
+			}
+			var result struct {
+				Data moderation.CrisisView `json:"data"`
+			}
+			must(json.Unmarshal(rr.Body.Bytes(), &result))
+			return result.Data
+		}
+		for _, falsePositive := range []bool{true, false} {
+			w := create("普通命中 合成人工危机复核")
+			scan("wish", w.ID)
+			var original entity.ModerationTask
+			must(root.Where("id=?", event("wish", w.ID).AggregateID).Take(&original).Error)
+			input := moderation.CrisisCommand{Reason: "合成人工升级", ExpectedVersion: original.Version}
+			path := "/moderation-tasks/" + original.ID + "/escalate-crisis"
+			post(path, adminToken, uuid.NewString(), input, 403)
+			key := uuid.NewString()
+			out := post(path, operatorToken, key, input, 200)
+			replay := post(path, operatorToken, key, input, 200)
+			if out.ID == "" || out.Status != "pending_handling" || replay.ID != out.ID {
+				t.Fatal("人工升级或幂等失败")
+			}
+			path = "/crisis-cases/" + out.ID
+			out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "take_over", Reason: "合成接手", ExpectedVersion: out.Version}, 200)
+			if out.Status != "handling" {
+				t.Fatal("接手未进入处理中")
+			}
+			post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "follow_up", Reason: "合成旧版本", ExpectedVersion: out.Version - 1}, 409)
+			out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "follow_up", Reason: "合成跟进", ExpectedVersion: out.Version}, 200)
+			if !falsePositive {
+				out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "resolve", Reason: "合成结案", ExpectedVersion: out.Version}, 200)
+				if out.Status != "resolved" {
+					t.Fatal("结案状态错误")
+				}
+				continue
+			}
+			out = post(path+"/resolve-false-positive", operatorToken, uuid.NewString(), moderation.CrisisCommand{Reason: "合成误报", ExpectedVersion: out.Version}, 200)
+			var current entity.Wish
+			var version entity.WishVersion
+			must(root.Where("id=?", w.ID).Take(&current).Error)
+			must(root.Where("wish_id=? AND content_version=?", w.ID, current.CurrentContentVersion).Take(&version).Error)
+			if out.Status != "false_positive" || current.State != "pending_review" || version.ReviewTaskID == nil || *version.ReviewTaskID == original.ID || version.PublicBody != nil {
+				t.Fatal("误报未返回新人工任务或意外恢复公开正文")
+			}
+			if count("public.content_restrictions", "source_ref=? AND kind='crisis' AND active", out.ID) != 0 || count("evidence.crisis_deliveries", "case_id=? AND status IN ('pending','leased')", out.ID) != 0 {
+				t.Fatal("误报未解除限制或取消投递")
+			}
+			task, err := reviews.Case(ctx, adminToken, "http-return", *version.ReviewTaskID)
+			must(err)
+			_, err = reviews.Decide(ctx, adminToken, uuid.NewString(), "http-return-approve", task.ID, moderation.Decision{Decision: "approved", ExpectedVersion: task.Version})
+			must(err)
+			must(root.Where("id=?", w.ID).Take(&current).Error)
+			if current.State != "ready" {
+				t.Fatal("误报返回任务无法经普通审核批准")
+			}
+		}
 	})
 	t.Run("HTTP严格校验角色与无涉案资产", func(t *testing.T) {
 		router := httpapi.New(logger, func(context.Context) error { return nil })

@@ -20,7 +20,8 @@ class LocalDevelopmentTest(unittest.TestCase):
             entry.write_text('LIYUANCI_LOCAL_PG_PORT=25432\n')
             settings = {field: 'host=postgres user=dev_api password=' + 'a' * 48 + ' dbname=liyuanci_business sslmode=disable'
                         for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN')}
-            settings.update(WrapKey='synthetic-key', AdminPassword='synthetic-password', ObjectDirectory='/container/objects')
+            settings.update(WrapKey='synthetic-key', AdminPassword='synthetic-password', ObjectDirectory='/container/objects',
+                            CrisisDSN='host=postgres user=dev_crisis_api password=' + 'b' * 48 + ' dbname=liyuanci_business sslmode=disable')
             source = Path(directory) / 'business.json'
             source.write_text(json.dumps(settings))
             before = source.read_bytes()
@@ -31,6 +32,7 @@ class LocalDevelopmentTest(unittest.TestCase):
             self.assertEqual(result['APP_ROCKETMQ_ENABLED'], 'false')
             derived = json.loads(Path(result['APP_DEVAPPFILE']).read_text())
             self.assertIn('host=127.0.0.1 port=25432', derived['WorkerDSN'])
+            self.assertEqual(derived['CrisisDSN'], settings['CrisisDSN'].replace('host=postgres ', 'host=127.0.0.1 port=25432 '))
             self.assertEqual(derived['WrapKey'], settings['WrapKey'])
             self.assertEqual(derived['AdminPassword'], settings['AdminPassword'])
             self.assertTrue(Path(derived['ObjectDirectory']).is_dir())
@@ -48,6 +50,10 @@ class LocalDevelopmentTest(unittest.TestCase):
             self.assertEqual(selected['APP_CONTENT_MQFILE'], str(mq_file.resolve()))
             self.assertEqual(selected['APP_CONTENT_ANALYZER'], 'synthetic')
             self.assertNotIn('APP_CARD_MQFILE', selected)
+            # 已有配置未启用危机后台时，不隐式生成身份或连接。
+            del settings['CrisisDSN']
+            source.write_text(json.dumps(settings))
+            self.assertNotIn('CrisisDSN', json.loads(localdev.prepare(entry, env).read_text()))
 
     def test_native_defaults_and_password_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -55,6 +61,7 @@ class LocalDevelopmentTest(unittest.TestCase):
             entry.write_text('LIYUANCI_LOCAL_MIDDLEWARE=native\n')
             cfg = {field: 'host=postgres user=dev_api password=' + 'a' * 48 + ' dbname=liyuanci_business sslmode=disable'
                    for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN')}
+            cfg['CrisisDSN'] = 'host=postgres user=dev_crisis_api password=' + 'b' * 48 + ' dbname=liyuanci_business sslmode=disable'
             (Path(directory) / 'business.json').write_text(json.dumps(cfg))
             password = Path(directory) / 'redis-password'
             password.write_text('synthetic-redis-password')
@@ -65,6 +72,7 @@ class LocalDevelopmentTest(unittest.TestCase):
             self.assertEqual(result['APP_REDIS_ADDRESS'], '127.0.0.1:6379')
             self.assertEqual(result['APP_REDIS_PASSWORD'], 'synthetic-redis-password')
             self.assertIn('port=5432', json.loads(Path(result['APP_DEVAPPFILE']).read_text())['WishDSN'])
+            self.assertIn('port=5432', json.loads(Path(result['APP_DEVAPPFILE']).read_text())['CrisisDSN'])
 
     def test_native_infra_never_calls_docker_without_mq(self):
         args = argparse.Namespace(project='liyuanci-local-native', management=False, monitoring=False, mq=False)
