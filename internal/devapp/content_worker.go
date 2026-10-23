@@ -94,6 +94,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 		return err
 	}
 	scanner, err := moderation.NewWorker(db, logger, codec, developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"}, moderation.WorkerConfig{
+		Care:            cfg.Care,
 		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},
 		AnalysisTimeout: 5 * time.Second,
 		MessageAnalyzer: developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic"},

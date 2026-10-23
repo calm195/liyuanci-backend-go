@@ -105,7 +105,7 @@ func Writable(ctx context.Context, db *gorm.DB, s Snapshot, now time.Time) error
 
 // EligibleMessage 复核提交时双方代次及全部屏障；旧任务不能因权限恢复而重新生效。
 func EligibleMessage(ctx context.Context, db *gorm.DB, m entity.Message, now time.Time) (bool, error) {
-	if (m.Status != "pending_scan" && m.Status != "pending_review") || m.ReviewTaskID == nil || m.PeerEpoch == nil {
+	if (m.Status != "pending_scan" && m.Status != "pending_review" && m.Status != "delivered") || m.ReviewTaskID == nil || m.PeerEpoch == nil {
 		return false, nil
 	}
 	s, e := LoadConversation(ctx, db, m.ConversationID)
@@ -127,6 +127,9 @@ func EligibleMessage(ctx context.Context, db *gorm.DB, m entity.Message, now tim
 	var t entity.ModerationTask
 	if e = db.WithContext(ctx).Where("id=?", *m.ReviewTaskID).Take(&t).Error; e != nil {
 		return false, e
+	}
+	if m.Status == "delivered" && !t.CrisisRecheck {
+		return false, nil
 	}
 	sender, peer := s.Requester, s.Helper
 	if sender.ID != m.SenderID {

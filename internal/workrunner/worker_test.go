@@ -232,3 +232,42 @@ func TestDatabaseRunnerClose(t *testing.T) {
 		t.Fatal("取消后启动")
 	}
 }
+
+type maintainedScanner struct {
+	databaseScanner
+	maintenanceStarted  chan struct{}
+	maintenanceReturned chan struct{}
+}
+
+func (s maintainedScanner) Maintain(ctx context.Context) error {
+	close(s.maintenanceStarted)
+	<-ctx.Done()
+	close(s.maintenanceReturned)
+	return ctx.Err()
+}
+
+// TestMaintenanceLifecycle 验证危机通知可独立阻塞而不阻止扫描，关闭同时取消并等待两种在途操作。
+func TestMaintenanceLifecycle(t *testing.T) {
+	s := maintainedScanner{databaseScanner{make(chan struct{}), make(chan struct{})}, make(chan struct{}), make(chan struct{})}
+	w, e := OpenDatabase(context.Background(), s, zap.NewNop(), time.Hour, time.Minute)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, ch := range []chan struct{}{s.started, s.maintenanceStarted} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("扫描或维护未独立启动")
+		}
+	}
+	if e = w.Close(); e != nil {
+		t.Fatal(e)
+	}
+	for _, ch := range []chan struct{}{s.returned, s.maintenanceReturned} {
+		select {
+		case <-ch:
+		default:
+			t.Fatal("关闭未等待维护退出")
+		}
+	}
+}

@@ -33,6 +33,9 @@ import (
 
 // Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
 type Settings struct {
+	// Care 由仓库外文件显式提供已核验援助资料，缺失时保留危机关怀待办。
+	Care      *moderation.CareResources
+	CrisisDSN string
 	// ModerationKey 缺省时不启用新增审核路由，由显式初始化补齐独立用途密钥。
 	ModerationKey []byte
 	// CardMQ 由进程入口显式加载，不接受业务凭据文件隐式启用消息模式。
@@ -113,7 +116,7 @@ func pool(ctx context.Context, dsn, role string) (*gorm.DB, func() error, error)
 	}
 	// 运行身份不读取迁移账本；只经系统目录核对本进程必需的结构。
 	var schemaReady bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.report_types') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.appeals') AND attname='version' AND NOT attisdropped) AND to_regclass('public.share_links') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='current_story_version' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.messages') AND attname='peer_epoch' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.notifications') AND attname='version' AND NOT attisdropped) AND to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.applications') AND attname='public_message_cipher' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.matches') AND attname='application_id' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.care_cards') IS NOT NULL AND to_regclass('evidence.crisis_deliveries') IS NOT NULL AND to_regclass('public.report_types') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.appeals') AND attname='version' AND NOT attisdropped) AND to_regclass('public.share_links') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='current_story_version' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.messages') AND attname='peer_epoch' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.notifications') AND attname='version' AND NOT attisdropped) AND to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.wishes') AND attname='draft_deleted_at' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.applications') AND attname='public_message_cipher' AND NOT attisdropped) AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.matches') AND attname='application_id' AND NOT attisdropped) AND to_regclass('public.wordlist_heads') IS NOT NULL AND to_regclass('public.moderation_scans') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.moderation_tasks') AND attname='version' AND NOT attisdropped)`).Scan(&schemaReady).Error != nil || !schemaReady {
 		return fail()
 	}
 	return db, sqlDB.Close, nil
@@ -195,7 +198,19 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 	if len(cfg.ModerationKey) > 0 {
 		moderationConfig = &moderation.Config{Command: cmd, CursorKey: cfg.ModerationKey, MaxEntries: 2000}
 	}
+	var crisisDB *gorm.DB
+	var crisisConfig *moderation.Config
+	if cfg.CrisisDSN != "" {
+		var closeCrisis func() error
+		crisisDB, closeCrisis, e = pool(ctx, cfg.CrisisDSN, "liyuanci_crisis_api")
+		if e != nil {
+			return nil, closeAll, e
+		}
+		closes = append(closes, closeCrisis)
+		crisisConfig = &moderation.Config{Command: cmd, CursorKey: safety.DeriveKey(append(append([]byte(nil), cfg.WishKey...), []byte("crisis")...)), MaxEntries: 2000}
+	}
 	router, e = studentapi.New(studentapi.Dependencies{
+		CrisisDB:  crisisDB,
 		StudentDB: databases[0],
 		ReviewDB:  databases[1],
 		WishDB:    databases[2],
@@ -209,6 +224,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		Scanner:   developmentScanner{logger},
 		Rules:     developmentSchoolRules{logger},
 	}, studentapi.Config{
+		Crisis:     crisisConfig,
 		Moderation: moderationConfig,
 		Safety:     &safety.Config{Command: cmd, Key: safety.DeriveKey(cfg.WishKey), MaxTextBytes: 64 << 10},
 		Auth: studentauth.Config{

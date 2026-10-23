@@ -81,6 +81,11 @@ func TestCommandValidation(t *testing.T) {
 	if failure != nil {
 		t.Fatal("案件独立版本不能校验", failure)
 	}
+	in.Expectations[0].Target.Kind = CrisisCase
+	crisisHash, failure := requestHash(d, in)
+	if failure != nil || bytes.Equal(taskHash, crisisHash) {
+		t.Fatal("危机案件版本必须独立于普通审核版本", failure)
+	}
 	in.Expectations[0].Target.Kind = Wish
 	wishHash, failure := requestHash(d, in)
 	if failure != nil || bytes.Equal(taskHash, wishHash) {

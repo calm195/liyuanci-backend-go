@@ -47,6 +47,8 @@ func BusinessModels() []any {
 		&AdminAccountAction{},
 		&StudentLoginExchange{},
 		&SchemaMigration{},
+		&CareCard{},
+		&CrisisDelivery{},
 		&EvidenceCase{},
 		&EvidenceCrisisCase{},
 		&EvidenceAsset{},

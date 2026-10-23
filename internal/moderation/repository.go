@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -157,9 +158,12 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 			return false, e
 		}
+		if row.application.Status == "accepted" && row.task.CrisisRecheck {
+			return acceptedRecheck(db, row)
+		}
 		return wish.ApplicationEligible(db.Statement.Context, db, *row.application, now)
 	}
-	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != row.task.ID || row.task.SubjectEpoch != row.account.AuthEpoch || row.task.RestrictionEpoch == nil || *row.task.RestrictionEpoch != row.wish.RestrictionEpoch || row.wish.State != "pending_review" {
+	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != row.task.ID || row.task.SubjectEpoch != row.account.AuthEpoch || row.task.RestrictionEpoch == nil || *row.task.RestrictionEpoch != row.wish.RestrictionEpoch || (row.wish.State != "pending_review" && !(row.task.CrisisRecheck && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State))) {
 		return false, nil
 	}
 	var n int64
@@ -207,7 +211,11 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 				return e
 			}
 		} else {
-			if e := db.Model(&entity.Message{}).Where("id=?", row.message.ID).Updates(map[string]any{"status": "rejected", "version": gorm.Expr("version+1")}).Error; e != nil {
+			updates := map[string]any{"version": gorm.Expr("version+1")}
+			if row.message.DeliverySeq == nil {
+				updates["status"] = "rejected"
+			}
+			if e := db.Model(&entity.Message{}).Where("id=?", row.message.ID).Updates(updates).Error; e != nil {
 				return e
 			}
 			if e := db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: row.message.SenderID, Type: "message_reviewed", TargetRef: row.message.ID}).Error; e != nil {
@@ -243,6 +251,10 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 			cipher = json.RawMessage(raw)
 			status = "active"
 		}
+		// 已接受留言只改变内容投影，绝不重新进入可同意队列。
+		if row.task.CrisisRecheck && app.Status == "accepted" {
+			status = "accepted"
+		}
 		if e := db.Model(&entity.Application{}).Where("id=?", app.ID).Updates(map[string]any{"status": status, "public_message_cipher": cipher, "version": gorm.Expr("version+1")}).Error; e != nil {
 			return e
 		}
@@ -257,6 +269,9 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 	state := "ready"
 	if decision == "rejected" {
 		state = "rejected"
+	}
+	if row.task.CrisisRecheck && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {
+		state = row.wish.State
 	}
 	return db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).Updates(map[string]any{"state": state, "version": gorm.Expr("version+1")}).Error
 }

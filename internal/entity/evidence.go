@@ -19,13 +19,16 @@ func (EvidenceCase) TableName() string { return "evidence.evidence_cases" }
 
 // EvidenceCrisisCase 映射 evidence.crisis_cases，字段注释描述数据库持久化语义。
 type EvidenceCrisisCase struct {
-	ID             string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	EvidenceCaseID string    `gorm:"column:evidence_case_id;type:uuid;not null;unique;comment:证据范围" json:"-"`
-	ContentType    string    `gorm:"column:content_type;type:text;not null;comment:危机来源内容类型" json:"-"`
-	Status         string    `gorm:"column:status;type:text;not null;default:'isolated';comment:危机处理状态" json:"-"`
-	DetectedAt     time.Time `gorm:"column:detected_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:检测时间" json:"-"`
-	Resolution     *string   `gorm:"column:resolution;type:text;comment:安全处理结论码，不复制敏感正文" json:"-"`
-	HandlerID      *string   `gorm:"column:handler_id;type:uuid;comment:授权处理人技术标识，不依赖普通账号或后台外键存续" json:"-"`
+	Version        int64      `gorm:"column:version;not null;default:1;comment:危机案件独立乐观版本" json:"-"`
+	SourceTaskID   *string    `gorm:"column:source_task_id;type:uuid;comment:检测时审核任务技术引用" json:"-"`
+	HandoffAt      *time.Time `gorm:"column:handoff_at;type:timestamptz;comment:北京时间人工接手窗口起点" json:"-"`
+	ID             string     `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	EvidenceCaseID string     `gorm:"column:evidence_case_id;type:uuid;not null;unique;comment:证据范围" json:"-"`
+	ContentType    string     `gorm:"column:content_type;type:text;not null;comment:危机来源内容类型" json:"-"`
+	Status         string     `gorm:"column:status;type:text;not null;default:'isolated';comment:危机处理状态" json:"-"`
+	DetectedAt     time.Time  `gorm:"column:detected_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:检测时间" json:"-"`
+	Resolution     *string    `gorm:"column:resolution;type:text;comment:安全处理结论码，不复制敏感正文" json:"-"`
+	HandlerID      *string    `gorm:"column:handler_id;type:uuid;comment:授权处理人技术标识，不依赖普通账号或后台外键存续" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
@@ -61,11 +64,12 @@ func (EvidenceItem) TableName() string { return "evidence.evidence_items" }
 
 // EvidenceAction 映射 evidence.evidence_actions，字段注释描述数据库持久化语义。
 type EvidenceAction struct {
-	ID     string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	CaseID string    `gorm:"column:case_id;type:uuid;not null;comment:限定案件" json:"-"`
-	Actor  string    `gorm:"column:actor;type:uuid;not null;comment:后台处理者技术标识，不依赖普通账号存续" json:"-"`
-	Action string    `gorm:"column:action;type:text;not null;comment:必要处置动作码，不存身份正文" json:"-"`
-	At     time.Time `gorm:"column:at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:处置时间" json:"-"`
+	ReasonCipher json.RawMessage `gorm:"column:reason_cipher;type:jsonb;comment:处置理由信封密文" json:"-"`
+	ID           string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	CaseID       string          `gorm:"column:case_id;type:uuid;not null;comment:限定案件" json:"-"`
+	Actor        string          `gorm:"column:actor;type:uuid;not null;comment:后台处理者技术标识，不依赖普通账号存续" json:"-"`
+	Action       string          `gorm:"column:action;type:text;not null;comment:必要处置动作码，不存身份正文" json:"-"`
+	At           time.Time       `gorm:"column:at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:处置时间" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

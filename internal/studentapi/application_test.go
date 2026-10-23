@@ -16,6 +16,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
@@ -209,7 +210,7 @@ func TestOptionalWishAssembly(t *testing.T) {
 	}
 }
 
-// TestOptionalChatAssembly 验证六路由与独立密钥，基础认证应用仍按原配置启用。
+// TestOptionalChatAssembly 验证聊天、通知和本人关怀路由与独立密钥，基础认证应用仍按原配置启用。
 func TestOptionalChatAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
 	other, _ := dependencies(t)
@@ -220,10 +221,10 @@ func TestOptionalChatAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 35 {
+	if len(router.Routes()) != 36 {
 		t.Fatal("聊天路由不完整", len(router.Routes()))
 	}
-	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/me/conversations"}, {"GET", "/api/v1/conversations/id/messages"}, {"POST", "/api/v1/conversations/id/messages"}, {"GET", "/api/v1/me/messages/id/status"}, {"GET", "/api/v1/me/notifications"}, {"POST", "/api/v1/me/notifications/id/read"}} {
+	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/me/conversations"}, {"GET", "/api/v1/conversations/id/messages"}, {"POST", "/api/v1/conversations/id/messages"}, {"GET", "/api/v1/me/messages/id/status"}, {"GET", "/api/v1/me/care-cards/id"}, {"GET", "/api/v1/me/notifications"}, {"POST", "/api/v1/me/notifications/id/read"}} {
 		out := httptest.NewRecorder()
 		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))
 		if out.Code != 401 {
@@ -259,5 +260,42 @@ func TestStoryAssembly(t *testing.T) {
 		if out.Code != 401 {
 			t.Fatal(tc, out.Code)
 		}
+	}
+}
+
+// TestOptionalCrisisAssembly 验证独立危机池、用途密钥和显式注册，普通后台不能隐式获得证据能力。
+func TestOptionalCrisisAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	baseline, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg.Crisis = &moderation.Config{Command: cfg.Auth.Command, CursorKey: bytes.Repeat([]byte{91}, 32), MaxEntries: 100}
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("缺独立危机池仍装配")
+	}
+	d.CrisisDB = d.ReviewDB
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("复用了普通审核池")
+	}
+	other, _ := dependencies(t)
+	d.CrisisDB = other.StudentDB
+	r, e := New(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(baseline.Routes())+10 {
+		t.Fatal("危机路由不完整", len(r.Routes()))
+	}
+	for _, path := range []string{"/api/v1/admin/crisis-cases", "/api/v1/admin/crisis-cases/id", "/api/v1/admin/crisis-cases/id/work", "/api/v1/admin/evidence/id"} {
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
+		if rr.Code != 401 {
+			t.Fatal(path, rr.Code)
+		}
+	}
+	cfg.Crisis.CursorKey = cfg.Auth.SessionKey
+	if r, e := New(d, cfg); e == nil || r != nil {
+		t.Fatal("危机复用身份用途密钥")
 	}
 }

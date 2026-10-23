@@ -93,6 +93,8 @@ const (
 	Report ResourceKind = "report"
 	// Appeal 是处罚申诉资源。
 	Appeal ResourceKind = "appeal"
+	// CrisisCase 在普通业务资源之后锁定危机案件。
+	CrisisCase ResourceKind = "crisis_case"
 	// Notification 在消息之后锁定通知。
 	Notification ResourceKind = "notification"
 )

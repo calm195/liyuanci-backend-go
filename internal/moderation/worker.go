@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
@@ -49,6 +48,9 @@ type MessageAnalyzer interface {
 
 // WorkerConfig 限制外部分析和最终数据库事务；调度生命周期由宿主负责。
 type WorkerConfig struct {
+	// Care 与 CrisisNotifier 必须显式提供；缺失时持久待办继续重试。
+	Care            *CareResources
+	CrisisNotifier  CrisisNotifier
 	MessageAnalyzer MessageAnalyzer
 	Consumer        durable.ConsumerConfig
 	AnalysisTimeout time.Duration
@@ -65,8 +67,12 @@ type Worker struct {
 
 // NewWorker 显式构造心愿、应愿留言、私聊及还愿故事扫描消费者，不启动循环、不迁移或自动发布规则。
 func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer Analyzer, cfg WorkerConfig) (*Worker, error) {
-	if db == nil || log == nil || codec == nil || analyzer == nil || cfg.AnalysisTimeout <= 0 {
+	if db == nil || log == nil || codec == nil || analyzer == nil || cfg.AnalysisTimeout <= 0 || !validateCare(cfg.Care) {
 		return nil, command.ErrInvalid
+	}
+	if cfg.Care != nil {
+		c := *cfg.Care
+		cfg.Care = &c
 	}
 	w := &Worker{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), logger: log, codec: codec, analyzer: analyzer, cfg: cfg}
 	if _, e := w.consumer(nil, nil, nil); e != nil {
@@ -382,7 +388,7 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 			}
 		}
 		if a.CrisisHit {
-			if e = db.Create(&entity.ContentRestriction{ID: uuid.NewString(), ContentID: row.registry.ID, Kind: "crisis", SourceRef: row.task.ID, Active: true, Version: 1}).Error; e != nil {
+			if _, e = captureCrisis(ctx, db, w.codec, row, tx.Now()); e != nil {
 				return "", e
 			}
 		} else if !a.SchoolRelated && !a.OrdinaryHit {
@@ -431,6 +437,7 @@ func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err 
 		}
 		w.logger.Info("心愿审核数据库补偿完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("applied", out.Applied), zap.Bool("cancelled", out.Cancelled))
 	}()
+
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
 	var events []durable.Event

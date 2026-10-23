@@ -91,6 +91,10 @@ func (s *Service) transaction(ctx context.Context, fn func(*gorm.DB) error) erro
 
 // authorize 锁定当前后台主体及会话，每次复核数据库角色，学生和危机单独角色不能进入普通审核。
 func (s *Service) authorize(ctx context.Context, db *gorm.DB, token string, plan command.Discovery) (string, error) {
+	return s.authorizeRoles(ctx, db, token, plan, []string{"super_admin", "review_operator"})
+}
+
+func (s *Service) authorizeRoles(ctx context.Context, db *gorm.DB, token string, plan command.Discovery, allowed []string) (string, error) {
 	if token == "" {
 		return "", command.ErrUnauthenticated
 	}
@@ -128,7 +132,7 @@ func (s *Service) authorize(ctx context.Context, db *gorm.DB, token string, plan
 	if e = db.Model(&entity.AdminRoleBinding{}).Where("admin_id=?", id).Pluck("role", &roles).Error; e != nil {
 		return "", e
 	}
-	if !slices.Contains(roles, "super_admin") && !slices.Contains(roles, "review_operator") {
+	if !slices.ContainsFunc(roles, func(r string) bool { return slices.Contains(allowed, r) }) {
 		return "", command.ErrForbidden
 	}
 	return id, nil

@@ -77,6 +77,13 @@ func ordinaryScan(db *gorm.DB, id string) (out entity.ModerationScan, err error)
 		if e := db.Where("id=?", t.ContentID).Take(&c).Error; e != nil {
 			return out, e
 		}
+		var isolated int64
+		if e := db.Model(&entity.ContentRestriction{}).Where("content_id=? AND kind='crisis' AND active", c.ID).Count(&isolated).Error; e != nil {
+			return out, e
+		}
+		if isolated > 0 {
+			return out, command.ErrNotFound
+		}
 		if c.Kind == "message" && !out.OrdinaryHit {
 			return out, command.ErrNotFound
 		}
@@ -105,7 +112,7 @@ func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit in
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message','story')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
+		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.id,t.version,t.status,c.kind,t.content_version").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message','story')").Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").Where("NOT EXISTS(SELECT 1 FROM public.content_restrictions r WHERE r.content_id=c.id AND r.kind='crisis' AND r.active) AND NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
@@ -311,6 +318,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				body = &candidate.Body
 				tags, _ = json.Marshal(candidate.Tags)
 				business = "ready"
+				if row.task.CrisisRecheck && row.application == nil && row.message == nil && row.story == nil && row.wish.State != "pending_review" {
+					business = row.wish.State
+				}
 				if row.story != nil {
 					business = "published"
 				}
@@ -319,6 +329,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				}
 				if row.application != nil {
 					business = "active"
+					if row.task.CrisisRecheck && row.application.Status == "accepted" {
+						business = "accepted"
+					}
 				}
 			}
 			if e = setReview(db, s.codec, row, in.Decision, body, tags); e != nil {
@@ -353,6 +366,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			business = "cancelled"
 		} else if *row.task.Decision == "approved" {
 			business = "ready"
+			if row.task.CrisisRecheck && row.application == nil && row.message == nil && row.story == nil {
+				business = row.wish.State
+			}
 			if row.story != nil {
 				ok, e := eligible(tx.DB().WithContext(ctx), row)
 				if e != nil {
@@ -371,6 +387,9 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			}
 			if row.application != nil {
 				business = "active"
+				if row.task.CrisisRecheck && row.application.Status == "accepted" {
+					business = "accepted"
+				}
 			}
 		}
 		out = Outcome{*row.task.Decision, business, row.task.Version}

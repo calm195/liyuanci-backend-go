@@ -223,7 +223,7 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 		out.NextAfterSeq = seq
 		out.Items = []DeliveredMessage{}
 		var rows []entity.Message
-		if e = db.Where("conversation_id=? AND status='delivered' AND delivery_seq>? AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)", id, seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
+		if e = db.Where("conversation_id=? AND status='delivered' AND delivery_seq>? AND EXISTS (SELECT 1 FROM public.content_registry approved WHERE approved.kind='message' AND approved.entity_id=messages.id AND approved.content_version=messages.content_version AND approved.status='approved') AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)", id, seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
 			return e
 		}
 		for _, m := range rows {
@@ -290,6 +290,16 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 			if e = db.Where("id=?", *m.ReviewTaskID).Take(&t).Error; e != nil {
 				return e
 			}
+
+			if t.CrisisRecheck && t.Status != "approved" {
+				out.Status = "pending"
+				if t.Status == "rejected" {
+					out.Status = "rejected"
+				}
+				if t.Status == "cancelled" || t.Status == "obsolete" {
+					out.Status = "cancelled"
+				}
+			}
 			decision := "pending"
 			if t.Status == "approved" || t.Status == "rejected" {
 				decision = t.Status
@@ -306,6 +316,19 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 }
 func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (Notification, error) {
 	out := Notification{ID: row.ID, Version: row.Version, Kind: row.Type, Read: row.ReadAt != nil, Notice: "有新进展，请打开应用查看"}
+	if row.Type == "crisis_care" {
+		var card entity.CareCard
+		e := db.WithContext(ctx).Where("id=? AND recipient_id=?", row.TargetRef, row.RecipientID).Take(&card).Error
+		if e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return out, e
+		}
+		if e == nil {
+			ref := card.ID
+			out.TargetRef = &ref
+			out.Notice = "这里有可使用的援助资源，平台人工处理时段为北京时间8至22时"
+		}
+	}
+
 	if row.Type == "penalty_notice" {
 		var p entity.Penalty
 		e := db.WithContext(ctx).Where("id=? AND account_id=?", row.TargetRef, row.RecipientID).Take(&p).Error
@@ -361,7 +384,7 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		}
 		query := db.Where("recipient_id=?", actor)
 		if e := readChatAllowed(db, actor, now); errors.Is(e, command.ErrForbidden) {
-			query = query.Where("type IN ('penalty_notice','appeal_result')")
+			query = query.Where("type IN ('penalty_notice','appeal_result','crisis_care')")
 		} else if e != nil {
 			return e
 		}
@@ -428,7 +451,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 			if e := tx.DB().WithContext(ctx).Where("id=?", id).Take(&row).Error; e != nil {
 				return e
 			}
-			if row.Type != "penalty_notice" && row.Type != "appeal_result" {
+			if row.Type != "penalty_notice" && row.Type != "appeal_result" && row.Type != "crisis_care" {
 				return command.ErrForbidden
 			}
 		}

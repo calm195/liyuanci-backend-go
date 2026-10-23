@@ -377,7 +377,7 @@ func TestModerationCore(t *testing.T) {
 			}
 		}
 		var count int64
-		must(root.Model(&entity.ContentRestriction{}).Where("source_ref=? AND kind='crisis' AND active", event.AggregateID).Count(&count).Error)
+		must(root.Model(&entity.ContentRestriction{}).Where("source_ref IN (SELECT id FROM evidence.crisis_cases WHERE source_task_id=?) AND kind='crisis' AND active", event.AggregateID).Count(&count).Error)
 		if count != 1 {
 			t.Fatal("危机未持久隔离")
 		}

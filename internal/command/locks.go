@@ -50,6 +50,8 @@ func rank(kind ResourceKind) int {
 		return 10
 	case Appeal:
 		return 11
+	case CrisisCase:
+		return 12
 	default:
 		return -1
 	}
@@ -188,6 +190,9 @@ func (t *Tx) lockResources(resources []Resource) error {
 			columns = append(columns, "version")
 		case Appeal:
 			model = &entity.Appeal{}
+			columns = append(columns, "version")
+		case CrisisCase:
+			model = &entity.EvidenceCrisisCase{}
 			columns = append(columns, "version")
 		case Message:
 			model = &entity.Message{}

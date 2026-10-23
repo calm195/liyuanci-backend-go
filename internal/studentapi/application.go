@@ -37,6 +37,8 @@ type Objects interface {
 // 装配器不拥有池或供应商，宿主必须先停止 HTTP 并等待在途请求结束，再释放这些资源。
 type Dependencies struct {
 	// WishDB 使用独立普通业务运行池，仅在显式启用心愿模块时必填。
+	// CrisisDB 使用独立危机运行身份；普通后台池不获得证据域权限。
+	CrisisDB  *gorm.DB
 	WishDB    *gorm.DB
 	Grades    wish.Grades
 	StudentDB *gorm.DB
@@ -54,6 +56,8 @@ type Dependencies struct {
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
+	// Crisis 显式启用独立危机后台服务。
+	Crisis *moderation.Config
 	// Safety 仅在显式给出独立密钥和技术预算时注册安全治理路由。
 	Safety *safety.Config
 	// Chat 仅在心愿模块与技术预算同时显式配置时启用。
@@ -200,7 +204,51 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, e
 		}
 	}
+	var crisisReviews *moderation.Service
+	if cfg.Crisis != nil {
+		if d.CrisisDB == nil {
+			return nil, command.ErrInvalid
+		}
+		cp, e := d.CrisisDB.DB()
+		if e != nil || cp == reviewPool || cp == studentPool {
+			return nil, command.ErrInvalid
+		}
+		if d.WishDB != nil {
+			wp, e := d.WishDB.DB()
+			if e != nil || cp == wp {
+				return nil, command.ErrInvalid
+			}
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
+		if cfg.Wish != nil {
+			keys = append(keys, cfg.Wish.ReceiptKey)
+		}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Safety != nil {
+			keys = append(keys, cfg.Safety.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		for _, k := range keys {
+			if bytes.Equal(k, cfg.Crisis.CursorKey) {
+				return nil, command.ErrInvalid
+			}
+		}
+
+		crisisReviews, e = moderation.New(d.CrisisDB, d.Logger, d.Codec, *cfg.Crisis)
+		if e != nil {
+			return nil, e
+		}
+	}
 	router := httpapi.New(d.Logger, d.Ready)
+	if crisisReviews != nil {
+		if e = httpapi.RegisterCrisis(router, crisisReviews); e != nil {
+			return nil, e
+		}
+	}
 	if e = httpapi.RegisterStudent(router, auth); e != nil {
 		return nil, e
 	}
@@ -219,6 +267,9 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		}
 	}
 	if chats != nil {
+		if e = httpapi.RegisterCare(router, chats); e != nil {
+			return nil, e
+		}
 		if e = httpapi.RegisterChat(router, chats); e != nil {
 			return nil, e
 		}
@@ -229,6 +280,7 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		}
 	}
 	if contentReviews != nil {
+
 		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
 			return nil, e
 		}

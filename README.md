@@ -106,3 +106,5 @@ make integration
 完成、还愿与分享由`wish.ServiceConfig.MaxStoryBytes`正值显式启用，开发设64KiB技术字节预算。确认实现原子关闭会话写入并永久取消待审消息；提交故事即已还愿，公开仍需当前故事版本审核通过。改稿立即隐藏旧版，撤回不回退心愿状态。改稿/撤回的`expected_version`使用本人心愿聚合`version`，故事`content_version`独立递增；本人状态返回`story_review_result`。分享仅保存目标引用，每次打开重验当前公开资格，不保留正文快照。升级显式应用0016并重放权限；微信实机分享仍需外部联调。
 
 安全治理通过`studentapi.Config.Safety`显式启用，提供拉黑、举报、固定等级处罚、服务器30秒警告及受限本人申诉。开发装配使用独立派生用途密钥与64KiB说明/申诉技术预算；升级须显式应用0017并重放权限，普通启动不执行DDL。举报类型来自`report_types`中运营显式发布的数据，未交付时返回空清单；不预置正式运营类型。接口与版本边界见[安全治理接入记录](../docs/development/backend/milestones/2026-10-22-safety-governance-r1.md)。
+
+危机命中由内容worker在原事务内写入独立加密证据、隔离及关怀/授权人员通知待办。升级须显式应用0018并重放权限；后台危机路由通过`studentapi.Config.Crisis`和独立`CrisisDB`池启用，宿主开发使用私有凭据文件内可选`CrisisDSN`，登录仅属于`liyuanci_crisis_api`。普通审核池仍无证据域权限。援助资料由`WorkerConfig.Care`显式注入，开发文件可选`Care`；没有资料或`CrisisNotifier`时保留重试待办。误报创建新的普通人工复核任务，不直接恢复公开；关怀通知引用本人卡片，不暴露后台案号。接入和边界见[后端阶段记录](../docs/development/backend/milestones/2026-10-23-crisis-care-r1.md)。

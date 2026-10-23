@@ -19,6 +19,16 @@ type Scanner interface {
 	ProcessNext(context.Context) (durable.Consumption, error)
 }
 
+// Maintainer 允许领域提供独立的有界待办补偿，和扫描共用宿主取消及等待生命周期。
+type Maintainer interface{ Maintain(context.Context) error }
+
+func maintenance(scanner Scanner) func(context.Context) error {
+	if m, ok := scanner.(Maintainer); ok {
+		return m.Maintain
+	}
+	return nil
+}
+
 // Config 显式提供通道和调度预算；没有生产默认参数或自动创建主题的行为。
 type Config struct {
 	MQ               transportmq.Config
@@ -81,7 +91,7 @@ func Open(ctx context.Context, db *gorm.DB, scanner Scanner, logger *zap.Logger,
 		return nil, err
 	}
 	// 启动 context 不充当运行期限；显式 Close 负责取消并等待全部在途操作。
-	return startWorker(relay.Once, scanner.ProcessNext, subscriber, sender, logger, cfg), nil
+	return startWorker(relay.Once, scanner.ProcessNext, subscriber, sender, logger, cfg, maintenance(scanner)), nil
 }
 
 // OpenDatabase 仅启动有界数据库补偿，不构造消息客户端或要求 Broker。
@@ -90,10 +100,10 @@ func OpenDatabase(ctx context.Context, scanner Scanner, logger *zap.Logger, inte
 	if scanner == nil || logger == nil || ctx.Err() != nil || interval < time.Millisecond || timeout <= 0 {
 		return nil, durable.ErrInvalid
 	}
-	return startWorker(nil, scanner.ProcessNext, nil, nil, logger, Config{ScanInterval: interval, OperationTimeout: timeout}), nil
+	return startWorker(nil, scanner.ProcessNext, nil, nil, logger, Config{ScanInterval: interval, OperationTimeout: timeout}, maintenance(scanner)), nil
 }
 
-func startWorker(relay func(context.Context) (bool, error), scan func(context.Context) (durable.Consumption, error), subscriber, sender closer, logger *zap.Logger, cfg Config) *Worker {
+func startWorker(relay func(context.Context) (bool, error), scan func(context.Context) (durable.Consumption, error), subscriber, sender closer, logger *zap.Logger, cfg Config, maintain ...func(context.Context) error) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &Worker{cancel: cancel, done: make(chan struct{}), subscriber: subscriber, sender: sender, logger: logger}
 	var running sync.WaitGroup
@@ -109,6 +119,15 @@ func startWorker(relay func(context.Context) (bool, error), scan func(context.Co
 		defer running.Done()
 		poll(ctx, cfg.ScanInterval, cfg.OperationTimeout, logger, "scan", func(ctx context.Context) error { _, err := scan(ctx); return err })
 	}()
+	for _, run := range maintain {
+		if run != nil {
+			running.Add(1)
+			go func() {
+				defer running.Done()
+				poll(ctx, cfg.ScanInterval, cfg.OperationTimeout, logger, "maintenance", run)
+			}()
+		}
+	}
 	go func() { running.Wait(); close(w.done) }()
 	return w
 }
