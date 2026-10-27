@@ -92,7 +92,7 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 			return "", e
 		}
 		var tasks []entity.ModerationTask
-		if e = db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.author_id=? AND t.status IN ('pending','human_required')", id).Find(&tasks).Error; e != nil {
+		if e = db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.author_id=? AND c.kind<>'whisper_capsule' AND t.status IN ('pending','human_required')", id).Find(&tasks).Error; e != nil {
 			return "", e
 		}
 		for _, t := range tasks {

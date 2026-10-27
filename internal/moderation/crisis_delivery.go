@@ -108,7 +108,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 	defer stop()
 	err = w.db.WithContext(finish).Transaction(func(db *gorm.DB) error {
 		// 与人工处置保持案件先于投递行的锁序；误报已取消的租约不会创建关怀。
-		c, e := crisisRow(db, job.CaseID)
+		c, e := deliveryCrisisRow(db, job.CaseID)
 		if e != nil {
 			return e
 		}
@@ -133,7 +133,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if _, e = command.LockPlan(finish, db, plan, w.cfg.Consumer.LockTimeout); e != nil {
 			return e
 		}
-		c, e = crisisRow(db, job.CaseID)
+		c, e = deliveryCrisisRow(db, job.CaseID)
 		if e != nil {
 			return e
 		}
@@ -186,3 +186,9 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 
 // Maintain 由宿主调度独立补偿危机投递，不挤占正文扫描的外部分析预算。
 func (w *Worker) Maintain(ctx context.Context) error { _, e := w.ProcessCrisisDelivery(ctx); return e }
+
+// deliveryCrisisRow 仅供内部投递；跨域公开读取仍走各自的来源筛选。
+func deliveryCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
+	err = db.Where("id=?", id).Take(&c).Error
+	return c, err
+}

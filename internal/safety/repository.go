@@ -207,7 +207,7 @@ func penalty(db *gorm.DB, id string) (p entity.Penalty, err error) {
 	return
 }
 func report(db *gorm.DB, id string) (p entity.Report, err error) {
-	err = found(db.Where("id=?", id).Take(&p).Error)
+	err = found(db.Where("id=? AND target_kind IN ('wish','application','message','story','account')", id).Take(&p).Error)
 	return
 }
 func appeal(db *gorm.DB, id string) (p entity.Appeal, err error) {

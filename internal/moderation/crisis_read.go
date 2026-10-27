@@ -72,7 +72,7 @@ func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, li
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.EvidenceCrisisCase{}).Table("evidence.crisis_cases AS c").Select("c.*").Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id AND ec.status<>'deletion_pending'")
+		q := db.Model(&entity.EvidenceCrisisCase{}).Table("evidence.crisis_cases AS c").Select("c.*").Where("c.content_type IN ('wish','application','message','story')").Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id AND ec.status<>'deletion_pending'")
 		if after != "" {
 			q = q.Where("c.id>?", after)
 		}
@@ -180,7 +180,7 @@ func (s *Service) CrisisEvidence(ctx context.Context, token, rid, id string) (ou
 			return e
 		}
 		var c entity.EvidenceCrisisCase
-		if e = db.Where("evidence_case_id=?", item.CaseID).Take(&c).Error; e != nil {
+		if e = db.Where("evidence_case_id=? AND content_type IN ('wish','application','message','story')", item.CaseID).Take(&c).Error; e != nil {
 			return command.ErrNotFound
 		}
 		var ec entity.EvidenceCase

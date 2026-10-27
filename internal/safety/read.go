@@ -94,7 +94,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.Items = append(out.Items, warning(r, now))
 			}
 		case "reports":
-			query := db.Table("public.reports AS r").Select("r.*").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
+			query := db.Table("public.reports AS r").Select("r.*").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind IN ('wish','application','message','story') AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
 			if id != "" {
 				query = query.Where("(r.created_at,r.id)<(?,?::uuid)", at, id)
 			}
