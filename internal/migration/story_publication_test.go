@@ -17,12 +17,24 @@ func TestPostgresStoryPublication(t *testing.T) {
 		t.Fatal(e)
 	}
 	// 构造缺少公开时间及后续版本的已部署结构，不改写任何历史迁移输入。
+	receiptDown, e := files.ReadFile("sql/0023_command_receipt_lifecycle.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	reviewEpochDown, e := files.ReadFile("sql/0022_whisper_review_epoch.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
 	foundationDown, e := files.ReadFile("sql/0021_whisper_foundation.down.sql")
 	if e != nil {
 		t.Fatal(e)
 	}
 	if e := db.Transaction(func(tx *gorm.DB) error {
 		for _, sql := range []string{
+			string(receiptDown),
+			"DELETE FROM public.schema_migrations WHERE version=23",
+			string(reviewEpochDown),
+			"DELETE FROM public.schema_migrations WHERE version=22",
 			string(foundationDown),
 			"DELETE FROM public.schema_migrations WHERE version=21",
 			"ALTER TABLE public.story_versions DROP COLUMN published_at",

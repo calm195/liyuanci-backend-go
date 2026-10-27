@@ -11,6 +11,14 @@ import (
 
 // 稳定错误供 HTTP/消费者边界映射，不包含数据库、令牌或个人信息。
 var (
+	// ErrVerificationRequired 表示当前操作需要已通过学生认证。
+	ErrVerificationRequired = errors.New("需要学生认证")
+	// ErrModeUnavailable 表示所选身份档位缺少当前受控资料。
+	ErrModeUnavailable = errors.New("身份档位暂不可用")
+	// ErrDictionaryChanged 表示客户端字典版本已经变更。
+	ErrDictionaryChanged = errors.New("字典版本已变更")
+	// ErrNicknameNotReady 表示指定昵称不是本人当前已批准版本。
+	ErrNicknameNotReady = errors.New("昵称尚未就绪")
 	// ErrInvalid 表示请求或服务端策略无效。
 	ErrInvalid = errors.New("命令输入无效")
 	// ErrUnauthenticated 表示当前会话不可使用。
@@ -156,6 +164,8 @@ type Input struct {
 // Discover 必须只读；Authorize 校验当前资格/对象访问，不能把首次业务状态当重放授权。
 // Apply 仅执行本事务数据库操作，无外部发送；Resolve 重查当前结果可访问性，不回放正文。
 type Definition struct {
+	// RetainReceipt 将最小回执保留至业务生命周期结束，技术期限不再允许重建命令。
+	RetainReceipt bool
 	// IdentityLock 在主体锁之前串行化身份绑定与检索密钥轮换。
 	IdentityLock bool
 	Kind         string

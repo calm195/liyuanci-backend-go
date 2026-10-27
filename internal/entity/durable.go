@@ -79,13 +79,14 @@ func (DeliveryAttempt) TableName() string { return "public.delivery_attempts" }
 
 // CommandReceipt 映射 public.command_receipts，字段注释描述数据库持久化语义。
 type CommandReceipt struct {
-	ActorKind   string    `gorm:"column:actor_kind;type:text;primaryKey;autoIncrement:false;comment:调用者命名空间" json:"-"`
-	ActorID     string    `gorm:"column:actor_id;type:uuid;primaryKey;autoIncrement:false;comment:调用者技术标识，多态主体存在性由命令校验" json:"-"`
-	CommandKind string    `gorm:"column:command_kind;type:text;primaryKey;autoIncrement:false;comment:受控路由命令类型" json:"-"`
-	KeyHash     []byte    `gorm:"column:key_hash;type:bytea;primaryKey;autoIncrement:false;comment:幂等键摘要" json:"-"`
-	RequestHash []byte    `gorm:"column:request_hash;type:bytea;not null;comment:规范请求摘要，不保存原始请求" json:"-"`
-	ResultRef   string    `gorm:"column:result_ref;type:uuid;not null;comment:命令结果技术引用" json:"-"`
-	ExpiresAt   time.Time `gorm:"column:expires_at;type:timestamptz;not null;comment:回执清理期限" json:"-"`
+	LifecycleBound bool      `gorm:"column:lifecycle_bound;not null;default:false;comment:回执绑定业务幂等生命周期，技术到期后仍重验当前访问，不覆盖或按期清理" json:"-"`
+	ActorKind      string    `gorm:"column:actor_kind;type:text;primaryKey;autoIncrement:false;comment:调用者命名空间" json:"-"`
+	ActorID        string    `gorm:"column:actor_id;type:uuid;primaryKey;autoIncrement:false;comment:调用者技术标识，多态主体存在性由命令校验" json:"-"`
+	CommandKind    string    `gorm:"column:command_kind;type:text;primaryKey;autoIncrement:false;comment:受控路由命令类型" json:"-"`
+	KeyHash        []byte    `gorm:"column:key_hash;type:bytea;primaryKey;autoIncrement:false;comment:幂等键摘要" json:"-"`
+	RequestHash    []byte    `gorm:"column:request_hash;type:bytea;not null;comment:规范请求摘要，不保存原始请求" json:"-"`
+	ResultRef      string    `gorm:"column:result_ref;type:uuid;not null;comment:命令结果技术引用" json:"-"`
+	ExpiresAt      time.Time `gorm:"column:expires_at;type:timestamptz;not null;comment:回执清理期限" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
