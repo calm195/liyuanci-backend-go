@@ -73,7 +73,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.NextCursor = &c
 			}
 			for _, r := range rows {
-				out.Items = append(out.Items, map[string]any{"target_user_id": r.TargetID, "version": r.Version})
+				out.Items = append(out.Items, BlockEntry{TargetUserID: r.TargetID, Version: r.Version})
 			}
 		case "warnings":
 			var rows []entity.Penalty

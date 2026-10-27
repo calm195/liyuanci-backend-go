@@ -120,6 +120,7 @@ func (Message) TableName() string { return "public.messages" }
 
 // StoryVersion 映射 public.story_versions，字段注释描述数据库持久化语义。
 type StoryVersion struct {
+	PublishedAt            *time.Time      `gorm:"column:published_at;type:timestamptz;comment:当前故事版本审核公开时间，历史已审版本使用迁移切换时间" json:"-"`
 	ReviewTaskID           *string         `gorm:"column:review_task_id;type:uuid;comment:当前故事审核任务" json:"-"`
 	IdentityTags           json.RawMessage `gorm:"column:identity_tags;type:jsonb;not null;default:'{}';comment:最小已审标签" json:"-"`
 	WordlistVersion        *string         `gorm:"column:wordlist_version;type:uuid;comment:普通违规词库版本" json:"-"`

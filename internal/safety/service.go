@@ -95,6 +95,12 @@ type Summary struct {
 	ContentVersion int64  `json:"content_version,omitempty"`
 }
 
+// BlockEntry 只返回本人拉黑目标及条目版本，解除时不能使用Me版本。
+type BlockEntry struct {
+	TargetUserID string `json:"target_user_id"`
+	Version      int64  `json:"version"`
+}
+
 // Page 使用当前授权筛选后的队列，允许空页。
 type Page struct {
 	Items      []any   `json:"items"`

@@ -190,7 +190,7 @@ func TestOptionalWishAssembly(t *testing.T) {
 	if cfg.Auth.Wishes {
 		t.Fatal("修改调用方配置")
 	}
-	if len(router.Routes()) != 29 {
+	if len(router.Routes()) != 30 {
 		t.Fatal("心愿路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes"}, {"PUT", "/api/v1/wishes/id/content"}, {"POST", "/api/v1/wishes/id/submit-review"}, {"POST", "/api/v1/wishes/id/publish"}, {"POST", "/api/v1/wishes/id/withdraw"}, {"DELETE", "/api/v1/wishes/id/draft"}, {"GET", "/api/v1/me/wishes"}, {"POST", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/me/applications"}, {"POST", "/api/v1/applications/id/withdraw"}, {"POST", "/api/v1/applications/id/accept"}, {"POST", "/api/v1/wishes/id/rollback"}} {
@@ -222,7 +222,7 @@ func TestOptionalChatAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 36 {
+	if len(router.Routes()) != 37 {
 		t.Fatal("聊天路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/me/conversations"}, {"GET", "/api/v1/conversations/id/messages"}, {"POST", "/api/v1/conversations/id/messages"}, {"GET", "/api/v1/me/messages/id/status"}, {"GET", "/api/v1/me/care-cards/id"}, {"GET", "/api/v1/me/notifications"}, {"POST", "/api/v1/me/notifications/id/read"}} {
@@ -252,7 +252,7 @@ func TestStoryAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 37 {
+	if len(router.Routes()) != 38 {
 		t.Fatal("故事路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes/id/complete"}, {"POST", "/api/v1/wishes/id/stories"}, {"PUT", "/api/v1/wishes/id/story"}, {"POST", "/api/v1/wishes/id/story/withdraw"}, {"POST", "/api/v1/share-links"}} {
