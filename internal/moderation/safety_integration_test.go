@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -262,6 +263,72 @@ func TestSafetyGovernance(t *testing.T) {
 		exec(students, ot, "unblock", hi, safety.Input{ExpectedVersion: 2})
 		apply(ht, w, "重新主动申请")
 	})
+	t.Run("本人黑名单分页版本与游标隔离", func(t *testing.T) {
+		owner, token := student()
+		other, otherToken := student()
+		empty := call(token, "GET", "/me/blocks", "", "", 200)
+		if len(empty["items"].([]any)) != 0 || empty["next_cursor"] != nil {
+			t.Fatal("空列表边界错误", empty)
+		}
+		for i := 0; i < 3; i++ {
+			target, _ := student()
+			call(token, "POST", "/me/blocks", uuid.NewString(), fmt.Sprintf(`{"target_user_id":%q}`, target), 200)
+		}
+		must(root.Exec("UPDATE public.blocks SET created_at=? WHERE owner_id=?", time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond), owner).Error)
+		first := call(token, "GET", "/me/blocks?limit=1", "", "", 200)
+		cursor, ok := first["next_cursor"].(string)
+		if !ok || cursor == "" || len(first["items"].([]any)) != 1 {
+			t.Fatal("缺少分页游标", first)
+		}
+		entry := first["items"].([]any)[0].(map[string]any)
+		if len(entry) != 2 || entry["version"].(float64) < 1 {
+			t.Fatal("条目投影扩大或缺少版本", entry)
+		}
+		seen := map[string]bool{}
+		previous, next := "", ""
+		for {
+			path := "/me/blocks?limit=1"
+			if next != "" {
+				path += "&cursor=" + url.QueryEscape(next)
+			}
+			page := call(token, "GET", path, "", "", 200)
+			items := page["items"].([]any)
+			if len(items) != 1 {
+				t.Fatal("分页缺项", page)
+			}
+			id := items[0].(map[string]any)["target_user_id"].(string)
+			if seen[id] || previous != "" && id >= previous {
+				t.Fatal("游标重复或同时间排序错误", id)
+			}
+			seen[id], previous = true, id
+			if page["next_cursor"] == nil {
+				break
+			}
+			next = page["next_cursor"].(string)
+		}
+		if len(seen) != 3 {
+			t.Fatal("黑名单分页不完整", seen)
+		}
+		for _, request := range []struct{ token, path string }{
+			{otherToken, "/me/blocks?cursor=" + url.QueryEscape(cursor)},
+			{token, "/me/warnings?cursor=" + url.QueryEscape(cursor)},
+			{token, "/me/blocks?cursor=" + url.QueryEscape(cursor+"x")},
+		} {
+			call(request.token, "GET", request.path, "", "", 400)
+		}
+		call(token, "DELETE", "/me/blocks/"+entry["target_user_id"].(string), uuid.NewString(), fmt.Sprintf(`{"expected_version":%.0f}`, entry["version"]), 204)
+		// 游标指向的条目被解除也不会重回首页；仍可从原位置向后读取。
+		afterDelete := call(token, "GET", "/me/blocks?limit=1&cursor="+url.QueryEscape(cursor), "", "", 200)
+		if len(afterDelete["items"].([]any)) != 1 || afterDelete["items"].([]any)[0].(map[string]any)["target_user_id"] == entry["target_user_id"] {
+			t.Fatal("历史位置游标恢复旧条目", afterDelete)
+		}
+		ownOther := call(otherToken, "GET", "/me/blocks", "", "", 200)
+		if len(ownOther["items"].([]any)) != 0 {
+			t.Fatal("跨账号读取黑名单", other, ownOther)
+		}
+		must(root.Exec("UPDATE public.sessions SET revoked_at=clock_timestamp() WHERE account_id=?", owner).Error)
+		call(token, "GET", "/me/blocks", "", "", 401)
+	})
 	t.Run("警告首次展示及提前同键重试", func(t *testing.T) {
 		oi, ot := student()
 		_, rt := student()
@@ -369,6 +436,7 @@ func TestSafetyGovernance(t *testing.T) {
 		if len(notices.Items) != 1 || notices.Items[0].TargetRef == nil || *notices.Items[0].TargetRef != p.ID {
 			t.Fatal("封禁未提供申诉目标引用")
 		}
+		call(ot, "GET", "/me/blocks", "", "", 403)
 		call(ot, "POST", "/me/blocks", uuid.NewString(), fmt.Sprintf(`{"target_user_id":%q}`, ri), 403)
 		a := exec(students, ot, "appeal", "", safety.Input{PenaltyID: p.ID, Body: "封禁本人申诉"}).(safety.Appeal)
 		_, e = students.List(ctx, ot, "appeals", "appeals", safety.Query{Limit: 20})

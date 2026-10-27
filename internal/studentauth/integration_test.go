@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,6 +152,20 @@ func TestPostgresStudent(t *testing.T) {
 	first := login("same-first")
 	if first.Me.Verification != "unverified" || first.Token == "" || len(first.Me.AllowedActions) != 2 {
 		t.Fatal("微信身份不能授予学生认证")
+	}
+	// REQ-014/018：动作名随当前安全模块装配，正式解除动作属于Me，目标及版本来自本人黑名单条目。
+	safetyCfg := cfg
+	safetyCfg.Safety = true
+	safetyService, e := studentauth.New(restricted, logger, exchanger, store, limiter, safetyCfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	safetyMe, e := safetyService.Current(ctx, first.Token, "safety-actions")
+	if e != nil || !slices.Contains(safetyMe.AllowedActions, "deleteMeBlocksTarget_Id") || slices.Contains(safetyMe.AllowedActions, "deleteMeBlocks") {
+		t.Fatal("解除动作未统一", safetyMe, e)
+	}
+	if slices.Contains(first.Me.AllowedActions, "deleteMeBlocksTarget_Id") {
+		t.Fatal("未装配模块仍授予解除动作")
 	}
 	repeat, e := service.Login(ctx, "same-first", "request-same-first", "source", "student_replay")
 	if e != nil || repeat.Token != first.Token || exchanger.calls.Load() != 1 {
@@ -311,6 +326,10 @@ func TestPostgresStudent(t *testing.T) {
 	// 受罚会话保留读取/退出，普通资料写不绕过处罚。
 	if e = db.Exec("INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,reason_ref,starts_at) VALUES (?, ?, 'severe', 'ban', ?, 1, ?, clock_timestamp())", uuid.NewString(), first.Me.ID, uuid.NewString(), uuid.NewString()).Error; e != nil {
 		t.Fatal(e)
+	}
+	restrictedSafety, e := safetyService.Current(ctx, first.Token, "safety-restricted")
+	if e != nil || slices.Contains(restrictedSafety.AllowedActions, "deleteMeBlocksTarget_Id") || slices.Contains(restrictedSafety.AllowedActions, "postMeBlocks") {
+		t.Fatal("受罚会话仍提示普通拉黑动作", restrictedSafety, e)
 	}
 	current, e := service.Current(ctx, first.Token, "student_restricted")
 	if e != nil || current.Nickname != "" || len(current.AllowedActions) != 1 {

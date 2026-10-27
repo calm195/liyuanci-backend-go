@@ -392,7 +392,8 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 	if e == nil && s.config.Safety {
 		out.AllowedActions = append(out.AllowedActions, "postMeAppeals", "getMeAppeals", "getMeWarnings", "postMeWarningsIdDisplay", "postMeWarningsIdAck")
 		if slices.Contains(out.AllowedActions, "putMeProfile") {
-			out.AllowedActions = append(out.AllowedActions, "postMeBlocks", "deleteMeBlocks", "postReports", "getReportTypes")
+			// 解除提示归属当前Me，具体目标和版本仍取本人黑名单条目，不发送历史别名。
+			out.AllowedActions = append(out.AllowedActions, "postMeBlocks", "deleteMeBlocksTarget_Id", "postReports", "getReportTypes")
 		}
 	}
 	return out, e
