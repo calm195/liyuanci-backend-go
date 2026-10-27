@@ -351,6 +351,25 @@ func TestStorySharing(t *testing.T) {
 		if len([]rune(public.Body)) != 501 || public.SchoolRelated || len(public.NoticeCodes) != 0 {
 			t.Fatal("故事字符限制或提示错误")
 		}
+		// REQ-008/018：真实审核事务写入公开时间，主页复用同一公开投影。
+		firstPublication := storyVersion(f.w.ID).PublishedAt
+		if firstPublication == nil || firstPublication.Before(storyVersion(f.w.ID).CreatedAt) {
+			t.Fatal("故事公开时间缺失或早于提交")
+		}
+		profileRouter := httpapi.New(logger, func(context.Context) error { return nil })
+		must(httpapi.RegisterPublicProfile(profileRouter, wishes))
+		profileHTTP := httptest.NewRecorder()
+		profileRouter.ServeHTTP(profileHTTP, httptest.NewRequest("GET", "/api/v1/users/"+f.ownerID+"/public-profile", nil))
+		if profileHTTP.Code != 200 {
+			t.Fatal("主页HTTP未成功", profileHTTP.Code, profileHTTP.Body.String())
+		}
+		var profileEnvelope struct {
+			Data wish.ProfileContents `json:"data"`
+		}
+		must(json.Unmarshal(profileHTTP.Body.Bytes(), &profileEnvelope))
+		if profileEnvelope.Data.Profile.ID != f.ownerID || len(profileEnvelope.Data.Items) != 1 || profileEnvelope.Data.Items[0].Kind != "story" || profileEnvelope.Data.Items[0].Content.Body != public.Body {
+			t.Fatal("主页未返回当前公开故事", profileEnvelope)
+		}
 		link, e := wishes.CreateShare(ctx, f.owner, "story-share-key", "share", wish.ShareInput{TargetKind: "story", ID: f.w.ID})
 		must(e)
 		replay, e := wishes.CreateShare(ctx, f.owner, "story-share-key", "share", wish.ShareInput{TargetKind: "story", ID: f.w.ID})
@@ -365,11 +384,19 @@ func TestStorySharing(t *testing.T) {
 		}
 		update(f, "普通命中 学校命中 新稿")
 		invisible(f.w.ID)
+		pendingProfile, e := wishes.PublicProfile(ctx, f.owner, "profile-pending", f.ownerID, "", 20)
+		must(e)
+		if len(pendingProfile.Items) != 0 || storyVersion(f.w.ID).PublishedAt != nil {
+			t.Fatal("新稿待审仍在主页公开")
+		}
 		if _, e = wishes.ResolveShare(ctx, "", "hidden", link.Ref); e != command.ErrNotFound {
 			t.Fatal("改稿后分享仍返回旧正文", e)
 		}
 		scan("story", f.w.ID)
 		approve(f.w.ID)
+		if publishedAt := storyVersion(f.w.ID).PublishedAt; publishedAt == nil || !publishedAt.After(*firstPublication) {
+			t.Fatal("新版本未获得独立公开时间")
+		}
 		public, e = wishes.Story(ctx, "", "school", f.w.ID)
 		must(e)
 		resolved, e = wishes.ResolveShare(ctx, "", "school-share", link.Ref)

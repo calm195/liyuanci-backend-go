@@ -171,7 +171,12 @@ func invalidateStories(ctx context.Context, tx *command.Tx, id string) error {
 // ApplyStoryReview 写入精确故事投影并释放其已覆盖屏障，不解除父心愿屏障或恢复旧版本。
 func ApplyStoryReview(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.StoryVersion, t entity.ModerationTask, decision string, body *string, tags []byte) error {
 	db = db.WithContext(ctx)
-	if e := db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", w.ID, v.StoryVersion).Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags)}).Error; e != nil {
+	updates := map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags), "published_at": nil}
+	if decision == "approved" {
+		// 同版本幂等复核保留首次公开位置；新版本在批准事务内建立独立位置。
+		updates["published_at"] = gorm.Expr("COALESCE(published_at, clock_timestamp())")
+	}
+	if e := db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", w.ID, v.StoryVersion).Updates(updates).Error; e != nil {
 		return e
 	}
 	if decision == "approved" {

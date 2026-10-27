@@ -235,7 +235,7 @@ REVOKE ALL ON public.share_links FROM PUBLIC,liyuanci_api,liyuanci_domain_worker
 GRANT SELECT,INSERT ON public.share_links TO liyuanci_api;
 GRANT SELECT,DELETE ON public.share_links TO liyuanci_privacy_maintenance;
 GRANT UPDATE (current_story_version) ON public.wishes TO liyuanci_admin_api;
-GRANT UPDATE (moderation_status,public_body,identity_tags,school_related,school_detection_version,school_detection_state,wordlist_version) ON public.story_versions TO liyuanci_admin_api;
+GRANT UPDATE (moderation_status,public_body,identity_tags,school_related,school_detection_version,school_detection_state,wordlist_version,published_at) ON public.story_versions TO liyuanci_admin_api;
 GRANT UPDATE (status,released_at) ON public.privacy_holds TO liyuanci_admin_api,liyuanci_domain_worker;
 
 -- 安全治理仍区分学生可确认警告列和后台可写处罚列，不开放DDL或任意处罚写权限。

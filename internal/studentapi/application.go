@@ -342,6 +342,9 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		if e = httpapi.RegisterWishes(router, wishes); e != nil {
 			return nil, e
 		}
+		if e = httpapi.RegisterPublicProfile(router, wishes); e != nil {
+			return nil, e
+		}
 		if e = httpapi.RegisterApplications(router, wishes); e != nil {
 			return nil, e
 		}
