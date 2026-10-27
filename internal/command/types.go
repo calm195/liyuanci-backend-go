@@ -83,7 +83,15 @@ const (
 	Match ResourceKind = "match"
 	// Conversation 在匹配后锁定。
 	Conversation ResourceKind = "conversation"
-	// ModerationTask 在会话后锁定，expected_version绑定案件独立版本。
+	// WhisperPost 在审核任务前锁定树洞父帖。
+	WhisperPost ResourceKind = "whisper_post"
+	// WhisperNickname 以随机内容注册标识锁定昵称版本，不使用账号标识冒充内容标识。
+	WhisperNickname ResourceKind = "whisper_nickname"
+	// WhisperCapsule 在审核任务前锁定私人胶囊。
+	WhisperCapsule ResourceKind = "whisper_capsule"
+	// WhisperComment 在父帖后、审核任务前锁定暖评。
+	WhisperComment ResourceKind = "whisper_comment"
+	// ModerationTask 在普通业务资源后锁定，expected_version绑定案件独立版本。
 	ModerationTask ResourceKind = "moderation_task"
 	// Message 在审核任务后锁定。
 	Message ResourceKind = "message"
@@ -107,7 +115,7 @@ type Resource struct {
 	ID   string
 }
 
-// Expectation 将三个独立协议字段绑定到明确对象，禁止混用会话代次和聚合版本。
+// Expectation 将并发协议字段绑定到明确对象，禁止混用评论代次、会话代次和资源版本。
 type Expectation struct {
 	Name   string
 	Target Resource
@@ -188,6 +196,8 @@ type Snapshot struct {
 	Resource
 	Version    int64
 	WriteEpoch int64
+	// CommentsEpoch 仅来自树洞父帖，不能用会话写代次替代。
+	CommentsEpoch int64
 }
 
 // Tx 的生命周期由 Engine 独占；不得保存到回调之外、手动提交/回滚或建立独立写事务。

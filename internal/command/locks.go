@@ -38,22 +38,30 @@ func rank(kind ResourceKind) int {
 		return 4
 	case Conversation:
 		return 5
-	case ModerationTask:
+	case WhisperPost:
 		return 6
-	case Message:
+	case WhisperNickname:
 		return 7
-	case Notification:
+	case WhisperCapsule:
 		return 8
-	case Report:
+	case WhisperComment:
 		return 9
-	case Penalty:
+	case ModerationTask:
 		return 10
-	case Appeal:
+	case Message:
 		return 11
-	case CrisisCase:
+	case Notification:
 		return 12
-	case EvidenceCase:
+	case Report:
 		return 13
+	case Penalty:
+		return 14
+	case Appeal:
+		return 15
+	case CrisisCase:
+		return 16
+	case EvidenceCase:
+		return 17
 	default:
 		return -1
 	}
@@ -160,6 +168,7 @@ func (t *Tx) lockResources(resources []Resource) error {
 		// 表由封闭资源类型选择；投影缺少的版本字段保持零值，不引入动态表名输入。
 		var model any
 		columns := []string{"id"}
+		keyColumn := "id"
 		switch ref.Kind {
 		case Asset:
 			model = &entity.Asset{}
@@ -178,6 +187,19 @@ func (t *Tx) lockResources(resources []Resource) error {
 		case Conversation:
 			model = &entity.Conversation{}
 			columns = append(columns, "write_epoch", "version")
+		case WhisperPost:
+			model = &entity.WhisperPost{}
+			columns = append(columns, "version", "comments_epoch")
+		case WhisperNickname:
+			model = &entity.WhisperNicknameVersion{}
+			keyColumn = "content_registry_id"
+			columns = []string{"content_registry_id AS id", "control_version AS version"}
+		case WhisperCapsule:
+			model = &entity.WhisperCapsule{}
+			columns = append(columns, "version")
+		case WhisperComment:
+			model = &entity.WhisperComment{}
+			columns = append(columns, "version")
 		case ModerationTask:
 			model = &entity.ModerationTask{}
 			columns = append(columns, "version")
@@ -206,17 +228,18 @@ func (t *Tx) lockResources(resources []Resource) error {
 			return ErrInvalid
 		}
 		var rows []struct {
-			ID         string
-			Version    int64
-			WriteEpoch int64
+			ID            string
+			Version       int64
+			WriteEpoch    int64
+			CommentsEpoch int64
 		}
-		if err := t.db.Model(model).Select(columns).Where("id = ?", ref.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; err != nil {
+		if err := t.db.Model(model).Select(columns).Where(keyColumn+" = ?", ref.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) != 1 {
 			return ErrNotFound
 		}
-		t.resources[ref] = Snapshot{Resource: ref, Version: rows[0].Version, WriteEpoch: rows[0].WriteEpoch}
+		t.resources[ref] = Snapshot{Resource: ref, Version: rows[0].Version, WriteEpoch: rows[0].WriteEpoch, CommentsEpoch: rows[0].CommentsEpoch}
 	}
 	return nil
 }

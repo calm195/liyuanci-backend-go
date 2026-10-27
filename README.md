@@ -97,9 +97,9 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 make integration
 ```
 
-专项验收脚本按用户要求已删除；CI保留完整Go质量检查、离线入口单测及Make直接声明的真实中间件往返。变更需要的额外验证临时执行并记录实际结果，不新增长期专项脚本。`make integration`在原探针往返后，以锁定Go构建的独立测试镜像运行真实PG持久工作/重驱动审计、学生卡领域链及内容扫描/人工复核核心；覆盖提交后NACK重投、重复、取消晚到、外部失败、过期租约恢复，以及词库发布并发、人工案件版本、隐私屏障和审计回滚。外部扫描、密钥和对象均为合成夹具，故障用例不等于真实杀进程或生产验收。该入口会迁移并清理隔离业务测试数据，仅用于独立测试项目，调用者显式维护其凭据与停止清理；不连接日常业务库或生产。
+专项验收脚本按用户要求已删除；CI保留完整Go质量检查、离线入口单测及Make直接声明的真实中间件往返。变更需要的额外验证临时执行并记录实际结果，不新增长期专项脚本。`make integration`在原探针往返后，以锁定Go构建的独立测试镜像运行真实PG迁移与树洞资源锁、持久工作/重驱动审计、学生卡领域链及内容扫描/人工复核核心；覆盖提交后NACK重投、重复、取消晚到、外部失败、过期租约恢复，以及词库发布并发、人工案件版本、隐私屏障和审计回滚。外部扫描、密钥和对象均为合成夹具，故障用例不等于真实杀进程或生产验收。该入口会迁移并清理隔离业务测试数据，仅用于独立测试项目，调用者显式维护其凭据与停止清理；不连接日常业务库或生产。
 
-同一任务复用未固定记录，一次完整交付新增阶段记录和证据；历史记录保持只读。两仓库使用同名`codex/<主题>`分支，提交需用户授权，不自动推送、合并或部署。完整规则见[AGENTS.md](AGENTS.md)。
+同一任务复用未固定记录，一次完整交付新增阶段记录和证据；历史记录保持只读。后端源码使用`develop`，docs使用`backend-develop`分支，提交需用户授权，不自动推送、合并或部署。完整规则见[AGENTS.md](AGENTS.md)。
 
 应愿入口随显式心愿应用装配：提交/本人列表、许愿人有效申请列表、撤销、同意及普通回退。留言先加密持久化并送审，内容worker复用同一内容主题处理心愿和应愿留言；未配置真实分析供应商时失败关闭。许愿人只收到当前有效申请的已审留言及最小公开资料，待审不能同意。匹配创建独立会话，回退重新招募时旧会话保持只读，新匹配新建会话；刷新期限需新内容版本重新审核。升级显式应用迁移0014并重放bootstrap权限，运行进程不执行DDL。
 
@@ -119,3 +119,5 @@ make integration
 注销及证据删除由`internal/privacy`提供：先持久独立恢复日志，再原子撤销会话、设置公开屏障并处理存活方关系；清理失败保持`processing`，匿名回执不含身份或正文。显式应用0019并重放权限后，通过`studentapi.Config.Privacy/EvidenceDeletion`及独立运行池启用；普通启动不迁移。宿主开发凭据可选`PrivacyDSN/EvidenceDeletionDSN/EvidencePurgerDSN/RecoveryWriterDSN/RecoveryReaderDSN/RecoveryWrapKey`，日志包裹密钥必须独立，初始化不创建这些资源或替换旧密钥。`make build`同时构建`privacy-worker`；直接运行时显式提供`APP_ENVIRONMENT=integration`、`APP_DEVAPPFILE`和`APP_PRIVACY_SCOPE=account`或`evidence`。此开发入口未配置外部全版本清理及脱敏适配器，只维持持久待办；正式宿主须注入`privacy.Eraser`、`privacy.Redactor`和独立日志后调用`Service.Run`，不能把开发进程用于生产。接入、恢复重删及验收边界见[隐私清理阶段记录](../docs/development/backend/milestones/2026-10-23-privacy-deletion-r1.md)。
 
 本地隐私注销与证据删除需先 `make dev-stop`，再显式运行 `make dev-privacy-init`（Docker宿主模式），初始化独立恢复 PostgreSQL、专用身份和用途密钥。随后分别运行 `make dev-api`、`make dev-worker`、`make dev-content-worker`、`make dev-privacy-worker` 与 `make dev-evidence-worker`；五个进程均由 `make dev-stop` 停止，中间件与卷保留。恢复库端口默认仅绑定127.0.0.1:15433。初始化后 `make dev-infra` 同时启动恢复库，普通启动不执行迁移。缺少外部全版本清理或脱敏适配器时，隐私任务保持processing，不声称清理完成。配置和联调范围见[宿主开发说明](../docs/development/backend/host-development.md)。
+
+树洞数据基础通过显式迁移0021建立独立实体、内容类型约束和最小权限，旧黑名单关系原位生成不透明`block_id`。迁移与权限重放由专用身份执行，普通启动不执行DDL。当前尚无树洞业务路由、审核适配或opaque黑名单切换；仅应用迁移不表示树洞已启用，不能向旧服务写入新内容类型。`make integration`包含空库／历史库升级、非空拒绝回退、权限负例及四类树洞资源锁验证，测试自行创建隔离子数据库。

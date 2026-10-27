@@ -20,6 +20,7 @@ func (EvidenceCase) TableName() string { return "evidence.evidence_cases" }
 
 // EvidenceCrisisCase 映射 evidence.crisis_cases，字段注释描述数据库持久化语义。
 type EvidenceCrisisCase struct {
+	IdentityStatus *string    `gorm:"column:identity_status;type:text;comment:检测时认证身份状态，历史未记录为空" json:"-"`
 	Version        int64      `gorm:"column:version;not null;default:1;comment:危机案件独立乐观版本" json:"-"`
 	SourceTaskID   *string    `gorm:"column:source_task_id;type:uuid;comment:检测时审核任务技术引用" json:"-"`
 	HandoffAt      *time.Time `gorm:"column:handoff_at;type:timestamptz;comment:北京时间人工接手窗口起点" json:"-"`

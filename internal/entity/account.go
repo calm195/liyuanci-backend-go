@@ -22,6 +22,7 @@ func (Account) TableName() string { return "public.accounts" }
 
 // Block 映射 public.blocks，字段注释描述数据库持久化语义。
 type Block struct {
+	BlockID   string    `gorm:"column:block_id;type:uuid;not null;unique;default:gen_random_uuid();comment:不透明随机黑名单条目标识" json:"-"`
 	Version   int64     `gorm:"column:version;not null;default:1;comment:有向拉黑版本，解除时校验" json:"-"`
 	OwnerID   string    `gorm:"column:owner_id;type:uuid;primaryKey;autoIncrement:false;comment:设置拉黑的账号" json:"-"`
 	TargetID  string    `gorm:"column:target_id;type:uuid;primaryKey;autoIncrement:false;comment:被拉黑的账号" json:"-"`

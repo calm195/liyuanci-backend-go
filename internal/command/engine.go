@@ -46,7 +46,7 @@ func uuid(value string) bool {
 func validDefinition(d Definition) bool {
 	required := map[string]bool{}
 	for _, name := range d.RequiredExpectations {
-		if required[name] || !slices.Contains([]string{"expected_version", "wish_expected_version", "expected_write_epoch"}, name) {
+		if required[name] || !slices.Contains([]string{"expected_version", "wish_expected_version", "expected_write_epoch", "expected_post_version", "expected_comments_epoch"}, name) {
 			return false
 		}
 		required[name] = true
@@ -77,17 +77,24 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 	slices.SortFunc(checks, func(a, b Expectation) int {
 		return strings.Compare(string(a.Target.Kind)+a.Target.ID+a.Name, string(b.Target.Kind)+b.Target.ID+b.Name)
 	})
-	seen := make(map[Resource]bool)
+	seen := make(map[Resource]string)
 	names := map[string]bool{}
 	for _, check := range checks {
-		if !uuid(check.Target.ID) || check.Value <= 0 || seen[check.Target] || names[check.Name] {
+		// 父帖版本与评论代次绑定同一资源，但各自校验，不能互相替代。
+		previous := seen[check.Target]
+		parentPair := check.Target.Kind == WhisperPost && ((previous == "expected_post_version" && check.Name == "expected_comments_epoch") || (previous == "expected_comments_epoch" && check.Name == "expected_post_version"))
+		if !uuid(check.Target.ID) || check.Value <= 0 || (previous != "" && !parentPair) || names[check.Name] {
 			return nil, ErrInvalid
 		}
-		seen[check.Target] = true
+		seen[check.Target] = check.Name
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase, WhisperPost, WhisperComment, WhisperNickname, WhisperCapsule}, check.Target.Kind) {
+				return nil, ErrInvalid
+			}
+		case "expected_post_version", "expected_comments_epoch":
+			if check.Target.Kind != WhisperPost {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":
@@ -285,6 +292,8 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 						actual = snapshot.Version
 						if check.Name == "expected_write_epoch" {
 							actual = snapshot.WriteEpoch
+						} else if check.Name == "expected_comments_epoch" {
+							actual = snapshot.CommentsEpoch
 						}
 					}
 					if actual != check.Value {

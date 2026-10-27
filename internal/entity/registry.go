@@ -5,6 +5,17 @@ package entity
 func BusinessModels() []any {
 	return []any{
 		&Account{},
+		&WhisperPreference{},
+		&WhisperNicknameVersion{},
+		&WhisperPost{},
+		&WhisperPostVersion{},
+		&WhisperAlias{},
+		&WhisperComment{},
+		&WhisperCommentVersion{},
+		&WhisperHug{},
+		&WhisperCapsule{},
+		&WhisperNotificationRef{},
+
 		&IdentityLookupKey{},
 		&IdentitySecret{},
 		&IdentityLookupClaim{},

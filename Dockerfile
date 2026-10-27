@@ -22,10 +22,12 @@ FROM builder AS business-test-build
 RUN CGO_ENABLED=0 go test -c -o /artifacts/business.test ./internal/studentcard && \
     CGO_ENABLED=0 go test -c -o /artifacts/durable.test ./internal/durable && \
     CGO_ENABLED=0 go test -c -o /artifacts/moderation.test ./internal/moderation && \
-    CGO_ENABLED=0 go test -c -o /artifacts/wish.test ./internal/wish
+    CGO_ENABLED=0 go test -c -o /artifacts/wish.test ./internal/wish && \
+    CGO_ENABLED=0 go test -c -o /artifacts/foundation.test ./internal/migration && \
+    CGO_ENABLED=0 go test -c -o /artifacts/command.test ./internal/command
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS business-test
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
-COPY --from=business-test-build /artifacts/business.test /artifacts/durable.test /artifacts/moderation.test /artifacts/wish.test /
+COPY --from=business-test-build /artifacts/business.test /artifacts/durable.test /artifacts/moderation.test /artifacts/wish.test /artifacts/foundation.test /artifacts/command.test /
 COPY --from=builder /artifacts/card-worker /card-worker
 COPY --from=builder /artifacts/content-worker /content-worker
 USER app

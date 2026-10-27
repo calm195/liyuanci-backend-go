@@ -50,8 +50,10 @@ services:
         GOPROXY: ${LIYUANCI_BUILD_GOPROXY:-https://goproxy.cn,direct}
     init: true
     entrypoint: [/bin/sh, -c]
-    command: ["/durable.test -test.v -test.run '^TestPostgres' -test.timeout 180s && /business.test -test.v -test.run '^TestBusinessMessageChain$$' -test.timeout 180s && /wish.test -test.v -test.run '^TestPostgres(Lifecycle|PublicProfile)$$' -test.timeout 180s && exec /moderation.test -test.v -test.run '^Test(ModerationCore|ApplicationMatching|ChatDelivery|StorySharing|SafetyGovernance|CrisisCare|PrivacyDeletion)$$' -test.timeout 420s"]
+    command: ["/foundation.test -test.v -test.run '^TestPostgresWhisperFoundation$$' -test.timeout 180s && /command.test -test.v -test.run '^TestPostgresWhisperLocks$$' -test.timeout 180s && /durable.test -test.v -test.run '^TestPostgres' -test.timeout 180s && /business.test -test.v -test.run '^TestBusinessMessageChain$$' -test.timeout 180s && /wish.test -test.v -test.run '^TestPostgres(Lifecycle|PublicProfile)$$' -test.timeout 180s && exec /moderation.test -test.v -test.run '^Test(ModerationCore|ApplicationMatching|ChatDelivery|StorySharing|SafetyGovernance|CrisisCare|PrivacyDeletion)$$' -test.timeout 420s"]
     environment:
+      APP_WHISPER_SCHEMA_TEST_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
+      APP_WHISPER_COMMAND_TEST_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
       APP_RECOVERY_TEST_DSN: "host=recovery-postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
       APP_MODERATION_TEST_DSN: "host=postgres user=liyuanci password=${LIYUANCI_TEST_DB_PASSWORD:?set isolated test password} dbname=liyuanci sslmode=disable connect_timeout=5"
       APP_MODERATION_TEST_NAMESERVER: namesrv:9876
