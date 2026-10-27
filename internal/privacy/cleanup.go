@@ -313,7 +313,7 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 		return true, command.ErrUnavailable
 	}
 	processed = true
-	in := Intent{ID: job.JobID, Scope: scope, Target: *job.TargetRef}
+	in := Intent{ID: job.JobID, Scope: scope, Target: *job.TargetRef, SourceModule: job.SourceModule}
 	if job.Phase == "verifying" {
 		return true, s.finish(ctx, in.ID)
 	}

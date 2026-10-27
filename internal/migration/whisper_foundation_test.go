@@ -188,7 +188,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		// 未认证危机只保存明确状态，学号仍放在受控加密证据中；历史空值不编造身份。
 		evidence, crisis := uuid.NewString(), uuid.NewString()
 		must("INSERT INTO evidence.evidence_cases(id,kind,source_ref) VALUES (?,'crisis',?)", evidence, post)
-		must("INSERT INTO evidence.crisis_cases(id,evidence_case_id,content_type,identity_status) VALUES (?,?,'whisper_capsule','not_verified')", crisis, evidence)
+		must("INSERT INTO evidence.crisis_cases(id,evidence_case_id,content_type,identity_status,source_entity_id,source_content_version) VALUES (?,?,'whisper_capsule','not_verified',?,1)", crisis, evidence, post)
 		reject("虚构身份状态", "UPDATE evidence.crisis_cases SET identity_status='assumed' WHERE id=?", crisis)
 		if e := ApplyPermissions(ctx, db, log); e != nil {
 			t.Fatal(e)
