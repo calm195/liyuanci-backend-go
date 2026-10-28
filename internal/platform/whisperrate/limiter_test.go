@@ -42,6 +42,7 @@ func TestRedisWhisperAdmission(t *testing.T) {
 			}
 		}
 	})
+
 	actor := uuid.NewString()
 	for i := 0; i < 5; i++ {
 		ref, e := limiter.Reserve(ctx, actor, "post")
@@ -141,6 +142,25 @@ func TestRedisWhisperAdmission(t *testing.T) {
 	if _, e = limiter.Reserve(ctx, rollingActor, "post"); e == nil {
 		t.Fatal("滚动日预算失效")
 	}
+	for _, tc := range []struct {
+		bucket string
+		limit  int
+	}{{"comment", 20}, {"hug", 60}} {
+		t.Run(tc.bucket, func(t *testing.T) {
+			actor := uuid.NewString()
+			for i := 0; i < tc.limit; i++ {
+				ref, e := limiter.Reserve(ctx, actor, tc.bucket)
+				if e != nil {
+					t.Fatal(e)
+				}
+				keep(ref)
+			}
+			if _, e := limiter.Reserve(ctx, actor, tc.bucket); e == nil {
+				t.Fatal("超过互动窗口预算仍允许")
+			}
+		})
+	}
+
 	broken := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", MaxRetries: -1, DialTimeout: 50 * time.Millisecond})
 	defer broken.Close()
 	unavailable, _ := New(broken, bytes.Repeat([]byte{1}, 32), zap.NewNop(), 100*time.Millisecond)

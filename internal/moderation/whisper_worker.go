@@ -330,5 +330,11 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 			updates["published_content_version"] = r.ContentVersion
 		}
 	}
-	return db.Model(resource).Where("id=?", r.ID).Updates(updates).Error
+	if e := db.Model(resource).Where("id=?", r.ID).Updates(updates).Error; e != nil {
+		return e
+	}
+	if r.registry.Kind == "whisper_comment" && state == "approved" {
+		return whisper.AppendCommentNotice(ctx, db, r.ID, now)
+	}
+	return nil
 }

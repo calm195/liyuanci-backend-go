@@ -647,4 +647,8 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			t.Fatal(detail)
 		}
 	})
+	t.Run("暖评抱抱通知真实闭环", func(t *testing.T) {
+		testWhisperInteractions(t, admin, api, service, worker, analyzer, actor, other, token, otherToken, careService, studentSafety, reviews, adminToken)
+	})
+
 }

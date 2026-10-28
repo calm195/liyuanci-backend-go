@@ -109,7 +109,7 @@ func whisperEligible(db *gorm.DB, r whisperSource) (bool, error) {
 	if !whisperCurrent(r) || r.task.HoldEpoch != r.PrivacyEpoch || r.task.RestrictionEpoch == nil || *r.task.RestrictionEpoch != r.RestrictionEpoch {
 		return false, nil
 	}
-	if (r.registry.Kind == "whisper_post" || r.registry.Kind == "whisper_comment") && r.account.Verification != "verified" {
+	if r.registry.Kind == "whisper_post" && r.account.Verification != "verified" {
 		return false, nil
 	}
 	if r.registry.Kind == "whisper_post" && !r.PublishIntent {
@@ -152,7 +152,7 @@ func whisperEligible(db *gorm.DB, r whisperSource) (bool, error) {
 		} else if err != nil {
 			return false, err
 		}
-		e := db.Raw(`SELECT count(*) FROM public.whisper_posts p JOIN public.accounts a ON a.id=p.owner_id JOIN public.whisper_post_versions v ON v.post_id=p.id AND v.content_version=p.current_content_version WHERE p.id=? AND p.lifecycle='active' AND p.publish_intent AND p.comments_open AND p.comments_epoch=? AND p.published_content_version=? AND p.current_content_version=? AND v.review_state='approved' AND v.public_body IS NOT NULL AND a.lifecycle='active' AND a.verification='verified' AND NOT EXISTS(SELECT 1 FROM public.blocks WHERE (owner_id=? AND target_id=a.id) OR (owner_id=a.id AND target_id=?)) AND NOT EXISTS(SELECT 1 FROM public.penalties WHERE account_id=a.id AND revoked_at IS NULL AND action_kind IN ('mute','ban') AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE x.active AND c.kind='whisper_post' AND c.entity_id=p.id) AND NOT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_post' AND target_id=p.id AND status='active')`, *r.ParentID, r.CommentsEpoch, r.ParentVersion, r.ParentVersion, r.OwnerID, r.OwnerID).Scan(&n).Error
+		e := db.Raw(`SELECT count(*) FROM public.whisper_posts p JOIN public.accounts a ON a.id=p.owner_id JOIN public.whisper_post_versions v ON v.post_id=p.id AND v.content_version=p.current_content_version WHERE p.id=? AND p.lifecycle='active' AND p.publish_intent AND p.comments_open AND p.comments_epoch=? AND p.published_content_version=? AND p.current_content_version=? AND v.review_state='approved' AND a.lifecycle='active' AND a.verification='verified' AND NOT EXISTS(SELECT 1 FROM public.blocks WHERE (owner_id=? AND target_id=a.id) OR (owner_id=a.id AND target_id=?)) AND NOT EXISTS(SELECT 1 FROM public.penalties WHERE account_id=a.id AND revoked_at IS NULL AND action_kind IN ('mute','ban') AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE x.active AND c.kind='whisper_post' AND c.entity_id=p.id) AND NOT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_post' AND target_id=p.id AND status='active')`, *r.ParentID, r.CommentsEpoch, r.ParentVersion, r.ParentVersion, r.OwnerID, r.OwnerID).Scan(&n).Error
 		return n == 1, e
 	}
 	return true, nil

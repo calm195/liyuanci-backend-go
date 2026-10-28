@@ -382,7 +382,7 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.Where("recipient_id=?", actor)
+		query := db.Where("recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", actor)
 		if e := readChatAllowed(db, actor, now); errors.Is(e, command.ErrForbidden) {
 			query = query.Where("type IN ('penalty_notice','appeal_result','crisis_care')")
 		} else if e != nil {
@@ -437,7 +437,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	}}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var n int64
-		if e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=?", id, tx.Actor().ID).Count(&n).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", id, tx.Actor().ID).Count(&n).Error; e != nil {
 			return e
 		}
 		if n != 1 {
@@ -463,7 +463,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var row entity.Notification
-		if e := tx.DB().WithContext(ctx).Where("id=? AND recipient_id=?", ref, tx.Actor().ID).Take(&row).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Where("id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", ref, tx.Actor().ID).Take(&row).Error; e != nil {
 			return e
 		}
 		var e error
