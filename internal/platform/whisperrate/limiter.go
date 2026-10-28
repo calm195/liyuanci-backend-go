@@ -51,6 +51,8 @@ func windows(bucket string) []window {
 		return []window{{600000, 20}, {86400000, 100}}
 	case "hug":
 		return []window{{60000, 60}}
+	case "capsule":
+		return []window{{86400000, 10}}
 	case "nickname":
 		return []window{{86400000, 3}}
 	case "maintenance":

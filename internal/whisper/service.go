@@ -61,7 +61,7 @@ func boundaryError(err error) error {
 	if errors.As(err, &rate) {
 		return rate
 	}
-	for _, known := range []error{ErrModuleUnavailable, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrInternal, command.ErrUnavailable, command.ErrRetry} {
+	for _, known := range []error{ErrModuleUnavailable, ErrCapsuleLimit, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrInternal, command.ErrUnavailable, command.ErrRetry} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -122,6 +122,9 @@ func (s *Service) Workspace(ctx context.Context, token, rid string) (out Workspa
 			return e
 		}
 		out = Workspace{ServerNow: timestamp(now), Verification: a.Verification, WriteRestricted: a.Restricted, AllowedActions: []string{}}
+		if !a.Restricted {
+			out.AllowedActions = append(out.AllowedActions, "whisperCapsuleCreate")
+		}
 		if !a.Restricted && a.Verification == "verified" {
 			out.AllowedActions = append(out.AllowedActions, "whisperPostCreate")
 		}

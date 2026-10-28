@@ -51,8 +51,10 @@ func (reviewNotifier) NotifyCrisis(ctx context.Context, deliveryID, caseID strin
 }
 
 type reviewAnalyzer struct {
-	hook         func()
-	privateCalls int
+	hook           func()
+	privateCalls   int
+	privateFailure error
+	privateCrisis  bool
 }
 
 func (a *reviewAnalyzer) AnalyzeWhisper(ctx context.Context, kind, body string, i whisper.IdentityInput) (moderation.WhisperAssessment, error) {
@@ -63,7 +65,13 @@ func (a *reviewAnalyzer) AnalyzeWhisper(ctx context.Context, kind, body string, 
 }
 func (a *reviewAnalyzer) ClassifyWhisperCapsule(ctx context.Context, body string) (moderation.MessageAssessment, error) {
 	a.privateCalls++
-	return moderation.MessageAssessment{DetectorVersion: "synthetic-private", OrdinaryHit: strings.Contains(body, "普通命中")}, ctx.Err()
+	if a.hook != nil {
+		a.hook()
+	}
+	if a.privateFailure != nil {
+		return moderation.MessageAssessment{}, a.privateFailure
+	}
+	return moderation.MessageAssessment{DetectorVersion: "synthetic-private", CrisisHit: a.privateCrisis, OrdinaryHit: strings.Contains(body, "普通命中")}, ctx.Err()
 }
 
 // TestPostgresWhisperModeration 验证B04的真实角色、消费、治理和双版本栅栏；外部供应商仍为合成。
@@ -649,6 +657,10 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	})
 	t.Run("暖评抱抱通知真实闭环", func(t *testing.T) {
 		testWhisperInteractions(t, admin, api, service, worker, analyzer, actor, other, token, otherToken, careService, studentSafety, reviews, adminToken)
+	})
+
+	t.Run("本人时空胶囊真实闭环", func(t *testing.T) {
+		testWhisperCapsules(t, admin, workerDB, service, worker, analyzer, reviews, crises, other, otherToken, token, adminToken)
 	})
 
 }

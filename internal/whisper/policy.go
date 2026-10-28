@@ -17,6 +17,8 @@ import (
 
 // 稳定错误由边界映射为契约码，不能暴露外部依赖原文。
 var (
+	// ErrCapsuleLimit 表示本人未终结胶囊已达权威活动额度。
+	ErrCapsuleLimit         = command.ErrCapsuleLimit
 	ErrModuleUnavailable    = errors.New("模块未启用")
 	ErrVerificationRequired = command.ErrVerificationRequired
 	ErrModeUnavailable      = command.ErrModeUnavailable

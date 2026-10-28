@@ -145,7 +145,7 @@ func TestRedisWhisperAdmission(t *testing.T) {
 	for _, tc := range []struct {
 		bucket string
 		limit  int
-	}{{"comment", 20}, {"hug", 60}} {
+	}{{"comment", 20}, {"hug", 60}, {"capsule", 10}} {
 		t.Run(tc.bucket, func(t *testing.T) {
 			actor := uuid.NewString()
 			for i := 0; i < tc.limit; i++ {

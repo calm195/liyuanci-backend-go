@@ -336,6 +336,8 @@ func whisperError(c *gin.Context, err error) {
 		status, code = 409, "VERSION_CONFLICT"
 	case errors.Is(err, command.ErrIdempotencyConflict):
 		status, code = 409, "IDEMPOTENCY_CONFLICT"
+	case errors.Is(err, whisper.ErrCapsuleLimit):
+		status, code = 409, "CAPSULE_LIMIT"
 	case errors.Is(err, whisper.ErrDictionaryChanged):
 		status, code = 409, "DICTIONARY_CHANGED"
 	case errors.Is(err, whisper.ErrModeUnavailable):

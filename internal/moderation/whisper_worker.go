@@ -290,7 +290,13 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 		}
 		return nil
 	case "whisper_capsule":
-		return db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": state, "version": gorm.Expr("version+1")}).Error
+		if e := db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": state, "version": gorm.Expr("version+1")}).Error; e != nil {
+			return e
+		}
+		if state == "approved" {
+			return whisper.ResumeCapsuleUnlock(ctx, db, r.ID)
+		}
+		return nil
 	}
 	identity := whisper.PublicIdentity{Mode: r.IdentityMode, Label: "", Tags: a.Identity.Tags, IsAuthor: r.registry.Kind == "whisper_post"}
 	if identity.Mode == "named" {
