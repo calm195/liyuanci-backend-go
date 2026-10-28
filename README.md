@@ -131,3 +131,15 @@ make integration
 匿名黑名单通过 `httpapi.RegisterInteractionBlocks` 显式注册；迁移0026建立独立单向策略，默认不切换。完成两端升级后，使用迁移身份和外部 `APP_DATABASE_DSN` 显式运行 `go run ./cmd/migrate opaque-blocks`，验证历史随机标识并切换。切换后旧 GET／POST／DELETE 黑名单经认证统一返回 `409 CLIENT_UPGRADE_REQUIRED`，新接口只返回随机条目或最小受理确认；关闭树洞也不回退，已切换数据库拒绝 down。先部署迁移与兼容代码，再切换，最后完成正式装配验收才可启用树洞；前端回滚须保持服务端匿名保护。
 
 隐私服务沿用独立 `liyuanci_privacy_maintenance` 身份、独立恢复日志和显式 `Redactor`／`Eraser`：注销受理先撤销会话、隐藏整串并取消审核／解锁／通知。帖主的他人评论保持隐私屏障；受控脱敏及外部清理确认后才提供本人恢复候选，原 body 与旧父帖标识始终隐藏，重新发布使用新评论。缺少真实适配器时保持 processing。恢复调度必须先调用 `privacy.Service.Recover` 读取包含已确认删除的独立日志并完成重删，再开放读取及外发；普通启动不替代此恢复门禁，也不宣称完成备份全副本清理。
+
+树洞正式依赖装配由 `APP_WHISPERSFILE` 指向仓库 `.local` 忽略目录或外部私有 JSON 文件，模板为 `configs/examples/whispers-runtime.json`；所有空凭据／密钥／资源必须显式补齐，期限使用纳秒整数，七个用途密钥为互不相同的32字节Base64值。`KeyRefs` 与 `RecoveryKeyRefs` 分别列出业务及恢复KMS允许的当前和历史引用，首项用于新包裹；不得生成替代历史密钥。API只打开API／普通后台／危机／隐私／证据删除五个独立运行池和恢复日志池；内容进程使用domain-worker，隐私进程按scope使用privacy-maintenance或evidence-purger。每个进程私有文件只需提供自身使用的业务DSN，恢复读写池与公共约束必须显式提供。
+
+`server -config <应用YAML>` 读取 `whispersfile`（环境覆盖为 `APP_WHISPERSFILE`），支持 `-check` 只装配与诊断而不监听；应用YAML仍显式设置environment、数据库driver、Redis及可选MQ。仅树洞组件运行时复用数据库中的有效学生／后台会话，登录仍由既有身份入口提供；不会生成模板账号或模拟登录。新旧API实例应使用同一版本的会话与Me投影。宿主已装配的安全和注销路由不重复注册；树洞新增50操作整体注册。基础 `make run` 不读取该文件，仍只提供健康端点。
+
+`content-worker` 在设置 `APP_WHISPERSFILE` 时启动树洞审核、胶囊解锁及危机补偿，未设置时保持原开发内容入口。审核／解锁的MQ文件分别使用 `configs/examples/whispers-review-mq.yaml`、`whispers-unlock-mq.yaml` 的独立topic／group，主题必须由运维提前建立；运行进程不创建主题。仅隔离integration可显式 `DatabasePolling=true` 且不设置MQ文件；生产不接受无鉴权MQ或数据库轮询。旧内容进程与树洞进程分别消费各自领域，危机投递按来源隔离；关闭模块仍可处理已持久工作与取消，不清除任务或幂等历史。
+
+`privacy-worker` 使用同一显式入口及 `APP_PRIVACY_SCOPE=account|evidence`；`APP_PRIVACY_RECOVER=true` 先回放所有独立日志（含已确认删除）并重删，只有待办全部完成且目标不存在才成功退出。恢复流程为：隔离读取和外发→分别完成账号／证据恢复清理→API和内容进程启动门禁通过→再由运维开放访问。冷启动发现日志目标仍存在时拒绝启动，普通清理中断也遵守此门禁；失败后由隐私进程继续重试，不手工删日志绕过。90天备份与真实全版本清理仍须由正式供应商验收。
+
+供应商网关必须是经系统CA或显式 `GatewayCAFile` 验证的HTTPS地址，禁止重定向；令牌从 `GatewayTokenFile` 读取。请求为 `{Operation,Version,Input}` JSON；health校验ProviderVersion及能力；wrap／unwrap限定scope和允许密钥引用；public_analysis返回公开安全候选，private_classify只接受分类；redact返回幸存作者安全内容；erase必须同时确认Completed与WriteBarrierConfirmed；notify按DeliveryID去重。网关协议是本端私有适配边界，未修改三端固定契约。不得记录网关请求／响应、原稿、密钥、DSN或令牌。
+
+`CatalogFile` 为版本化公共资源 `{Version,Catalog:{Grades,Reports,Help},Care}`，使用领域相同字段；援助与关怀须由资料方提供来源、版本和核验日期，不提供模板联系方式。API每次读取当前资料，坏版本失败关闭；内容进程启动核验关怀资料。启用前须已完成0026和permissions、发布三类词库、执行opaque单向切换、提供全部正式依赖并完成恢复清理。当前生产 `Enabled=true` 会被拒绝，所有模板保持false；本地或隔离通过不表示生产启用或三端验收。

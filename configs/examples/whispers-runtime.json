@@ -1,0 +1,47 @@
+{
+  "Enabled": false,
+  "DatabasePolling": false,
+  "APIDSN": "",
+  "ReviewDSN": "",
+  "CrisisDSN": "",
+  "PrivacyDSN": "",
+  "EvidenceDeletionDSN": "",
+  "WorkerDSN": "",
+  "EvidencePurgerDSN": "",
+  "RecoveryWriterDSN": "",
+  "RecoveryReaderDSN": "",
+  "GatewayURL": "",
+  "GatewayTokenFile": "",
+  "GatewayCAFile": "",
+  "ProviderVersion": "",
+  "KeyRefs": [],
+  "RecoveryKeyRefs": [],
+  "ReceiptKey": "",
+  "CursorKey": "",
+  "RateKey": "",
+  "GovernanceKey": "",
+  "PrivacyKey": "",
+  "EvidenceKey": "",
+  "SafetyKey": "",
+  "CatalogFile": "",
+  "ReviewMQFile": "",
+  "UnlockMQFile": "",
+  "Command": {
+    "Timeout": 5000000000,
+    "LockTimeout": 1000000000,
+    "ReceiptTTL": 604800000000000,
+    "MaxAttempts": 3
+  },
+  "Worker": {
+    "Consumer": {
+      "Timeout": 5000000000,
+      "LockTimeout": 1000000000,
+      "RetryDelay": 60000000000,
+      "MaxAttempts": 3
+    },
+    "AnalysisTimeout": 5000000000
+  },
+  "Interval": 1000000000,
+  "OperationTimeout": 20000000000,
+  "ProviderTimeout": 5000000000
+}
