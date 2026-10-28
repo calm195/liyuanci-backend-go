@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
@@ -98,6 +99,11 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 		}
 	}()
 	defer s.done(op, rid, time.Now(), &err)
+	if op == "block" || op == "unblock" {
+		if e := s.LegacyBlocks(ctx, token); e != nil {
+			return nil, e
+		}
+	}
 	if e := s.validate(op, id, in); e != nil {
 		return nil, e
 	}
@@ -142,7 +148,17 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 	d.Discover = func(ctx context.Context, db *gorm.DB, actor command.Subject) (command.Discovery, error) {
 		return s.discover(ctx, db.WithContext(ctx), actor, op, id, in)
 	}
-	d.Authorize = func(ctx context.Context, tx *command.Tx) error { return s.authorize(ctx, tx, op, id, in) }
+	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
+		if op == "block" || op == "unblock" {
+			if e := tx.DB().WithContext(ctx).Exec("SELECT pg_advisory_xact_lock_shared(624109175)").Error; e != nil {
+				return e
+			}
+			if e := blockpolicy.Legacy(ctx, tx.DB()); e != nil {
+				return e
+			}
+		}
+		return s.authorize(ctx, tx, op, id, in)
+	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) { return s.apply(ctx, tx, op, id, in) }
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		v, e := s.resolve(ctx, tx, op, id, ref, in)

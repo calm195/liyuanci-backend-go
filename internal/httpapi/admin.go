@@ -242,6 +242,8 @@ func adminError(c *gin.Context, err error) {
 		status, code = 409, "ACTIVE_WISH_LIMIT"
 	case errors.Is(err, command.ErrDuplicateApplication):
 		status, code = 409, "DUPLICATE_APPLICATION"
+	case errors.Is(err, command.ErrClientUpgradeRequired):
+		status, code = 409, "CLIENT_UPGRADE_REQUIRED"
 	case errors.Is(err, command.ErrBlockedInteraction):
 		status, code = 409, "BLOCKED_INTERACTION"
 	case errors.Is(err, command.ErrReviewPending):

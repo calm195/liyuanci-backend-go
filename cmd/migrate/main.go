@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 )
 
@@ -39,7 +40,7 @@ func run() int {
 	if journal {
 		action = strings.TrimPrefix(action, "journal-")
 	}
-	if action != "up" && action != "down" && action != "permissions" {
+	if action != "up" && action != "down" && action != "permissions" && action != "opaque-blocks" {
 		log.Error("迁移操作无效")
 		return 1
 	}
@@ -75,6 +76,8 @@ func run() int {
 	defer cancel()
 	if journal {
 		err = migration.RunJournal(ctx, db, log, action)
+	} else if action == "opaque-blocks" {
+		err = blockpolicy.Enable(ctx, db, log)
 	} else if action == "permissions" {
 		err = migration.ApplyPermissions(ctx, db, log)
 	} else {

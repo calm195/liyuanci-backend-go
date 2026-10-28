@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
@@ -18,6 +19,11 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 		}
 	}()
 	defer s.done(op, rid, time.Now(), &err)
+	if op == "blocks" {
+		if e := s.LegacyBlocks(ctx, token); e != nil {
+			return out, e
+		}
+	}
 	if q.Limit < 1 || q.Limit > 50 {
 		return out, command.ErrInvalid
 	}
@@ -51,6 +57,9 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.Items = append(out.Items, r)
 			}
 		case "blocks":
+			if e := blockpolicy.Legacy(ctx, db); e != nil {
+				return e
+			}
 			var n int64
 			if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
 				return e

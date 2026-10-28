@@ -61,7 +61,7 @@ func boundaryError(err error) error {
 	if errors.As(err, &rate) {
 		return rate
 	}
-	for _, known := range []error{ErrModuleUnavailable, ErrCapsuleLimit, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrInternal, command.ErrUnavailable, command.ErrRetry} {
+	for _, known := range []error{ErrModuleUnavailable, ErrCapsuleLimit, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, command.ErrClientUpgradeRequired, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrInternal, command.ErrUnavailable, command.ErrRetry} {
 		if errors.Is(err, known) {
 			return known
 		}

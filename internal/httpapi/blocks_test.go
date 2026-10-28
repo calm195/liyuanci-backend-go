@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -10,13 +11,17 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 )
 
-// TestBlocksQueryValidation 覆盖REQ-014/018：无效分页在进入数据库之前拒绝，失败同样禁用缓存并记录完成日志。
+type blocksValidationStub struct{ *safety.Service }
+
+func (blocksValidationStub) LegacyBlocks(context.Context, string) error { return nil }
+
+// TestBlocksQueryValidation 覆盖REQ-014/018：切换前无效分页不进入列表服务，失败记录完成日志。
 func TestBlocksQueryValidation(t *testing.T) {
 	for _, suffix := range []string{"?limit=0", "?limit=51", "?limit=1&limit=2", "?cursor=", "?target_user_id=forged"} {
 		t.Run(suffix, func(t *testing.T) {
 			core, logs := observer.New(zap.InfoLevel)
 			r := New(zap.New(core), nil)
-			if e := RegisterSafety(r, &safety.Service{}, &safety.Service{}); e != nil {
+			if e := RegisterSafety(r, blocksValidationStub{}, blocksValidationStub{}); e != nil {
 				t.Fatal(e)
 			}
 			req := httptest.NewRequest("GET", "/api/v1/me/blocks"+suffix, nil)

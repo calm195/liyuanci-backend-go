@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	identitydata "github.com/calm195/liyuanci-backend-go/internal/identity"
 )
@@ -393,7 +394,16 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 		out.AllowedActions = append(out.AllowedActions, "postMeAppeals", "getMeAppeals", "getMeWarnings", "postMeWarningsIdDisplay", "postMeWarningsIdAck")
 		if slices.Contains(out.AllowedActions, "putMeProfile") {
 			// 解除提示归属当前Me，具体目标和版本仍取本人黑名单条目，不发送历史别名。
-			out.AllowedActions = append(out.AllowedActions, "postMeBlocks", "deleteMeBlocksTarget_Id", "postReports", "getReportTypes")
+			enabled, failure := blockpolicy.Enabled(ctx, db)
+			if failure != nil {
+				return Me{}, failure
+			}
+			if enabled {
+				out.AllowedActions = append(out.AllowedActions, "interactionBlockCreate", "interactionBlockDelete", "interactionBlocksList")
+			} else {
+				out.AllowedActions = append(out.AllowedActions, "postMeBlocks", "deleteMeBlocksTarget_Id")
+			}
+			out.AllowedActions = append(out.AllowedActions, "postReports", "getReportTypes")
 		}
 	}
 	return out, e

@@ -50,6 +50,16 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			if !ok {
 				return
 			}
+			if route.op == "block" || route.op == "unblock" {
+				if guard, ok := student.(interface {
+					LegacyBlocks(context.Context, string) error
+				}); ok {
+					if e := guard.LegacyBlocks(c.Request.Context(), token); e != nil {
+						adminError(c, e)
+						return
+					}
+				}
+			}
 			key, ok := idempotency(c)
 			if !ok {
 				return
@@ -101,6 +111,16 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			token, ok := bearer(c)
 			if !ok {
 				return
+			}
+			if route.op == "blocks" {
+				if guard, ok := student.(interface {
+					LegacyBlocks(context.Context, string) error
+				}); ok {
+					if e := guard.LegacyBlocks(c.Request.Context(), token); e != nil {
+						adminError(c, e)
+						return
+					}
+				}
 			}
 			q, e := chatQuery(c, false)
 			if e != nil {

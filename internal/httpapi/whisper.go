@@ -326,6 +326,8 @@ func whisperError(c *gin.Context, err error) {
 		status, code = 401, "UNAUTHENTICATED"
 	case errors.Is(err, whisper.ErrVerificationRequired):
 		status, code = 403, "VERIFICATION_REQUIRED"
+	case errors.Is(err, command.ErrClientUpgradeRequired):
+		status, code = 409, "CLIENT_UPGRADE_REQUIRED"
 	case errors.Is(err, command.ErrBlockedInteraction):
 		status, code = 409, "INTERACTION_UNAVAILABLE"
 	case errors.Is(err, command.ErrForbidden):
