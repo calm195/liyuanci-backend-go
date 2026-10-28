@@ -106,6 +106,37 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		}
 		assertComments(t, db)
 	})
+	t.Run("胶囊挂起拒绝破坏性回退", func(t *testing.T) {
+		db := whisperSchemaDB(t)
+		if e := Run(ctx, db, log, "up"); e != nil {
+			t.Fatal(e)
+		}
+		id, target := uuid.NewString(), uuid.NewString()
+		if e := db.Exec("INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'whisper_capsule_unlock','whisper_capsule',?,?,'waiting')", id, target, uuid.NewString()).Error; e != nil {
+			t.Fatal(e)
+		}
+		if e := db.Exec("INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'other','work',?,?,'waiting')", uuid.NewString(), uuid.NewString(), uuid.NewString()).Error; e == nil {
+			t.Fatal("其他工作错误地接受挂起状态")
+		}
+		if e := Run(ctx, db, log, "down"); e == nil {
+			t.Fatal("挂起工作被破坏性回退")
+		}
+		var latest int64
+		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != 25 {
+			t.Fatal("拒绝后账本改变", latest, e)
+		}
+		if e := db.Exec("DELETE FROM public.work_items WHERE id=?", id).Error; e != nil {
+			t.Fatal(e)
+		}
+		if e := Run(ctx, db, log, "down"); e != nil {
+			t.Fatal(e)
+		}
+		if e := Run(ctx, db, log, "up"); e != nil {
+			t.Fatal(e)
+		}
+		assertComments(t, db)
+	})
+
 	t.Run("旧库关系原位升级及约束权限", func(t *testing.T) {
 		db := whisperSchemaDB(t)
 		applyWhisperLegacy(t, db)

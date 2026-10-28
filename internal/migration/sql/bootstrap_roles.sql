@@ -440,3 +440,10 @@ GRANT UPDATE (source_module) ON public.deletion_jobs TO liyuanci_evidence_delete
 -- 人工批准暖评与自动批准共用唯一站内事件，普通后台不读取通知正文。
 GRANT SELECT,INSERT ON public.whisper_notification_refs TO liyuanci_admin_api;
 GRANT UPDATE (published_at) ON public.whisper_comments TO liyuanci_api;
+
+-- 本人胶囊终结清除已经建立的普通通知引用，不触碰独立证据。
+GRANT DELETE ON public.whisper_notification_refs,public.notifications,public.delivery_attempts TO liyuanci_api;
+GRANT UPDATE (next_at) ON public.work_items TO liyuanci_api;
+GRANT UPDATE (next_at,superseded_at,lease_until) ON public.outbox_events TO liyuanci_api;
+GRANT SELECT (notification_id) ON public.delivery_attempts TO liyuanci_api;
+GRANT UPDATE (reason,revision_suggestion) ON public.moderation_tasks TO liyuanci_api;

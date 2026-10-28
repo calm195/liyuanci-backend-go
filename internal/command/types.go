@@ -35,6 +35,8 @@ var (
 	ErrAssetNotReady = errors.New("资源尚未就绪")
 	// ErrConflict 表示数据库业务约束冲突。
 	ErrConflict = errors.New("业务约束冲突")
+	// ErrCapsuleLimit 表示本人未终结胶囊达到活动额度。
+	ErrCapsuleLimit = errors.New("活动胶囊已达上限")
 	// ErrActiveWishLimit 表示保留匹配的回退将超过活跃心愿额度。
 	ErrActiveWishLimit = errors.New("活跃心愿额度已满")
 	// ErrDuplicateApplication 表示同人同心愿已有未终结申请。

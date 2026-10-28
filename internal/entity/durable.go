@@ -13,7 +13,7 @@ type WorkItem struct {
 	TargetID    string     `gorm:"column:target_id;type:uuid;not null;comment:技术目标随机标识" json:"-"`
 	Version     int64      `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
 	OperationID string     `gorm:"column:operation_id;type:uuid;not null;unique;comment:跨重试稳定操作标识" json:"-"`
-	Status      string     `gorm:"column:status;type:text;not null;default:'pending';comment:工作状态，异常待办不能绕过取消" json:"-"`
+	Status      string     `gorm:"column:status;type:text;not null;default:'pending';comment:工作状态，胶囊waiting等待安全批准，异常待办不能绕过取消" json:"-"`
 	LeaseUntil  *time.Time `gorm:"column:lease_until;type:timestamptz;comment:当前处理租约期限" json:"-"`
 	Attempts    int32      `gorm:"column:attempts;type:integer;not null;default:0;comment:已尝试次数" json:"-"`
 	NextAt      time.Time  `gorm:"column:next_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;comment:最早可再次执行时间" json:"-"`

@@ -17,6 +17,10 @@ func TestPostgresStoryPublication(t *testing.T) {
 		t.Fatal(e)
 	}
 	// 构造缺少公开时间及后续版本的已部署结构，不改写任何历史迁移输入。
+	capsuleUnlockDown, e := files.ReadFile("sql/0025_whisper_capsule_unlock.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
 	whisperReviewDown, e := files.ReadFile("sql/0024_whisper_review.down.sql")
 	if e != nil {
 		t.Fatal(e)
@@ -35,6 +39,8 @@ func TestPostgresStoryPublication(t *testing.T) {
 	}
 	if e := db.Transaction(func(tx *gorm.DB) error {
 		for _, sql := range []string{
+			string(capsuleUnlockDown),
+			"DELETE FROM public.schema_migrations WHERE version=25",
 			string(whisperReviewDown),
 			"DELETE FROM public.schema_migrations WHERE version=24",
 			string(receiptDown),
