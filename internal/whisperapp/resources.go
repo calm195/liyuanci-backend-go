@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
@@ -44,37 +43,14 @@ func (r *resources) close() (err error) {
 	return
 }
 func (r *resources) pool(ctx context.Context, dsn, role string) (*gorm.DB, error) {
-	if dsn == "" {
-		return nil, command.ErrInvalid
-	}
-	db, e := gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: gormlog.Default.LogMode(gormlog.Silent)})
+	db, closePool, e := platform.OpenRuntimeDatabase(ctx, dsn, role, r.log)
 	if e != nil {
-		return nil, command.ErrUnavailable
+		return nil, e
 	}
-	p, e := db.DB()
-	if e != nil {
-		return nil, command.ErrUnavailable
-	}
-	p.SetMaxOpenConns(10)
-	p.SetMaxIdleConns(2)
-	p.SetConnMaxLifetime(30 * time.Minute)
-	fail := func() (*gorm.DB, error) { _ = p.Close(); return nil, command.ErrUnavailable }
-	if p.PingContext(ctx) != nil {
-		return fail()
-	}
-	var safe bool
-	e = db.WithContext(ctx).Raw(`SELECT NOT pg_is_in_recovery() AND current_user=session_user AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication
- AND pg_has_role(current_user,?,'member') AND NOT has_schema_privilege(current_user,'public','CREATE')
- AND NOT has_database_privilege(current_user,current_database(),'CREATE')
- AND NOT EXISTS(SELECT 1 FROM pg_roles g WHERE g.rolname<>? AND g.rolname<>current_user AND pg_has_role(current_user,g.oid,'member'))
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','evidence') AND c.relowner=r.oid)
- FROM pg_roles r WHERE r.rolname=current_user`, role, role).Scan(&safe).Error
-	if e != nil || !safe {
-		return fail()
-	}
-	r.closes = append(r.closes, p.Close)
+	r.closes = append(r.closes, closePool)
 	return db, nil
 }
+
 func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *resources, err error) {
 	if log == nil || len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0 || cfg.ProviderTimeout <= 0 {
 		return nil, command.ErrInvalid

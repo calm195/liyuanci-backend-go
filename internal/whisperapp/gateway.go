@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
@@ -218,8 +219,8 @@ func (c catalogFile) Load(ctx context.Context) (whisper.CatalogSnapshot, error) 
 	if e := ctx.Err(); e != nil {
 		return whisper.CatalogSnapshot{}, e
 	}
-	var out ResourcesFile
-	if e := readJSON(c.path, &out); e != nil {
+	out, e := config.LoadWhisperResources(ctx, c.path)
+	if e != nil {
 		return whisper.CatalogSnapshot{}, e
 	}
 	if out.Version == "" {

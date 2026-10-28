@@ -47,7 +47,7 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 		return command.ErrInvalid
 	}
 	defer finish(log, "content_run", time.Now(), &err)
-	cfg, e := Load(path, environment)
+	cfg, e := config.LoadWhispers(ctx, path, environment)
 	if e != nil {
 		return e
 	}
@@ -81,8 +81,8 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 			return e
 		}
 	}
-	var resources ResourcesFile
-	if e = readJSON(cfg.CatalogFile, &resources); e != nil {
+	resources, e := config.LoadWhisperResources(startup, cfg.CatalogFile)
+	if e != nil {
 		return e
 	}
 	if resources.Version == "" || resources.Care == nil {
@@ -137,7 +137,7 @@ func RunPrivacy(ctx context.Context, path, environment, scope string, recoverOnl
 	if scope != "account" && scope != "evidence" {
 		return command.ErrInvalid
 	}
-	cfg, e := Load(path, environment)
+	cfg, e := config.LoadWhispers(ctx, path, environment)
 	if e != nil {
 		return e
 	}

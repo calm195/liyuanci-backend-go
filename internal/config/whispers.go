@@ -1,8 +1,8 @@
-// Package whisperapp 装配树洞正式入口及显式外部依赖，不拥有迁移或默认业务资料。
-package whisperapp
+package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -15,8 +15,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
-// Settings 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
-type Settings struct {
+// Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
+type Whispers struct {
 	Enabled                                                                                     bool
 	DatabasePolling                                                                             bool
 	APIDSN, ReviewDSN, CrisisDSN, PrivacyDSN, EvidenceDeletionDSN, WorkerDSN, EvidencePurgerDSN string
@@ -33,14 +33,17 @@ type Settings struct {
 	Interval, OperationTimeout, ProviderTimeout time.Duration
 }
 
-// ResourcesFile 保存版本化公共资料及独立关怀内容，不包含主体或密钥。
-type ResourcesFile struct {
+// WhisperResources 保存版本化公共资料及独立关怀内容，不包含主体或密钥。
+type WhisperResources struct {
 	Version string
 	Catalog whisper.CatalogSnapshot
 	Care    *moderation.CareResources
 }
 
-func readJSON(path string, out any) error {
+func readWhisperJSON(ctx context.Context, path string, out any) error {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
 	file, e := os.Open(path)
 	if e != nil {
 		return command.ErrUnavailable
@@ -60,15 +63,15 @@ func readJSON(path string, out any) error {
 	if decoder.Decode(&extra) != io.EOF {
 		return command.ErrInvalid
 	}
-	return nil
+	return ctx.Err()
 }
 
-// Load 在开连接前拒绝无效配置、密钥复用及生产启用，绝不生成凭据或运行迁移。
-func Load(path, environment string) (cfg Settings, err error) {
+// LoadWhispers 在开连接前拒绝无效配置、密钥复用及生产启用，绝不生成凭据或运行迁移。
+func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, err error) {
 	if environment != "integration" && environment != "production" {
 		return cfg, command.ErrInvalid
 	}
-	if err = readJSON(path, &cfg); err != nil {
+	if err = readWhisperJSON(ctx, path, &cfg); err != nil {
 		return
 	}
 	if environment == "production" && cfg.Enabled {
@@ -110,4 +113,15 @@ func Load(path, environment string) (cfg Settings, err error) {
 		return cfg, command.ErrInvalid
 	}
 	return cfg, nil
+}
+
+// LoadWhisperResources 读取当前版本的公共资源文件，缺失或无版本时失败关闭。
+func LoadWhisperResources(ctx context.Context, path string) (out WhisperResources, err error) {
+	if err = readWhisperJSON(ctx, path, &out); err != nil {
+		return
+	}
+	if strings.TrimSpace(out.Version) == "" {
+		return out, command.ErrUnavailable
+	}
+	return
 }

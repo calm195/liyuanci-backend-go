@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
@@ -82,8 +83,8 @@ func OpenAPI(ctx context.Context, cfg Settings, client redis.UniversalClient, lo
 		return nil, err
 	}
 	if cfg.Enabled {
-		var resources ResourcesFile
-		if readJSON(cfg.CatalogFile, &resources) != nil || !moderation.CareResourcesReady(resources.Care) {
+		resources, e := config.LoadWhisperResources(ctx, cfg.CatalogFile)
+		if e != nil || !moderation.CareResourcesReady(resources.Care) {
 			return nil, command.ErrUnavailable
 		}
 	}

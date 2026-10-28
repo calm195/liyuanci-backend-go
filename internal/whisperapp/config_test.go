@@ -2,6 +2,7 @@ package whisperapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
 )
 
@@ -56,7 +58,7 @@ func TestRuntimeConfiguration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testSettings()
 			tc.change(&cfg)
-			_, e := Load(writeSettings(t, cfg), tc.env)
+			_, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), tc.env)
 			if (e == nil) != tc.valid {
 				t.Fatal(e)
 			}
@@ -70,7 +72,7 @@ func TestRuntimeConfiguration(t *testing.T) {
 	}
 	_, _ = file.WriteString(" {}")
 	_ = file.Close()
-	if _, e = Load(path, "integration"); e == nil {
+	if _, e = config.LoadWhispers(context.Background(), path, "integration"); e == nil {
 		t.Fatal("接受尾随JSON")
 	}
 	if _, e = workerOptions(cfg, "production"); e == nil {

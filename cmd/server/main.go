@@ -49,7 +49,7 @@ func run() error {
 	defer func() { _ = log.Sync() }()
 	var whisperSettings *whisperapp.Settings
 	if cfg.WhispersFile != "" {
-		settings, e := whisperapp.Load(cfg.WhispersFile, cfg.Environment)
+		settings, e := config.LoadWhispers(context.Background(), cfg.WhispersFile, cfg.Environment)
 		if e != nil {
 			return errors.New("树洞运行配置无效或启用被禁止")
 		}
