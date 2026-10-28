@@ -26,7 +26,7 @@ func BusinessModels() []any {
 		&Asset{},
 		&StudentCardPayload{},
 		&IdentityReview{},
-		&Block{},
+		&Block{}, &InteractionBlockPolicy{},
 		&Penalty{},
 		&Appeal{},
 		&Wish{},

@@ -35,7 +35,7 @@ func Run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string)
 	if direction != "up" && direction != "down" {
 		return errors.New("迁移方向必须为 up 或 down")
 	}
-	catalog := []string{"0001_accounts", "0002_identity", "0003_identity_admin", "0004_interactions", "0005_moderation_work_evidence", "0006_outbox_supersession", "0007_admin_local", "0008_admin_roles", "0009_student_login", "0010_student_card", "0011_identity_review", "0012_wish_lifecycle", "0013_content_moderation", "0014_application_matching", "0015_chat_notifications", "0016_story_sharing", "0017_safety", "0018_crisis", "0019_privacy", "0020_story_publication", "0021_whisper_foundation", "0022_whisper_review_epoch", "0023_command_receipt_lifecycle", "0024_whisper_review", "0025_whisper_capsule_unlock"}
+	catalog := []string{"0001_accounts", "0002_identity", "0003_identity_admin", "0004_interactions", "0005_moderation_work_evidence", "0006_outbox_supersession", "0007_admin_local", "0008_admin_roles", "0009_student_login", "0010_student_card", "0011_identity_review", "0012_wish_lifecycle", "0013_content_moderation", "0014_application_matching", "0015_chat_notifications", "0016_story_sharing", "0017_safety", "0018_crisis", "0019_privacy", "0020_story_publication", "0021_whisper_foundation", "0022_whisper_review_epoch", "0023_command_receipt_lifecycle", "0024_whisper_review", "0025_whisper_capsule_unlock", "0026_opaque_block_cutover"}
 	type entry struct {
 		up, down []byte
 		checksum string

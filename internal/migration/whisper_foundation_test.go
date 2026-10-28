@@ -122,7 +122,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			t.Fatal("挂起工作被破坏性回退")
 		}
 		var latest int64
-		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != 25 {
+		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != 26 {
 			t.Fatal("拒绝后账本改变", latest, e)
 		}
 		if e := db.Exec("DELETE FROM public.work_items WHERE id=?", id).Error; e != nil {

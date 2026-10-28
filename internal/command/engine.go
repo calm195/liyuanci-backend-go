@@ -356,7 +356,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrCapsuleLimit, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{ErrClientUpgradeRequired, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrCapsuleLimit, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}

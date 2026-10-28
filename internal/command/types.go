@@ -33,6 +33,8 @@ var (
 	ErrIdempotencyConflict = errors.New("幂等键与请求不一致")
 	// ErrAssetNotReady 表示本人资源仍在处理或未通过安全检查。
 	ErrAssetNotReady = errors.New("资源尚未就绪")
+	// ErrClientUpgradeRequired 表示旧匿名关系协议已经永久退出。
+	ErrClientUpgradeRequired = errors.New("客户端需要升级")
 	// ErrConflict 表示数据库业务约束冲突。
 	ErrConflict = errors.New("业务约束冲突")
 	// ErrCapsuleLimit 表示本人未终结胶囊达到活动额度。

@@ -407,7 +407,7 @@ GRANT UPDATE (version,review_state,privacy_epoch,restriction_epoch,review_round,
 GRANT UPDATE (version,body_cipher,review_state,lifecycle,privacy_epoch,restriction_epoch,review_task_id) ON public.whisper_capsules TO liyuanci_privacy_maintenance;
 ALTER TABLE public.whisper_notification_refs OWNER TO liyuanci_migrator;
 REVOKE ALL ON public.whisper_notification_refs FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_evidence_reader,liyuanci_evidence_writer,liyuanci_evidence_purger,liyuanci_crisis_api,liyuanci_evidence_delete_api;
-REVOKE ALL (notification_id,kind,source_id,target_kind,target_id,comment_id) ON public.whisper_notification_refs FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_evidence_reader,liyuanci_evidence_writer,liyuanci_evidence_purger,liyuanci_crisis_api,liyuanci_evidence_delete_api;
+REVOKE ALL (notification_id,kind,source_id,target_kind,target_id,comment_id,suppressed) ON public.whisper_notification_refs FROM PUBLIC,liyuanci_api,liyuanci_worker,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_evidence_reader,liyuanci_evidence_writer,liyuanci_evidence_purger,liyuanci_crisis_api,liyuanci_evidence_delete_api;
 GRANT SELECT,INSERT ON public.whisper_notification_refs TO liyuanci_api;
 GRANT SELECT ON public.whisper_notification_refs TO liyuanci_domain_worker;
 GRANT SELECT,DELETE ON public.whisper_notification_refs TO liyuanci_privacy_maintenance;
@@ -447,3 +447,19 @@ GRANT UPDATE (next_at) ON public.work_items TO liyuanci_api;
 GRANT UPDATE (next_at,superseded_at,lease_until) ON public.outbox_events TO liyuanci_api;
 GRANT SELECT (notification_id) ON public.delivery_attempts TO liyuanci_api;
 GRANT UPDATE (reason,revision_suggestion) ON public.moderation_tasks TO liyuanci_api;
+
+ALTER TABLE public.interaction_block_policy OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.interaction_block_policy FROM PUBLIC;
+GRANT SELECT ON public.interaction_block_policy TO liyuanci_api,liyuanci_domain_worker,liyuanci_privacy_maintenance;
+GRANT UPDATE (version,updated_at,recovery_cipher,post_id,privacy_epoch) ON public.whisper_comments TO liyuanci_privacy_maintenance;
+GRANT UPDATE (body_cipher,candidate_cipher,identity_cipher,public_body,public_identity,review_result_cipher,nickname_version) ON public.whisper_comment_versions TO liyuanci_privacy_maintenance;
+GRANT UPDATE (public_label,revoked_at) ON public.whisper_nickname_versions TO liyuanci_privacy_maintenance;
+
+
+ALTER FUNCTION public.protect_interaction_block_policy() OWNER TO liyuanci_migrator;
+REVOKE ALL ON FUNCTION public.protect_interaction_block_policy() FROM PUBLIC;
+ALTER FUNCTION public.clear_held_whisper_comment(bytea,uuid,jsonb) OWNER TO liyuanci_migrator;
+REVOKE ALL ON FUNCTION public.clear_held_whisper_comment(bytea,uuid,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.clear_held_whisper_comment(bytea,uuid,jsonb) TO liyuanci_api;
+
+GRANT UPDATE (suppressed) ON public.whisper_notification_refs TO liyuanci_privacy_maintenance;
