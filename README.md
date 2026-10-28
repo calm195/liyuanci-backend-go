@@ -112,7 +112,7 @@ make integration
 
 公开主页 `GET /api/v1/users/{id}/public-profile` 随心愿应用启用，按公开时间与ID分页返回当前可见心愿及已审故事；故事部分依赖显式启用故事模块。升级前停止对应应用，由专用迁移身份显式应用0020并重放权限，再重启API和内容worker；普通启动不执行DDL。历史已审故事使用迁移切换时间作为排序起点，后续版本在审核批准事务内记录公开时间。主页资料只含昵称与标识，身份标签按每条已审内容及当前隐藏设置返回。
 
-安全治理通过`studentapi.Config.Safety`显式启用，提供拉黑、举报、固定等级处罚、服务器30秒警告及受限本人申诉。开发装配使用独立派生用途密钥与64KiB说明/申诉技术预算；升级须显式应用0017并重放权限，普通启动不执行DDL。举报类型来自`report_types`中运营显式发布的数据，未交付时返回空清单；不预置正式运营类型。黑名单列表返回本人条目及其版本；Me的解除提示统一为`deleteMeBlocksTarget_Id`，DELETE使用对应条目版本，旧别名不再发送。该修正不需要新增数据库迁移或配置项。接口与版本边界见[安全治理接入记录](../docs/development/backend/milestones/2026-10-22-safety-governance-r1.md)。
+安全治理通过`studentapi.Config.Safety`显式启用，提供拉黑、举报、固定等级处罚、服务器30秒警告及受限本人申诉。开发装配使用独立派生用途密钥与64KiB说明/申诉技术预算；升级须显式应用0017并重放权限，普通启动不执行DDL。举报类型来自`report_types`中运营显式发布的数据，未交付时返回空清单；不预置正式运营类型。黑名单在显式匿名切换前兼容旧条目版本；切换后使用随机条目接口，旧接口仅返回升级错误，Me移除旧动作。接口与版本边界见[安全治理接入记录](../docs/development/backend/milestones/2026-10-22-safety-governance-r1.md)。
 
 危机命中由内容worker在原事务内写入独立加密证据、隔离及关怀/授权人员通知待办。升级须显式应用0018并重放权限；后台危机路由通过`studentapi.Config.Crisis`和独立`CrisisDB`池启用，宿主开发使用私有凭据文件内可选`CrisisDSN`，登录仅属于`liyuanci_crisis_api`。普通审核池仍无证据域权限。援助资料由`WorkerConfig.Care`显式注入，开发文件可选`Care`；没有资料或`CrisisNotifier`时保留重试待办。误报创建新的普通人工复核任务，不直接恢复公开；关怀通知引用本人卡片，不暴露后台案号。接入和边界见[后端阶段记录](../docs/development/backend/milestones/2026-10-23-crisis-care-r1.md)。
 
@@ -120,10 +120,14 @@ make integration
 
 本地隐私注销与证据删除需先 `make dev-stop`，再显式运行 `make dev-privacy-init`（Docker宿主模式），初始化独立恢复 PostgreSQL、专用身份和用途密钥。随后分别运行 `make dev-api`、`make dev-worker`、`make dev-content-worker`、`make dev-privacy-worker` 与 `make dev-evidence-worker`；五个进程均由 `make dev-stop` 停止，中间件与卷保留。恢复库端口默认仅绑定127.0.0.1:15433。初始化后 `make dev-infra` 同时启动恢复库，普通启动不执行迁移。缺少外部全版本清理或脱敏适配器时，隐私任务保持processing，不声称清理完成。配置和联调范围见[宿主开发说明](../docs/development/backend/host-development.md)。
 
-树洞基础通过显式迁移0021建立独立实体、内容约束和最小权限，0022允许审核任务保存树洞初始零限制代次，0023保留业务生命周期内的最小幂等回执；旧黑名单关系原位生成不透明`block_id`。升级此版本的业务API／worker前须显式应用至0025并重放权限；迁移由专用身份执行，普通启动不执行DDL。`internal/whisper`提供文字草稿、三档身份、昵称、公开／本人查询及送审边界，`httpapi.RegisterWhispers`只供显式依赖装配；当前进程尚未启用树洞，完整删除适配和opaque黑名单切换完成前不得启用。缺字典时半匿名不可用，缺援助资料返回unavailable；送审必须注入支持新类型的持久审核适配，不能交给旧消费者。Redis限频需注入独立用途密钥并失败关闭；取消／撤回独立于发布预算。`make integration`包含隔离子库迁移、权限、资源锁、文字事务与公开遮蔽、Redis滚动预算验证；外部审核、字典及KMS测试夹具不代表生产验收。
+树洞基础通过显式迁移0021建立独立实体、内容约束和最小权限，0022允许审核任务保存树洞初始零限制代次，0023保留业务生命周期内的最小幂等回执；旧黑名单关系原位生成不透明`block_id`。升级此版本的业务API／worker前须显式应用至0026并重放权限；迁移由专用身份执行，普通启动不执行DDL。`internal/whisper`提供文字草稿、三档身份、昵称、公开／本人查询及送审边界，`httpapi.RegisterWhispers`只供显式依赖装配；当前进程尚未启用树洞，正式依赖装配与供应商验收完成前不得启用。缺字典时半匿名不可用，缺援助资料返回unavailable；送审必须注入支持新类型的持久审核适配，不能交给旧消费者。Redis限频需注入独立用途密钥并失败关闭；取消／撤回独立于发布预算。`make integration`包含隔离子库迁移、权限、资源锁、文字事务与公开遮蔽、Redis滚动预算验证；外部审核、字典及KMS测试夹具不代表生产验收。
 
-树洞审核使用独立的 `moderation.WhisperReviewSink/WhisperWorker` 和 `WhisperReviewRoute`；公开分析器显式区分帖子、暖评与昵称，胶囊使用独立私密分类器，不接受公开脱敏正文替换。必须显式注入三类已发布词库、安全分析与关怀／通知供应商。`httpapi.RegisterWhisperGovernance` 分别注入普通后台、危机后台、学生举报和独立证据删除池；0024增加受限原稿读取函数、危机来源快照与删除回执命名空间，普通后台不能整表读取胶囊或昵称原稿。默认 API 和内容进程尚未注册这些能力；完整删除图和生产装配仍需后续实现。升级须由迁移身份显式应用至0025并重放bootstrap权限，不能仅替换二进制；隔离验证依赖真实PostgreSQL，完整 `make integration` 另需Redis和RocketMQ，分析、KMS及通知使用合成夹具。
+树洞审核使用独立的 `moderation.WhisperReviewSink/WhisperWorker` 和 `WhisperReviewRoute`；公开分析器显式区分帖子、暖评与昵称，胶囊使用独立私密分类器，不接受公开脱敏正文替换。必须显式注入三类已发布词库、安全分析与关怀／通知供应商。`httpapi.RegisterWhisperGovernance` 分别注入普通后台、危机后台、学生举报和独立证据删除池；0024增加受限原稿读取函数、危机来源快照与删除回执命名空间，普通后台不能整表读取胶囊或昵称原稿。默认 API 和内容进程尚未注册这些能力；完整删除图已接入独立隐私服务，生产装配仍需后续实现。升级须由迁移身份显式应用至0026并重放bootstrap权限，不能仅替换二进制；隔离验证依赖真实PostgreSQL，完整 `make integration` 另需Redis和RocketMQ，分析、KMS及通知使用合成夹具。
 
 暖评、抱抱和本模块通知通过 `httpapi.RegisterWhisperInteractions` 显式注册，需与文字及审核服务共用账号 guard 和父帖锁协议。暖评允许未实名正常账号；改稿重新绑定父版本和评论代次，关闭评论保留既有公开评论。抱抱使用独立版本和取消记录，计数由 PostgreSQL 过滤注销／受罚主体；评论首次公开在批准事务内产生唯一站内通知，旧通知入口隔离新类型。部署此适配需显式重放 `permissions`，授予人工批准通知引用及学生改稿清除公开时间的最小权限；互动结构建立于0024及以前迁移。当前业务进程仍未启用树洞。
 
-本人时空胶囊通过 `httpapi.RegisterWhisperCapsules` 显式注册五个操作；仅正常账号可封存，受罚本人仍可读取合法到期内容和清理。创建与列表不返回正文，详情依数据库时间、安全批准及当前屏障决定解密。`whisper.NewCapsuleUnlockWorker` 复用持久消费、完成回执和有界补偿，不解密正文；到期未审的工作持久挂起，批准唤醒或补偿后生成一次站内通知。迁移0025允许仅胶囊解锁工作使用waiting，存在挂起工作时拒绝回退；升级须显式迁移并重放权限。取消／删除清普通密文、工作及普通通知，保留最小终态及独立危机证据。真实文本安全、完整隐私恢复及生产进程装配验收完成前保持入口关闭。
+本人时空胶囊通过 `httpapi.RegisterWhisperCapsules` 显式注册五个操作；仅正常账号可封存，受罚本人仍可读取合法到期内容和清理。创建与列表不返回正文，详情依数据库时间、安全批准及当前屏障决定解密。`whisper.NewCapsuleUnlockWorker` 复用持久消费、完成回执和有界补偿，不解密正文；到期未审的工作持久挂起，批准唤醒或补偿后生成一次站内通知。迁移0025允许仅胶囊解锁工作使用waiting，存在挂起工作时拒绝回退；升级须显式迁移并重放权限。取消／删除清普通密文、工作及普通通知，保留最小终态及独立危机证据。真实文本安全、外部清理及生产进程装配验收完成前保持入口关闭。
+
+匿名黑名单通过 `httpapi.RegisterInteractionBlocks` 显式注册；迁移0026建立独立单向策略，默认不切换。完成两端升级后，使用迁移身份和外部 `APP_DATABASE_DSN` 显式运行 `go run ./cmd/migrate opaque-blocks`，验证历史随机标识并切换。切换后旧 GET／POST／DELETE 黑名单经认证统一返回 `409 CLIENT_UPGRADE_REQUIRED`，新接口只返回随机条目或最小受理确认；关闭树洞也不回退，已切换数据库拒绝 down。先部署迁移与兼容代码，再切换，最后完成正式装配验收才可启用树洞；前端回滚须保持服务端匿名保护。
+
+隐私服务沿用独立 `liyuanci_privacy_maintenance` 身份、独立恢复日志和显式 `Redactor`／`Eraser`：注销受理先撤销会话、隐藏整串并取消审核／解锁／通知。帖主的他人评论保持隐私屏障；受控脱敏及外部清理确认后才提供本人恢复候选，原 body 与旧父帖标识始终隐藏，重新发布使用新评论。缺少真实适配器时保持 processing。恢复调度必须先调用 `privacy.Service.Recover` 读取包含已确认删除的独立日志并完成重删，再开放读取及外发；普通启动不替代此恢复门禁，也不宣称完成备份全副本清理。

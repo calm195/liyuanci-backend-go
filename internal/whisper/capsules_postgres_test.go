@@ -433,6 +433,17 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		must(e)
 		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
 		must(e)
+		// B07补正：解锁、拒绝不占额度；隔离到期内容仍占额度。
+		must(admin.Exec("UPDATE public.whisper_capsules SET review_state='approved',created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE owner_id=? AND lifecycle='active'", fresh).Error)
+		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
+		must(e)
+		must(admin.Exec("UPDATE public.whisper_capsules SET review_state='rejected' WHERE owner_id=? AND lifecycle='active'", fresh).Error)
+		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
+		must(e)
+		must(admin.Exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version,status) SELECT gen_random_uuid(),'whisper_capsule',id,1,1,'active' FROM public.whisper_capsules WHERE owner_id=? AND lifecycle='active'", fresh).Error)
+		if _, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input); !errors.Is(e, whisper.ErrCapsuleLimit) {
+			t.Fatal("隔离未占用额度", e)
+		}
 	})
 	if output := os.Getenv("APP_WHISPER_CAPSULE_WIRE_OUTPUT"); output != "" {
 		b, e := json.MarshalIndent(samples, "", "  ")

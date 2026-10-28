@@ -663,4 +663,8 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		testWhisperCapsules(t, admin, workerDB, service, worker, analyzer, reviews, crises, other, otherToken, token, adminToken)
 	})
 
+	t.Run("匿名兼容与注销恢复真实闭环", func(t *testing.T) {
+		testWhisperPrivacy(t, admin, api, open(testDSN+" options='-c role=liyuanci_privacy_maintenance'"), service, worker, codec, journal, cfg, catalog, admission, analyzer)
+	})
+
 }

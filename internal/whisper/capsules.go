@@ -28,7 +28,7 @@ func (s *Service) CreateCapsule(ctx context.Context, token, key, rid string, in 
 			return "", command.ErrInvalid
 		}
 		var count int64
-		if e := tx.DB().WithContext(ctx).Model(&entity.WhisperCapsule{}).Where("owner_id=? AND lifecycle='active'", tx.Actor().ID).Count(&count).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Model(&entity.WhisperCapsule{}).Where("owner_id=? AND lifecycle='active' AND (review_state IN ('scanning','pending') OR (review_state='approved' AND unlock_at>?) OR EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_capsule' AND h.target_id=whisper_capsules.id AND h.status='active') OR EXISTS(SELECT 1 FROM public.content_restrictions x WHERE x.content_id=whisper_capsules.content_registry_id AND x.active))", tx.Actor().ID, tx.Now()).Count(&count).Error; e != nil {
 			return "", e
 		}
 		if count >= 20 {

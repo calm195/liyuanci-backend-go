@@ -118,7 +118,17 @@ func (s *Service) ownerComment(ctx context.Context, db *gorm.DB, now time.Time, 
 			return OwnerComment{}, e
 		}
 	}
-	// 幸存评论受控脱敏候选的生成和读取由完整隐私流程接入；此处始终不回显旧原文。
+	// 隐私状态优先抹除旧父帖关联；候选只在完成脱敏并解除父外键后读取。
+	if state == "privacy_hold" {
+		out.PostID = nil
+		if c.PostID == nil && c.Lifecycle == "active" && len(c.RecoveryCipher) > 0 {
+			var body string
+			if e = s.decrypt(ctx, "whisper_comment_recovery", id, c.ContentVersion, c.RecoveryCipher, &body); e != nil {
+				return OwnerComment{}, e
+			}
+			out.RecoveryBody = &body
+		}
+	}
 	return out, nil
 }
 

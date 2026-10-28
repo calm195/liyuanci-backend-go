@@ -153,6 +153,9 @@ func (s *Service) WithdrawComment(ctx context.Context, token, key, rid, id strin
 		if e := cancelCommentReviews(ctx, tx.DB(), id); e != nil {
 			return "", e
 		}
+		if e := s.clearHeldComment(ctx, tx.DB(), token, id); e != nil {
+			return "", e
+		}
 		e := tx.DB().WithContext(ctx).Model(&entity.WhisperComment{}).Where("id=?", id).Updates(map[string]any{"version": gorm.Expr("version+1"), "lifecycle": "withdrawn", "updated_at": tx.Now()}).Error
 		return id, e
 	}

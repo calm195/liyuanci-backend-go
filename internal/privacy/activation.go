@@ -24,6 +24,11 @@ func merge(p, q command.Discovery) command.Discovery {
 func accountPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discovery, err error) {
 	db = db.WithContext(ctx)
 	p.Accounts = []string{id}
+	tree, e := whisperPlan(ctx, db, id)
+	if e != nil {
+		return p, e
+	}
+	p = merge(p, tree)
 	var wishes []string
 	if err = db.Model(&entity.Wish{}).Where("owner_id=? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id=?) OR id IN (SELECT wish_id FROM public.matches WHERE requester_id=? OR helper_id=?)", id, id, id, id).Pluck("id", &wishes).Error; err != nil {
 		return
@@ -99,12 +104,15 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 		return e
 	}
 	if a.Lifecycle == "deleting" {
-		return nil
+		return activateWhispers(ctx, db, id)
 	}
 	if e := db.Model(&entity.Account{}).Where("id=?", id).Updates(map[string]any{"lifecycle": "deleting", "auth_epoch": gorm.Expr("auth_epoch+1"), "version": gorm.Expr("version+1")}).Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.Session{}).Where("account_id=?", id).Update("revoked_at", tx.Now()).Error; e != nil {
+		return e
+	}
+	if e := activateWhispers(ctx, db, id); e != nil {
 		return e
 	}
 	var rows []entity.Wish

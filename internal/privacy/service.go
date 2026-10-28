@@ -43,10 +43,12 @@ type Eraser interface {
 
 // Object 是只供可信清理适配器解密的对象定位，不向HTTP返回。
 type Object struct {
-	ID        string
-	KeyCipher json.RawMessage
-	Version   string
-	Evidence  bool
+	// ReferenceOnly 只表示应用缓存/普通引用定位，不是可解密对象存储键；适配器必须抑制迟到写入并确认清除。
+	ReferenceOnly bool
+	ID            string
+	KeyCipher     json.RawMessage
+	Version       string
+	Evidence      bool
 }
 
 // Service 不拥有数据库、日志、密钥或外部清理适配器；不同权限池分别构造账号和证据实例。

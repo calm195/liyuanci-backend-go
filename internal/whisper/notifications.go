@@ -76,7 +76,7 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.WithContext(ctx).Model(&entity.Notification{}).Where("recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs)", actor.ID)
+		query := db.WithContext(ctx).Model(&entity.Notification{}).Where("recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)", actor.ID)
 		if after.ID != "" {
 			query = query.Where("(created_at,id)<(?,?)", after.At, after.ID)
 		}
@@ -118,7 +118,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var n int64
-		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs)", id, tx.Actor().ID).Count(&n).Error
+		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)", id, tx.Actor().ID).Count(&n).Error
 		if e != nil {
 			return e
 		}
@@ -137,7 +137,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 		if e := tx.DB().WithContext(ctx).Where("id=? AND recipient_id=?", ref, tx.Actor().ID).Take(&n).Error; e != nil {
 			return missingRow(e)
 		}
-		if e := tx.DB().WithContext(ctx).Where("notification_id=?", ref).Take(&r).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Where("notification_id=? AND NOT suppressed", ref).Take(&r).Error; e != nil {
 			return missingRow(e)
 		}
 		out = notificationProjection(n, r)
