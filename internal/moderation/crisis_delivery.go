@@ -33,6 +33,9 @@ type CrisisNotifier interface {
 	NotifyCrisis(context.Context, string, string) error
 }
 
+// CareResourcesReady 核对正式关怀资料完整性；不提供任何内置联系资料。
+func CareResourcesReady(c *CareResources) bool { return c != nil && validateCare(c) }
+
 func validateCare(c *CareResources) bool {
 	if c == nil {
 		return true
@@ -69,7 +72,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 			return e
 		}
-		e := db.Where("(status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now).Order("next_at,id").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&job).Error
+		query := db.Where("(status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now)
+		predicate := "content_type NOT LIKE 'whisper_%'"
+		if w.whispersOnly {
+			predicate = "content_type LIKE 'whisper_%'"
+		}
+		e := query.Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE " + predicate + ")").Order("next_at,id").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&job).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return nil
 		}

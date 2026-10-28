@@ -310,7 +310,7 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 			if in.Scope == "account" {
 				subject = &in.Target
 			}
-			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "blocked", "target_ref": in.Target, "subject_ref": subject, "next_at": time.Now(), "error_code": nil}).Error
+			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "blocked", "target_ref": in.Target, "subject_ref": subject, "next_at": gorm.Expr("clock_timestamp()"), "error_code": nil}).Error
 		}
 		if exists > 0 {
 			if in.Scope == "account" {

@@ -265,7 +265,7 @@ func (w *WhisperWorker) ProcessNext(ctx context.Context) (out durable.Consumptio
 
 // ProcessCrisisDelivery 复用持久租约投递，仍需要显式关怀资料及真实通知适配器。
 func (w *WhisperWorker) ProcessCrisisDelivery(ctx context.Context) (bool, error) {
-	return (&Worker{db: w.db, logger: w.logger, codec: w.codec, cfg: w.cfg}).ProcessCrisisDelivery(ctx)
+	return (&Worker{db: w.db, logger: w.logger, codec: w.codec, cfg: w.cfg, whispersOnly: true}).ProcessCrisisDelivery(ctx)
 }
 
 // applyWhisperReview 仅消费已审核候选；胶囊只改变审核状态，不改写原文或提前解锁。
@@ -343,4 +343,10 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 		return whisper.AppendCommentNotice(ctx, db, r.ID, now)
 	}
 	return nil
+}
+
+// Maintain 由宿主在审核补偿之外独立驱动危机投递，停止时与消费一起等待退出。
+func (w *WhisperWorker) Maintain(ctx context.Context) error {
+	_, e := w.ProcessCrisisDelivery(ctx)
+	return e
 }
