@@ -32,6 +32,8 @@ integration:
 	docker compose -f deploy/compose/integration.yaml up -d --build --wait api worker
 	docker compose -f deploy/compose/integration.yaml run --rm probe
 	# 领域主题独立于探针；真实数据库、MQ和业务回执必须在同一隔离项目验证。
+	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_whisper_review_v1
+	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_whisper_unlock_v1
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_student_card_scan_v1
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_content_review_v1
 	docker compose -f deploy/compose/integration.yaml run --rm --build business-test

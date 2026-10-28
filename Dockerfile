@@ -26,12 +26,15 @@ RUN CGO_ENABLED=0 go test -c -o /artifacts/business.test ./internal/studentcard 
     CGO_ENABLED=0 go test -c -o /artifacts/foundation.test ./internal/migration && \
     CGO_ENABLED=0 go test -c -o /artifacts/command.test ./internal/command && \
     CGO_ENABLED=0 go test -c -o /artifacts/whisper.test ./internal/whisper && \
-    CGO_ENABLED=0 go test -c -o /artifacts/whisperrate.test ./internal/platform/whisperrate
+    CGO_ENABLED=0 go test -c -o /artifacts/whisperrate.test ./internal/platform/whisperrate && \
+    CGO_ENABLED=0 go test -c -o /artifacts/whisperapp.test ./internal/whisperapp
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS business-test
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
-COPY --from=business-test-build /artifacts/business.test /artifacts/durable.test /artifacts/moderation.test /artifacts/wish.test /artifacts/foundation.test /artifacts/command.test /artifacts/whisper.test /artifacts/whisperrate.test /
+COPY --from=business-test-build /artifacts/business.test /artifacts/durable.test /artifacts/moderation.test /artifacts/wish.test /artifacts/foundation.test /artifacts/command.test /artifacts/whisper.test /artifacts/whisperrate.test /artifacts/whisperapp.test /
 COPY --from=builder /artifacts/card-worker /card-worker
 COPY --from=builder /artifacts/content-worker /content-worker
+COPY --from=builder /artifacts/server /server
+COPY --from=builder /artifacts/privacy-worker /privacy-worker
 USER app
 ENTRYPOINT ["/business.test"]
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
