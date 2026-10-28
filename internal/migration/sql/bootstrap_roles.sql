@@ -436,3 +436,7 @@ GRANT UPDATE (version) ON evidence.evidence_cases TO liyuanci_crisis_api;
 GRANT SELECT,INSERT ON public.work_items,public.outbox_events TO liyuanci_crisis_api;
 GRANT UPDATE (lifecycle_bound) ON public.command_receipts TO liyuanci_evidence_delete_api;
 GRANT UPDATE (source_module) ON public.deletion_jobs TO liyuanci_evidence_delete_api;
+
+-- 人工批准暖评与自动批准共用唯一站内事件，普通后台不读取通知正文。
+GRANT SELECT,INSERT ON public.whisper_notification_refs TO liyuanci_admin_api;
+GRANT UPDATE (published_at) ON public.whisper_comments TO liyuanci_api;

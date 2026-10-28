@@ -58,7 +58,7 @@ func (s *Service) ownerPost(ctx context.Context, db *gorm.DB, now time.Time, id,
 			out.ReviewResult.RevisionSuggestion = task.RevisionSuggestion
 		}
 	}
-	out.AllowedActions = append(out.AllowedActions, "whisperPostWithdraw")
+	out.AllowedActions = append(out.AllowedActions, "whisperPostWithdraw", "whisperCommentsSetting")
 	limited, e := restrictedAccount(ctx, db, owner, now)
 	if e != nil {
 		return OwnerPost{}, e
@@ -72,7 +72,7 @@ func (s *Service) ownerPost(ctx context.Context, db *gorm.DB, now time.Time, id,
 	return out, nil
 }
 
-func (s *Service) publicPost(ctx context.Context, db *gorm.DB, now time.Time, id string, viewer audience, c CatalogSnapshot) (out PublicPost, err error) {
+func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time, id string, viewer audience, c CatalogSnapshot) (out PublicPost, err error) {
 	a, e := loadPost(ctx, db, id)
 	if e != nil {
 		return out, e
@@ -116,7 +116,18 @@ func (s *Service) publicPost(ctx context.Context, db *gorm.DB, now time.Time, id
 		notice = &v
 	}
 	out = PublicPost{ID: id, Version: a.post.Version, ContentVersion: a.post.CurrentContentVersion, Body: *a.version.PublicBody, Identity: identity, PublishedAt: timestamp(*a.post.PublishedAt), SchoolRelated: *a.version.SchoolRelated, NoticeCodes: codes, NoticeText: notice, ViewerIsAuthor: viewer.ID == a.post.OwnerID, AllowedActions: []string{}, CommentsOpen: a.post.CommentsOpen, CommentsEpoch: a.post.CommentsEpoch}
-	// 后续互动模块接入前不宣称动作可用；已有状态仍从数据库权威读取。
+	return out, nil
+}
+
+func (s *Service) publicPost(ctx context.Context, db *gorm.DB, now time.Time, id string, viewer audience, c CatalogSnapshot) (out PublicPost, err error) {
+	out, err = s.publicPostBase(ctx, db, now, id, viewer, c)
+	var e error
+	if err != nil {
+		return
+	}
+	if err = visibleCommentsQuery(ctx, db, id, out.ContentVersion, now).Count(&out.CommentCount).Error; err != nil {
+		return PublicPost{}, err
+	}
 	if e = countHugs(ctx, db, id, &out.HugCount); e != nil {
 		return PublicPost{}, e
 	}
@@ -128,6 +139,15 @@ func (s *Service) publicPost(ctx context.Context, db *gorm.DB, now time.Time, id
 		}
 		if len(hugs) == 1 {
 			out.MyHug = &HugState{Active: hugs[0].Active, Version: hugs[0].Version}
+		}
+	}
+
+	if viewer.ID != "" && !viewer.Restricted {
+		if out.CommentsOpen {
+			out.AllowedActions = append(out.AllowedActions, "whisperCommentCreate")
+		}
+		if !out.ViewerIsAuthor {
+			out.AllowedActions = append(out.AllowedActions, "whisperHugSet", "whisperReportCreate")
 		}
 	}
 	return out, nil

@@ -50,7 +50,7 @@ func (s *Service) definition(kind, method, path, id string, restricted bool) com
 	return d
 }
 
-func (s *Service) execute(ctx context.Context, d command.Definition, token, key, rid string, value any, expected int64, id, budget string) (out command.Outcome, err error) {
+func (s *Service) execute(ctx context.Context, d command.Definition, token, key, rid string, value any, expected int64, id, budget string, checks ...command.Expectation) (out command.Outcome, err error) {
 	if !s.config.Enabled {
 		return out, ErrModuleUnavailable
 	}
@@ -66,6 +66,9 @@ func (s *Service) execute(ctx context.Context, d command.Definition, token, key,
 	if id != "" {
 		d.RequiredExpectations = []string{"expected_version"}
 		input.Expectations = []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.WhisperPost, ID: id}, Value: expected}}
+	}
+	if len(checks) > 0 {
+		input.Expectations = checks
 	}
 	var lease string
 	var callbackFailed bool

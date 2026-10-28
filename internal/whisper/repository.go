@@ -195,7 +195,7 @@ func reviewTask(ctx context.Context, db *gorm.DB, id, contentID string, version 
 	return db.WithContext(ctx).Where("id=? AND content_id=? AND content_version=?", id, contentID, version).Take(out).Error
 }
 func countHugs(ctx context.Context, db *gorm.DB, id string, out *int64) error {
-	return db.WithContext(ctx).Model(&entity.WhisperHug{}).Where("post_id=? AND active", id).Count(out).Error
+	return db.WithContext(ctx).Table("public.whisper_hugs AS h").Joins("JOIN public.accounts a ON a.id=h.actor_id").Where("h.post_id=? AND h.active AND a.lifecycle='active' AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=clock_timestamp() AND (p.ends_at IS NULL OR p.ends_at>clock_timestamp()))", id).Count(out).Error
 }
 func viewerHugs(ctx context.Context, db *gorm.DB, id, viewer string, out *[]entity.WhisperHug) error {
 	return db.WithContext(ctx).Where("post_id=? AND actor_id=?", id, viewer).Find(out).Error
