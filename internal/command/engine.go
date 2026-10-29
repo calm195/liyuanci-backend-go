@@ -46,7 +46,7 @@ func uuid(value string) bool {
 func validDefinition(d Definition) bool {
 	required := map[string]bool{}
 	for _, name := range d.RequiredExpectations {
-		if required[name] || !slices.Contains([]string{"expected_version", "wish_expected_version", "expected_write_epoch"}, name) {
+		if required[name] || !slices.Contains([]string{"expected_version", "wish_expected_version", "expected_write_epoch", "expected_post_version", "expected_comments_epoch"}, name) {
 			return false
 		}
 		required[name] = true
@@ -77,17 +77,24 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 	slices.SortFunc(checks, func(a, b Expectation) int {
 		return strings.Compare(string(a.Target.Kind)+a.Target.ID+a.Name, string(b.Target.Kind)+b.Target.ID+b.Name)
 	})
-	seen := make(map[Resource]bool)
+	seen := make(map[Resource]string)
 	names := map[string]bool{}
 	for _, check := range checks {
-		if !uuid(check.Target.ID) || check.Value <= 0 || seen[check.Target] || names[check.Name] {
+		// 父帖版本与评论代次绑定同一资源，但各自校验，不能互相替代。
+		previous := seen[check.Target]
+		parentPair := check.Target.Kind == WhisperPost && ((previous == "expected_post_version" && check.Name == "expected_comments_epoch") || (previous == "expected_comments_epoch" && check.Name == "expected_post_version"))
+		if !uuid(check.Target.ID) || check.Value <= 0 || (previous != "" && !parentPair) || names[check.Name] {
 			return nil, ErrInvalid
 		}
-		seen[check.Target] = true
+		seen[check.Target] = check.Name
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase, WhisperPost, WhisperComment, WhisperNickname, WhisperCapsule}, check.Target.Kind) {
+				return nil, ErrInvalid
+			}
+		case "expected_post_version", "expected_comments_epoch":
+			if check.Target.Kind != WhisperPost {
 				return nil, ErrInvalid
 			}
 		case "wish_expected_version":
@@ -249,16 +256,17 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 				}
 				scope := d.Method + " " + d.ResourcePath
 				var receipts []struct {
-					RequestHash []byte
-					ResultRef   string
-					ExpiresAt   time.Time
+					RequestHash    []byte
+					ResultRef      string
+					ExpiresAt      time.Time
+					LifecycleBound bool
 				}
-				if failure = db.Model(&entity.CommandReceipt{}).Select("request_hash,result_ref,expires_at").Where("actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=?", subject.Kind, subject.ID, scope, key[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&receipts).Error; failure != nil {
+				if failure = db.Model(&entity.CommandReceipt{}).Select("request_hash,result_ref,expires_at,lifecycle_bound").Where("actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=?", subject.Kind, subject.ID, scope, key[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&receipts).Error; failure != nil {
 					return failure
 				}
 				// 同一主体 guard 串行化同键操作；数据库唯一键兜底，回执和业务结果同事务。
-				// 冲突更新仍须检查数据库现有到期时间；零行代表并发状态变化，不能覆盖有效回执。
-				if len(receipts) == 1 && receipts[0].ExpiresAt.After(tx.now) {
+				// 生命周期回执不因技术到期被覆盖；普通回执仍检查期限，零行表示并发状态变化。
+				if len(receipts) == 1 && (receipts[0].LifecycleBound || receipts[0].ExpiresAt.After(tx.now)) {
 					if !slices.Equal(receipts[0].RequestHash, digest) {
 						return ErrIdempotencyConflict
 					}
@@ -285,6 +293,8 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 						actual = snapshot.Version
 						if check.Name == "expected_write_epoch" {
 							actual = snapshot.WriteEpoch
+						} else if check.Name == "expected_comments_epoch" {
+							actual = snapshot.CommentsEpoch
 						}
 					}
 					if actual != check.Value {
@@ -306,12 +316,16 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 				if failure = d.Resolve(ctx, tx, ref); failure != nil {
 					return failure
 				}
+				assignments := []string{"request_hash", "result_ref", "expires_at"}
+				if d.RetainReceipt {
+					assignments = append(assignments, "lifecycle_bound")
+				}
 				saved := db.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "actor_kind"}, {Name: "actor_id"}, {Name: "command_kind"}, {Name: "key_hash"}},
-					DoUpdates: clause.AssignmentColumns([]string{"request_hash", "result_ref", "expires_at"}),
-					Where:     clause.Where{Exprs: []clause.Expression{clause.Lte{Column: clause.Column{Table: "command_receipts", Name: "expires_at"}, Value: tx.now}}},
+					DoUpdates: clause.AssignmentColumns(assignments),
+					Where:     clause.Where{Exprs: []clause.Expression{clause.Lte{Column: clause.Column{Table: "command_receipts", Name: "expires_at"}, Value: tx.now}, clause.Eq{Column: clause.Column{Table: "command_receipts", Name: "lifecycle_bound"}, Value: false}}},
 				}).Create(&entity.CommandReceipt{
-					ActorKind: subject.Kind, ActorID: subject.ID, CommandKind: scope, KeyHash: key[:],
+					LifecycleBound: d.RetainReceipt, ActorKind: subject.Kind, ActorID: subject.ID, CommandKind: scope, KeyHash: key[:],
 					RequestHash: digest, ResultRef: ref, ExpiresAt: tx.now.Add(e.config.ReceiptTTL),
 				})
 				if saved.Error != nil {
@@ -342,7 +356,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{ErrClientUpgradeRequired, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrCapsuleLimit, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -382,6 +396,8 @@ func resultCode(err error) string {
 		return "idempotency_conflict"
 	case errors.Is(err, ErrAssetNotReady):
 		return "asset_not_ready"
+	case errors.Is(err, ErrCapsuleLimit):
+		return "capsule_limit"
 	case errors.Is(err, ErrActiveWishLimit):
 		return "active_wish_limit"
 	case errors.Is(err, ErrDuplicateApplication):

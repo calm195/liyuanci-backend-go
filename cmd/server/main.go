@@ -19,6 +19,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
+	"github.com/calm195/liyuanci-backend-go/internal/whisperapp"
 )
 
 func main() {
@@ -30,14 +31,14 @@ func main() {
 
 func run() error {
 	path := flag.String("config", "", "YAML配置路径；留空时仅使用环境变量")
-	check := flag.Bool("check", false, "仅检查开发业务依赖和装配，不监听HTTP")
+	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")
 	flag.Parse()
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
 	}
-	if *check && cfg.DevAppFile == "" {
-		return errors.New("开发诊断必须显式提供业务配置")
+	if *check && cfg.DevAppFile == "" && cfg.WhispersFile == "" {
+		return errors.New("依赖诊断必须显式提供业务配置")
 	}
 	log, err := platform.NewLogger(cfg.Log.Level)
 	if err != nil {
@@ -46,6 +47,17 @@ func run() error {
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
 	defer func() { _ = log.Sync() }()
+	var whisperSettings *whisperapp.Settings
+	if cfg.WhispersFile != "" {
+		settings, e := config.LoadWhispers(context.Background(), cfg.WhispersFile, cfg.Environment)
+		if e != nil {
+			return errors.New("树洞运行配置无效或启用被禁止")
+		}
+		whisperSettings = &settings
+		if cfg.DevAppFile == "" {
+			cfg.Database.DSN = settings.APIDSN
+		}
+	}
 	var development *devapp.Settings
 	if cfg.DevAppFile != "" {
 		settings, e := devapp.Load(cfg.DevAppFile)
@@ -79,7 +91,11 @@ func run() error {
 		}
 		log.Info("资源清理完成")
 	}()
+	var whisperAPI *whisperapp.API
 	router := httpapi.New(log, func(ctx context.Context) error {
+		if whisperAPI != nil {
+			return whisperAPI.Ready(ctx)
+		}
 		if err := resources.Ready(ctx); err != nil {
 			return err
 		}
@@ -87,7 +103,24 @@ func run() error {
 	})
 	if cfg.DevAppFile != "" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, resources.Ready)
+		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
+			// 本地业务允许数据库轮询，不把探针MQ客户端作为API就绪前置。
+			// devapp仍检查业务池，树洞存在时继续检查其真实装配依赖。
+			if development.LocalTest {
+				if resources.Redis == nil {
+					return errors.New("本地共享限流不可用")
+				}
+				if e := resources.Redis.Ping(checkCtx).Err(); e != nil {
+					return e
+				}
+			} else if e := resources.Ready(checkCtx); e != nil {
+				return e
+			}
+			if whisperAPI != nil {
+				return whisperAPI.Ready(checkCtx)
+			}
+			return nil
+		})
 		cancel()
 		if e != nil {
 			log.Error("开发业务装配失败，请显式初始化数据库和凭据")
@@ -95,6 +128,19 @@ func run() error {
 		}
 		defer func() { _ = closeBusiness() }()
 		router = businessRouter
+	}
+	if whisperSettings != nil {
+		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		app, e := whisperapp.OpenAPI(initCtx, *whisperSettings, resources.Redis, log)
+		cancel()
+		if e != nil {
+			return errors.New("树洞依赖装配失败")
+		}
+		defer func() { _ = app.Close() }()
+		whisperAPI = app
+		if e = app.Register(router); e != nil {
+			return errors.New("树洞路由装配失败")
+		}
 	}
 	if cfg.AdminAuth.Enabled {
 		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -111,11 +157,16 @@ func run() error {
 	if *check {
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if err := devapp.CheckCardWorker(checkCtx, *development, log); err != nil {
-			log.Error("开发工作进程诊断失败")
-			return errors.New("开发工作进程诊断失败")
+		if development != nil {
+			if err := devapp.CheckCardWorker(checkCtx, *development, log); err != nil {
+				log.Error("开发工作进程诊断失败")
+				return errors.New("开发工作进程诊断失败")
+			}
 		}
-		log.Info("开发业务诊断完成", zap.String("result", "success"))
+		if whisperAPI != nil && whisperAPI.Ready(checkCtx) != nil {
+			return errors.New("树洞依赖诊断失败")
+		}
+		log.Info("业务依赖诊断完成", zap.String("result", "success"))
 		return nil
 	}
 	server := &http.Server{

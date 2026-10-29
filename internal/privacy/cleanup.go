@@ -13,7 +13,7 @@ import (
 )
 
 // cleanGraph 只在已注销主体锁下发现普通清理边界，不把完整对端账号纳入删除集合。
-type cleanGraph struct{ wishes, applications, matches, conversations, messages, contents, tasks, assets, notifications, works, refs []string }
+type cleanGraph struct{ posts, comments, capsules, nicknames, relatedComments, wishes, applications, matches, conversations, messages, contents, tasks, assets, notifications, works, refs []string }
 
 func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 	queries := []struct {
@@ -38,6 +38,9 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 			return
 		}
 	}
+	if err = collectWhispers(db, id, &g); err != nil {
+		return
+	}
 	if err = db.Model(&entity.ContentRegistry{}).Where("author_id=? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ?", id, g.wishes, g.applications, g.messages).Pluck("id", &g.contents).Error; err != nil {
 		return
 	}
@@ -45,7 +48,7 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		return
 	}
 	g.refs = append(g.refs, id)
-	for _, ids := range [][]string{g.wishes, g.applications, g.matches, g.conversations, g.messages, g.contents, g.tasks, g.assets} {
+	for _, ids := range [][]string{g.wishes, g.applications, g.matches, g.conversations, g.messages, g.contents, g.tasks, g.assets, g.posts, g.comments, g.capsules, g.nicknames} {
 		g.refs = append(g.refs, ids...)
 	}
 	for _, q := range []struct {
@@ -69,7 +72,7 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		return
 	}
 	g.refs = append(g.refs, g.notifications...)
-	if err = db.Model(&entity.Notification{}).Where("recipient_id=? OR target_ref IN ?", id, g.refs).Pluck("id", &g.notifications).Error; err != nil {
+	if err = db.Model(&entity.Notification{}).Where("recipient_id=? OR target_ref IN ? OR id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE source_id IN ? OR target_id IN ? OR comment_id IN ?)", id, g.refs, g.refs, g.refs, g.refs).Pluck("id", &g.notifications).Error; err != nil {
 		return
 	}
 	g.refs = append(g.refs, g.notifications...)
@@ -90,6 +93,9 @@ func cleanAccount(db *gorm.DB, id string) error {
 	if e != nil {
 		return e
 	}
+	if e = db.Model(&entity.WhisperComment{}).Where("author_id<>? AND post_id IN ?", id, g.posts).Update("post_id", nil).Error; e != nil {
+		return e
+	}
 	// 保留对端仍有效处罚，但移除已删普通内容引用；已限定证据不依赖该外键。
 	if e = db.Model(&entity.Penalty{}).Where("account_id<>? AND content_id IN ?", id, g.contents).Update("content_id", nil).Error; e != nil {
 		return e
@@ -100,6 +106,7 @@ func cleanAccount(db *gorm.DB, id string) error {
 		args  []any
 	}{
 		{&entity.DeliveryAttempt{}, "notification_id IN ?", []any{g.notifications}},
+		{&entity.WhisperNotificationRef{}, "notification_id IN ?", []any{g.notifications}},
 		{&entity.Notification{}, "id IN ?", []any{g.notifications}},
 		{&entity.CareCard{}, "recipient_id=?", []any{id}},
 		{&entity.AccessAudit{}, "subject_ref IN ?", []any{g.refs}},
@@ -119,9 +126,18 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.StoryVersion{}, "wish_id IN ?", []any{g.wishes}},
 		{&entity.WishVersion{}, "wish_id IN ?", []any{g.wishes}},
 		{&entity.Wish{}, "id IN ?", []any{g.wishes}},
+		{&entity.WhisperHug{}, "actor_id=? OR post_id IN ?", []any{id, g.posts}},
+		{&entity.WhisperAlias{}, "actor_id=? OR post_id IN ?", []any{id, g.posts}},
+		{&entity.WhisperCommentVersion{}, "comment_id IN ?", []any{g.comments}},
+		{&entity.WhisperComment{}, "id IN ?", []any{g.comments}},
+		{&entity.WhisperPostVersion{}, "post_id IN ?", []any{g.posts}},
+		{&entity.WhisperPost{}, "id IN ?", []any{g.posts}},
+		{&entity.WhisperCapsule{}, "id IN ?", []any{g.capsules}},
+		{&entity.WhisperPreference{}, "account_id=?", []any{id}},
+		{&entity.WhisperNicknameVersion{}, "account_id=?", []any{id}},
 		{&entity.ModerationTask{}, "id IN ?", []any{g.tasks}},
 		{&entity.ContentRegistry{}, "id IN ?", []any{g.contents}},
-		{&entity.PrivacyHold{}, "target_id IN ?", []any{g.wishes}},
+		{&entity.PrivacyHold{}, "target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ?", []any{g.wishes, g.posts, g.comments, g.capsules, g.nicknames}},
 		{&entity.ShareLink{}, "target_id IN ?", []any{g.wishes}},
 		{&entity.IdentityReview{}, "account_id=?", []any{id}},
 		{&entity.Asset{}, "owner_id=?", []any{id}},
@@ -165,6 +181,24 @@ func (s *Service) objects(ctx context.Context, in Intent) (out []Object, err err
 		err = s.db.WithContext(ctx).Where("owner_id=?", in.Target).Find(&rows).Error
 		for _, a := range rows {
 			out = append(out, Object{ID: a.ID, KeyCipher: a.EncryptedObjectKey, Version: a.ObjectVersion})
+		}
+		if err != nil {
+			return
+		}
+		// 把整张普通删除图的随机引用交给外部清理，覆盖幸存内容缓存、opaque回执和通知定位。
+		graph, e := collect(s.db.WithContext(ctx), in.Target)
+		if e != nil {
+			return nil, e
+		}
+		seen := map[string]bool{}
+		for _, v := range out {
+			seen[v.ID] = true
+		}
+		for _, ref := range graph.refs {
+			if !seen[ref] {
+				out = append(out, Object{ID: ref, ReferenceOnly: true})
+				seen[ref] = true
+			}
 		}
 	} else {
 		var rows []entity.EvidenceAsset
@@ -253,6 +287,12 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 		if e = db.Where("job_id=?", in.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&jobs).Error; e != nil {
 			return e
 		}
+		if len(jobs) > 0 && exists > 0 && in.Scope == "account" && jobs[0].Phase != "completed" {
+			// 恢复的未完成回执也不能使活动主体或新增对象跳过屏障。
+			if e = activateAccount(ctx, tx, in.Target); e != nil {
+				return e
+			}
+		}
 		if len(jobs) > 0 {
 			if jobs[0].Phase != "completed" || exists == 0 {
 				return nil
@@ -270,7 +310,7 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 			if in.Scope == "account" {
 				subject = &in.Target
 			}
-			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "blocked", "target_ref": in.Target, "subject_ref": subject, "next_at": time.Now(), "error_code": nil}).Error
+			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "blocked", "target_ref": in.Target, "subject_ref": subject, "next_at": gorm.Expr("clock_timestamp()"), "error_code": nil}).Error
 		}
 		if exists > 0 {
 			if in.Scope == "account" {
@@ -313,12 +353,16 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 		return true, command.ErrUnavailable
 	}
 	processed = true
-	in := Intent{ID: job.JobID, Scope: scope, Target: *job.TargetRef}
+	in := Intent{ID: job.JobID, Scope: scope, Target: *job.TargetRef, SourceModule: job.SourceModule}
 	if job.Phase == "verifying" {
 		return true, s.finish(ctx, in.ID)
 	}
 	// 没有已持久意图绝不能执行破坏操作；工作只由受理或独立日志恢复创建。
 	redactions, e := s.prepareRedactions(ctx, in)
+	if e != nil {
+		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
+	}
+	treeRedactions, e := s.prepareWhisperRedactions(ctx, in)
 	if e != nil {
 		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
 	}
@@ -399,6 +443,9 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 					return e
 				}
 				if e = s.applyRedactions(bounded, db, redactions); e != nil {
+					return e
+				}
+				if e = s.applyWhisperRedactions(bounded, db, treeRedactions); e != nil {
 					return e
 				}
 				e = cleanAccount(db, in.Target)

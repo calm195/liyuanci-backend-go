@@ -28,6 +28,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
@@ -623,6 +624,16 @@ func TestPrivacyDeletion(t *testing.T) {
 		penalty := uuid.NewString()
 		must(root.Create(&entity.Penalty{ID: penalty, AccountID: id, Level: "severe", ActionKind: "ban", ViolationRef: uuid.NewString(), ContentVersion: 1, ReasonRef: uuid.NewString(), StartsAt: time.Now()}).Error)
 		must(root.Create(&entity.AccessAudit{ID: uuid.NewString(), ActorID: admin, SubjectRef: review, Purpose: "synthetic.read", Outcome: "allowed"}).Error)
+		// 后台普通资料浏览必须由真实查询写入目标关联，注销后由原清理链删除。
+		users, e := safety.New(adminDB, log, codec, safety.Config{Command: cc, Key: bytes.Repeat([]byte{95}, 32), MaxTextBytes: 65536})
+		must(e)
+		_, e = users.UserDetailRead(ctx, adminToken, "users-read-before-delete", id)
+		must(e)
+		_, e = users.UserPenalties(ctx, adminToken, "users-history-before-delete", id, safety.UsersQuery{Limit: 20})
+		must(e)
+		if count(root, "public.access_audits", "subject_ref=? AND purpose IN ('admin_user_detail','admin_user_penalties')", id) != 2 {
+			t.Fatal("用户查询未写入可清理审计")
+		}
 		notification := uuid.NewString()
 		must(root.Create(&entity.Notification{ID: notification, RecipientID: peer, Type: "synthetic_notice", TargetRef: asset}).Error)
 		must(root.Create(&entity.DeliveryAttempt{ID: uuid.NewString(), NotificationID: notification, Channel: "in_app", Status: "sent"}).Error)
@@ -631,7 +642,7 @@ func TestPrivacyDeletion(t *testing.T) {
 		for _, spec := range []struct {
 			table, query string
 			arg          string
-		}{{"public.assets", "owner_id=?", id}, {"public.identity_reviews", "account_id=?", id}, {"public.penalties", "account_id=?", id}, {"public.access_audits", "subject_ref=?", review}, {"public.notifications", "id=?", notification}, {"public.delivery_attempts", "notification_id=?", notification}} {
+		}{{"public.assets", "owner_id=?", id}, {"public.identity_reviews", "account_id=?", id}, {"public.penalties", "account_id=?", id}, {"public.access_audits", "subject_ref=?", review}, {"public.access_audits", "subject_ref=?", id}, {"public.notifications", "id=?", notification}, {"public.delivery_attempts", "notification_id=?", notification}} {
 			if count(root, spec.table, spec.query, spec.arg) != 0 {
 				t.Fatal("普通资料残留", spec.table)
 			}

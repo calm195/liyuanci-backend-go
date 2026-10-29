@@ -22,6 +22,7 @@ func (Account) TableName() string { return "public.accounts" }
 
 // Block 映射 public.blocks，字段注释描述数据库持久化语义。
 type Block struct {
+	BlockID   string    `gorm:"column:block_id;type:uuid;not null;unique;default:gen_random_uuid();comment:不透明随机黑名单条目标识" json:"-"`
 	Version   int64     `gorm:"column:version;not null;default:1;comment:有向拉黑版本，解除时校验" json:"-"`
 	OwnerID   string    `gorm:"column:owner_id;type:uuid;primaryKey;autoIncrement:false;comment:设置拉黑的账号" json:"-"`
 	TargetID  string    `gorm:"column:target_id;type:uuid;primaryKey;autoIncrement:false;comment:被拉黑的账号" json:"-"`
@@ -33,22 +34,25 @@ func (Block) TableName() string { return "public.blocks" }
 
 // Penalty 映射 public.penalties，字段注释描述数据库持久化语义。
 type Penalty struct {
-	ContentID        *string         `gorm:"column:content_id;type:uuid;comment:触发处罚的精确内容注册" json:"-"`
-	ReasonCipher     json.RawMessage `gorm:"column:reason_cipher;type:jsonb;comment:处置理由信封密文" json:"-"`
-	ID               string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	AccountID        string          `gorm:"column:account_id;type:uuid;not null;comment:受处置账号" json:"-"`
-	Level            string          `gorm:"column:level;type:text;not null;comment:违规等级" json:"-"`
-	ActionKind       string          `gorm:"column:action_kind;type:text;not null;comment:处置动作，warning 不限制交互" json:"-"`
-	ViolationRef     string          `gorm:"column:violation_ref;type:uuid;not null;comment:违规事件引用，不直接依赖证据主体存续" json:"-"`
-	ContentVersion   int64           `gorm:"column:content_version;type:bigint;not null;comment:触发处置的精确内容版本" json:"-"`
-	StartsAt         time.Time       `gorm:"column:starts_at;type:timestamptz;not null;comment:处置开始时间" json:"-"`
-	EndsAt           *time.Time      `gorm:"column:ends_at;type:timestamptz;comment:七天禁言的结束时间，警告和永久封禁为空" json:"-"`
-	ReasonRef        string          `gorm:"column:reason_ref;type:uuid;not null;comment:处置原因技术引用，不复制正文" json:"-"`
-	FirstDisplayedAt *time.Time      `gorm:"column:first_displayed_at;type:timestamptz;comment:首次警告展示时间，后续重进不得重置" json:"-"`
-	ConfirmableAt    *time.Time      `gorm:"column:confirmable_at;type:timestamptz;comment:首次展示三十秒后的可确认时间" json:"-"`
-	AcknowledgedAt   *time.Time      `gorm:"column:acknowledged_at;type:timestamptz;comment:本人确认警告时间，不得提前" json:"-"`
-	Version          int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
-	RevokedAt        *time.Time      `gorm:"column:revoked_at;type:timestamptz;comment:经授权撤销时间" json:"-"`
+	SourceKind         string          `gorm:"column:source_kind;type:text;not null;default:'case';comment:处罚来源：case案件或direct管理员直接处置" json:"-"`
+	RevokeReasonCipher json.RawMessage `gorm:"column:revoke_reason_cipher;type:jsonb;comment:直接解除的理由信封密文" json:"-"`
+	RevokedBy          *string         `gorm:"column:revoked_by;type:uuid;comment:直接解除的后台操作者技术标识" json:"-"`
+	ContentID          *string         `gorm:"column:content_id;type:uuid;comment:触发处罚的精确内容注册" json:"-"`
+	ReasonCipher       json.RawMessage `gorm:"column:reason_cipher;type:jsonb;comment:处置理由信封密文" json:"-"`
+	ID                 string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	AccountID          string          `gorm:"column:account_id;type:uuid;not null;comment:受处置账号" json:"-"`
+	Level              string          `gorm:"column:level;type:text;not null;comment:违规等级" json:"-"`
+	ActionKind         string          `gorm:"column:action_kind;type:text;not null;comment:处置动作，warning 不限制交互" json:"-"`
+	ViolationRef       string          `gorm:"column:violation_ref;type:uuid;not null;comment:违规事件引用，不直接依赖证据主体存续" json:"-"`
+	ContentVersion     int64           `gorm:"column:content_version;type:bigint;not null;comment:触发处置的精确内容版本" json:"-"`
+	StartsAt           time.Time       `gorm:"column:starts_at;type:timestamptz;not null;comment:处置开始时间" json:"-"`
+	EndsAt             *time.Time      `gorm:"column:ends_at;type:timestamptz;comment:七天禁言的结束时间，警告和永久封禁为空" json:"-"`
+	ReasonRef          string          `gorm:"column:reason_ref;type:uuid;not null;comment:处置原因技术引用，不复制正文" json:"-"`
+	FirstDisplayedAt   *time.Time      `gorm:"column:first_displayed_at;type:timestamptz;comment:首次警告展示时间，后续重进不得重置" json:"-"`
+	ConfirmableAt      *time.Time      `gorm:"column:confirmable_at;type:timestamptz;comment:首次展示三十秒后的可确认时间" json:"-"`
+	AcknowledgedAt     *time.Time      `gorm:"column:acknowledged_at;type:timestamptz;comment:本人确认警告时间，不得提前" json:"-"`
+	Version            int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合版本，用于期望版本校验" json:"-"`
+	RevokedAt          *time.Time      `gorm:"column:revoked_at;type:timestamptz;comment:经授权撤销时间" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

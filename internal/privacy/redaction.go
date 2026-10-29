@@ -63,7 +63,7 @@ func (s *Service) redact(ctx context.Context, kind, body string) (out string, er
 	}
 	out, err = s.cfg.Redactor.Redact(ctx, kind, body)
 	max := 20000
-	if kind == "wish" {
+	if kind == "wish" || kind == "whisper_comment" {
 		max = 500
 	}
 	if err != nil || !utf8.ValidString(out) || strings.TrimSpace(out) == "" || utf8.RuneCountInString(out) > max {

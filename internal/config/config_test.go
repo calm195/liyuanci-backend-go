@@ -136,3 +136,21 @@ func TestDevelopmentWithoutMQ(t *testing.T) {
 		})
 	}
 }
+
+// TestWhisperRuntimeProfile 显式树洞配置可提供实际运行DSN，基础模式不得暗中装配业务。
+func TestWhisperRuntimeProfile(t *testing.T) {
+	t.Setenv("APP_WHISPERSFILE", "/external/runtime.json")
+	t.Setenv("APP_ENVIRONMENT", "integration")
+	t.Setenv("APP_DATABASE_DRIVER", "postgres")
+	t.Setenv("APP_DATABASE_DSN", "")
+	t.Setenv("APP_REDIS_ENABLED", "true")
+	t.Setenv("APP_ROCKETMQ_ENABLED", "false")
+	c, e := Load("")
+	if e != nil || c.WhispersFile != "/external/runtime.json" {
+		t.Fatal(e)
+	}
+	t.Setenv("APP_ENVIRONMENT", "foundation")
+	if _, e = Load(""); e == nil {
+		t.Fatal("基础健康模式接受业务装配")
+	}
+}

@@ -52,6 +52,10 @@ func TestInputValidation(t *testing.T) {
 		{"report_decision", id, Input{Decision: "confirmed", ExpectedVersion: 1, Reason: "合成"}, true},
 		{"appeal_decision", id, Input{Decision: "revoke", ExpectedVersion: 1}, false},
 		{"penalty", id, Input{ExpectedVersion: 1, ViolationRef: id, ContentRef: id, ContentVersion: 1, Level: "custom", Reason: "合成"}, false},
+		{"user_ban", id, Input{Reason: "合成理由", ExpectedVersion: 1}, true},
+		{"user_unban", id, Input{Reason: " ", ExpectedVersion: 1}, false},
+		{"user_mute", id, Input{Reason: "合成理由", ExpectedVersion: 0}, false},
+		{"user_unmute", id, Input{Reason: "合成理由", ExpectedVersion: 1}, true},
 		{"unknown", id, Input{}, false},
 	} {
 		e := s.validate(tc.op, tc.id, tc.in)

@@ -4,11 +4,13 @@ import (
 	"context"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
@@ -34,6 +36,8 @@ func spec(op, id string) (operation, bool) {
 		return operation{"POST", "/api/v1/me/warnings/" + id + "/" + op, "student", command.Restricted, command.Penalty}, true
 	case "report_decision":
 		return operation{"POST", "/api/v1/admin/reports/" + id + "/decision", "admin", "", command.Report}, true
+	case "user_ban", "user_unban", "user_mute", "user_unmute":
+		return operation{"POST", "/api/v1/admin/users/" + id + "/restrictions/" + op[5:], "admin", "", command.Account}, true
 	case "penalty":
 		return operation{"POST", "/api/v1/admin/users/" + id + "/penalties", "admin", "", command.Account}, true
 	case "appeal_decision":
@@ -72,6 +76,10 @@ func (s *Service) validate(op, id string, in Input) error {
 			}
 		}
 		switch op {
+		case "user_ban", "user_unban", "user_mute", "user_unmute":
+			if !s.text(in.Reason, true) || len(in.Reason) > 2000 {
+				return command.ErrInvalid
+			}
 		case "penalty":
 			if !validID(in.ViolationRef) || !validID(in.ContentRef) || in.ContentVersion < 1 || !slices.Contains([]string{"minor", "general", "severe"}, in.Level) || !s.text(in.Reason, true) {
 				return command.ErrInvalid
@@ -98,6 +106,14 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 		}
 	}()
 	defer s.done(op, rid, time.Now(), &err)
+	if op == "block" || op == "unblock" {
+		if e := s.LegacyBlocks(ctx, token); e != nil {
+			return nil, e
+		}
+	}
+	if isUserRestriction(op) {
+		in.Reason = strings.TrimSpace(in.Reason)
+	}
 	if e := s.validate(op, id, in); e != nil {
 		return nil, e
 	}
@@ -134,6 +150,9 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 	if o.actor == "admin" {
 		d.AllowedRoles = []string{"review_operator", "crisis_operator", "super_admin"}
 	}
+	if isUserRestriction(op) {
+		d.AllowedRoles = []string{"super_admin"}
+	}
 	var checks []command.Expectation
 	if o.resource != "" {
 		d.RequiredExpectations = []string{"expected_version"}
@@ -142,7 +161,17 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 	d.Discover = func(ctx context.Context, db *gorm.DB, actor command.Subject) (command.Discovery, error) {
 		return s.discover(ctx, db.WithContext(ctx), actor, op, id, in)
 	}
-	d.Authorize = func(ctx context.Context, tx *command.Tx) error { return s.authorize(ctx, tx, op, id, in) }
+	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
+		if op == "block" || op == "unblock" {
+			if e := tx.DB().WithContext(ctx).Exec("SELECT pg_advisory_xact_lock_shared(624109175)").Error; e != nil {
+				return e
+			}
+			if e := blockpolicy.Legacy(ctx, tx.DB()); e != nil {
+				return e
+			}
+		}
+		return s.authorize(ctx, tx, op, id, in)
+	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) { return s.apply(ctx, tx, op, id, in) }
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		v, e := s.resolve(ctx, tx, op, id, ref, in)
@@ -156,6 +185,8 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 }
 func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, op, id string, in Input) (p command.Discovery, err error) {
 	switch op {
+	case "user_ban", "user_unban", "user_mute", "user_unmute":
+		return discoverUserRestriction(ctx, db, id)
 	case "block":
 		return accountPlan(ctx, db, a.ID, in.TargetUserID)
 	case "unblock":
@@ -241,6 +272,16 @@ func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, 
 func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, in Input) error {
 	db := tx.DB().WithContext(ctx)
 	actor := tx.Actor().ID
+	if isUserRestriction(op) {
+		g, ok := tx.Guard(id)
+		if !ok || g.Lifecycle != "active" {
+			return command.ErrNotFound
+		}
+		if !slices.Contains(tx.Actor().Roles, "super_admin") {
+			return command.ErrForbidden
+		}
+		return nil
+	}
 	switch op {
 	case "block":
 		if actor == in.TargetUserID {
@@ -321,6 +362,12 @@ func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, 
 		if e != nil {
 			return e
 		}
+		if p.SourceKind == "direct" {
+			if !slices.Contains(tx.Actor().Roles, "super_admin") {
+				return command.ErrForbidden
+			}
+			return nil
+		}
 		if p.ContentID == nil {
 			return command.ErrNotFound
 		}
@@ -344,6 +391,9 @@ func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, 
 	return nil
 }
 func (s *Service) apply(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	if isUserRestriction(op) {
+		return s.applyUserRestriction(ctx, tx, op, id, in)
+	}
 	db := tx.DB().WithContext(ctx)
 	actor := tx.Actor().ID
 	switch op {
@@ -470,6 +520,11 @@ func (s *Service) apply(ctx context.Context, tx *command.Tx, op, id string, in I
 				return "", e
 			}
 		}
+		if in.Decision == "revoke" {
+			if e = db.Model(&entity.Account{}).Where("id=?", a.AccountID).Update("version", gorm.Expr("version+1")).Error; e != nil {
+				return "", e
+			}
+		}
 		if e = db.Model(&entity.Appeal{}).Where("id=?", id).Updates(map[string]any{"status": status, "decision_reason": in.Reason, "handler_id": actor, "version": gorm.Expr("version+1")}).Error; e != nil {
 			return "", e
 		}
@@ -496,6 +551,9 @@ func warning(p entity.Penalty, now time.Time) Warning {
 	return Warning{p.ID, p.Version, "请遵守社区规则，违规内容已移除", p.FirstDisplayedAt, p.ConfirmableAt, now, remaining, p.AcknowledgedAt}
 }
 func (s *Service) resolve(ctx context.Context, tx *command.Tx, op, id, ref string, in Input) (any, error) {
+	if isUserRestriction(op) {
+		return userRestrictionState(ctx, tx.DB(), id, tx.Now())
+	}
 	db := tx.DB().WithContext(ctx)
 	actor := tx.Actor().ID
 	switch op {

@@ -43,10 +43,12 @@ type Eraser interface {
 
 // Object 是只供可信清理适配器解密的对象定位，不向HTTP返回。
 type Object struct {
-	ID        string
-	KeyCipher json.RawMessage
-	Version   string
-	Evidence  bool
+	// ReferenceOnly 只表示应用缓存/普通引用定位，不是可解密对象存储键；适配器必须抑制迟到写入并确认清除。
+	ReferenceOnly bool
+	ID            string
+	KeyCipher     json.RawMessage
+	Version       string
+	Evidence      bool
 }
 
 // Service 不拥有数据库、日志、密钥或外部清理适配器；不同权限池分别构造账号和证据实例。
@@ -164,7 +166,7 @@ func (s *Service) createJob(db *gorm.DB, in Intent) error {
 	if in.Scope == "account" {
 		subject = &in.Target
 	}
-	return db.Create(&entity.DeletionJob{JobID: in.ID, SubjectRef: subject, Scope: in.Scope, TargetRef: &in.Target, Phase: "blocked", ExpiresAt: time.Now().Add(s.cfg.ReceiptTTL)}).Error
+	return db.Create(&entity.DeletionJob{SourceModule: in.SourceModule, JobID: in.ID, SubjectRef: subject, Scope: in.Scope, TargetRef: &in.Target, Phase: "blocked", ExpiresAt: time.Now().Add(s.cfg.ReceiptTTL)}).Error
 }
 
 // Request 先持久独立意图，再同事务使注销、关系矩阵及公开屏障生效；返回后会话已撤销。
@@ -248,7 +250,16 @@ func (s *Service) Status(ctx context.Context, rid, handle string) (out Receipt, 
 }
 
 // DeleteEvidence 只删除明确证据范围，撤销角色不能重放；理由保留在待删证据域并随该范围清除。
-func (s *Service) DeleteEvidence(ctx context.Context, token, key, rid, id string, in EvidenceInput) (out EvidenceAccepted, err error) {
+func (s *Service) DeleteEvidence(ctx context.Context, token, key, rid, id string, in EvidenceInput) (EvidenceAccepted, error) {
+	return s.deleteEvidence(ctx, token, key, rid, id, in, false)
+}
+
+// DeleteWhisperEvidence 只受理树洞危机证据，使用独立命名空间和生命周期回执。
+func (s *Service) DeleteWhisperEvidence(ctx context.Context, token, key, rid, id string, in EvidenceInput) (EvidenceAccepted, error) {
+	return s.deleteEvidence(ctx, token, key, rid, id, in, true)
+}
+
+func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string, in EvidenceInput, whispers bool) (out EvidenceAccepted, err error) {
 	defer func() {
 		if err != nil {
 			out = EvidenceAccepted{}
@@ -271,15 +282,32 @@ func (s *Service) DeleteEvidence(ctx context.Context, token, key, rid, id string
 		}
 		return out, e
 	}
+
+	var tree int64
+	if e := s.db.WithContext(ctx).Model(&entity.EvidenceCrisisCase{}).Where("evidence_case_id=? AND content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule')", ec.ID).Count(&tree).Error; e != nil {
+		return out, command.ErrUnavailable
+	}
+	if whispers != (tree > 0) {
+		return out, command.ErrNotFound
+	}
 	id = ec.ID
 	var intent Intent
 	target := command.Resource{Kind: command.EvidenceCase, ID: id}
 	d := command.Definition{Kind: "privacy.delete_evidence", Method: "DELETE", ResourcePath: "/api/v1/admin/evidence/" + id, ActorKind: "admin", AllowedRoles: []string{"super_admin"}, RequiredExpectations: []string{"expected_version"}}
+	if whispers {
+		d.Kind = "privacy.delete_whisper_evidence"
+		d.Method = "POST"
+		d.ResourcePath = "/api/v1/admin/whispers/evidence/" + id + "/deletion-requests"
+		d.RetainReceipt = true
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return evidencePlan(ctx, db, id)
 	}
 	d.Authorize = func(_ context.Context, tx *command.Tx) error {
 		intent = Intent{ID: s.jobID("evidence", id, key), Scope: "evidence", Target: id}
+		if whispers {
+			intent.SourceModule = "whispers"
+		}
 		return nil
 	}
 	d.PersistIntent = func(ctx context.Context, tx *command.Tx) error {
@@ -350,7 +378,16 @@ func (s *Service) superPreflight(ctx context.Context, token string) error {
 }
 
 // EvidenceStatus 返回超管当前可读的最小清理进度；不包含证据目标、理由或原始身份。
-func (s *Service) EvidenceStatus(ctx context.Context, token, rid, id string) (out Receipt, err error) {
+func (s *Service) EvidenceStatus(ctx context.Context, token, rid, id string) (Receipt, error) {
+	return s.evidenceStatus(ctx, token, rid, id, "legacy")
+}
+
+// WhisperEvidenceStatus 只返回树洞删除待办，完成后也不跨命名空间提供回执。
+func (s *Service) WhisperEvidenceStatus(ctx context.Context, token, rid, id string) (Receipt, error) {
+	return s.evidenceStatus(ctx, token, rid, id, "whispers")
+}
+
+func (s *Service) evidenceStatus(ctx context.Context, token, rid, id, module string) (out Receipt, err error) {
 	defer func() {
 		if err != nil {
 			out = Receipt{}
@@ -366,7 +403,7 @@ func (s *Service) EvidenceStatus(ctx context.Context, token, rid, id string) (ou
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
 	var row entity.DeletionJob
-	if e := s.db.WithContext(ctx).Where("job_id=? AND scope='evidence' AND expires_at>clock_timestamp()", id).Take(&row).Error; e != nil {
+	if e := s.db.WithContext(ctx).Where("job_id=? AND scope='evidence' AND source_module=? AND expires_at>clock_timestamp()", id, module).Take(&row).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return out, command.ErrNotFound
 		}

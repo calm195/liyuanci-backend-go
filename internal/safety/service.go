@@ -147,7 +147,7 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	}
 	if *err != nil {
 		known := false
-		for _, e := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrWarningWait, command.ErrRetry, command.ErrInternal} {
+		for _, e := range []error{command.ErrClientUpgradeRequired, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrWarningWait, command.ErrRetry, command.ErrInternal} {
 			if errors.Is(*err, e) {
 				*err = e
 				known = true

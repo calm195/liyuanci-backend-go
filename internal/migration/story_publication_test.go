@@ -16,9 +16,53 @@ func TestPostgresStoryPublication(t *testing.T) {
 	if e := Run(ctx, db, logger, "up"); e != nil {
 		t.Fatal(e)
 	}
-	// 构造仅缺新增版本的已部署结构，不改写任何历史迁移输入。
+	// 构造缺少公开时间及后续版本的已部署结构，不改写任何历史迁移输入。
+	controlsDown, e := files.ReadFile("sql/0028_user_restrictions.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	usersDown, e := files.ReadFile("sql/0027_admin_user_queries.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	cutoverDown, e := files.ReadFile("sql/0026_opaque_block_cutover.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	capsuleUnlockDown, e := files.ReadFile("sql/0025_whisper_capsule_unlock.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	whisperReviewDown, e := files.ReadFile("sql/0024_whisper_review.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	receiptDown, e := files.ReadFile("sql/0023_command_receipt_lifecycle.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	reviewEpochDown, e := files.ReadFile("sql/0022_whisper_review_epoch.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	foundationDown, e := files.ReadFile("sql/0021_whisper_foundation.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
 	if e := db.Transaction(func(tx *gorm.DB) error {
 		for _, sql := range []string{
+			string(controlsDown), "DELETE FROM public.schema_migrations WHERE version=28",
+			string(usersDown), "DELETE FROM public.schema_migrations WHERE version=27",
+			string(cutoverDown), "DELETE FROM public.schema_migrations WHERE version=26", string(capsuleUnlockDown),
+			"DELETE FROM public.schema_migrations WHERE version=25",
+			string(whisperReviewDown),
+			"DELETE FROM public.schema_migrations WHERE version=24",
+			string(receiptDown),
+			"DELETE FROM public.schema_migrations WHERE version=23",
+			string(reviewEpochDown),
+			"DELETE FROM public.schema_migrations WHERE version=22",
+			string(foundationDown),
+			"DELETE FROM public.schema_migrations WHERE version=21",
 			"ALTER TABLE public.story_versions DROP COLUMN published_at",
 			"DELETE FROM public.schema_migrations WHERE version=20",
 			"INSERT INTO public.accounts(id,nickname,verification) VALUES ('60000000-0000-4000-8000-000000000001','合成作者','verified')",

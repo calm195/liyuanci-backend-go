@@ -33,6 +33,9 @@ type CrisisNotifier interface {
 	NotifyCrisis(context.Context, string, string) error
 }
 
+// CareResourcesReady 核对正式关怀资料完整性；不提供任何内置联系资料。
+func CareResourcesReady(c *CareResources) bool { return c != nil && validateCare(c) }
+
 func validateCare(c *CareResources) bool {
 	if c == nil {
 		return true
@@ -69,7 +72,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 			return e
 		}
-		e := db.Where("(status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now).Order("next_at,id").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&job).Error
+		query := db.Where("(status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now)
+		predicate := "content_type NOT LIKE 'whisper_%'"
+		if w.whispersOnly {
+			predicate = "content_type LIKE 'whisper_%'"
+		}
+		e := query.Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE " + predicate + ")").Order("next_at,id").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&job).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return nil
 		}
@@ -108,7 +116,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 	defer stop()
 	err = w.db.WithContext(finish).Transaction(func(db *gorm.DB) error {
 		// 与人工处置保持案件先于投递行的锁序；误报已取消的租约不会创建关怀。
-		c, e := crisisRow(db, job.CaseID)
+		c, e := deliveryCrisisRow(db, job.CaseID)
 		if e != nil {
 			return e
 		}
@@ -133,7 +141,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if _, e = command.LockPlan(finish, db, plan, w.cfg.Consumer.LockTimeout); e != nil {
 			return e
 		}
-		c, e = crisisRow(db, job.CaseID)
+		c, e = deliveryCrisisRow(db, job.CaseID)
 		if e != nil {
 			return e
 		}
@@ -186,3 +194,9 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 
 // Maintain 由宿主调度独立补偿危机投递，不挤占正文扫描的外部分析预算。
 func (w *Worker) Maintain(ctx context.Context) error { _, e := w.ProcessCrisisDelivery(ctx); return e }
+
+// deliveryCrisisRow 仅供内部投递；跨域公开读取仍走各自的来源筛选。
+func deliveryCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
+	err = db.Where("id=?", id).Take(&c).Error
+	return c, err
+}

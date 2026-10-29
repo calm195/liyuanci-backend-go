@@ -95,7 +95,7 @@ def binary(entry, name, env):
 
 
 def application(args, env):
-    name = {'api': 'server', 'worker': 'card-worker', 'content-worker': 'content-worker',
+    name = {'api': 'server', 'worker': 'card-worker', 'content-worker': 'content-worker', 'whispers-worker': 'whisper-content-worker',
             'privacy-worker': 'privacy-account-worker', 'evidence-worker': 'privacy-evidence-worker'}[args.action]
     state = private_path(args.env_file).parent
     # 锁覆盖编译、派生配置和进程生存期，拒绝同一配置下重复运行相同应用。
@@ -108,7 +108,10 @@ def application(args, env):
         privacy = args.action in ('privacy-worker', 'evidence-worker')
         if privacy:
             app_env['APP_PRIVACY_SCOPE'] = 'account' if args.action == 'privacy-worker' else 'evidence'
-        path = binary(args.env_file, 'privacy-worker' if privacy else name, app_env)
+        if args.action in ('api', 'whispers-worker', 'privacy-worker', 'evidence-worker') and env.get('LIYUANCI_LOCAL_WHISPERS_FILE'):
+            app_env['APP_WHISPERSFILE'] = str(private_path(env['LIYUANCI_LOCAL_WHISPERS_FILE']))
+        executable = 'privacy-worker' if privacy else ('content-worker' if args.action == 'whispers-worker' else name)
+        path = binary(args.env_file, executable, app_env)
         command = [str(path)] + (['-config', ''] if name == 'server' else [])
         child = subprocess.Popen(command, cwd=ROOT, env=app_env, start_new_session=True, pass_fds=(lock.fileno(),))
         pidfile = state / (name + '.pid')
@@ -135,12 +138,12 @@ def application(args, env):
 def stop_apps(entry):
     """只向所选配置记录且命令匹配的宿主进程发TERM，绝不全局按名称杀进程。"""
     state = private_path(entry).parent
-    for name in ('server', 'card-worker', 'content-worker', 'privacy-account-worker', 'privacy-evidence-worker'):
+    for name in ('server', 'card-worker', 'content-worker', 'whisper-content-worker', 'privacy-account-worker', 'privacy-evidence-worker'):
         pidfile = state / (name + '.pid')
         if not pidfile.exists():
             continue
         pid = int(pidfile.read_text().strip())
-        expected = str(state / 'bin' / ('privacy-worker' if name.startswith('privacy-') else name))
+        expected = str(state / 'bin' / ('privacy-worker' if name.startswith('privacy-') else ('content-worker' if name == 'whisper-content-worker' else name)))
         command = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], text=True, capture_output=True)
         if command.returncode:
             pidfile.unlink(missing_ok=True)
@@ -165,17 +168,22 @@ def stop_apps(entry):
 def doctor(args, env):
     """诊断真实API装配；缺配置、迁移或权限时失败，不以整体readyz冒充局部诊断。"""
     app_env = app_environment(args.env_file, env)
+    if env.get('LIYUANCI_LOCAL_WHISPERS_FILE'):
+        app_env['APP_WHISPERSFILE'] = str(private_path(env['LIYUANCI_LOCAL_WHISPERS_FILE']))
     path = binary(args.env_file, 'server', app_env)
     result = subprocess.run([str(path), '-config', '', '-check'], cwd=ROOT, env=app_env)
     if result.returncode:
         raise OperationError('开发诊断失败，请核对中间件、迁移及原业务配置')
     print('API与业务worker数据库身份/业务结构、Redis和共享对象目录诊断通过。')
-    print('完整业务readyz仍可能503；微信、学校规则及生产能力不属于本次诊断通过范围。')
+    if env.get('LIYUANCI_LOCAL_SIMPLE_BUSINESS_FILE'):
+        print('本地测试依赖诊断通过；readyz按已装配测试依赖检查，真实微信与正式外部能力仍需单独验证。')
+    else:
+        print('完整业务readyz仍可能503；微信、学校规则及生产能力不属于本次诊断通过范围。')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['init', 'privacy-init', 'infra', 'api', 'worker', 'content-worker', 'privacy-worker', 'evidence-worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
+    parser.add_argument('action', choices=['init', 'privacy-init', 'business-init', 'infra', 'api', 'worker', 'content-worker', 'whispers-worker', 'privacy-worker', 'evidence-worker', 'doctor', 'stop', 'infra-stop', 'config', 'mq', 'management', 'monitoring', 'import'])
     parser.add_argument('--native', action='store_true', help='使用已经运行的宿主PG/Redis，Docker仅按需管理MQ')
     parser.add_argument('--project')
     parser.add_argument('--env-file')
@@ -209,6 +217,13 @@ def main(argv=None):
         selected_project = existing.get('LIYUANCI_LOCAL_PROJECT')
         if selected_project and selected_project != args.project:
             raise OperationError('配置目录属于另一宿主项目，请匹配--project与--env-file')
+    if args.action == 'business-init':
+        command = [sys.executable, str(ROOT / 'scripts/init-local-business.py'), '--env-file', args.env_file, '--project', args.project]
+        if args.native:
+            command.append('--native')
+        if subprocess.run(command, cwd=ROOT).returncode:
+            raise OperationError('本地业务测试模式初始化失败，原配置保留')
+        return
     if args.action == 'init' and args.native:
         entry = private_path(args.env_file)
         entry.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -267,7 +282,7 @@ def main(argv=None):
         port(env, name, default)
     if args.action == 'infra':
         infrastructure(args, env)
-    elif args.action in ('api', 'worker', 'content-worker', 'privacy-worker', 'evidence-worker'):
+    elif args.action in ('api', 'worker', 'content-worker', 'whispers-worker', 'privacy-worker', 'evidence-worker'):
         application(args, env)
     elif args.action == 'doctor':
         doctor(args, env)

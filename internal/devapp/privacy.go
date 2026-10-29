@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/localtest"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
@@ -17,6 +18,14 @@ func privacyConfig(cfg Settings) privacy.Config {
 }
 
 func openDeletionJournal(ctx context.Context, cfg Settings, logger *zap.Logger) (out privacy.Journal, closeAll func(), err error) {
+	if cfg.LocalTest {
+		codec, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
+		if e != nil {
+			return nil, nil, e
+		}
+		journal, e := localtest.NewJournal(cfg.JournalFile, codec, logger)
+		return journal, func() {}, e
+	}
 	if cfg.RecoveryWriterDSN == "" || cfg.RecoveryReaderDSN == "" || len(cfg.RecoveryWrapKey) != 32 {
 		return nil, nil, command.ErrInvalid
 	}
@@ -73,7 +82,7 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg Settings, sco
 	}
 	var db *gorm.DB
 	var closePool func() error
-	db, closePool, e = pool(startup, dsn, role)
+	db, closePool, e = cfg.pool(startup, dsn, role, logger)
 	if e != nil {
 		return e
 	}

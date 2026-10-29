@@ -32,12 +32,14 @@ type Work struct {
 	NextAt        time.Time
 }
 
-// Decision 是领域回调已复核当前资格与版本之后给出的终结结果。
+// Decision 是领域回调已复核当前资格与版本之后给出的处理或挂起结果。
 type Decision string
 
 const (
 	// Complete 表示业务结果已在当前事务内写入。
 	Complete Decision = "completed"
+	// Suspend 表示业务依赖尚未满足，持久挂起且不产生完成回执或错误重试次数。
+	Suspend Decision = "waiting"
 	// Obsolete 表示目标已失效，不产生业务结果并取消工作。
 	Obsolete Decision = "cancelled"
 )
@@ -233,6 +235,13 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				decision, failure := c.definition.Apply(ctx, tx, current)
 				if failure != nil {
 					return failure
+				}
+				if decision == Suspend {
+					if failure = db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": "waiting", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
+						return ErrUnavailable
+					}
+					out.Deferred = true
+					return nil
 				}
 				if decision != Complete && decision != Obsolete {
 					return ErrConfiguration

@@ -58,11 +58,13 @@ type WorkerConfig struct {
 
 // Worker 不拥有数据库、密钥或安全分析供应商；可同时作为MQ处理器及数据库补偿入口。
 type Worker struct {
-	db       *gorm.DB
-	codec    *securedata.Codec
-	analyzer Analyzer
-	logger   *zap.Logger
-	cfg      WorkerConfig
+	// whispersOnly 将共享危机投递按来源隔离，避免不同进程抢占彼此的待办。
+	whispersOnly bool
+	db           *gorm.DB
+	codec        *securedata.Codec
+	analyzer     Analyzer
+	logger       *zap.Logger
+	cfg          WorkerConfig
 }
 
 // NewWorker 显式构造心愿、应愿留言、私聊及还愿故事扫描消费者，不启动循环、不迁移或自动发布规则。

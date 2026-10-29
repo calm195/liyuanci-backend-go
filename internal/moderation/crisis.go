@@ -150,7 +150,7 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 }
 
 func crisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
-	err = db.Where("id=?", id).Take(&c).Error
+	err = db.Where("id=? AND content_type IN ('wish','application','message','story')", id).Take(&c).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = command.ErrNotFound
 	}

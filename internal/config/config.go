@@ -10,9 +10,10 @@ import (
 
 // Config 保存服务设置及可选中间件配置。
 type Config struct {
-	Environment string
-	DevAppFile  string
-	AdminAuth   struct {
+	Environment  string
+	DevAppFile   string
+	WhispersFile string
+	AdminAuth    struct {
 		Enabled                                                   bool
 		DSN, InitialPasswordFile, ReceiptKeyFile                  string
 		SessionTTL, Timeout, LockTimeout, ReceiptTTL, LoginWindow time.Duration
@@ -45,6 +46,7 @@ func Load(path string) (Config, error) {
 	v := viper.New()
 	v.SetDefault("environment", "foundation")
 	v.SetDefault("devappfile", "")
+	v.SetDefault("whispersfile", "")
 	v.SetDefault("adminauth.enabled", false)
 	v.SetDefault("adminauth.dsn", "")
 	v.SetDefault("adminauth.initialpasswordfile", "")
@@ -87,7 +89,7 @@ func Load(path string) (Config, error) {
 	if c.Database.Driver != "" && c.Database.Driver != "postgres" {
 		return c, fmt.Errorf("不支持的数据库驱动%q", c.Database.Driver)
 	}
-	if c.Database.Driver != "" && c.Database.DSN == "" {
+	if c.Database.Driver != "" && c.Database.DSN == "" && c.WhispersFile == "" {
 		return c, fmt.Errorf("必须配置数据库DSN")
 	}
 	if c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
@@ -103,8 +105,11 @@ func Load(path string) (Config, error) {
 	if c.Environment != "foundation" && c.Environment != "integration" && c.Environment != "production" {
 		return c, fmt.Errorf("不支持的运行环境")
 	}
+	if c.WhispersFile != "" && c.Environment == "foundation" {
+		return c, fmt.Errorf("树洞运行配置要求显式业务环境")
+	}
 	// 显式开发业务使用数据库轮询，允许不启用MQ；生产和完整集成仍要求全部中间件。
-	localBusiness := c.Environment == "integration" && c.DevAppFile != ""
+	localBusiness := c.Environment == "integration" && (c.DevAppFile != "" || c.WhispersFile != "")
 	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || (!c.RocketMQ.Enabled && !localBusiness)) {
 		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
 	}

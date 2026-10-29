@@ -11,6 +11,14 @@ import (
 
 // 稳定错误供 HTTP/消费者边界映射，不包含数据库、令牌或个人信息。
 var (
+	// ErrVerificationRequired 表示当前操作需要已通过学生认证。
+	ErrVerificationRequired = errors.New("需要学生认证")
+	// ErrModeUnavailable 表示所选身份档位缺少当前受控资料。
+	ErrModeUnavailable = errors.New("身份档位暂不可用")
+	// ErrDictionaryChanged 表示客户端字典版本已经变更。
+	ErrDictionaryChanged = errors.New("字典版本已变更")
+	// ErrNicknameNotReady 表示指定昵称不是本人当前已批准版本。
+	ErrNicknameNotReady = errors.New("昵称尚未就绪")
 	// ErrInvalid 表示请求或服务端策略无效。
 	ErrInvalid = errors.New("命令输入无效")
 	// ErrUnauthenticated 表示当前会话不可使用。
@@ -25,8 +33,12 @@ var (
 	ErrIdempotencyConflict = errors.New("幂等键与请求不一致")
 	// ErrAssetNotReady 表示本人资源仍在处理或未通过安全检查。
 	ErrAssetNotReady = errors.New("资源尚未就绪")
+	// ErrClientUpgradeRequired 表示旧匿名关系协议已经永久退出。
+	ErrClientUpgradeRequired = errors.New("客户端需要升级")
 	// ErrConflict 表示数据库业务约束冲突。
 	ErrConflict = errors.New("业务约束冲突")
+	// ErrCapsuleLimit 表示本人未终结胶囊达到活动额度。
+	ErrCapsuleLimit = errors.New("活动胶囊已达上限")
 	// ErrActiveWishLimit 表示保留匹配的回退将超过活跃心愿额度。
 	ErrActiveWishLimit = errors.New("活跃心愿额度已满")
 	// ErrDuplicateApplication 表示同人同心愿已有未终结申请。
@@ -83,7 +95,15 @@ const (
 	Match ResourceKind = "match"
 	// Conversation 在匹配后锁定。
 	Conversation ResourceKind = "conversation"
-	// ModerationTask 在会话后锁定，expected_version绑定案件独立版本。
+	// WhisperPost 在审核任务前锁定树洞父帖。
+	WhisperPost ResourceKind = "whisper_post"
+	// WhisperNickname 以随机内容注册标识锁定昵称版本，不使用账号标识冒充内容标识。
+	WhisperNickname ResourceKind = "whisper_nickname"
+	// WhisperCapsule 在审核任务前锁定私人胶囊。
+	WhisperCapsule ResourceKind = "whisper_capsule"
+	// WhisperComment 在父帖后、审核任务前锁定暖评。
+	WhisperComment ResourceKind = "whisper_comment"
+	// ModerationTask 在普通业务资源后锁定，expected_version绑定案件独立版本。
 	ModerationTask ResourceKind = "moderation_task"
 	// Message 在审核任务后锁定。
 	Message ResourceKind = "message"
@@ -107,7 +127,7 @@ type Resource struct {
 	ID   string
 }
 
-// Expectation 将三个独立协议字段绑定到明确对象，禁止混用会话代次和聚合版本。
+// Expectation 将并发协议字段绑定到明确对象，禁止混用评论代次、会话代次和资源版本。
 type Expectation struct {
 	Name   string
 	Target Resource
@@ -148,6 +168,8 @@ type Input struct {
 // Discover 必须只读；Authorize 校验当前资格/对象访问，不能把首次业务状态当重放授权。
 // Apply 仅执行本事务数据库操作，无外部发送；Resolve 重查当前结果可访问性，不回放正文。
 type Definition struct {
+	// RetainReceipt 将最小回执保留至业务生命周期结束，技术期限不再允许重建命令。
+	RetainReceipt bool
 	// IdentityLock 在主体锁之前串行化身份绑定与检索密钥轮换。
 	IdentityLock bool
 	Kind         string
@@ -188,6 +210,8 @@ type Snapshot struct {
 	Resource
 	Version    int64
 	WriteEpoch int64
+	// CommentsEpoch 仅来自树洞父帖，不能用会话写代次替代。
+	CommentsEpoch int64
 }
 
 // Tx 的生命周期由 Engine 独占；不得保存到回调之外、手动提交/回滚或建立独立写事务。

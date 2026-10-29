@@ -18,9 +18,11 @@ import (
 
 // Intent 只包含恢复删除必需的随机引用，不复制身份、正文或管理员理由。
 type Intent struct {
-	ID     string `json:"id"`
-	Scope  string `json:"scope"`
-	Target string `json:"target"`
+	// SourceModule 随持久意图恢复投影命名空间，历史空值按旧入口处理。
+	SourceModule string `json:"source_module,omitempty"`
+	ID           string `json:"id"`
+	Scope        string `json:"scope"`
+	Target       string `json:"target"`
 }
 
 // Journal 必须使用独立于业务恢复的持久资源；Append成功即授权恢复程序继续删除。
@@ -95,7 +97,7 @@ func (j *PostgresJournal) done(op string, start time.Time, err *error) {
 	j.logger.Info("独立删除日志操作完成", zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start)))
 }
 func validIntent(in Intent) bool {
-	return validID(in.ID) && validID(in.Target) && (in.Scope == "account" || in.Scope == "evidence")
+	return validID(in.ID) && validID(in.Target) && (in.Scope == "account" || in.Scope == "evidence") && (in.SourceModule == "" || in.SourceModule == "legacy" || in.Scope == "evidence" && in.SourceModule == "whispers")
 }
 func (j *PostgresJournal) decode(ctx context.Context, row entity.RecoveryDeleteJournal) (in Intent, err error) {
 	var env securedata.Envelope

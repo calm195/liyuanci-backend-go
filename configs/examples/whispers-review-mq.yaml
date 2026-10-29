@@ -1,0 +1,28 @@
+# 复制到.local或外部私有位置后显式配置；无默认中间件或可用凭据，运行进程不创建主题。
+# 生产树洞保持关闭；隔离演练无鉴权仅允许environment=integration。
+mq:
+  nameservers: []
+  topic: liyuanci_whisper_review_v1
+  eventtype: whisper.review.requested
+  producergroup: liyuanci_whisper_review_relay
+  consumergroup: liyuanci_whisper_review_consume
+  instance: liyuanci_whisper_review
+  allowunauthenticated: false
+  credentials:
+    accesskey: ""
+    secretkey: ""
+    securitytoken: ""
+  sendtimeout: 3s
+  handlertimeout: 20s
+  concurrency: 2
+  maxreconsume: 3
+  retrydelaylevel: 1
+relay:
+  databasetimeout: 3s
+  sendtimeout: 3s
+  leaseduration: 15s
+  retrydelay: 5s
+  maxattempts: 5
+relayinterval: 200ms
+scaninterval: 5s
+operationtimeout: 20s

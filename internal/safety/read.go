@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
@@ -18,6 +19,11 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 		}
 	}()
 	defer s.done(op, rid, time.Now(), &err)
+	if op == "blocks" {
+		if e := s.LegacyBlocks(ctx, token); e != nil {
+			return out, e
+		}
+	}
 	if q.Limit < 1 || q.Limit > 50 {
 		return out, command.ErrInvalid
 	}
@@ -51,6 +57,9 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.Items = append(out.Items, r)
 			}
 		case "blocks":
+			if e := blockpolicy.Legacy(ctx, db); e != nil {
+				return e
+			}
 			var n int64
 			if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
 				return e
@@ -94,7 +103,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.Items = append(out.Items, warning(r, now))
 			}
 		case "reports":
-			query := db.Table("public.reports AS r").Select("r.*").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
+			query := db.Table("public.reports AS r").Select("r.*").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind IN ('wish','application','message','story') AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
 			if id != "" {
 				query = query.Where("(r.created_at,r.id)<(?,?::uuid)", at, id)
 			}
@@ -116,7 +125,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 			if !admin {
 				query = query.Where("a.account_id=?", actor)
 			} else {
-				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").Where("p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)")
+				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").Where("((p.source_kind='direct' AND EXISTS(SELECT 1 FROM public.admin_role_bindings WHERE admin_id=? AND role='super_admin')) OR (p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)))", actor)
 			}
 			if id != "" {
 				query = query.Where("(a.created_at,a.id)<(?,?::uuid)", at, id)
@@ -189,11 +198,21 @@ func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out an
 			if e != nil {
 				return e
 			}
-			if p.ContentID == nil {
-				return command.ErrNotFound
-			}
-			if e = ordinaryCase(db, *p.ContentID); e != nil {
-				return e
+			if p.SourceKind == "direct" {
+				var n int64
+				if e = db.Model(&entity.AdminRoleBinding{}).Where("admin_id=? AND role='super_admin'", actor).Count(&n).Error; e != nil {
+					return e
+				}
+				if n != 1 {
+					return command.ErrForbidden
+				}
+			} else {
+				if p.ContentID == nil {
+					return command.ErrNotFound
+				}
+				if e = ordinaryCase(db, *p.ContentID); e != nil {
+					return e
+				}
 			}
 			body, e := s.decrypt(ctx, "appeal_body", a.ID, a.BodyCipher)
 			if e != nil {
