@@ -4,6 +4,8 @@
 
 Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-backend-go`。PostgreSQL是业务权威，Redis负责共享限流等能力，RocketMQ可显式用于学生卡及心愿内容审核唤醒。已有后台认证、学生会话、学生卡、人工认证、心愿、聊天、还愿分享及可选词库/普通内容审核与安全治理核心；真实外部供应商和部分领域消费者尚未齐备，不能作为完整生产服务。
 
+后台安全治理装配同时提供普通用户列表、详情及处罚历史三个只读GET，支持普通昵称包含搜索、状态筛选和受保护键集游标。使用前由专用迁移入口应用0027并刷新权限；普通启动不执行DDL。用户页使用脱敏投影，处罚与申诉仍从授权案件工作台执行，接入和验证边界见[后端文档索引](../docs/development/backend/README.md)。
+
 过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
 功能全链路、状态流转及简化联调方式见[后端功能说明](FUNCTIONALITY.md)。

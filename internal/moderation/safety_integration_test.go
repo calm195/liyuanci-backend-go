@@ -232,7 +232,13 @@ func TestSafetyGovernance(t *testing.T) {
 		must(root.Where("kind='wish' AND entity_id=?", wid).Take(&c).Error)
 		var a entity.Account
 		must(root.Where("id=?", ownerID).Take(&a).Error)
-		return exec(admins, adminToken, "penalty", ownerID, safety.Input{ViolationRef: reportID, ContentRef: c.ID, ContentVersion: c.ContentVersion, Level: level, Reason: "合成处置理由", ExpectedVersion: a.Version}).(safety.Summary)
+		// 用户详情提供真实Account.version，普通处置继续在原案件核验作者与内容版本。
+		detail := call(adminToken, "GET", "/admin/users/"+ownerID, "", "", 200)
+		version := int64(detail["account_version"].(float64))
+		if version != a.Version {
+			t.Fatal("用户详情版本与账号权威值不一致")
+		}
+		return exec(admins, adminToken, "penalty", ownerID, safety.Input{ViolationRef: reportID, ContentRef: c.ID, ContentVersion: c.ContentVersion, Level: level, Reason: "合成处置理由", ExpectedVersion: version}).(safety.Summary)
 	}
 	t.Run("拉黑双向旧申请永久失效及幂等", func(t *testing.T) {
 		oi, ot := student()
@@ -419,6 +425,27 @@ func TestSafetyGovernance(t *testing.T) {
 			t.Fatalf("保留匹配未恢复:%+v", view)
 		}
 	})
+	t.Run("用户查询随申诉仅解除对应处罚", func(t *testing.T) {
+		oi, ot := student()
+		_, rt := student()
+		first, second := published(ot), published(ot)
+		firstReport, secondReport := confirmed(rt, first), confirmed(rt, second)
+		p := impose(oi, firstReport, first.ID, "general")
+		impose(oi, secondReport, second.ID, "general")
+		detail := call(adminToken, "GET", "/admin/users/"+oi, "", "", 200)
+		if detail["restriction"] != "muted" || len(detail["active_penalties"].([]any)) != 2 {
+			t.Fatal("多项禁言投影不完整")
+		}
+		a := exec(students, ot, "appeal", "", safety.Input{PenaltyID: p.ID, Body: "合成单项申诉"}).(safety.Appeal)
+		appealDetail, e := admins.Detail(ctx, adminToken, "appeal-version", "appeal_detail", a.ID)
+		must(e)
+		version := appealDetail.(map[string]any)["version"].(int64)
+		exec(admins, adminToken, "appeal_decision", a.ID, safety.Input{Decision: "revoke", Reason: "只撤对应处罚", ExpectedVersion: version})
+		detail = call(adminToken, "GET", "/admin/users/"+oi, "", "", 200)
+		if detail["restriction"] != "muted" || len(detail["active_penalties"].([]any)) != 1 {
+			t.Fatal("撤销一项错误解除全部禁言")
+		}
+	})
 	t.Run("永久封禁仍可申诉且无普通写入", func(t *testing.T) {
 		oi, ot := student()
 		ri, rt := student()
@@ -485,6 +512,8 @@ func TestSafetyGovernance(t *testing.T) {
 		var c entity.ContentRegistry
 		must(root.Where("kind='wish' AND entity_id=?", w.ID).Take(&c).Error)
 		wrong, _ := student()
+		detail := call(adminToken, "GET", "/admin/users/"+oi, "", "", 200)
+		call(adminToken, "POST", "/admin/users/"+oi+"/penalties", uuid.NewString(), fmt.Sprintf(`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"版本冲突合成","expected_version":%.0f}`, r.ID, c.ID, detail["account_version"].(float64)+1), 409)
 		_, e := admins.Execute(ctx, adminToken, uuid.NewString(), "penalty", "penalty", wrong, safety.Input{ViolationRef: r.ID, ContentRef: c.ID, ContentVersion: 1, Level: "minor", Reason: "错主体", ExpectedVersion: 1})
 		requireError(e, command.ErrNotFound)
 		call(adminToken, "POST", "/admin/users/"+oi+"/penalties", uuid.NewString(), fmt.Sprintf(`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"合成","expected_version":1,"duration_days":1}`, r.ID, c.ID), 400)

@@ -23,6 +23,11 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 	if r == nil || student == nil || admin == nil {
 		return command.ErrInvalid
 	}
+	if users, ok := admin.(AdminUsersAPI); ok {
+		if err := RegisterAdminUsers(r, users); err != nil {
+			return err
+		}
+	}
 	g := r.Group("/api/v1")
 	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
 	writes := []struct {

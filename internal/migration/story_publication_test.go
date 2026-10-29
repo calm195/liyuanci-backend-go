@@ -17,6 +17,10 @@ func TestPostgresStoryPublication(t *testing.T) {
 		t.Fatal(e)
 	}
 	// 构造缺少公开时间及后续版本的已部署结构，不改写任何历史迁移输入。
+	usersDown, e := files.ReadFile("sql/0027_admin_user_queries.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
 	cutoverDown, e := files.ReadFile("sql/0026_opaque_block_cutover.down.sql")
 	if e != nil {
 		t.Fatal(e)
@@ -43,6 +47,7 @@ func TestPostgresStoryPublication(t *testing.T) {
 	}
 	if e := db.Transaction(func(tx *gorm.DB) error {
 		for _, sql := range []string{
+			string(usersDown), "DELETE FROM public.schema_migrations WHERE version=27",
 			string(cutoverDown), "DELETE FROM public.schema_migrations WHERE version=26", string(capsuleUnlockDown),
 			"DELETE FROM public.schema_migrations WHERE version=25",
 			string(whisperReviewDown),

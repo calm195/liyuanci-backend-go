@@ -149,6 +149,11 @@ COMMENT ON FUNCTION public.lock_command_account(uuid) IS '锁定账号 guard 并
 REVOKE ALL ON FUNCTION public.lock_command_account(uuid) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger, liyuanci_crisis_api, liyuanci_evidence_delete_api;
 GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_api, liyuanci_admin_api, liyuanci_domain_worker, liyuanci_privacy_maintenance;
 
+-- 用户目录只需辨别已持有令牌的会话域，不授予后台读取学生会话的RLS权限。
+ALTER FUNCTION public.is_live_student_session(bytea) OWNER TO liyuanci_migrator;
+REVOKE ALL ON FUNCTION public.is_live_student_session(bytea) FROM PUBLIC, liyuanci_api, liyuanci_worker, liyuanci_identity_maintenance, liyuanci_admin_api, liyuanci_admin_maintenance, liyuanci_domain_worker, liyuanci_privacy_maintenance, liyuanci_evidence_reader, liyuanci_evidence_writer, liyuanci_evidence_purger, liyuanci_crisis_api, liyuanci_evidence_delete_api;
+GRANT EXECUTE ON FUNCTION public.is_live_student_session(bytea) TO liyuanci_admin_api;
+
 -- 后台重驱动仅检查/追加去重标识，不能改写既有回执或读取无关完成时间。
 REVOKE ALL (consumer_kind, operation_id, completed_at) ON public.consumer_receipts FROM PUBLIC, liyuanci_admin_api;
 GRANT SELECT (consumer_kind, operation_id), INSERT (consumer_kind, operation_id) ON public.consumer_receipts TO liyuanci_admin_api;
