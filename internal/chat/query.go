@@ -46,6 +46,8 @@ type DeliveredMessage struct {
 	SubmittedAt time.Time `json:"submitted_at"`
 	DeliveredAt time.Time `json:"delivered_at"`
 	Body        string    `json:"body"`
+	// ViewerIsSender 仅相对当前会话标记本人消息，不泄露发送者账号标识。
+	ViewerIsSender bool `json:"viewer_is_sender"`
 }
 
 // MessagesPage 的增量位置始终是实际返回的最后一条序号。
@@ -234,7 +236,7 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 			if e != nil {
 				return e
 			}
-			out.Items = append(out.Items, DeliveredMessage{m.ID, *m.DeliverySeq, m.CreatedAt, *m.DeliveredAt, body})
+			out.Items = append(out.Items, DeliveredMessage{m.ID, *m.DeliverySeq, m.CreatedAt, *m.DeliveredAt, body, m.SenderID == actor})
 			out.NextAfterSeq = *m.DeliverySeq
 		}
 		return nil

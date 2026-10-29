@@ -15,7 +15,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
-// ContentWorkerConfig 显式选择隔离分析模式和总预算，缺省不提供放行能力，manual强制人工复核。
+// ContentWorkerConfig 显式选择隔离分析模式和总预算，缺省不提供放行能力，manual在词库命中/重审分支强制人工复核。
 // 消息配置为空时仅补偿数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
@@ -33,7 +33,7 @@ func (a developmentAnalyzer) Analyze(ctx context.Context, input wish.Content) (o
 	if err = ctx.Err(); err != nil {
 		return out, err
 	}
-	// 人工模式保留原文和原标签，只生成必须复核的候选，绝不自动批准。
+	// 调用本适配器前已完成词库筛选；人工模式对命中或重审保留原文/标签，生成必须复核候选。
 	if a.manual {
 		a.logger.Info("开发内容提交人工复核", zap.Bool("manual_review", true), zap.String("result", "success"))
 		return moderation.Assessment{Body: input.Body, Tags: input.IdentityTags, OrdinaryHit: true, DetectorVersion: "development-manual-v1"}, nil
@@ -46,7 +46,7 @@ func (a developmentAnalyzer) Analyze(ctx context.Context, input wish.Content) (o
 	return moderation.Assessment{Body: "[开发合成审核正文]", DetectorVersion: "development-synthetic-v1"}, nil
 }
 
-// AnalyzeMessage 保留私聊原文；合成模式只产生分类，人工模式强制交人工复核。
+// AnalyzeMessage 保留私聊原文；合成模式只产生分类，人工模式对命中/重审强制交人工复核。
 func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out moderation.MessageAssessment, err error) {
 	defer completed(a.logger, "development_message_analysis", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
@@ -73,7 +73,7 @@ func ValidateContentWorker(environment string, cfg Settings, options ContentWork
 	return nil
 }
 
-// RunContentWorker 装配内容常驻进程；默认无供应商失败关闭，synthetic使用合成结果，manual保留原文并强制人工复核。
+// RunContentWorker 装配内容常驻进程；默认无供应商失败关闭，synthetic使用合成结果，manual在命中/重审分支保留原文并强制人工复核。
 // 不发布规则、不迁移、不创建主题；词库缺失与分析故障由领域持久任务重试或转异常待办。
 // 取消后先关闭调度和消息消费，再关闭池，保证在途事务不会使用已释放依赖。
 func RunContentWorker(ctx context.Context, environment string, cfg Settings, options ContentWorkerConfig, logger *zap.Logger) (err error) {

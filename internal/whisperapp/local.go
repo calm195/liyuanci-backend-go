@@ -14,7 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
-// localProvider 保留原文并强制人工审核，不借本地测试模式声称已完成外部扫描、通知或副本删除。
+// localProvider 在词库命中或重审分支保留原文并强制人工审核，不借本地测试模式声称已完成外部扫描、通知或副本删除。
 type localProvider struct{ log *zap.Logger }
 
 func (p localProvider) ready(ctx context.Context) error { return ctx.Err() }

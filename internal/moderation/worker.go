@@ -29,7 +29,7 @@ type Assessment struct {
 	DetectorVersion                       string
 }
 
-// Analyzer 必须执行文本安全、个人及组合信息处理，允许重复调用且不能产生业务写入。
+// Analyzer 对词库命中或需重审内容执行文本安全、个人及组合信息处理，允许重复调用且不能产生业务写入。
 // 本模块没有默认放行实现；缺少供应商时构造失败，外部故障保持待审。
 type Analyzer interface {
 	Analyze(context.Context, wish.Content) (Assessment, error)
@@ -268,14 +268,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 					e = durable.ErrConfiguration
 				}
 			}()
-			if source.message != nil {
-				if w.cfg.MessageAnalyzer == nil {
-					return a, command.ErrUnavailable
-				}
-				result, e := w.cfg.MessageAnalyzer.AnalyzeMessage(analysis, input.Body)
-				return Assessment{Body: input.Body, OrdinaryHit: result.OrdinaryHit, CrisisHit: result.CrisisHit, DetectorVersion: result.DetectorVersion}, e
-			}
-			return w.analyzer.Analyze(analysis, input)
+			return w.analyze(analysis, source, snapshot, input)
 		}()
 		if e == nil {
 			e = analysis.Err()
@@ -286,11 +279,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 		} else if !candidateBody(source, a.Body) || !text(a.DetectorVersion, 80) || !subset(a.Tags, input.IdentityTags) {
 			prep = durable.ErrConfiguration
 		} else {
-			a.CrisisHit = a.CrisisHit || hit(input.Body, snapshot.crisisEntries)
-			if source.message == nil {
-				a.SchoolRelated = a.SchoolRelated || hit(input.Body, snapshot.schoolEntries)
-			}
-			a.OrdinaryHit = a.OrdinaryHit || source.task.PrivacyRecheck || hit(input.Body, snapshot.ordinaryEntries)
+
 			candidate, _ := json.Marshal(struct {
 				Body string
 				Tags wish.IdentityTags

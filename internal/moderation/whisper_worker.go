@@ -146,11 +146,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 					e = durable.ErrConfiguration
 				}
 			}()
-			if r.registry.Kind == "whisper_capsule" {
-				p, e := w.private.ClassifyWhisperCapsule(analysis, body)
-				return WhisperAssessment{OrdinaryHit: p.OrdinaryHit, CrisisHit: p.CrisisHit, DetectorVersion: p.DetectorVersion}, e
-			}
-			return w.public.AnalyzeWhisper(analysis, r.registry.Kind, body, identity)
+			return w.analyze(analysis, r, rules, body, identity)
 		}()
 		if e == nil {
 			e = analysis.Err()
@@ -161,9 +157,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		} else if !text(result.DetectorVersion, 80) || r.registry.Kind != "whisper_capsule" && (!text(result.Body, 500) || !whisperIdentitySubset(result.Identity, identity) || r.registry.Kind == "whisper_nickname" && (!text(result.Body, 20) || utf8.RuneCountInString(result.Body) < 2)) {
 			prep = durable.ErrConfiguration
 		} else {
-			result.CrisisHit = result.CrisisHit || hit(body, rules.crisisEntries)
-			result.OrdinaryHit = result.OrdinaryHit || r.task.PrivacyRecheck || r.task.CrisisRecheck || hit(body, rules.ordinaryEntries)
-			result.SchoolRelated = r.registry.Kind != "whisper_capsule" && (result.SchoolRelated || hit(body, rules.schoolEntries))
+
 			raw, _, e := encryptEvidence(ctx, w.codec, "whisper_moderation_projection", r.task.ID, result)
 			if e != nil {
 				prep = durable.ErrTemporary

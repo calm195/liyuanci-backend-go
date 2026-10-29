@@ -226,8 +226,13 @@ func TestChatDelivery(t *testing.T) {
 		}
 		scan("message", b.MessageID)
 		first := page(f, 0)
-		if len(first.Items) != 1 || first.Items[0].MessageID != b.MessageID || first.NextAfterSeq != 1 {
+		if len(first.Items) != 1 || first.Items[0].MessageID != b.MessageID || first.NextAfterSeq != 1 || first.Items[0].ViewerIsSender {
 			t.Fatal("后提交应先获得序号1")
+		}
+		ownerPage, e := chats.Messages(ctx, f.owner, "sender-view", f.m.ConversationID, chat.Query{Limit: 50})
+		must(e)
+		if len(ownerPage.Items) != 1 || !ownerPage.Items[0].ViewerIsSender {
+			t.Fatal("同条消息未按当前参与者投影本人标记")
 		}
 		tr := task(a.MessageID)
 		detail, e := reviews.Case(ctx, adminToken, "private-case", tr.ID)
@@ -544,7 +549,7 @@ func TestChatDelivery(t *testing.T) {
 	})
 	t.Run("扫描期间对方权限变化", func(t *testing.T) {
 		f := matched()
-		a := send(f, "需延迟分析")
+		a := send(f, "普通命中 需延迟分析")
 		entered, release := make(chan struct{}), make(chan struct{})
 		blocked, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}, MessageAnalyzer: privateAnalyzer{entered: entered, release: release}})
 		must(e)
@@ -570,7 +575,7 @@ func TestChatDelivery(t *testing.T) {
 	})
 	t.Run("缺私聊分析器失败关闭", func(t *testing.T) {
 		f := matched()
-		a := send(f, "私聊")
+		a := send(f, "普通命中 私聊")
 		missing, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
 		must(e)
 		out, e := missing.Consume(ctx, event("message", a.MessageID))

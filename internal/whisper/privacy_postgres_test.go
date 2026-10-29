@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,7 +128,7 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	must(e)
 	must(admin.Exec("UPDATE public.work_items SET status='waiting' WHERE kind='whisper_capsule_unlock' AND target_id=?", capsule.ID).Error)
 	must(admin.Model(&entity.Account{}).Where("id=?", actor).Update("verification", "unverified").Error)
-	evidenceCapsule, e := s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: "独立危机证据私密信", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true})
+	evidenceCapsule, e := s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: "危机命中 独立危机证据私密信", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true})
 	must(e)
 	analyzer.privateCrisis = true
 	consume(evidenceCapsule.ID)
@@ -145,7 +146,46 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	must(e)
 	var historical entity.Block
 	must(admin.Where("owner_id=? AND target_id=?", peer, actor).Take(&historical).Error)
+	// Workspace与本人Me是不同投影；屏蔽能力必须在正式Workspace动作源真实出现。
+	beforeSwitch, e := s.Workspace(ctx, token, "workspace-before-opaque")
+	must(e)
+	if slices.Contains(beforeSwitch.AllowedActions, "interactionBlockCreate") {
+		t.Fatal("opaque未启用却提示屏蔽动作")
+	}
 	must(blockpolicy.Enable(ctx, admin, log))
+	t.Run("Workspace屏蔽动作随开关会话资格投影", func(t *testing.T) {
+		for _, verification := range []string{"verified", "unverified"} {
+			must(admin.Model(&entity.Account{}).Where("id=?", actor).Update("verification", verification).Error)
+			workspace, e := s.Workspace(ctx, token, "workspace-after-opaque")
+			must(e)
+			if !slices.Contains(workspace.AllowedActions, "interactionBlockCreate") {
+				t.Fatal("当前学生可屏蔽但Workspace未给动作", verification)
+			}
+		}
+		must(admin.Model(&entity.Account{}).Where("id=?", actor).Update("verification", "verified").Error)
+		for _, action := range []string{"mute", "ban"} {
+			starts := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+			ends := starts.Add(7 * 24 * time.Hour)
+			level := "general"
+			if action == "ban" {
+				level = "severe"
+			}
+			penalty := entity.Penalty{ID: uuid.NewString(), AccountID: actor, Level: level, ActionKind: action, ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: starts, EndsAt: &ends, ReasonRef: uuid.NewString()}
+			if action == "ban" {
+				penalty.EndsAt = nil
+			}
+			must(admin.Create(&penalty).Error)
+			workspace, e := s.Workspace(ctx, token, "workspace-restricted")
+			must(e)
+			if !workspace.WriteRestricted || slices.Contains(workspace.AllowedActions, "interactionBlockCreate") {
+				t.Fatal("受限当前会话仍提示创建屏蔽", action)
+			}
+			must(admin.Where("id=?", penalty.ID).Delete(&entity.Penalty{}).Error)
+		}
+		if _, e := s.Workspace(ctx, "", "workspace-no-session"); !errors.Is(e, command.ErrUnauthenticated) {
+			t.Fatal("无会话获得Workspace", e)
+		}
+	})
 	must(migration.ApplyPermissions(ctx, admin, log))
 	if e = admin.Exec("UPDATE public.interaction_block_policy SET opaque_enabled=false,switched_at=NULL").Error; e == nil {
 		t.Fatal("切换允许回退")

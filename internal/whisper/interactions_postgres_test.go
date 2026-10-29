@@ -113,7 +113,7 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		raw = request("whisperCommentsList", "GET", "/whispers/posts/"+p.ID+"/comments", "", nil, 200)
 		var page whisper.Page[whisper.PublicComment]
 		must(json.Unmarshal(raw, &page))
-		if len(page.Items) != 1 || page.Items[0].Body != "[已脱敏]的暖评" || page.Items[0].Identity.IsAuthor {
+		if len(page.Items) != 1 || page.Items[0].Body != "合成人名的暖评" || page.Items[0].Identity.IsAuthor {
 			t.Fatal(page)
 		}
 		if strings.Contains(string(raw), other) {
@@ -179,7 +179,7 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		p := createPost()
 		first := createComment(p, "已有公开暖评")
 		consume(first.ID)
-		pending := createComment(p, "迟到审核")
+		pending := createComment(p, "普通命中 迟到审核")
 		analyzer.hook = func() { _, e := s.SetComments(ctx, token, uuid.NewString(), "", p.ID, p.Version, false); must(e) }
 		result, e := w.Consume(ctx, event(pending.ID))
 		analyzer.hook = nil
@@ -321,7 +321,7 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 	})
 	t.Run("拉黑解除仍取消旧审核", func(t *testing.T) {
 		p := createPost()
-		c := createComment(p, "拉黑竞争暖评")
+		c := createComment(p, "普通命中 拉黑竞争暖评")
 		analyzer.hook = func() {
 			_, e := governance.Execute(ctx, otherToken, uuid.NewString(), "", "block", "", safety.Input{TargetUserID: actor})
 			must(e)
