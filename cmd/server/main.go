@@ -103,7 +103,24 @@ func run() error {
 	})
 	if cfg.DevAppFile != "" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, resources.Ready)
+		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
+			// 本地业务允许数据库轮询，不把探针MQ客户端作为API就绪前置。
+			// devapp仍检查业务池，树洞存在时继续检查其真实装配依赖。
+			if development.LocalTest {
+				if resources.Redis == nil {
+					return errors.New("本地共享限流不可用")
+				}
+				if e := resources.Redis.Ping(checkCtx).Err(); e != nil {
+					return e
+				}
+			} else if e := resources.Ready(checkCtx); e != nil {
+				return e
+			}
+			if whisperAPI != nil {
+				return whisperAPI.Ready(checkCtx)
+			}
+			return nil
+		})
 		cancel()
 		if e != nil {
 			log.Error("开发业务装配失败，请显式初始化数据库和凭据")

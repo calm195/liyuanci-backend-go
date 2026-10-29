@@ -37,7 +37,7 @@ func (workerSessions) Current(context.Context, string, string) (studentauth.Me, 
 // CheckCardWorker 验证工作身份、业务结构和共享目录，不消费或修改持久任务。
 func CheckCardWorker(ctx context.Context, cfg Settings, logger *zap.Logger) (err error) {
 	defer completed(logger, "card_worker_check", time.Now(), &err)
-	_, closePool, err := pool(ctx, cfg.WorkerDSN, "liyuanci_domain_worker")
+	_, closePool, err := cfg.pool(ctx, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger
 		return command.ErrInvalid
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
-	db, closePool, err := pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker")
+	db, closePool, err := cfg.pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
 	cancel()
 	if err != nil {
 		return err

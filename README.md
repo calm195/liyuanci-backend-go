@@ -6,6 +6,8 @@ Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-b
 
 过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
+功能全链路、状态流转及简化联调方式见[后端功能说明](FUNCTIONALITY.md)。
+
 ## 2. 项目选项与目录
 
 | 模式 | 依赖与用途 |
@@ -83,6 +85,12 @@ make dev-infra-stop
 
 本地危机后台由`make dev-init`（原生模式为`make dev-native-init`）显式补齐独立`dev_crisis_api`登录及`CrisisDSN`，复用已有凭据且不重置后台账号。初始化后重启API，具有`crisis_operator`或`super_admin`角色的账号可联调`/api/v1/admin/crisis-cases`及人工升级、处置、误报回退接口；普通启动只转换宿主连接地址，不创建身份或迁移。`manual`模式不提供真实危机识别，本地不配置正式关怀资料或真实通知，相关投递保留待办。详见[危机后台本地联调](../docs/development/backend/host-development.md#危机案件与关怀)。
 
+### 本地业务测试模式
+
+已有业务环境完成0026、权限、测试词库与opaque切换后，可运行 `make dev-stop`、`make dev-business-init`、`make dev-doctor` 显式启用单DSN与进程内人工审核适配。API和旧worker仍用原入口，另运行 `make dev-whispers-worker`；账号/证据worker使用相同树洞配置。密钥随机生成一次并复用，配置和日志保存在.local，联系方式可留空；不要求HTTPS网关、外部KMS或正式资料。MQ可复用现有Broker，初始树洞仅用数据库轮询。
+
+该模式只允许integration，完整边界、重启及配置说明见[功能说明](FUNCTIONALITY.md#14-本地业务测试模式)。不代表外部通知、学生卡全版本清理或独立灾备验收。原配置保留，停止不删除数据卷。
+
 ## 4. 开发规范与验证
 
 I/O首参context.Context，依赖显式注入；HTTP负责校验和状态映射，service处理规则，repository通过GORM WithContext查询。运行身份不执行DDL；迁移、RLS、锁函数和数据库中文对象注释按版本管理。日志中文、结构化、成功后记录完成，不写凭据、正文或个人数据。
@@ -142,4 +150,4 @@ make integration
 
 供应商网关必须是经系统CA或显式 `GatewayCAFile` 验证的HTTPS地址，禁止重定向；令牌从 `GatewayTokenFile` 读取。请求为 `{Operation,Version,Input}` JSON；health校验ProviderVersion及能力；wrap／unwrap限定scope和允许密钥引用；public_analysis返回公开安全候选，private_classify只接受分类；redact返回幸存作者安全内容；erase必须同时确认Completed与WriteBarrierConfirmed；notify按DeliveryID去重。网关协议是本端私有适配边界，未修改三端固定契约。不得记录网关请求／响应、原稿、密钥、DSN或令牌。
 
-`CatalogFile` 为版本化公共资源 `{Version,Catalog:{Grades,Reports,Help},Care}`，使用领域相同字段；援助与关怀须由资料方提供来源、版本和核验日期，不提供模板联系方式。API每次读取当前资料，坏版本失败关闭；内容进程启动核验关怀资料。启用前须已完成0026和permissions、发布三类词库、执行opaque单向切换、提供全部正式依赖并完成恢复清理。当前生产 `Enabled=true` 会被拒绝，所有模板保持false；本地或隔离通过不表示生产启用或三端验收。
+`CatalogFile` 为版本化公共资源 `{Version,Catalog:{Grades,Reports,Help},Care}`，使用领域相同字段；援助与关怀须由资料方提供来源、版本和核验日期，不提供模板联系方式。API每次读取当前资料，坏版本失败关闭；内容进程启动核验关怀资料。正式外部依赖模式启用前须已完成0026和permissions、发布三类词库、执行opaque单向切换、提供全部正式依赖并完成恢复清理；本地业务测试模式使用[功能说明](FUNCTIONALITY.md#14-本地业务测试模式)中的简化适配。当前生产 `Enabled=true` 会被拒绝，所有模板保持false；本地或隔离通过不表示生产启用或三端验收。

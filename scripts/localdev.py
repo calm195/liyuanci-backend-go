@@ -48,9 +48,11 @@ def port(env, name, default):
 def prepare(entry, env):
     """刷新派生配置，保持密钥、身份和账号不变，API与worker共用宿主对象目录。"""
     entry = private_path(entry)
-    source = private_path(env.get('LIYUANCI_DEV_BUSINESS_FILE', entry.parent / 'business.json'))
+    source = private_path(env.get('LIYUANCI_LOCAL_SIMPLE_BUSINESS_FILE', env.get('LIYUANCI_DEV_BUSINESS_FILE', entry.parent / 'business.json')))
     cfg = json.loads(source.read_text())
-    for field in ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN'):
+    if cfg.get('LocalTest'):
+        cfg['DatabaseDSN'] = host_dsn(cfg['DatabaseDSN'], env)
+    for field in (() if cfg.get('LocalTest') else ('StudentDSN', 'ReviewDSN', 'WishDSN', 'AdminDSN', 'WorkerDSN')):
         cfg[field] = host_dsn(cfg[field], env)
     # 危机后台显式启用并使用独立身份；旧配置在显式初始化前仍可运行普通业务。
     for field in ('CrisisDSN', 'PrivacyDSN', 'EvidenceDeletionDSN', 'EvidencePurgerDSN'):

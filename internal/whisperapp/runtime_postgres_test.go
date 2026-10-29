@@ -30,6 +30,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
+	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
@@ -245,9 +246,21 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	cfg.CatalogFile = write("catalog.json", ResourcesFile{Version: "synthetic-runtime-resources-v1", Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Items: []whisper.Item{}}, Help: whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}}}, Care: &moderationCareFixture})
 	for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
-		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 1, Status: "published"}).Error)
-		must(root.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,1,?) ON CONFLICT(kind) DO UPDATE SET version=EXCLUDED.version,effective_id=EXCLUDED.effective_id", kind, id).Error)
+		// 首次创建、发布推进head至3，快照由草案1推进至已发布2，模拟正式发布语义。
+		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 2, Status: "published"}).Error)
+		must(root.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,3,?) ON CONFLICT(kind) DO UPDATE SET version=EXCLUDED.version,effective_id=EXCLUDED.effective_id", kind, id).Error)
 	}
+	must((&resources{}).rules(ctx, root))
+	// 生效指针仍在也不能接受归档快照；回滚保持后续真实进程的已发布环境。
+	func() {
+		tx := root.Begin()
+		must(tx.Error)
+		defer tx.Rollback()
+		must(tx.Model(&entity.WordlistVersion{}).Where("type=?", "crisis").Update("status", "archived").Error)
+		if err := (&resources{}).rules(ctx, tx); err != command.ErrUnavailable {
+			t.Fatal("非发布快照必须阻断树洞启动", err)
+		}
+	}()
 	must(blockpolicy.Enable(ctx, root, log))
 	mq := os.Getenv("APP_BUSINESS_TEST_NAMESERVER")
 	if mq != "" {

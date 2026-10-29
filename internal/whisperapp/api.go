@@ -10,7 +10,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
@@ -75,7 +74,7 @@ func OpenAPI(ctx context.Context, cfg Settings, client redis.UniversalClient, lo
 	if e != nil {
 		return nil, e
 	}
-	a.service, err = whisper.NewService(api, log, r.codec, catalogFile{cfg.CatalogFile}, limiter, moderation.WhisperReviewSink{Logger: log}, whisper.Config{Enabled: cfg.Enabled, Command: cfg.Command, ReceiptKey: cfg.ReceiptKey, CursorKey: cfg.CursorKey})
+	a.service, err = whisper.NewService(api, log, r.codec, runtimeCatalog{cfg}, limiter, moderation.WhisperReviewSink{Logger: log}, whisper.Config{Enabled: cfg.Enabled, Command: cfg.Command, ReceiptKey: cfg.ReceiptKey, CursorKey: cfg.CursorKey})
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +82,8 @@ func OpenAPI(ctx context.Context, cfg Settings, client redis.UniversalClient, lo
 		return nil, err
 	}
 	if cfg.Enabled {
-		resources, e := config.LoadWhisperResources(ctx, cfg.CatalogFile)
-		if e != nil || !moderation.CareResourcesReady(resources.Care) {
+		resources, e := loadResources(ctx, cfg)
+		if e != nil || !cfg.LocalTest && !moderation.CareResourcesReady(resources.Care) {
 			return nil, command.ErrUnavailable
 		}
 	}

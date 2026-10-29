@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,8 +33,11 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
-// Settings 只从忽略目录内或显式外部只读文件加载；每个运行池使用独立登录身份，密钥不进入环境或日志。
+// Settings 只从忽略目录内或显式外部只读文件加载；默认分角色登录，LocalTest显式共用身份，密钥不进入环境或日志。
 type Settings struct {
+	// LocalTest 明确允许本地业务使用同一受限登录，授权继续按服务端会话执行。
+	LocalTest                bool
+	DatabaseDSN, JournalFile string
 	// Care 由仓库外文件显式提供已核验援助资料，缺失时保留危机关怀待办。
 	// 删除能力只在外部凭据显式给出时启用，不自动创建身份或独立日志。
 	PrivacyDSN, EvidenceDeletionDSN, EvidencePurgerDSN string
@@ -59,7 +63,18 @@ func Load(path string) (Settings, error) {
 		return cfg, command.ErrUnavailable
 	}
 	defer clear(data)
-	if json.Unmarshal(data, &cfg) != nil || cfg.StudentDSN == "" || cfg.ReviewDSN == "" || cfg.WishDSN == "" || cfg.AdminDSN == "" || cfg.ObjectDirectory == "" || len(cfg.AdminPassword) < 12 {
+	if json.Unmarshal(data, &cfg) != nil {
+		return cfg, command.ErrInvalid
+	}
+	if cfg.LocalTest {
+		if cfg.DatabaseDSN == "" || !filepath.IsAbs(cfg.JournalFile) {
+			return cfg, command.ErrInvalid
+		}
+		cfg.StudentDSN, cfg.ReviewDSN, cfg.WishDSN, cfg.AdminDSN = cfg.DatabaseDSN, cfg.DatabaseDSN, cfg.DatabaseDSN, cfg.DatabaseDSN
+		cfg.WorkerDSN, cfg.CrisisDSN, cfg.PrivacyDSN = cfg.DatabaseDSN, cfg.DatabaseDSN, cfg.DatabaseDSN
+		cfg.EvidenceDeletionDSN, cfg.EvidencePurgerDSN = cfg.DatabaseDSN, cfg.DatabaseDSN
+	}
+	if cfg.StudentDSN == "" || cfg.ReviewDSN == "" || cfg.WishDSN == "" || cfg.AdminDSN == "" || cfg.ObjectDirectory == "" || len(cfg.AdminPassword) < 12 {
 		return cfg, command.ErrInvalid
 	}
 	keys := [][]byte{cfg.WrapKey, cfg.LookupKey, cfg.SessionKey, cfg.CardKey, cfg.VerificationKey, cfg.WishKey, cfg.AdminKey}
@@ -166,7 +181,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 	}()
 	databases := make([]*gorm.DB, 4)
 	for i, spec := range []struct{ dsn, role string }{{cfg.StudentDSN, "liyuanci_identity_maintenance"}, {cfg.ReviewDSN, "liyuanci_admin_api"}, {cfg.WishDSN, "liyuanci_api"}, {cfg.AdminDSN, "liyuanci_admin_maintenance"}} {
-		db, closePool, e := pool(ctx, spec.dsn, spec.role)
+		db, closePool, e := cfg.pool(ctx, spec.dsn, spec.role, logger)
 		if e != nil {
 			return nil, closeAll, e
 		}
@@ -196,7 +211,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
 		return nil, closeAll, command.ErrUnavailable
 	}
-	// 未配置外部能力时整体 ready 保持失败；路由仍能返回鉴权/校验或可用领域查询。
+	// 原开发模式缺外部能力时保持未就绪；显式本地模式只检查已装配测试依赖。
 	businessReady := func(ctx context.Context) error {
 		if err := ready(ctx); err != nil {
 			return err
@@ -206,6 +221,10 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 			if p.PingContext(ctx) != nil {
 				return command.ErrUnavailable
 			}
+		}
+		// 本地模式只声明已装配测试依赖可用，不能据此认定正式供应商已验收。
+		if cfg.LocalTest {
+			return nil
 		}
 		return command.ErrUnavailable
 	}
@@ -218,7 +237,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 	var crisisConfig *moderation.Config
 	if cfg.CrisisDSN != "" {
 		var closeCrisis func() error
-		crisisDB, closeCrisis, e = pool(ctx, cfg.CrisisDSN, "liyuanci_crisis_api")
+		crisisDB, closeCrisis, e = cfg.pool(ctx, cfg.CrisisDSN, "liyuanci_crisis_api", logger)
 		if e != nil {
 			return nil, closeAll, e
 		}
@@ -245,7 +264,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 			if spec.dsn == "" {
 				continue
 			}
-			db, closePool, e := pool(ctx, spec.dsn, spec.role)
+			db, closePool, e := cfg.pool(ctx, spec.dsn, spec.role, logger)
 			if e != nil {
 				return nil, closeAll, e
 			}
@@ -324,7 +343,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 // Initialize 仅供显式离线命令配置检索引用和首次后台账号；普通 Open 不调用它。
 func Initialize(ctx context.Context, cfg Settings, logger *zap.Logger, login string) (err error) {
 	defer completed(logger, "initialize", time.Now(), &err)
-	db, closePool, e := pool(ctx, cfg.StudentDSN, "liyuanci_identity_maintenance")
+	db, closePool, e := cfg.pool(ctx, cfg.StudentDSN, "liyuanci_identity_maintenance", logger)
 	if e != nil {
 		return e
 	}
@@ -343,7 +362,7 @@ func Initialize(ctx context.Context, cfg Settings, logger *zap.Logger, login str
 			return e
 		}
 	}
-	adminDB, closeAdmin, e := pool(ctx, cfg.AdminDSN, "liyuanci_admin_maintenance")
+	adminDB, closeAdmin, e := cfg.pool(ctx, cfg.AdminDSN, "liyuanci_admin_maintenance", logger)
 	if e != nil {
 		return e
 	}

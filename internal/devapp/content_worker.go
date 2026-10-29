@@ -85,7 +85,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
-	db, closePool, err := pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker")
+	db, closePool, err := cfg.pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
 	cancel()
 	if err != nil {
 		return err

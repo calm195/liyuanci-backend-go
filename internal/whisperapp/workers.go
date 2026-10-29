@@ -81,11 +81,11 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 			return e
 		}
 	}
-	resources, e := config.LoadWhisperResources(startup, cfg.CatalogFile)
+	resources, e := loadResources(startup, cfg)
 	if e != nil {
 		return e
 	}
-	if resources.Version == "" || resources.Care == nil {
+	if resources.Version == "" || !cfg.LocalTest && resources.Care == nil {
 		return command.ErrUnavailable
 	}
 	scanner, e := moderation.NewWhisperWorker(db, log, r.codec, r.gateway, r.gateway, moderation.WorkerConfig{Consumer: cfg.Worker.Consumer, AnalysisTimeout: cfg.Worker.AnalysisTimeout, Care: resources.Care, CrisisNotifier: r.gateway})

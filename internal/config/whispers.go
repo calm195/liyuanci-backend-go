@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 
 // Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
 type Whispers struct {
+	// LocalTest 仅用于integration业务联调，使用单一业务连接和本机测试适配。
+	LocalTest                                                                                   bool
+	DatabaseDSN, JournalFile, Contact                                                           string
+	WrapKey, RecoveryWrapKey                                                                    []byte
 	Enabled                                                                                     bool
 	DatabasePolling                                                                             bool
 	APIDSN, ReviewDSN, CrisisDSN, PrivacyDSN, EvidenceDeletionDSN, WorkerDSN, EvidencePurgerDSN string
@@ -74,11 +79,19 @@ func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, 
 	if err = readWhisperJSON(ctx, path, &cfg); err != nil {
 		return
 	}
-	if environment == "production" && cfg.Enabled {
+	if environment == "production" && (cfg.Enabled || cfg.LocalTest) {
 		return cfg, command.ErrForbidden
 	}
+	if cfg.LocalTest {
+		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
+			return cfg, command.ErrInvalid
+		}
+		cfg.APIDSN, cfg.ReviewDSN, cfg.CrisisDSN = cfg.DatabaseDSN, cfg.DatabaseDSN, cfg.DatabaseDSN
+		cfg.PrivacyDSN, cfg.EvidenceDeletionDSN = cfg.DatabaseDSN, cfg.DatabaseDSN
+		cfg.WorkerDSN, cfg.EvidencePurgerDSN = cfg.DatabaseDSN, cfg.DatabaseDSN
+	}
 	for _, v := range []string{cfg.RecoveryWriterDSN, cfg.RecoveryReaderDSN, cfg.CatalogFile, cfg.ProviderVersion, cfg.GatewayTokenFile} {
-		if strings.TrimSpace(v) == "" {
+		if !cfg.LocalTest && strings.TrimSpace(v) == "" {
 			return cfg, command.ErrInvalid
 		}
 	}
@@ -93,7 +106,7 @@ func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, 
 			}
 		}
 	}
-	if len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0 {
+	if !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) {
 		return cfg, command.ErrInvalid
 	}
 	for _, key := range cfg.KeyRefs {

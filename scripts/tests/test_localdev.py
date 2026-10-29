@@ -55,6 +55,21 @@ class LocalDevelopmentTest(unittest.TestCase):
             source.write_text(json.dumps(settings))
             self.assertNotIn('CrisisDSN', json.loads(localdev.prepare(entry, env).read_text()))
 
+    def test_simple_business_preserves_single_dsn_and_original_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / 'operations.env'
+            entry.write_text('')
+            source = Path(directory) / 'business.simple.json'
+            cfg = {'LocalTest': True, 'DatabaseDSN': 'host=postgres user=dev_local_business password=' + 'a' * 48 + ' dbname=liyuanci_business sslmode=disable', 'JournalFile': str(Path(directory) / 'journal.json'), 'WrapKey': 'historical'}
+            source.write_text(json.dumps(cfg))
+            before = source.read_bytes()
+            path = localdev.prepare(entry, {'LIYUANCI_LOCAL_SIMPLE_BUSINESS_FILE': str(source), 'LIYUANCI_LOCAL_PG_PORT': '25432'})
+            derived = json.loads(path.read_text())
+            self.assertIn('port=25432', derived['DatabaseDSN'])
+            self.assertNotIn('StudentDSN', derived)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual(derived['JournalFile'], cfg['JournalFile'])
+
     def test_privacy_connections_keep_clusters_and_credentials_separate(self):
         with tempfile.TemporaryDirectory() as directory:
             entry = Path(directory) / 'operations.env'

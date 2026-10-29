@@ -11,17 +11,33 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/localtest"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
+type provider interface {
+	ready(context.Context) error
+	close()
+	AnalyzeWhisper(context.Context, string, string, whisper.IdentityInput) (moderation.WhisperAssessment, error)
+	ClassifyWhisperCapsule(context.Context, string) (moderation.MessageAssessment, error)
+	Redact(context.Context, string, string) (string, error)
+	Erase(context.Context, privacy.Intent, []privacy.Object) error
+	NotifyCrisis(context.Context, string, string) error
+}
+type recoveryJournal interface {
+	privacy.Journal
+	AllIntents(context.Context, string, int) ([]privacy.Intent, error)
+}
 type resources struct {
 	cfg     Settings
 	log     *zap.Logger
-	gateway *gateway
+	gateway provider
 	codec   *securedata.Codec
-	journal *privacy.PostgresJournal
+	journal recoveryJournal
 	closes  []func() error
 }
 
@@ -43,7 +59,14 @@ func (r *resources) close() (err error) {
 	return
 }
 func (r *resources) pool(ctx context.Context, dsn, role string) (*gorm.DB, error) {
-	db, closePool, e := platform.OpenRuntimeDatabase(ctx, dsn, role, r.log)
+	var db *gorm.DB
+	var closePool func() error
+	var e error
+	if r.cfg.LocalTest {
+		db, closePool, e = platform.OpenLocalDatabase(ctx, "integration", r.cfg.DatabaseDSN, r.log)
+	} else {
+		db, closePool, e = platform.OpenRuntimeDatabase(ctx, dsn, role, r.log)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -52,10 +75,27 @@ func (r *resources) pool(ctx context.Context, dsn, role string) (*gorm.DB, error
 }
 
 func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *resources, err error) {
-	if log == nil || len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0 || cfg.ProviderTimeout <= 0 {
+	if log == nil || !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) || cfg.ProviderTimeout <= 0 {
 		return nil, command.ErrInvalid
 	}
 	defer finish(log, "resources_open", time.Now(), &err)
+	if cfg.LocalTest {
+		r := &resources{cfg: cfg, log: log, gateway: localProvider{log}}
+		r.codec, err = securedata.New(localtest.Keys{Key: cfg.WrapKey, Logger: log}, log)
+		if err != nil {
+			return nil, err
+		}
+		recovery, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: log}, log)
+		if e != nil {
+			return nil, e
+		}
+		r.journal, err = localtest.NewJournal(cfg.JournalFile, recovery, log)
+		if err != nil {
+			return nil, err
+		}
+		log.Info("本地树洞依赖装配完成", zap.Bool("manual_review", true), zap.Bool("external_gateway", false), zap.String("result", "success"))
+		return r, nil
+	}
 	g, e := newGateway(cfg, log)
 	if e != nil {
 		return nil, e
@@ -130,7 +170,9 @@ func (r *resources) check(ctx context.Context, db *gorm.DB) error {
 
 func (r *resources) rules(ctx context.Context, db *gorm.DB) error {
 	var count int64
-	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind AND v.version=h.version WHERE h.kind IN ('crisis','school','ordinary_violation') AND v.status='published'").Scan(&count).Error; e != nil || count != 3 {
+	// head代次用于并发控制，快照版本用于资源状态；发布后两者无需相等。
+	// 准入只接受三类生效指针实际引用的已发布快照，不接受草案或归档版本。
+	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind WHERE h.kind IN ('crisis','school','ordinary_violation') AND v.status='published'").Scan(&count).Error; e != nil || count != 3 {
 		return command.ErrUnavailable
 	}
 	return nil
