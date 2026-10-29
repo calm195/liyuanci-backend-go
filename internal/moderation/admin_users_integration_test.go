@@ -422,4 +422,131 @@ func TestAdminUsersQuery(t *testing.T) {
 			}
 		}
 	})
+	t.Run("直接用户操作", func(t *testing.T) {
+		uid := account("直接处置合成用户")
+		post := func(auth, action, key string, version int64, want int) map[string]any {
+			t.Helper()
+			raw, _ := json.Marshal(map[string]any{"reason": "直接操作合成理由", "expected_version": version})
+			req, e := http.NewRequest("POST", server.URL+"/api/v1/admin/users/"+uid+"/restrictions/"+action, strings.NewReader(string(raw)))
+			must(e)
+			req.Header.Set("Authorization", "Bearer "+auth)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", key)
+			resp, e := client.Do(req)
+			must(e)
+			defer resp.Body.Close()
+			var body map[string]any
+			must(json.NewDecoder(resp.Body).Decode(&body))
+			if resp.StatusCode != want {
+				t.Fatalf("%s 状态%d期望%d：%v", action, resp.StatusCode, want, body)
+			}
+			if want != 200 {
+				return body
+			}
+			return body["data"].(map[string]any)
+		}
+		call(t, token, "/"+uid+"/restrictions", 403)
+		call(t, crisisToken, "/"+uid+"/restrictions", 403)
+		post(token, "ban", uuid.NewString(), 7, 403)
+		d := call(t, superToken, "/"+uid+"/restrictions", 200)
+		if d["banned"] != false || d["muted"] != false {
+			t.Fatal("初始状态错误")
+		}
+		key := uuid.NewString()
+		d = post(superToken, "ban", key, 7, 200)
+		if d["banned"] != true || d["account_version"] != float64(8) {
+			t.Fatal("封禁或账号版本未生效")
+		}
+		post(superToken, "ban", key, 7, 200)
+		var count int64
+		must(root.Model(&entity.Penalty{}).Where("account_id=?", uid).Count(&count).Error)
+		if count != 1 {
+			t.Fatal("幂等重放重复处罚")
+		}
+		post(superToken, "mute", uuid.NewString(), 7, 409)
+		d = post(superToken, "mute", uuid.NewString(), 8, 200)
+		if d["banned"] != true || d["muted"] != true || d["muted_until"] == nil {
+			t.Fatal("并存状态丢失")
+		}
+		d = post(superToken, "unban", uuid.NewString(), 9, 200)
+		if d["banned"] != false || d["muted"] != true {
+			t.Fatal("解封错误解除禁言")
+		}
+		d = post(superToken, "unmute", uuid.NewString(), 10, 200)
+		if d["banned"] != false || d["muted"] != false {
+			t.Fatal("取消禁言未生效")
+		}
+		post(superToken, "unmute", uuid.NewString(), 11, 409)
+		var rows []entity.Penalty
+		must(root.Where("account_id=?", uid).Find(&rows).Error)
+		for _, p := range rows {
+			if p.RevokedAt == nil || p.RevokedBy == nil || len(p.RevokeReasonCipher) == 0 || strings.Contains(string(p.RevokeReasonCipher), "合成理由") {
+				t.Fatal("解除审计缺失或理由明文")
+			}
+		}
+		// 同类型多条处罚须全部解除，另一类型及内容屏障不受影响。
+		post(superToken, "ban", uuid.NewString(), 11, 200)
+		extra := entity.Penalty{ID: uuid.NewString(), AccountID: uid, Level: "severe", ActionKind: "ban", ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: now, ReasonRef: uuid.NewString()}
+		must(root.Create(&extra).Error)
+		post(superToken, "unban", uuid.NewString(), 12, 200)
+		must(root.Model(&entity.Penalty{}).Where("account_id=? AND action_kind='ban' AND revoked_at IS NULL", uid).Count(&count).Error)
+		if count != 0 {
+			t.Fatal("遗漏有效封禁")
+		}
+		// 直接处罚仍允许本人发起申诉，只有超管可读取并决定直接处罚申诉。
+		post(superToken, "mute", uuid.NewString(), 13, 200)
+		var direct entity.Penalty
+		must(root.Where("account_id=? AND action_kind='mute' AND revoked_at IS NULL", uid).Take(&direct).Error)
+		st := session(uid, false)
+		studentService, e := safety.New(open(dsn+" options='-c role=liyuanci_api'"), log, codec, safety.Config{Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, Key: []byte(strings.Repeat("u", 32)), MaxTextBytes: 65536})
+		must(e)
+		result, e := studentService.Execute(context.Background(), st, uuid.NewString(), uuid.NewString(), "appeal", "", safety.Input{PenaltyID: direct.ID, Body: "合成申诉"})
+		must(e)
+		ap := result.(safety.Appeal)
+		if _, e = service.Detail(context.Background(), token, uuid.NewString(), "appeal_detail", ap.ID); e != command.ErrForbidden {
+			t.Fatalf("普通角色读取直接申诉: %v", e)
+		}
+		_, e = service.Detail(context.Background(), superToken, uuid.NewString(), "appeal_detail", ap.ID)
+		must(e)
+		_, e = service.Execute(context.Background(), superToken, uuid.NewString(), uuid.NewString(), "appeal_decision", ap.ID, safety.Input{Decision: "revoke", Reason: "合成申诉通过", ExpectedVersion: ap.Version})
+		must(e)
+		// 相同账号版本的并发直接操作只能一个提交；新类型与旧处罚共享账号锁。
+		statuses := make(chan int, 2)
+		for i := 0; i < 2; i++ {
+			go func() {
+				req, e := http.NewRequest("POST", server.URL+"/api/v1/admin/users/"+uid+"/restrictions/ban", strings.NewReader(`{"reason":"合成并发处置","expected_version":15}`))
+				if e != nil {
+					statuses <- 0
+					return
+				}
+				req.Header.Set("Authorization", "Bearer "+superToken)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Idempotency-Key", uuid.NewString())
+				resp, e := client.Do(req)
+				if e != nil {
+					statuses <- 0
+					return
+				}
+				defer resp.Body.Close()
+				statuses <- resp.StatusCode
+			}()
+		}
+		statusesPair := []int{<-statuses, <-statuses}
+		slices.Sort(statusesPair)
+		if !slices.Equal(statusesPair, []int{200, 409}) {
+			t.Fatalf("并发状态错误: %v", statusesPair)
+		}
+		if e := migration.Run(context.Background(), root, log, "down"); e == nil {
+			t.Fatal("包含直接处置记录的迁移不应可回退")
+		}
+		call(t, superToken, "/"+uid+"/restrictions", 200)
+		// 撤权后新读写及旧幂等重放均拒绝；注销屏障不能被直接操作复活。
+		revokeID, revokeToken := admin("super_admin")
+		must(root.Where("admin_id=?", revokeID).Delete(&entity.AdminRoleBinding{}).Error)
+		post(revokeToken, "ban", uuid.NewString(), 15, 403)
+		must(root.Model(&entity.Account{}).Where("id=?", uid).Update("lifecycle", "deleting").Error)
+		call(t, superToken, "/"+uid+"/restrictions", 404)
+		post(superToken, "ban", key, 7, 404)
+	})
+
 }

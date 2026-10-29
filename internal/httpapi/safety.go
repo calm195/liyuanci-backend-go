@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +29,9 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			return err
 		}
 	}
+	if controls, ok := admin.(UserRestrictionsAPI); ok {
+		registerUserRestrictions(r, controls)
+	}
 	g := r.Group("/api/v1")
 	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
 	writes := []struct {
@@ -46,11 +50,19 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 		{"report_decision", "POST", "/admin/reports/:id/decision", []string{"decision", "reason", "expected_version"}, nil, 200, true},
 		{"offline", "POST", "/admin/contents/:kind/:id/offline", []string{"reason", "expected_version"}, nil, 200, true},
 		{"release", "POST", "/admin/contents/:kind/:id/release-restriction", []string{"reason", "expected_version"}, nil, 200, true},
+		{"user_ban", "POST", "/admin/users/:id/restrictions/ban", []string{"reason", "expected_version"}, nil, 200, true},
+		{"user_unban", "POST", "/admin/users/:id/restrictions/unban", []string{"reason", "expected_version"}, nil, 200, true},
+		{"user_mute", "POST", "/admin/users/:id/restrictions/mute", []string{"reason", "expected_version"}, nil, 200, true},
+		{"user_unmute", "POST", "/admin/users/:id/restrictions/unmute", []string{"reason", "expected_version"}, nil, 200, true},
 		{"penalty", "POST", "/admin/users/:id/penalties", []string{"violation_ref", "content_ref", "content_version", "level", "reason", "expected_version"}, nil, 200, true},
 		{"appeal_decision", "POST", "/admin/appeals/:id/decision", []string{"decision", "reason", "expected_version"}, nil, 200, true},
 	}
 	for _, route := range writes {
 		g.Handle(route.method, route.path, func(c *gin.Context) {
+			if strings.HasPrefix(route.op, "user_") && c.Request.URL.RawQuery != "" {
+				returnInvalid(c)
+				return
+			}
 			token, ok := bearer(c)
 			if !ok {
 				return

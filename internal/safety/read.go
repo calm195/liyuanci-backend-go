@@ -125,7 +125,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 			if !admin {
 				query = query.Where("a.account_id=?", actor)
 			} else {
-				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").Where("p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)")
+				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").Where("((p.source_kind='direct' AND EXISTS(SELECT 1 FROM public.admin_role_bindings WHERE admin_id=? AND role='super_admin')) OR (p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)))", actor)
 			}
 			if id != "" {
 				query = query.Where("(a.created_at,a.id)<(?,?::uuid)", at, id)
@@ -198,11 +198,21 @@ func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out an
 			if e != nil {
 				return e
 			}
-			if p.ContentID == nil {
-				return command.ErrNotFound
-			}
-			if e = ordinaryCase(db, *p.ContentID); e != nil {
-				return e
+			if p.SourceKind == "direct" {
+				var n int64
+				if e = db.Model(&entity.AdminRoleBinding{}).Where("admin_id=? AND role='super_admin'", actor).Count(&n).Error; e != nil {
+					return e
+				}
+				if n != 1 {
+					return command.ErrForbidden
+				}
+			} else {
+				if p.ContentID == nil {
+					return command.ErrNotFound
+				}
+				if e = ordinaryCase(db, *p.ContentID); e != nil {
+					return e
+				}
 			}
 			body, e := s.decrypt(ctx, "appeal_body", a.ID, a.BodyCipher)
 			if e != nil {
