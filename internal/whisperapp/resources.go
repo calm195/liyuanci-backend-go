@@ -154,7 +154,7 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 }
 func (r *resources) check(ctx context.Context, db *gorm.DB) error {
 	var schema bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.interaction_block_policy') IS NOT NULL AND to_regclass('public.whisper_capsules') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whisper_notification_refs') AND attname='suppressed' AND NOT attisdropped) AND to_regprocedure('public.clear_held_whisper_comment(bytea,uuid,jsonb)') IS NOT NULL`).Scan(&schema).Error != nil || !schema {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.resource_feedback') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND to_regclass('public.interaction_block_policy') IS NOT NULL AND to_regclass('public.whisper_capsules') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whisper_notification_refs') AND attname='suppressed' AND NOT attisdropped) AND to_regprocedure('public.clear_held_whisper_comment(bytea,uuid,jsonb)') IS NOT NULL`).Scan(&schema).Error != nil || !schema {
 		return command.ErrUnavailable
 	}
 	enabled, e := blockpolicy.Enabled(ctx, db)

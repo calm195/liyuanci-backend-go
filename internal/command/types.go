@@ -81,6 +81,10 @@ const (
 type ResourceKind string
 
 const (
+	// ResourceCategory 在资料之前锁定分类。
+	ResourceCategory ResourceKind = "resource_category"
+	// ResourceMaterial 在分类后锁定资料并串行反馈。
+	ResourceMaterial ResourceKind = "resource_material"
 	// Asset 是账号之后、互动资源之前锁定的私有学生卡。
 	Asset ResourceKind = "asset"
 	// IdentityReview 在学生卡之后锁定人工认证申请。

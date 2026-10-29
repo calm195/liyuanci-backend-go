@@ -110,6 +110,7 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.Notification{}, "id IN ?", []any{g.notifications}},
 		{&entity.CareCard{}, "recipient_id=?", []any{id}},
 		{&entity.AccessAudit{}, "subject_ref IN ?", []any{g.refs}},
+		{&entity.ResourceFeedback{}, "account_id=?", []any{id}},
 		{&entity.CommandReceipt{}, "(actor_kind='student' AND actor_id=?) OR result_ref IN ?", []any{id, g.refs}},
 		{&entity.ConsumerReceipt{}, "operation_id IN (SELECT operation_id FROM public.work_items WHERE id IN ?)", []any{g.works}},
 		{&entity.OutboxEvent{}, "work_id IN ? OR aggregate_id IN ?", []any{g.works, g.refs}},

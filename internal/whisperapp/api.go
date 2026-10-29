@@ -14,19 +14,21 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // API 持有本模块连接和供应商资源；宿主先停止HTTP及等待请求，再Close。
 type API struct {
-	r                          *resources
-	client                     redis.UniversalClient
-	databases                  []*gorm.DB
-	service                    *whisper.Service
-	reviews, crises, student   *moderation.Service
-	deletion, evidence         *privacy.Service
-	studentSafety, adminSafety *safety.Service
+	r                                *resources
+	client                           redis.UniversalClient
+	databases                        []*gorm.DB
+	service                          *whisper.Service
+	reviews, crises, student         *moderation.Service
+	deletion, evidence               *privacy.Service
+	studentSafety, adminSafety       *safety.Service
+	studentResources, adminResources *resourceplaza.Service
 }
 
 // OpenAPI 在监听前验证真实权限、资源、密钥、限频、删除日志与恢复门禁，不启动后台任务。
@@ -116,6 +118,14 @@ func OpenAPI(ctx context.Context, cfg Settings, client redis.UniversalClient, lo
 			return nil, err
 		}
 	}
+	a.studentResources, err = resourceplaza.New(api, log, r.codec, resourceplaza.Config{Command: cfg.Command, Key: resourceplaza.DeriveKey(cfg.SafetyKey)})
+	if err != nil {
+		return nil, err
+	}
+	a.adminResources, err = resourceplaza.New(review, log, r.codec, resourceplaza.Config{Command: cfg.Command, Key: resourceplaza.DeriveKey(cfg.SafetyKey)})
+	if err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 
@@ -150,6 +160,11 @@ func (a *API) Register(router *gin.Engine) (err error) {
 		},
 	} {
 		if err = register(); err != nil {
+			return
+		}
+	}
+	if !exists("GET", "/api/v1/resources") {
+		if err = httpapi.RegisterResources(router, a.studentResources, a.adminResources); err != nil {
 			return
 		}
 	}

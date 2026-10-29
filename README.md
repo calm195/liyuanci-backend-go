@@ -6,6 +6,8 @@ Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-b
 
 后台安全治理装配同时提供普通用户列表、详情及处罚历史三个只读GET，支持普通昵称包含搜索、状态筛选和受保护键集游标。使用前由专用迁移入口应用0027并刷新权限；普通启动不执行DDL。用户页使用脱敏投影，处罚与申诉仍从授权案件工作台执行，接入和验证边界见[后端文档索引](../docs/development/backend/README.md)。
 
+资料广场通过 `studentapi.Config.Resources` 显式启用；完整开发应用和业务运行装配提供15个接口。使用前显式应用0029迁移并刷新权限，启动只检查结构。学生须认证且未封禁，后台限运营/超级管理员；链接和提取码加密，四类反馈随换版及注销清理，外部网盘不会被服务端访问。
+
 过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
 功能全链路、状态流转及简化联调方式见[后端功能说明](FUNCTIONALITY.md)。

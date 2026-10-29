@@ -14,6 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
@@ -62,6 +63,8 @@ type Dependencies struct {
 
 // Config 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
 type Config struct {
+	// Resources 显式启用认证资料与后台维护入口。
+	Resources *resourceplaza.Config
 	// Crisis 显式启用独立危机后台服务。
 	Crisis *moderation.Config
 	// Privacy与EvidenceDeletion显式启用删除能力，不借用普通API或危机读取连接池。
@@ -147,6 +150,17 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 			return nil, command.ErrInvalid
 		}
 		chats, e = chat.New(d.WishDB, d.Logger, d.Codec, *cfg.Chat)
+		if e != nil {
+			return nil, e
+		}
+	}
+	var studentResources, adminResources *resourceplaza.Service
+	if cfg.Resources != nil {
+		studentResources, e = resourceplaza.New(d.WishDB, d.Logger, d.Codec, *cfg.Resources)
+		if e != nil {
+			return nil, e
+		}
+		adminResources, e = resourceplaza.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Resources)
 		if e != nil {
 			return nil, e
 		}
@@ -365,6 +379,11 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 	if contentReviews != nil {
 
 		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
+			return nil, e
+		}
+	}
+	if studentResources != nil {
+		if e = httpapi.RegisterResources(router, studentResources, adminResources); e != nil {
 			return nil, e
 		}
 	}
