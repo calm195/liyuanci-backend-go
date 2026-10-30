@@ -8,7 +8,7 @@ Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-b
 
 资料广场通过 `studentapi.Config.Resources` 显式启用；完整开发应用和业务运行装配提供15个接口。使用前显式应用0029迁移并刷新权限，启动只检查结构。学生须认证且未封禁，后台限运营/超级管理员；链接和提取码加密，四类反馈随换版及注销清理，外部网盘不会被服务端访问。
 
-过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
+现状、缺陷与后续计划见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
 功能全链路、状态流转及简化联调方式见[后端功能说明](FUNCTIONALITY.md)。
 
@@ -69,7 +69,7 @@ make dev-infra-stop
 
 配置`.local/local/operations.env`，项目`liyuanci-local`；PG15432、Redis16379、API18080。`dev-mq`、`dev-management`、`dev-monitoring`按需开启，或`make dev-infra DEV_ARGS="--mq --management"`。管理页面pgAdmin15050、Redis Insight15540、MQ Dashboard18081，Grafana13000；监控只覆盖Docker日志，宿主应用日志在终端查看。原生模式只管理可选MQ，不启用管理工具或监控。
 
-两种模式均可通过`DEV_ARGS="--project liyuanci-local-主题 --env-file /实际目录/operations.env"`选择独立配置。端口变量为`LIYUANCI_LOCAL_PG_PORT/REDIS_PORT/API_PORT/NAMESRV_PORT`；Broker10911/10909固定。`make dev-config`或`dev-native-config`刷新宿主派生文件，IDE环境见[当前开发操作说明](../docs/development/backend/host-development.md)。
+两种模式均可通过`DEV_ARGS="--project liyuanci-local-主题 --env-file /实际目录/operations.env"`选择独立配置。端口变量为`LIYUANCI_LOCAL_PG_PORT/REDIS_PORT/API_PORT/NAMESRV_PORT`；Broker10911/10909固定。`make dev-config`或`dev-native-config`刷新宿主派生文件，IDE环境见[本地业务入口](FUNCTIONALITY.md#14-本地业务测试模式)。
 
 学生卡worker默认仅轮询数据库。需要消息模式时，先按需启动所选项目MQ，并由该项目Broker显式建立主题`liyuanci_student_card_scan_v1`；复制[消息配置模板](configs/examples/card-worker-mq.yaml)到对应`.local/<模式>/`并核对地址、主题、组和预算。在`operations.env`中设置`LIYUANCI_LOCAL_CARD_MQ_FILE=/绝对路径/card-worker-mq.yaml`，再启动`dev-worker`或`dev-native-worker`。直接运行二进制时使用`APP_CARD_MQFILE`指定文件。消息模式同时运行发件箱转发、订阅和数据库补偿，关闭时等待在途工作后释放数据库；扫描仍是隔离开发模拟，生产拒绝该进程。诊断入口只核对数据库与对象目录，不代表MQ主题和权限可用。
 
@@ -87,7 +87,7 @@ make dev-infra-stop
 
 原文人工联调可在所选`operations.env`设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=manual`，再启动`dev-content-worker`。心愿、应愿留言、私聊和还愿故事未命中自动通过；命中或重审保留原文并交管理端人工复核，批准后使用原文候选，不提供自动隐私脱敏。三类词库仍须显式发布，私聊涉校词只转人工不生成公开标签，已发布危机规则命中优先隔离，不进入普通审核。该模式仅限隔离开发，生产拒绝运行。
 
-本地危机后台由`make dev-init`（原生模式为`make dev-native-init`）显式补齐独立`dev_crisis_api`登录及`CrisisDSN`，复用已有凭据且不重置后台账号。初始化后重启API，具有`crisis_operator`或`super_admin`角色的账号可联调`/api/v1/admin/crisis-cases`及人工升级、处置、误报回退接口；普通启动只转换宿主连接地址，不创建身份或迁移。`manual`模式不提供真实危机识别，本地不配置正式关怀资料或真实通知，相关投递保留待办。详见[危机后台本地联调](../docs/development/backend/host-development.md#危机案件与关怀)。
+本地危机后台由`make dev-init`（原生模式为`make dev-native-init`）显式补齐独立`dev_crisis_api`登录及`CrisisDSN`，复用已有凭据且不重置后台账号。初始化后重启API，具有`crisis_operator`或`super_admin`角色的账号可联调`/api/v1/admin/crisis-cases`及人工升级、处置、误报回退接口；普通启动只转换宿主连接地址，不创建身份或迁移。`manual`模式不提供真实危机识别，本地不配置正式关怀资料或真实通知，相关投递保留待办。详见[危机后台本地联调](../docs/development/backend/README.md)。
 
 
 常见词库可显式执行 `make dev-wordlists-init`，默认连接本机18080，私有账号口令读取 `.local/local/business.host.json`，种子见 `configs/examples/moderation-wordlists.json`；自定义路径使用 `WORDLIST_ARGS="--business-file /实际私有路径 --api-url http://127.0.0.1:18080 --login 实际登录名"`。此操作通过真实后台认证及完整快照创建/发布，合并保留当前生效词，不重写旧快照；重复执行无新增词时不再发布，并发代次冲突退出后由操作者重试。种子只提供常见起点，危机求助优先隔离进入关怀流程，不等同于普通违规拒绝，不替代正式词库维护。普通启动不隐式初始化或发布词库。
@@ -114,7 +114,7 @@ make integration
 
 专项验收脚本按用户要求已删除；CI保留完整Go质量检查、离线入口单测及Make直接声明的真实中间件往返。变更需要的额外验证临时执行并记录实际结果，不新增长期专项脚本。`make integration`在原探针往返后，以锁定Go构建的独立测试镜像运行真实PG迁移与树洞资源锁、持久工作/重驱动审计、学生卡领域链及内容扫描/人工复核核心；覆盖提交后NACK重投、重复、取消晚到、外部失败、过期租约恢复，以及词库发布并发、人工案件版本、隐私屏障和审计回滚。外部扫描、密钥和对象均为合成夹具，故障用例不等于真实杀进程或生产验收。该入口会迁移并清理隔离业务测试数据，仅用于独立测试项目，调用者显式维护其凭据与停止清理；不连接日常业务库或生产。
 
-同一任务复用未固定记录，一次完整交付新增阶段记录和证据；历史记录保持只读。源码与docs的本地和远程仅保留`develop`、`main`，日常开发均使用`develop`；提交需用户授权，不自动推送、合并或部署。完整规则见[AGENTS.md](AGENTS.md)。
+docs本端仅滚动维护现状、缺陷与后续计划；历史阶段材料从Git快照追溯，不再新增阶段报告或日志目录。源码与docs的本地和远程仅保留`develop`、`main`，日常开发均使用`develop`；提交需用户授权，不自动推送、合并或部署。完整规则见[AGENTS.md](AGENTS.md)。
 
 应愿入口随显式心愿应用装配：提交/本人列表、许愿人有效申请列表、撤销、同意及普通回退。留言先加密持久化并送审，内容worker复用同一内容主题处理心愿和应愿留言；未配置真实分析供应商时失败关闭。许愿人只收到当前有效申请的已审留言及最小公开资料，待审不能同意。匹配创建独立会话，回退重新招募时旧会话保持只读，新匹配新建会话；刷新期限需新内容版本重新审核。升级显式应用迁移0014并重放bootstrap权限，运行进程不执行DDL。
 
@@ -127,13 +127,13 @@ make integration
 
 公开主页 `GET /api/v1/users/{id}/public-profile` 随心愿应用启用，按公开时间与ID分页返回当前可见心愿及已审故事；故事部分依赖显式启用故事模块。升级前停止对应应用，由专用迁移身份显式应用0020并重放权限，再重启API和内容worker；普通启动不执行DDL。历史已审故事使用迁移切换时间作为排序起点，后续版本在审核批准事务内记录公开时间。主页资料只含昵称与标识，身份标签按每条已审内容及当前隐藏设置返回。
 
-安全治理通过`studentapi.Config.Safety`显式启用，提供拉黑、举报、固定等级处罚、服务器30秒警告及受限本人申诉。开发装配使用独立派生用途密钥与64KiB说明/申诉技术预算；升级须显式应用0017并重放权限，普通启动不执行DDL。举报类型来自`report_types`中运营显式发布的数据，未交付时返回空清单；不预置正式运营类型。黑名单在显式匿名切换前兼容旧条目版本；切换后使用随机条目接口，旧接口仅返回升级错误，Me移除旧动作。接口与版本边界见[安全治理接入记录](../docs/development/backend/milestones/2026-10-22-safety-governance-r1.md)。
+安全治理通过`studentapi.Config.Safety`显式启用，提供拉黑、举报、固定等级处罚、服务器30秒警告及受限本人申诉。开发装配使用独立派生用途密钥与64KiB说明/申诉技术预算；升级须显式应用0017并重放权限，普通启动不执行DDL。举报类型来自`report_types`中运营显式发布的数据，未交付时返回空清单；不预置正式运营类型。黑名单在显式匿名切换前兼容旧条目版本；切换后使用随机条目接口，旧接口仅返回升级错误，Me移除旧动作。接口与版本边界见[安全治理现状](../docs/development/backend/README.md)。
 
-危机命中由内容worker在原事务内写入独立加密证据、隔离及关怀/授权人员通知待办。升级须显式应用0018并重放权限；后台危机路由通过`studentapi.Config.Crisis`和独立`CrisisDB`池启用，宿主开发使用私有凭据文件内可选`CrisisDSN`，登录仅属于`liyuanci_crisis_api`。普通审核池仍无证据域权限。援助资料由`WorkerConfig.Care`显式注入，开发文件可选`Care`；没有资料或`CrisisNotifier`时保留重试待办。误报创建新的普通人工复核任务，不直接恢复公开；关怀通知引用本人卡片，不暴露后台案号。接入和边界见[后端阶段记录](../docs/development/backend/milestones/2026-10-23-crisis-care-r1.md)。
+危机命中由内容worker在原事务内写入独立加密证据、隔离及关怀/授权人员通知待办。升级须显式应用0018并重放权限；后台危机路由通过`studentapi.Config.Crisis`和独立`CrisisDB`池启用，宿主开发使用私有凭据文件内可选`CrisisDSN`，登录仅属于`liyuanci_crisis_api`。普通审核池仍无证据域权限。援助资料由`WorkerConfig.Care`显式注入，开发文件可选`Care`；没有资料或`CrisisNotifier`时保留重试待办。误报创建新的普通人工复核任务，不直接恢复公开；关怀通知引用本人卡片，不暴露后台案号。接入和边界见[后端现状](../docs/development/backend/README.md)。
 
-注销及证据删除由`internal/privacy`提供：先持久独立恢复日志，再原子撤销会话、设置公开屏障并处理存活方关系；清理失败保持`processing`，匿名回执不含身份或正文。显式应用0019并重放权限后，通过`studentapi.Config.Privacy/EvidenceDeletion`及独立运行池启用；普通启动不迁移。宿主开发凭据可选`PrivacyDSN/EvidenceDeletionDSN/EvidencePurgerDSN/RecoveryWriterDSN/RecoveryReaderDSN/RecoveryWrapKey`，日志包裹密钥必须独立，初始化不创建这些资源或替换旧密钥。`make build`同时构建`privacy-worker`；直接运行时显式提供`APP_ENVIRONMENT=integration`、`APP_DEVAPPFILE`和`APP_PRIVACY_SCOPE=account`或`evidence`。此开发入口未配置外部全版本清理及脱敏适配器，只维持持久待办；正式宿主须注入`privacy.Eraser`、`privacy.Redactor`和独立日志后调用`Service.Run`，不能把开发进程用于生产。接入、恢复重删及验收边界见[隐私清理阶段记录](../docs/development/backend/milestones/2026-10-23-privacy-deletion-r1.md)。
+注销及证据删除由`internal/privacy`提供：先持久独立恢复日志，再原子撤销会话、设置公开屏障并处理存活方关系；清理失败保持`processing`，匿名回执不含身份或正文。显式应用0019并重放权限后，通过`studentapi.Config.Privacy/EvidenceDeletion`及独立运行池启用；普通启动不迁移。宿主开发凭据可选`PrivacyDSN/EvidenceDeletionDSN/EvidencePurgerDSN/RecoveryWriterDSN/RecoveryReaderDSN/RecoveryWrapKey`，日志包裹密钥必须独立，初始化不创建这些资源或替换旧密钥。`make build`同时构建`privacy-worker`；直接运行时显式提供`APP_ENVIRONMENT=integration`、`APP_DEVAPPFILE`和`APP_PRIVACY_SCOPE=account`或`evidence`。此开发入口未配置外部全版本清理及脱敏适配器，只维持持久待办；正式宿主须注入`privacy.Eraser`、`privacy.Redactor`和独立日志后调用`Service.Run`，不能把开发进程用于生产。接入、恢复重删及验收边界见[隐私清理现状](../docs/development/backend/README.md)。
 
-本地隐私注销与证据删除需先 `make dev-stop`，再显式运行 `make dev-privacy-init`（Docker宿主模式），初始化独立恢复 PostgreSQL、专用身份和用途密钥。随后分别运行 `make dev-api`、`make dev-worker`、`make dev-content-worker`、`make dev-privacy-worker` 与 `make dev-evidence-worker`；五个进程均由 `make dev-stop` 停止，中间件与卷保留。恢复库端口默认仅绑定127.0.0.1:15433。初始化后 `make dev-infra` 同时启动恢复库，普通启动不执行迁移。缺少外部全版本清理或脱敏适配器时，隐私任务保持processing，不声称清理完成。配置和联调范围见[宿主开发说明](../docs/development/backend/host-development.md)。
+本地隐私注销与证据删除需先 `make dev-stop`，再显式运行 `make dev-privacy-init`（Docker宿主模式），初始化独立恢复 PostgreSQL、专用身份和用途密钥。随后分别运行 `make dev-api`、`make dev-worker`、`make dev-content-worker`、`make dev-privacy-worker` 与 `make dev-evidence-worker`；五个进程均由 `make dev-stop` 停止，中间件与卷保留。恢复库端口默认仅绑定127.0.0.1:15433。初始化后 `make dev-infra` 同时启动恢复库，普通启动不执行迁移。缺少外部全版本清理或脱敏适配器时，隐私任务保持processing，不声称清理完成。配置和联调范围见[本地业务入口](FUNCTIONALITY.md#14-本地业务测试模式)。
 
 树洞基础通过显式迁移0021建立独立实体、内容约束和最小权限，0022允许审核任务保存树洞初始零限制代次，0023保留业务生命周期内的最小幂等回执；旧黑名单关系原位生成不透明`block_id`。升级此版本的业务API／worker前须显式应用至0026并重放权限；迁移由专用身份执行，普通启动不执行DDL。`internal/whisper`提供文字草稿、三档身份、昵称、公开／本人查询及送审边界，`httpapi.RegisterWhispers`只供显式依赖装配；当前进程尚未启用树洞，正式依赖装配与供应商验收完成前不得启用。缺字典时半匿名不可用，缺援助资料返回unavailable；送审必须注入支持新类型的持久审核适配，不能交给旧消费者。Redis限频需注入独立用途密钥并失败关闭；取消／撤回独立于发布预算。`make integration`包含隔离子库迁移、权限、资源锁、文字事务与公开遮蔽、Redis滚动预算验证；外部审核、字典及KMS测试夹具不代表生产验收。
 
