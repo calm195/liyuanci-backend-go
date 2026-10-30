@@ -229,7 +229,7 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		}
 	})
 	t.Run("取消竞争及受罚本人读取", func(t *testing.T) {
-		c := create("取消竞争")
+		c := create("普通命中 取消竞争")
 		reviewEvent := event(c.ID, "review")
 		wake := event(c.ID, "unlock")
 		a.hook = func() { _, e := s.CloseCapsule(ctx, token, uuid.NewString(), "", c.ID, "cancel", c.Version); must(e) }
@@ -264,7 +264,7 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		must(admin.Where("id=?", penalty.ID).Delete(&entity.Penalty{}).Error)
 	})
 	t.Run("扫描失败与通知失败不泄漏正文", func(t *testing.T) {
-		c := create("扫描重试")
+		c := create("普通命中 扫描重试")
 		due(c.ID)
 		ev := event(c.ID, "review")
 		a.privateFailure = errors.New("合成临时分类失败")
@@ -280,6 +280,14 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		must(e)
 		must(admin.Exec("UPDATE public.work_items SET next_at=clock_timestamp()-interval '1 second' WHERE id=?", ev.CorrelationID).Error)
 		_, e = w.Consume(ctx, ev)
+		must(e)
+		// 命中普通词在重试成功后仍需原人工复核，不能因恢复供应商而自动批准。
+		var reviewTask entity.ModerationTask
+		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", c.ID).Take(&reviewTask).Error)
+		if current(c.ID).Body != nil || reviewTask.Status != "human_required" {
+			t.Fatal("词库命中在重试后被免审")
+		}
+		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", reviewTask.ID, moderation.WhisperReviewCommand{ExpectedVersion: reviewTask.Version, ExpectedContentVersion: 1, Decision: "approved"})
 		must(e)
 		if current(c.ID).Body == nil {
 			t.Fatal("重试批准未能按时读取")

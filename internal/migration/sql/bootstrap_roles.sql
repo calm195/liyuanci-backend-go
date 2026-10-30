@@ -468,3 +468,31 @@ REVOKE ALL ON FUNCTION public.clear_held_whisper_comment(bytea,uuid,jsonb) FROM 
 GRANT EXECUTE ON FUNCTION public.clear_held_whisper_comment(bytea,uuid,jsonb) TO liyuanci_api;
 
 GRANT UPDATE (suppressed) ON public.whisper_notification_refs TO liyuanci_privacy_maintenance;
+
+-- 资料广场使用独立业务表；反馈不进入举报/证据域。
+ALTER TABLE public.resource_categories OWNER TO liyuanci_migrator;
+ALTER TABLE public.resource_materials OWNER TO liyuanci_migrator;
+ALTER TABLE public.resource_feedback OWNER TO liyuanci_migrator;
+ALTER TABLE public.resource_audits OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.resource_categories,public.resource_materials,public.resource_feedback,public.resource_audits FROM PUBLIC,liyuanci_api,liyuanci_admin_api,liyuanci_crisis_api,liyuanci_domain_worker,liyuanci_privacy_maintenance;
+GRANT SELECT ON public.resource_categories,public.resource_materials TO liyuanci_api;
+-- FOR UPDATE只授予版本列更新权限，学生没有资料正文或状态写权限。
+GRANT UPDATE(version) ON public.resource_categories,public.resource_materials TO liyuanci_api;
+GRANT SELECT,INSERT,UPDATE ON public.resource_categories,public.resource_materials TO liyuanci_admin_api;
+GRANT SELECT,INSERT,UPDATE ON public.resource_feedback TO liyuanci_api;
+GRANT SELECT,DELETE ON public.resource_feedback TO liyuanci_admin_api,liyuanci_privacy_maintenance;
+GRANT SELECT,INSERT ON public.resource_audits TO liyuanci_admin_api;
+DROP POLICY IF EXISTS resource_categories_scope ON public.resource_categories;
+CREATE POLICY resource_categories_scope ON public.resource_categories TO liyuanci_api,liyuanci_admin_api USING(true) WITH CHECK(true);
+DROP POLICY IF EXISTS resource_materials_scope ON public.resource_materials;
+CREATE POLICY resource_materials_scope ON public.resource_materials TO liyuanci_api,liyuanci_admin_api USING(true) WITH CHECK(true);
+DROP POLICY IF EXISTS resource_feedback_student ON public.resource_feedback;
+CREATE POLICY resource_feedback_student ON public.resource_feedback TO liyuanci_api USING(account_id::text=current_setting('app.resource_actor',true)) WITH CHECK(account_id::text=current_setting('app.resource_actor',true));
+DROP POLICY IF EXISTS resource_feedback_maintenance ON public.resource_feedback;
+CREATE POLICY resource_feedback_maintenance ON public.resource_feedback TO liyuanci_admin_api,liyuanci_privacy_maintenance USING(true) WITH CHECK(true);
+DROP POLICY IF EXISTS resource_audits_admin ON public.resource_audits;
+CREATE POLICY resource_audits_admin ON public.resource_audits TO liyuanci_admin_api USING(true) WITH CHECK(true);
+GRANT DELETE ON public.command_receipts TO liyuanci_admin_api;
+ALTER FUNCTION public.is_live_admin_session(bytea) OWNER TO liyuanci_migrator;
+REVOKE ALL ON FUNCTION public.is_live_admin_session(bytea) FROM PUBLIC,liyuanci_api,liyuanci_admin_api,liyuanci_crisis_api,liyuanci_domain_worker,liyuanci_privacy_maintenance;
+GRANT EXECUTE ON FUNCTION public.is_live_admin_session(bytea) TO liyuanci_api;

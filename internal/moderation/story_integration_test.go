@@ -292,7 +292,7 @@ func TestStorySharing(t *testing.T) {
 	})
 	t.Run("确认实现与事务外消息分析并发", func(t *testing.T) {
 		f := matched()
-		a := send(f, "延迟私聊")
+		a := send(f, "普通命中 延迟私聊")
 		entered, release := make(chan struct{}), make(chan struct{})
 		blocked, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}, MessageAnalyzer: privateAnalyzer{entered: entered, release: release}})
 		must(e)

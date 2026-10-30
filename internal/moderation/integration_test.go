@@ -280,7 +280,7 @@ func TestModerationCore(t *testing.T) {
 			t.Fatal("归档可重新发布", e)
 		}
 	})
-	t.Run("正常扫描只进入待上架并脱敏", func(t *testing.T) {
+	t.Run("未命中保留原文并只进入待上架", func(t *testing.T) {
 		draft, event := submit("合成个人姓名需要帮助")
 		out, e := worker.Consume(ctx, event)
 		must(e)
@@ -299,8 +299,8 @@ func TestModerationCore(t *testing.T) {
 		}
 		var v entity.WishVersion
 		must(root.Where("wish_id=? AND content_version=1", draft.ID).Take(&v).Error)
-		if v.PublicBody == nil || strings.Contains(*v.PublicBody, "合成个人姓名") {
-			t.Fatal("未使用脱敏候选")
+		if v.PublicBody == nil || *v.PublicBody != "合成个人姓名需要帮助" {
+			t.Fatal("未命中未保留原文候选")
 		}
 	})
 	t.Run("涉校人工审批与主动上架提示", func(t *testing.T) {
@@ -383,7 +383,7 @@ func TestModerationCore(t *testing.T) {
 		}
 	})
 	t.Run("外部失败重试与扫描期间改文", func(t *testing.T) {
-		draft, event := submit("需扫描的正文")
+		draft, event := submit("普通命中 需扫描的正文")
 		provider.set(true, nil)
 		_, e := worker.Consume(ctx, event)
 		if e == nil || state(draft.ID).State != "pending_review" {
@@ -405,7 +405,7 @@ func TestModerationCore(t *testing.T) {
 		}
 	})
 	t.Run("外部分析不持有业务行锁", func(t *testing.T) {
-		draft, event := submit("事务外扫描正文")
+		draft, event := submit("普通命中 事务外扫描正文")
 		provider.set(false, func() {
 			if failure := root.Transaction(func(db *gorm.DB) error {
 				if e := db.Exec("SELECT id FROM public.accounts WHERE id=? FOR UPDATE NOWAIT", owner).Error; e != nil {
@@ -611,14 +611,14 @@ func TestModerationCore(t *testing.T) {
 	t.Run("数据库补偿分析预算独立", func(t *testing.T) {
 		// 隔离本用例待处理目标，避免历史失败夹具占用有界的一条候选。
 		must(root.Model(&entity.WorkItem{}).Where("kind=? AND status IN ?", wish.ReviewRoute().Kind, []string{"pending", "retry_wait", "leased"}).Update("next_at", time.Now().Add(time.Hour)).Error)
-		draft, event := submit("较慢合成分析")
+		draft, event := submit("普通命中 较慢合成分析")
 		provider.set(false, func() { time.Sleep(700 * time.Millisecond) })
 		defer provider.set(false, nil)
 		slow, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 2 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 400 * time.Millisecond, LockTimeout: 100 * time.Millisecond, RetryDelay: time.Millisecond, MaxAttempts: 3}})
 		must(e)
 		out, e := slow.ProcessNext(ctx)
 		must(e)
-		if !out.Applied || state(draft.ID).State != "ready" {
+		if !out.Applied || state(draft.ID).State != "pending_review" {
 			t.Fatal("查询预算提前取消了独立分析")
 		}
 		checkReceipt(event)

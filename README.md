@@ -6,6 +6,8 @@ Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-b
 
 后台安全治理装配同时提供普通用户列表、详情及处罚历史三个只读GET，支持普通昵称包含搜索、状态筛选和受保护键集游标。使用前由专用迁移入口应用0027并刷新权限；普通启动不执行DDL。用户页使用脱敏投影，处罚与申诉仍从授权案件工作台执行，接入和验证边界见[后端文档索引](../docs/development/backend/README.md)。
 
+资料广场通过 `studentapi.Config.Resources` 显式启用；完整开发应用和业务运行装配提供15个接口。使用前显式应用0029迁移并刷新权限，启动只检查结构。学生须认证且未封禁，后台限运营/超级管理员；链接和提取码加密，四类反馈随换版及注销清理，外部网盘不会被服务端访问。
+
 过程记录与模块说明见[后端文档索引](../docs/development/backend/README.md)，共享接口见[契约入口](../docs/contracts/README.md)。
 
 功能全链路、状态流转及简化联调方式见[后端功能说明](FUNCTIONALITY.md)。
@@ -79,13 +81,16 @@ make dev-infra-stop
 
 词库及普通内容审核路由需要显式应用业务迁移0013与权限，并由初始化补齐独立`ModerationKey`；普通启动不执行这些操作。可选装配覆盖正式0.2.0已有七项后台接口，草案的`target/allowed_actions`扩展未启用。现有数据库升级请先停止对应宿主应用，再执行所选模式的显式初始化，保留原密钥、口令和对象；缺少新结构时启动拒绝半套服务。
 
-内容扫描核心在`internal/moderation`，需注入实际文本安全/组合信息处理器，未提供默认放行适配。扫描在事务外执行，结果/当前资格复核/领域回执原子提交；普通或涉校命中交人工，危机命中隔离，正常通过只进`ready`，上架仍由作者显式操作。日常`card-worker`继续只处理学生卡，不会自动消费心愿审核；运行`make dev-content-worker`（原生模式为`make dev-native-content-worker`）启动独立内容进程，默认仅数据库补偿，无供应商时失败关闭。正式供应商仍需接入。
+内容扫描核心在`internal/moderation`，先读取三类已发布词库的一致快照；未命中且不是隐私/危机重审时，保留原文和显式标签自动通过，不调用分析供应商。命中或重审继续调用原文本安全/组合信息处理器；缺词库或该分支供应商故障仍失败关闭。扫描在事务外执行，结果/当前资格复核/领域回执原子提交；普通或涉校命中交人工，危机命中隔离，正常通过只进`ready`，上架仍由作者显式操作。日常`card-worker`继续只处理学生卡，不会自动消费心愿审核；运行`make dev-content-worker`（原生模式为`make dev-native-content-worker`）启动独立内容进程，默认仅数据库补偿，命中或重审时无供应商失败关闭。正式供应商仍需接入。
 
-隔离链路调试可在所选`operations.env`中显式设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=synthetic`：此模式将正文替换为固定合成文本并清空标签，不提供隐私检测能力；生产拒绝该开发进程。规则仍必须通过后台显式创建/发布，普通/涉校/危机命中逻辑继续读取原始正文，不自动初始化词库。需MQ时，先显式建立`liyuanci_content_review_v1`主题，再复制[内容消息配置模板](configs/examples/content-worker-mq.yaml)到忽略目录，设置`LIYUANCI_LOCAL_CONTENT_MQ_FILE`；直接运行二进制对应`APP_CONTENT_ANALYZER`、`APP_CONTENT_MQFILE`。两个worker分别使用独立主题和消费组，`dev-stop`等待两者退出并保留中间件及卷。正式规则和安全分析供应商未交付时，隔离测试中的合成样例不构成生产审核验收。
+隔离链路调试可在所选`operations.env`中显式设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=synthetic`：此模式在词库命中或重审的分析分支将正文替换为固定合成文本并清空标签，不提供隐私检测能力；生产拒绝该开发进程。规则仍必须通过后台显式创建/发布，普通/涉校/危机命中逻辑继续读取原始正文，不自动初始化词库。需MQ时，先显式建立`liyuanci_content_review_v1`主题，再复制[内容消息配置模板](configs/examples/content-worker-mq.yaml)到忽略目录，设置`LIYUANCI_LOCAL_CONTENT_MQ_FILE`；直接运行二进制对应`APP_CONTENT_ANALYZER`、`APP_CONTENT_MQFILE`。两个worker分别使用独立主题和消费组，`dev-stop`等待两者退出并保留中间件及卷。正式规则和安全分析供应商未交付时，隔离测试中的合成样例不构成生产审核验收。
 
-原文人工联调可在所选`operations.env`设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=manual`，再启动`dev-content-worker`。心愿、应愿留言、私聊和还愿故事全部保留原文并强制转管理端人工复核，不自动批准；批准后使用原文候选，不提供自动隐私脱敏。三类词库仍须显式发布，已发布危机规则命中优先隔离，不进入普通审核。该模式仅限隔离开发，生产拒绝运行。
+原文人工联调可在所选`operations.env`设置`LIYUANCI_LOCAL_CONTENT_ANALYZER=manual`，再启动`dev-content-worker`。心愿、应愿留言、私聊和还愿故事未命中自动通过；命中或重审保留原文并交管理端人工复核，批准后使用原文候选，不提供自动隐私脱敏。三类词库仍须显式发布，私聊涉校词只转人工不生成公开标签，已发布危机规则命中优先隔离，不进入普通审核。该模式仅限隔离开发，生产拒绝运行。
 
 本地危机后台由`make dev-init`（原生模式为`make dev-native-init`）显式补齐独立`dev_crisis_api`登录及`CrisisDSN`，复用已有凭据且不重置后台账号。初始化后重启API，具有`crisis_operator`或`super_admin`角色的账号可联调`/api/v1/admin/crisis-cases`及人工升级、处置、误报回退接口；普通启动只转换宿主连接地址，不创建身份或迁移。`manual`模式不提供真实危机识别，本地不配置正式关怀资料或真实通知，相关投递保留待办。详见[危机后台本地联调](../docs/development/backend/host-development.md#危机案件与关怀)。
+
+
+常见词库可显式执行 `make dev-wordlists-init`，默认连接本机18080，私有账号口令读取 `.local/local/business.host.json`，种子见 `configs/examples/moderation-wordlists.json`；自定义路径使用 `WORDLIST_ARGS="--business-file /实际私有路径 --api-url http://127.0.0.1:18080 --login 实际登录名"`。此操作通过真实后台认证及完整快照创建/发布，合并保留当前生效词，不重写旧快照；重复执行无新增词时不再发布，并发代次冲突退出后由操作者重试。种子只提供常见起点，危机求助优先隔离进入关怀流程，不等同于普通违规拒绝，不替代正式词库维护。普通启动不隐式初始化或发布词库。
 
 ### 本地业务测试模式
 

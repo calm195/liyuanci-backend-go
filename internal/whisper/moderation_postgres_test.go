@@ -151,6 +151,9 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		id := uuid.NewString()
 		must(admin.Create(&entity.WordlistVersion{ID: id, Type: typ, Version: 1, Status: "published"}).Error)
 		must(admin.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,1,?) ON CONFLICT(kind) DO UPDATE SET effective_id=EXCLUDED.effective_id", typ, id).Error)
+		if typ == "ordinary_violation" {
+			must(admin.Create(&entity.WordlistEntry{ID: uuid.NewString(), VersionID: id, Entry: "普通命中", Action: "ordinary_violation"}).Error)
+		}
 		if typ == "crisis" {
 			must(admin.Create(&entity.WordlistEntry{ID: uuid.NewString(), VersionID: id, Entry: "危机命中", Action: "isolate"}).Error)
 		}
@@ -256,8 +259,8 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 		p, e := service.GetPost(ctx, "", "", v.ID, false)
 		must(e)
-		if p.(whisper.PublicPost).Body != "[已脱敏] 的公开文字" {
-			t.Fatal("未使用脱敏候选")
+		if p.(whisper.PublicPost).Body != "合成人名 的公开文字" {
+			t.Fatal("未命中未保留原文候选")
 		}
 		result, e = worker.Consume(ctx, ev)
 		must(e)
@@ -304,7 +307,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		must(e)
 	})
 	t.Run("分析期间撤回不放行", func(t *testing.T) {
-		v := create("迟到分析")
+		v := create("普通命中 迟到分析")
 		analyzer.hook = func() {
 			_, e := service.ChangePost(ctx, token, uuid.NewString(), "", v.ID, "withdraw", whisper.PostInput{ExpectedVersion: v.Version})
 			must(e)
@@ -425,7 +428,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		must(e)
 		var body string
 		must(admin.Raw("SELECT public_body FROM public.whisper_comment_versions WHERE comment_id=?", comment).Scan(&body).Error)
-		if body != "[已脱敏]的暖评" {
+		if body != "合成人名的暖评" {
 			t.Fatal(body)
 		}
 		// 暖评不要求学生认证；举报公开暖评也不能额外添加作者认证门槛。
@@ -433,7 +436,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		_, e = student.CreateWhisperReport(ctx, token, uuid.NewString(), "", moderation.WhisperReportInput{Source: moderation.WhisperRef{Kind: "whisper_comment", ID: comment, ContentVersion: 1}, TypeCode: "synthetic"})
 		must(e)
 		must(admin.Exec("UPDATE public.accounts SET verification='verified' WHERE id=?", other).Error)
-		comment, ev = seed("whisper_comment", "迟到暖评")
+		comment, ev = seed("whisper_comment", "普通命中 迟到暖评")
 		analyzer.hook = func() {
 			current, e := service.GetPost(ctx, token, "", parent.ID, true)
 			must(e)

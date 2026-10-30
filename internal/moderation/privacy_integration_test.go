@@ -28,6 +28,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
@@ -102,13 +103,21 @@ func TestPrivacyDeletion(t *testing.T) {
 	}
 	fresh := func(dsn, prefix string) string {
 		t.Helper()
-		if !strings.Contains(dsn, "dbname=liyuanci ") {
-			t.Fatal("需隔离DSN")
-		}
 		parent := open(dsn)
+		var database string
+		must(parent.Raw("SELECT current_database()").Scan(&database).Error)
+		if (database != "liyuanci" && database != "postgres") || !strings.Contains(dsn, "dbname="+database+" ") {
+			t.Fatal("需显式隔离测试父库DSN")
+		}
 		name := prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 		must(parent.Exec("CREATE DATABASE " + name).Error)
-		return strings.Replace(dsn, "dbname=liyuanci ", "dbname="+name+" ", 1)
+		// 仅清理本用例创建的独立库；后注册的业务连接先关闭，不终止其他会话。
+		t.Cleanup(func() {
+			if e := parent.Exec("DROP DATABASE " + name).Error; e != nil {
+				t.Error(e)
+			}
+		})
+		return strings.Replace(dsn, "dbname="+database+" ", "dbname="+name+" ", 1)
 	}
 	dsn = fresh(dsn, "privacy_")
 	recoveryDSN = fresh(recoveryDSN, "journal_")
@@ -236,6 +245,75 @@ func TestPrivacyDeletion(t *testing.T) {
 		}
 		return out
 	}
+	t.Run("资料反馈注销即退出统计且恢复备份重删", func(t *testing.T) {
+		owner, token := student()
+		peer, peerToken := student()
+		cfg := resourceplaza.Config{Command: cc, Key: bytes.Repeat([]byte{97}, 32)}
+		resources, e := resourceplaza.New(api, log, codec, cfg)
+		must(e)
+		managed, e := resourceplaza.New(adminDB, log, codec, cfg)
+		must(e)
+		write := func(s *resourceplaza.Service, tok, key, op, id string, in resourceplaza.Input) map[string]any {
+			t.Helper()
+			out, e := s.Write(ctx, tok, "privacy-resource", key, op, id, in)
+			must(e)
+			return out.(map[string]any)
+		}
+		cat := write(managed, adminToken, uuid.NewString(), "category_create", "", resourceplaza.Input{Name: "注销测试分类", Enabled: true})
+		res := write(managed, adminToken, uuid.NewString(), "create", "", resourceplaza.Input{Title: "共享合成资料", CategoryID: cat["id"].(string), DownloadURL: "https://example.test/resource"})
+		id := res["id"].(string)
+		write(managed, adminToken, uuid.NewString(), "publish", id, resourceplaza.Input{ExpectedVersion: 1})
+		key := uuid.NewString()
+		vote := resourceplaza.Input{Kind: "valid", ExpectedContentVersion: 1}
+		write(resources, token, key, "feedback", id, vote)
+		write(resources, peerToken, uuid.NewString(), "feedback", id, resourceplaza.Input{Kind: "incomplete", ExpectedContentVersion: 1})
+		assertTotal := func(want int64) {
+			t.Helper()
+			out, e := managed.Read(ctx, adminToken, "privacy-resource-summary", "detail", id, resourceplaza.Query{}, true)
+			must(e)
+			data := out.(map[string]any)
+			if data["status"] != "published" || data["feedback_summary"].(map[string]any)["total"] != want {
+				t.Fatalf("共享资料状态或当前有效反馈总数错误: %+v", data["feedback_summary"])
+			}
+		}
+		assertTotal(2)
+		// 保留旧备份中的关联，随后恢复它们验证已确认删除意图仍会重删。
+		var oldFeedback entity.ResourceFeedback
+		var oldReceipt entity.CommandReceipt
+		must(root.Where("resource_id=? AND account_id=?", id, owner).Take(&oldFeedback).Error)
+		must(root.Where("actor_kind='student' AND actor_id=? AND result_ref=?", owner, oldFeedback.ID).Take(&oldReceipt).Error)
+		request(token)
+		assertTotal(1)
+		if count(root, "public.resource_feedback", "account_id=?", owner) != 1 {
+			t.Fatal("未验证异步清理前的注销统计屏障")
+		}
+		if _, e = resources.Read(ctx, token, "deleted-read", "detail", id, resourceplaza.Query{}, false); !errors.Is(e, command.ErrUnauthenticated) {
+			t.Fatal("注销会话仍可读资料", e)
+		}
+		if _, e = resources.Write(ctx, token, "deleted-replay", key, "feedback", id, vote); !errors.Is(e, command.ErrUnauthenticated) {
+			t.Fatal("注销后旧成功反馈回执仍可重放", e)
+		}
+		assertClean := func() {
+			t.Helper()
+			if count(root, "public.resource_feedback", "account_id=?", owner) != 0 || count(root, "public.command_receipts", "actor_kind='student' AND actor_id=?", owner) != 0 || count(root, "public.accounts", "id=?", owner) != 0 {
+				t.Fatal("注销反馈、主体或回执残留")
+			}
+			if count(root, "public.resource_materials", "id=?", id) != 1 || count(root, "public.resource_categories", "id=?", cat["id"]) != 1 || count(root, "public.resource_feedback", "account_id=? AND resource_id=?", peer, id) != 1 {
+				t.Fatal("注销误删后台共享资料、分类或其他账号反馈")
+			}
+			assertTotal(1)
+		}
+		drain("account", service)
+		assertClean()
+		must(root.Create(&entity.Account{ID: owner, Nickname: "合成恢复账号", Verification: "verified"}).Error)
+		must(root.Create(&oldFeedback).Error)
+		must(root.Create(&oldReceipt).Error)
+		_, e = service.Recover(ctx, "", 100, "account")
+		must(e)
+		assertTotal(1)
+		drain("account", service)
+		assertClean()
+	})
 	t.Run("日志失败和版本错误不推进注销", func(t *testing.T) {
 		id, token := student()
 		deps.failAppend.Store(true)

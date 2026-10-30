@@ -62,6 +62,10 @@ func rank(kind ResourceKind) int {
 		return 16
 	case EvidenceCase:
 		return 17
+	case ResourceCategory:
+		return 18
+	case ResourceMaterial:
+		return 19
 	default:
 		return -1
 	}
@@ -170,6 +174,12 @@ func (t *Tx) lockResources(resources []Resource) error {
 		columns := []string{"id"}
 		keyColumn := "id"
 		switch ref.Kind {
+		case ResourceCategory:
+			model = &entity.ResourceCategory{}
+			columns = append(columns, "version")
+		case ResourceMaterial:
+			model = &entity.ResourceMaterial{}
+			columns = append(columns, "version")
 		case Asset:
 			model = &entity.Asset{}
 			columns = append(columns, "version")

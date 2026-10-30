@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
@@ -124,6 +125,15 @@ func (s *Service) Workspace(ctx context.Context, token, rid string) (out Workspa
 		out = Workspace{ServerNow: timestamp(now), Verification: a.Verification, WriteRestricted: a.Restricted, AllowedActions: []string{}}
 		if !a.Restricted {
 			out.AllowedActions = append(out.AllowedActions, "whisperCapsuleCreate")
+			// 与实际屏蔽写入一致：当前学生会话无禁言/封禁且已切换opaque才提示创建。
+			// 不要求学生认证，具体来源可见性与归属仍由CreateBlock锁内复核。
+			enabled, failure := blockpolicy.Enabled(ctx, db)
+			if failure != nil {
+				return failure
+			}
+			if enabled {
+				out.AllowedActions = append(out.AllowedActions, "interactionBlockCreate")
+			}
 		}
 		if !a.Restricted && a.Verification == "verified" {
 			out.AllowedActions = append(out.AllowedActions, "whisperPostCreate")

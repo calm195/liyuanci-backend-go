@@ -53,6 +53,7 @@ func BusinessModels() []any {
 		&Notification{},
 		&DeliveryAttempt{},
 		&CommandReceipt{},
+		&ResourceCategory{}, &ResourceMaterial{}, &ResourceFeedback{}, &ResourceAudit{},
 		&AccessAudit{},
 		&DeletionJob{},
 		&AdminAccountAction{},

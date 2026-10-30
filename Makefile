@@ -49,3 +49,9 @@ dev-native-%:
 	python3 scripts/dev.py $* --native $(DEV_ARGS)
 dev-%:
 	python3 scripts/dev.py $* $(DEV_ARGS)
+
+# 显式合并并发布本地常见词库；不在普通启动中执行。
+.PHONY: dev-wordlists-init
+WORDLIST_ARGS ?=
+dev-wordlists-init:
+	python3 scripts/init_wordlists.py $(WORDLIST_ARGS)
