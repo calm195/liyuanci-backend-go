@@ -18,8 +18,8 @@ import (
 )
 
 func workerOptions(cfg Settings, environment string) ([]*workrunner.Config, error) {
-	if cfg.DatabasePolling {
-		if environment != "integration" || cfg.ReviewMQFile != "" || cfg.UnlockMQFile != "" {
+	if cfg.DatabaseTasks() {
+		if cfg.DatabasePolling && environment != "integration" || cfg.ReviewMQFile != "" || cfg.UnlockMQFile != "" {
 			return nil, command.ErrInvalid
 		}
 		return []*workrunner.Config{nil, nil}, nil
@@ -51,6 +51,10 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 	if e != nil {
 		return e
 	}
+	return runContentSettings(ctx, cfg, environment, log, false)
+}
+
+func runContentSettings(ctx context.Context, cfg Settings, environment string, log *zap.Logger, check bool) (err error) {
 	options, e := workerOptions(cfg, environment)
 	if e != nil {
 		return e
@@ -96,8 +100,13 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 	if e != nil {
 		return e
 	}
-	if e = transportmq.ConfigureSDKLogging(log); e != nil {
-		return e
+	if check {
+		return nil
+	}
+	if !cfg.DatabaseTasks() {
+		if e = transportmq.ConfigureSDKLogging(log); e != nil {
+			return e
+		}
 	}
 	runners := []*workrunner.Worker{}
 	defer func() {
@@ -122,7 +131,7 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 		}
 		runners = append(runners, runner)
 	}
-	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.Bool("mq_enabled", !cfg.DatabasePolling), zap.String("resource_version", resources.Version))
+	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.Bool("mq_enabled", !cfg.DatabaseTasks()), zap.String("resource_version", resources.Version))
 	<-ctx.Done()
 	return nil
 }
@@ -141,6 +150,10 @@ func RunPrivacy(ctx context.Context, path, environment, scope string, recoverOnl
 	if e != nil {
 		return e
 	}
+	return runPrivacySettings(ctx, cfg, scope, recoverOnly, log, false)
+}
+
+func runPrivacySettings(ctx context.Context, cfg Settings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openResources(startup, cfg, log)
@@ -167,6 +180,9 @@ func RunPrivacy(ctx context.Context, path, environment, scope string, recoverOnl
 	service, e := privacy.New(db, r.journal, r.codec, r.gateway, log, pcfg)
 	if e != nil {
 		return e
+	}
+	if check {
+		return nil
 	}
 	if recoverOnly {
 		bounded, stop := context.WithTimeout(ctx, cfg.OperationTimeout)

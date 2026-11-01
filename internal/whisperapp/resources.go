@@ -65,7 +65,7 @@ func (r *resources) pool(ctx context.Context, dsn, role string) (*gorm.DB, error
 	if r.cfg.LocalTest {
 		db, closePool, e = platform.OpenLocalDatabase(ctx, "integration", r.cfg.DatabaseDSN, r.log)
 	} else {
-		db, closePool, e = platform.OpenRuntimeDatabase(ctx, dsn, role, r.log)
+		db, closePool, e = platform.OpenRuntimeDatabaseWithLimits(ctx, dsn, role, r.log, r.cfg.DatabaseMaxOpen, r.cfg.DatabaseMaxIdle)
 	}
 	if e != nil {
 		return nil, e

@@ -64,13 +64,18 @@ func newGateway(cfg Settings, log *zap.Logger) (*gateway, error) {
 }
 func (g *gateway) close() { g.client.CloseIdleConnections() }
 func (g *gateway) call(ctx context.Context, operation string, input, out any) (err error) {
+	return g.callLimit(ctx, operation, input, out, 1<<20)
+}
+
+// callLimit 为私有加密对象响应提供独立上限，普通内容接口保持原有预算。
+func (g *gateway) callLimit(ctx context.Context, operation string, input, out any, limit int64) (err error) {
 	start := time.Now()
 	defer func() {
 		result := "success"
 		if err != nil {
 			result = "failure"
 		}
-		g.logger.Info("树洞供应商调用完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		g.logger.Info("业务供应商调用完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
 	}()
 	data, e := json.Marshal(struct {
 		Operation, Version string
@@ -94,9 +99,9 @@ func (g *gateway) call(ctx context.Context, operation string, input, out any) (e
 	if response.StatusCode != http.StatusOK {
 		return command.ErrUnavailable
 	}
-	raw, e := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
+	raw, e := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	defer clear(raw)
-	if e != nil || len(raw) > 1<<20 {
+	if e != nil || int64(len(raw)) > limit {
 		return command.ErrUnavailable
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -111,6 +116,10 @@ func (g *gateway) call(ctx context.Context, operation string, input, out any) (e
 	return ctx.Err()
 }
 func (g *gateway) ready(ctx context.Context) error {
+	return g.capabilities(ctx, []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"})
+}
+
+func (g *gateway) capabilities(ctx context.Context, required []string) error {
 	var out struct {
 		Version      string
 		Capabilities []string
@@ -121,7 +130,7 @@ func (g *gateway) ready(ctx context.Context) error {
 	if out.Version != g.version {
 		return command.ErrUnavailable
 	}
-	for _, op := range []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"} {
+	for _, op := range required {
 		if !slices.Contains(out.Capabilities, op) {
 			return command.ErrUnavailable
 		}

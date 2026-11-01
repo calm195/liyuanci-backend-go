@@ -19,11 +19,15 @@ import (
 // Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
 type Whispers struct {
 	// LocalTest 仅用于integration业务联调，使用单一业务连接和本机测试适配。
-	LocalTest                                                                                   bool
-	DatabaseDSN, JournalFile, Contact                                                           string
-	WrapKey, RecoveryWrapKey                                                                    []byte
-	Enabled                                                                                     bool
-	DatabasePolling                                                                             bool
+	LocalTest                         bool
+	DatabaseDSN, JournalFile, Contact string
+	WrapKey, RecoveryWrapKey          []byte
+	Enabled                           bool
+	DatabasePolling                   bool
+	// TaskTransport 显式选择完整业务生产任务通道：空值兼容rocketmq，postgres使用持久任务扫描。
+	TaskTransport string
+	// DatabaseMaxOpen/Idle 限制每个受限身份连接池；同时为零时兼容原来的10/2。
+	DatabaseMaxOpen, DatabaseMaxIdle                                                            int
 	APIDSN, ReviewDSN, CrisisDSN, PrivacyDSN, EvidenceDeletionDSN, WorkerDSN, EvidencePurgerDSN string
 	RecoveryWriterDSN, RecoveryReaderDSN                                                        string
 	GatewayURL, GatewayTokenFile, GatewayCAFile, ProviderVersion                                string
@@ -73,13 +77,27 @@ func readWhisperJSON(ctx context.Context, path string, out any) error {
 
 // LoadWhispers 在开连接前拒绝无效配置、密钥复用及生产启用，绝不生成凭据或运行迁移。
 func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, err error) {
-	if environment != "integration" && environment != "production" {
-		return cfg, command.ErrInvalid
-	}
 	if err = readWhisperJSON(ctx, path, &cfg); err != nil {
 		return
 	}
-	if environment == "production" && (cfg.Enabled || cfg.LocalTest) {
+	return validateWhispers(cfg, environment, false)
+}
+
+// validateWhispers 只有完整业务宿主可申请生产启用；独立树洞入口继续保留原门禁。
+func validateWhispers(cfg Whispers, environment string, business bool) (Whispers, error) {
+	if cfg.TaskTransport != "" && cfg.TaskTransport != "rocketmq" && cfg.TaskTransport != "postgres" || cfg.DatabasePolling && cfg.TaskTransport != "" {
+		return cfg, command.ErrInvalid
+	}
+	if cfg.TaskTransport == "postgres" && (!business || cfg.LocalTest || cfg.ReviewMQFile != "" || cfg.UnlockMQFile != "") {
+		return cfg, command.ErrForbidden
+	}
+	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 10 || cfg.DatabaseMaxIdle < 0 || cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
+		return cfg, command.ErrInvalid
+	}
+	if environment != "integration" && environment != "production" {
+		return cfg, command.ErrInvalid
+	}
+	if environment == "production" && (cfg.LocalTest || cfg.Enabled && !business || cfg.DatabasePolling) {
 		return cfg, command.ErrForbidden
 	}
 	if cfg.LocalTest {
@@ -126,6 +144,11 @@ func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, 
 		return cfg, command.ErrInvalid
 	}
 	return cfg, nil
+}
+
+// DatabaseTasks 表示数据库负责任务调度；旧DatabasePolling仍只允许集成环境。
+func (cfg Whispers) DatabaseTasks() bool {
+	return cfg.DatabasePolling || cfg.TaskTransport == "postgres"
 }
 
 // LoadWhisperResources 读取当前版本的公共资源文件，缺失或无版本时失败关闭。

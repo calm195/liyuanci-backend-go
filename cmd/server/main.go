@@ -32,12 +32,13 @@ func main() {
 func run() error {
 	path := flag.String("config", "", "YAML配置路径；留空时仅使用环境变量")
 	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")
+	checkConfig := flag.Bool("check-config", false, "只检查完整业务配置，不连接外部依赖")
 	flag.Parse()
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
 	}
-	if *check && cfg.DevAppFile == "" && cfg.WhispersFile == "" {
+	if (*check || *checkConfig) && cfg.DevAppFile == "" && cfg.WhispersFile == "" && cfg.BusinessFile == "" {
 		return errors.New("依赖诊断必须显式提供业务配置")
 	}
 	log, err := platform.NewLogger(cfg.Log.Level)
@@ -47,6 +48,22 @@ func run() error {
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
 	defer func() { _ = log.Sync() }()
+	var businessSettings *config.Business
+	if cfg.BusinessFile != "" {
+		settings, e := config.LoadBusiness(context.Background(), cfg.BusinessFile, cfg.Environment, "api")
+		if e != nil {
+			return errors.New("完整业务配置无效或必需凭据缺失")
+		}
+		businessSettings = &settings
+		cfg.Database.DSN = settings.Runtime.APIDSN
+	}
+	if *checkConfig {
+		if businessSettings == nil {
+			return errors.New("离线配置诊断要求完整业务配置")
+		}
+		log.Info("业务配置诊断完成", zap.String("result", "success"))
+		return nil
+	}
 	var whisperSettings *whisperapp.Settings
 	if cfg.WhispersFile != "" {
 		settings, e := config.LoadWhispers(context.Background(), cfg.WhispersFile, cfg.Environment)
@@ -92,6 +109,7 @@ func run() error {
 		log.Info("资源清理完成")
 	}()
 	var whisperAPI *whisperapp.API
+	var businessAPI *whisperapp.BusinessAPI
 	router := httpapi.New(log, func(ctx context.Context) error {
 		if whisperAPI != nil {
 			return whisperAPI.Ready(ctx)
@@ -101,6 +119,17 @@ func run() error {
 		}
 		return errors.New("学生认证与密钥就绪检查尚未实现")
 	})
+	if businessSettings != nil {
+		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		app, e := whisperapp.OpenBusiness(initCtx, *businessSettings, cfg.Environment, resources.Redis, log)
+		cancel()
+		if e != nil {
+			return errors.New("完整业务依赖装配失败")
+		}
+		businessAPI = app
+		defer func() { _ = app.Close() }()
+		router = app.Router
+	}
 	if cfg.DevAppFile != "" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
@@ -165,6 +194,9 @@ func run() error {
 		}
 		if whisperAPI != nil && whisperAPI.Ready(checkCtx) != nil {
 			return errors.New("树洞依赖诊断失败")
+		}
+		if businessAPI != nil && businessAPI.Ready(checkCtx) != nil {
+			return errors.New("完整业务依赖诊断失败")
 		}
 		log.Info("业务依赖诊断完成", zap.String("result", "success"))
 		return nil

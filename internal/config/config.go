@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Environment  string
 	DevAppFile   string
+	BusinessFile string
 	WhispersFile string
 	AdminAuth    struct {
 		Enabled                                                   bool
@@ -30,9 +31,9 @@ type Config struct {
 		MaxLifetime      time.Duration
 	}
 	Redis struct {
-		Enabled           bool
-		Address, Password string
-		DB                int
+		Enabled                                   bool
+		Address, Username, Password, PasswordFile string
+		DB                                        int
 	}
 	RocketMQ struct {
 		Enabled     bool
@@ -46,6 +47,7 @@ func Load(path string) (Config, error) {
 	v := viper.New()
 	v.SetDefault("environment", "foundation")
 	v.SetDefault("devappfile", "")
+	v.SetDefault("businessfile", "")
 	v.SetDefault("whispersfile", "")
 	v.SetDefault("adminauth.enabled", false)
 	v.SetDefault("adminauth.dsn", "")
@@ -69,6 +71,8 @@ func Load(path string) (Config, error) {
 	v.SetDefault("redis.enabled", false)
 	v.SetDefault("redis.address", "localhost:6379")
 	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.passwordfile", "")
+	v.SetDefault("redis.username", "")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("rocketmq.enabled", false)
 	v.SetDefault("rocketmq.nameservers", []string{"localhost:9876"})
@@ -89,7 +93,7 @@ func Load(path string) (Config, error) {
 	if c.Database.Driver != "" && c.Database.Driver != "postgres" {
 		return c, fmt.Errorf("不支持的数据库驱动%q", c.Database.Driver)
 	}
-	if c.Database.Driver != "" && c.Database.DSN == "" && c.WhispersFile == "" {
+	if c.Database.Driver != "" && c.Database.DSN == "" && c.WhispersFile == "" && c.BusinessFile == "" {
 		return c, fmt.Errorf("必须配置数据库DSN")
 	}
 	if c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
@@ -109,7 +113,8 @@ func Load(path string) (Config, error) {
 		return c, fmt.Errorf("树洞运行配置要求显式业务环境")
 	}
 	// 显式开发业务使用数据库轮询，允许不启用MQ；生产和完整集成仍要求全部中间件。
-	localBusiness := c.Environment == "integration" && (c.DevAppFile != "" || c.WhispersFile != "")
+	// 完整业务API只写事务发件箱，鉴权MQ由专属worker负责，不启动无鉴权探针生产者。
+	localBusiness := c.BusinessFile != "" || c.Environment == "integration" && (c.DevAppFile != "" || c.WhispersFile != "")
 	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || (!c.RocketMQ.Enabled && !localBusiness)) {
 		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
 	}
@@ -118,6 +123,22 @@ func Load(path string) (Config, error) {
 	}
 	if c.DevAppFile != "" && (c.Environment != "integration" || c.AdminAuth.Enabled) {
 		return c, fmt.Errorf("本地业务适配器仅允许隔离集成环境且不能重复装配后台身份")
+	}
+	if c.BusinessFile != "" && (c.Environment == "foundation" || c.DevAppFile != "" || c.WhispersFile != "" || c.AdminAuth.Enabled || c.RocketMQ.Enabled) {
+		return c, fmt.Errorf("完整业务入口不能混用开发、独立树洞、重复后台或探针消息配置")
+	}
+	if c.Redis.PasswordFile != "" {
+		if c.Redis.Password != "" {
+			return c, fmt.Errorf("Redis凭据只能选择一种来源")
+		}
+		secret, e := BusinessSecret(c.Redis.PasswordFile, 1)
+		if e != nil {
+			return c, fmt.Errorf("Redis凭据文件不可用")
+		}
+		c.Redis.Password = secret
+	}
+	if c.BusinessFile != "" && c.Environment == "production" && c.Redis.Password == "" {
+		return c, fmt.Errorf("生产共享限流必须使用Redis鉴权")
 	}
 	return c, nil
 }

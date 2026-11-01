@@ -1,4 +1,4 @@
-// Package whisperapp 装配树洞正式入口及显式外部依赖，不拥有迁移或默认业务资料。
+// Package whisperapp 装配树洞及完整业务宿主，共用正式供应商、最小权限和恢复边界，不隐式迁移或生成业务资料。
 package whisperapp
 
 import "github.com/calm195/liyuanci-backend-go/internal/config"

@@ -57,6 +57,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 	if c.Redis.Enabled {
 		r.Redis = redis.NewClient(&redis.Options{
 			Addr:         c.Redis.Address,
+			Username:     c.Redis.Username,
 			Password:     c.Redis.Password,
 			DB:           c.Redis.DB,
 			DialTimeout:  3 * time.Second,
