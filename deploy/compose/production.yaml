@@ -1,5 +1,5 @@
-# 未来生产中间件骨架；本文件不部署业务API/worker。
-# 生产独立项目/卷、文件型secret、无宿主中间件端口；上线仍需完成业务与生产验收。
+# 生产中间件配置；完整业务另组合business-production.yaml，默认不隐式运行应用或迁移。
+# 独立项目/卷、文件型secret、无宿主中间件端口；上线仍须完成正式供应商与生产验收。
 name: liyuanci-production
 x-runtime: &runtime
   restart: unless-stopped

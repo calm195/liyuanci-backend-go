@@ -1,0 +1,36 @@
+# 普通启动只检查配置/依赖，不执行迁移、初始化或重置。
+[Unit]
+Description=Li Yuanci whispers
+Requires=liyuanci-postgres.service liyuanci-redis.service
+After=network-online.target liyuanci-postgres.service liyuanci-redis.service liyuanci-account.service liyuanci-evidence.service
+Wants=network-online.target
+PartOf=liyuanci-business.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=lyc-whispers
+Group=lyc-whispers
+WorkingDirectory=/opt/liyuanci/current
+Environment=GOMAXPROCS=1 GOMEMLIMIT=48MiB
+ExecStartPre=/opt/liyuanci/current/bin/business-worker -config /etc/liyuanci/native/whispers/runtime.json -environment production -kind whispers -check-config
+ExecStart=/opt/liyuanci/current/bin/business-worker -config /etc/liyuanci/native/whispers/runtime.json -environment production -kind whispers
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+MemoryMax=96M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+UMask=0077
+LimitNOFILE=4096
+LogNamespace=liyuanci
+Slice=liyuanci.slice

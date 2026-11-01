@@ -1,0 +1,10 @@
+[Unit]
+Description=Li Yuanci trial resource budget
+
+[Slice]
+MemoryAccounting=true
+CPUAccounting=true
+MemoryHigh=896M
+MemoryMax=1100M
+MemorySwapMax=128M
+TasksMax=512

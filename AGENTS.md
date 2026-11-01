@@ -32,6 +32,8 @@
 
 ## 中间件部署约定
 
+用户2026-11-01已选定kurous.cn小规模原生生产例外：PostgreSQL、Redis和Go静态二进制由本项目systemd管理，`Runtime.TaskTransport=postgres`使用持久任务；不部署RocketMQ、管理界面和完整监控栈。沿用既有权限、租约/重试、幂等、隐私门禁及独立恢复日志，不使用开发DatabasePolling开关。生产操作入口为scripts/native.py和README第6节，普通启动不得迁移/初始化；本地验证可用隔离容器执行make integration-native。该授权仅涵盖本地装配和验收流程，不授权修改服务器。以下既有Docker约定适用于原有集成与MQ兼容部署，不覆盖此明确例外。
+
 日常可选原生PG/Redis模式（`make dev-native-init/infra/api/worker/doctor/stop`）：连接用户已运行的本地PG/Redis，不隐式启停、重置或清理它们，无MQ时完全不要求Docker；`dev-native-mq`最多启动隔离Docker NameServer/Broker。该模式需宿主psql及显式本地数据库管理员身份完成首次初始化，运行身份继续受限，原生口令只从仓库.local忽略目录或显式外部文件读取。
 
 日常默认宿主运行Go API与业务card-worker，入口为 `make dev-init/dev-infra/dev-api/dev-worker/dev-doctor/dev-stop`。本机Docker默认只启动PostgreSQL、Redis；MQ、管理工具和监控显式按需开启。基础设施常驻，普通修改只重启对应Go进程，`dev-stop`保留中间件，`dev-infra-stop`显式停止所选隔离项目并保留卷。`make run`仍为健康模式；旧完整Docker入口用于集成验收。开发凭据一次自动生成并复用，保留权限、RLS、加密和幂等行为，不引入生产资源。
@@ -39,6 +41,8 @@
 T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、RocketMQ（NameServer/Broker）统一使用 Docker 部署，保持环境、网络、数据卷与凭据隔离。配套管理工具使用 pgAdmin、Redis Insight、Apache RocketMQ Dashboard 官方发布镜像，固定版本与 digest；管理端口仅绑定 loopback，远程经 SSH 隧道访问。生产配置独立于集成探针，凭据使用仓库.local忽略目录或显式外部文件/secret 注入，不得将集成无鉴权设置用于生产；生产部署仍须完成业务、安全、备份恢复等验收，未经用户明确授权不部署。
 
 ## 可观测性变更约定
+
+本次原生小规模方案使用独立journald命名空间及systemd健康定时器，监测服务、readyz、资源及数据库任务聚合积压；正式告警渠道未交付前，不声称失败通知已送达。业务审计、隐私删除日志与恢复能力不能随完整监控栈删减。
 
 T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集、告警、中间件指标和Broker变更按影响临时验证，记录真实依赖及实际结果；专项验收脚本不再留存。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须同步 docs 中的现状、缺陷与后续计划，按需同步 README，并完成规定质量检查。
 

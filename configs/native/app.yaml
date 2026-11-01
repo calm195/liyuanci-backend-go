@@ -1,0 +1,19 @@
+# scaffold替换进程名；正式凭据仅存在各自私有目录。
+environment: production
+businessfile: /etc/liyuanci/native/@PROCESS@/runtime.json
+server:
+  address: 127.0.0.1:18081
+  readtimeout: 15s
+  writetimeout: 30s
+  shutdowntimeout: 30s
+database:
+  driver: postgres
+  maxopen: 2
+  maxidle: 1
+redis:
+  enabled: true
+  address: 127.0.0.1:16379
+  username: liyuanci
+  passwordfile: /etc/liyuanci/native/@PROCESS@/redis.password
+rocketmq:
+  enabled: false

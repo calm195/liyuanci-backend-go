@@ -2,7 +2,7 @@
 
 ## 1. 项目介绍
 
-Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-backend-go`。PostgreSQL是业务权威，Redis负责共享限流等能力，RocketMQ可显式用于学生卡及心愿内容审核唤醒。已有后台认证、学生会话、学生卡、人工认证、心愿、聊天、还愿分享及可选词库/普通内容审核与安全治理核心；真实外部供应商和部分领域消费者尚未齐备，不能作为完整生产服务。
+Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-backend-go`。PostgreSQL是业务权威，Redis负责共享限流等能力，RocketMQ可显式用于学生卡及心愿内容审核唤醒。已有后台认证、学生会话、学生卡、人工认证、心愿、聊天、还愿分享、悄悄鲤及安全治理。完整生产宿主已装配API和五类worker，正式供应商、运营资料、目标环境与真机验收仍须完成后才能上线。
 
 后台安全治理装配同时提供普通用户列表、详情及处罚历史三个只读GET，支持普通昵称包含搜索、状态筛选和受保护键集游标。使用前由专用迁移入口应用0027并刷新权限；普通启动不执行DDL。用户页使用脱敏投影，处罚与申诉仍从授权案件工作台执行，接入和验证边界见[后端文档索引](../docs/development/backend/README.md)。
 
@@ -20,14 +20,14 @@ Go模块化单体API与独立业务worker，模块`github.com/calm195/liyuanci-b
 | `make dev-native-*` | 宿主API/业务worker连接本地PG/Redis，无MQ时无需Docker |
 | `make dev-*` | 宿主API/业务worker，本机Docker运行PG/Redis；MQ、管理工具和监控按需 |
 | 完整Docker | 通过scripts启停，集成往返用`make integration` |
-| 生产骨架 | 独立卷、网络和凭据；尚无完整业务发布入口，不运行开发适配 |
+| 完整生产装配 | `APP_BUSINESSFILE`、独立角色/恢复日志、HTTPS供应商、鉴权Redis/MQ；悄悄鲤纳入发布，缺依赖拒绝启动 |
 
 ```text
 cmd/                  进程入口及依赖装配
 internal/             领域模块、HTTP、配置、平台与迁移
 migrations/           隔离探针SQL；业务SQL在internal/migration/sql
 configs/
-  app/                公共应用配置，只保留集成模式覆盖项
+  app/                公共应用配置，含集成覆盖和生产模板
   middleware/         MQ、Redis公共配置
   observability/      日志、指标、看板与告警配置
   examples/           环境文件模板，不含真实凭据
@@ -135,13 +135,13 @@ docs本端仅滚动维护现状、缺陷与后续计划；历史阶段材料从G
 
 本地隐私注销与证据删除需先 `make dev-stop`，再显式运行 `make dev-privacy-init`（Docker宿主模式），初始化独立恢复 PostgreSQL、专用身份和用途密钥。随后分别运行 `make dev-api`、`make dev-worker`、`make dev-content-worker`、`make dev-privacy-worker` 与 `make dev-evidence-worker`；五个进程均由 `make dev-stop` 停止，中间件与卷保留。恢复库端口默认仅绑定127.0.0.1:15433。初始化后 `make dev-infra` 同时启动恢复库，普通启动不执行迁移。缺少外部全版本清理或脱敏适配器时，隐私任务保持processing，不声称清理完成。配置和联调范围见[本地业务入口](FUNCTIONALITY.md#14-本地业务测试模式)。
 
-树洞基础通过显式迁移0021建立独立实体、内容约束和最小权限，0022允许审核任务保存树洞初始零限制代次，0023保留业务生命周期内的最小幂等回执；旧黑名单关系原位生成不透明`block_id`。升级此版本的业务API／worker前须显式应用至0026并重放权限；迁移由专用身份执行，普通启动不执行DDL。`internal/whisper`提供文字草稿、三档身份、昵称、公开／本人查询及送审边界，`httpapi.RegisterWhispers`只供显式依赖装配；当前进程尚未启用树洞，正式依赖装配与供应商验收完成前不得启用。缺字典时半匿名不可用，缺援助资料返回unavailable；送审必须注入支持新类型的持久审核适配，不能交给旧消费者。Redis限频需注入独立用途密钥并失败关闭；取消／撤回独立于发布预算。`make integration`包含隔离子库迁移、权限、资源锁、文字事务与公开遮蔽、Redis滚动预算验证；外部审核、字典及KMS测试夹具不代表生产验收。
+树洞基础通过显式迁移0021建立独立实体、内容约束和最小权限，0022允许审核任务保存树洞初始零限制代次，0023保留业务生命周期内的最小幂等回执；旧黑名单关系原位生成不透明`block_id`。升级此版本的业务API／worker前须显式应用至0026并重放权限；迁移由专用身份执行，普通启动不执行DDL。`internal/whisper`提供文字草稿、三档身份、昵称、公开／本人查询及送审边界，`httpapi.RegisterWhispers`只供显式依赖装配；基础健康入口不启用树洞；完整业务宿主可在正式依赖与恢复门禁通过后启用，实际发布仍须供应商和目标环境验收。缺字典时半匿名不可用，缺援助资料返回unavailable；送审必须注入支持新类型的持久审核适配，不能交给旧消费者。Redis限频需注入独立用途密钥并失败关闭；取消／撤回独立于发布预算。`make integration`包含隔离子库迁移、权限、资源锁、文字事务与公开遮蔽、Redis滚动预算验证；外部审核、字典及KMS测试夹具不代表生产验收。
 
-树洞审核使用独立的 `moderation.WhisperReviewSink/WhisperWorker` 和 `WhisperReviewRoute`；公开分析器显式区分帖子、暖评与昵称，胶囊使用独立私密分类器，不接受公开脱敏正文替换。必须显式注入三类已发布词库、安全分析与关怀／通知供应商。`httpapi.RegisterWhisperGovernance` 分别注入普通后台、危机后台、学生举报和独立证据删除池；0024增加受限原稿读取函数、危机来源快照与删除回执命名空间，普通后台不能整表读取胶囊或昵称原稿。默认 API 和内容进程尚未注册这些能力；完整删除图已接入独立隐私服务，生产装配仍需后续实现。升级须由迁移身份显式应用至0026并重放bootstrap权限，不能仅替换二进制；隔离验证依赖真实PostgreSQL，完整 `make integration` 另需Redis和RocketMQ，分析、KMS及通知使用合成夹具。
+树洞审核使用独立的 `moderation.WhisperReviewSink/WhisperWorker` 和 `WhisperReviewRoute`；公开分析器显式区分帖子、暖评与昵称，胶囊使用独立私密分类器，不接受公开脱敏正文替换。必须显式注入三类已发布词库、安全分析与关怀／通知供应商。`httpapi.RegisterWhisperGovernance` 分别注入普通后台、危机后台、学生举报和独立证据删除池；0024增加受限原稿读取函数、危机来源快照与删除回执命名空间，普通后台不能整表读取胶囊或昵称原稿。基础健康入口不注册这些能力；完整业务宿主已组合治理路由与独立隐私服务，并由专属worker处理审核和清理。升级须由迁移身份显式应用至0026并重放bootstrap权限，不能仅替换二进制；隔离验证依赖真实PostgreSQL，完整 `make integration` 另需Redis和RocketMQ，分析、KMS及通知使用合成夹具。
 
-暖评、抱抱和本模块通知通过 `httpapi.RegisterWhisperInteractions` 显式注册，需与文字及审核服务共用账号 guard 和父帖锁协议。暖评允许未实名正常账号；改稿重新绑定父版本和评论代次，关闭评论保留既有公开评论。抱抱使用独立版本和取消记录，计数由 PostgreSQL 过滤注销／受罚主体；评论首次公开在批准事务内产生唯一站内通知，旧通知入口隔离新类型。部署此适配需显式重放 `permissions`，授予人工批准通知引用及学生改稿清除公开时间的最小权限；互动结构建立于0024及以前迁移。当前业务进程仍未启用树洞。
+暖评、抱抱和本模块通知通过 `httpapi.RegisterWhisperInteractions` 显式注册，需与文字及审核服务共用账号 guard 和父帖锁协议。暖评允许未实名正常账号；改稿重新绑定父版本和评论代次，关闭评论保留既有公开评论。抱抱使用独立版本和取消记录，计数由 PostgreSQL 过滤注销／受罚主体；评论首次公开在批准事务内产生唯一站内通知，旧通知入口隔离新类型。部署此适配需显式重放 `permissions`，授予人工批准通知引用及学生改稿清除公开时间的最小权限；互动结构建立于0024及以前迁移。完整业务宿主可显式启用树洞，仍须通过正式依赖和恢复门禁。
 
-本人时空胶囊通过 `httpapi.RegisterWhisperCapsules` 显式注册五个操作；仅正常账号可封存，受罚本人仍可读取合法到期内容和清理。创建与列表不返回正文，详情依数据库时间、安全批准及当前屏障决定解密。`whisper.NewCapsuleUnlockWorker` 复用持久消费、完成回执和有界补偿，不解密正文；到期未审的工作持久挂起，批准唤醒或补偿后生成一次站内通知。迁移0025允许仅胶囊解锁工作使用waiting，存在挂起工作时拒绝回退；升级须显式迁移并重放权限。取消／删除清普通密文、工作及普通通知，保留最小终态及独立危机证据。真实文本安全、外部清理及生产进程装配验收完成前保持入口关闭。
+本人时空胶囊通过 `httpapi.RegisterWhisperCapsules` 显式注册五个操作；仅正常账号可封存，受罚本人仍可读取合法到期内容和清理。创建与列表不返回正文，详情依数据库时间、安全批准及当前屏障决定解密。`whisper.NewCapsuleUnlockWorker` 复用持久消费、完成回执和有界补偿，不解密正文；到期未审的工作持久挂起，批准唤醒或补偿后生成一次站内通知。迁移0025允许仅胶囊解锁工作使用waiting，存在挂起工作时拒绝回退；升级须显式迁移并重放权限。取消／删除清普通密文、工作及普通通知，保留最小终态及独立危机证据。完整业务宿主统一装配胶囊审核/解锁；目标环境的文本安全、外部清理与真机验收仍是发布前置。
 
 匿名黑名单通过 `httpapi.RegisterInteractionBlocks` 显式注册；迁移0026建立独立单向策略，默认不切换。完成两端升级后，使用迁移身份和外部 `APP_DATABASE_DSN` 显式运行 `go run ./cmd/migrate opaque-blocks`，验证历史随机标识并切换。切换后旧 GET／POST／DELETE 黑名单经认证统一返回 `409 CLIENT_UPGRADE_REQUIRED`，新接口只返回随机条目或最小受理确认；关闭树洞也不回退，已切换数据库拒绝 down。先部署迁移与兼容代码，再切换，最后完成正式装配验收才可启用树洞；前端回滚须保持服务端匿名保护。
 
@@ -157,4 +157,162 @@ docs本端仅滚动维护现状、缺陷与后续计划；历史阶段材料从G
 
 供应商网关必须是经系统CA或显式 `GatewayCAFile` 验证的HTTPS地址，禁止重定向；令牌从 `GatewayTokenFile` 读取。请求为 `{Operation,Version,Input}` JSON；health校验ProviderVersion及能力；wrap／unwrap限定scope和允许密钥引用；public_analysis返回公开安全候选，private_classify只接受分类；redact返回幸存作者安全内容；erase必须同时确认Completed与WriteBarrierConfirmed；notify按DeliveryID去重。网关协议是本端私有适配边界，未修改三端固定契约。不得记录网关请求／响应、原稿、密钥、DSN或令牌。
 
-`CatalogFile` 为版本化公共资源 `{Version,Catalog:{Grades,Reports,Help},Care}`，使用领域相同字段；援助与关怀须由资料方提供来源、版本和核验日期，不提供模板联系方式。API每次读取当前资料，坏版本失败关闭；内容进程启动核验关怀资料。正式外部依赖模式启用前须已完成0026和permissions、发布三类词库、执行opaque单向切换、提供全部正式依赖并完成恢复清理；本地业务测试模式使用[功能说明](FUNCTIONALITY.md#14-本地业务测试模式)中的简化适配。当前生产 `Enabled=true` 会被拒绝，所有模板保持false；本地或隔离通过不表示生产启用或三端验收。
+`CatalogFile` 为版本化公共资源 `{Version,Catalog:{Grades,Reports,Help},Care}`，使用领域相同字段；援助与关怀须由资料方提供来源、版本和核验日期，不提供模板联系方式。API每次读取当前资料，坏版本失败关闭；内容进程启动核验关怀资料。正式外部依赖模式启用前须已完成0026和permissions、发布三类词库、执行opaque单向切换、提供全部正式依赖并完成恢复清理；本地业务测试模式使用[功能说明](FUNCTIONALITY.md#14-本地业务测试模式)中的简化适配。旧独立 `APP_WHISPERSFILE` 入口继续拒绝生产 `Enabled=true`；下述完整 `APP_BUSINESSFILE` 宿主允许启用，模板默认包含悄悄鲤。模板中的空凭据不能启动；本地或隔离通过不表示已部署或完成三端验收。
+
+
+## 5. 完整生产装配与上线流程
+
+本节对应 `cmd/server`、`cmd/business-worker`、`cmd/business-init`，覆盖认证、心愿/应愿/聊天/还愿、资料、安全/隐私以及悄悄鲤的帖子、昵称、暖评、抱抱、通知、本人胶囊。普通启动只读配置和检查依赖，不迁移、不建账号、不换历史密钥。开发入口与旧独立树洞入口不承担本次生产发布。
+
+2026-11-01用户选定 **kurous.cn小规模原生试运行，保留PostgreSQL/Redis，使用持久数据库任务，不部署RocketMQ及完整监控栈**。按[第6节](#6-无mq原生生产装配)执行；本节的业务身份、正式资料、供应商和隐私恢复约束继续适用。以下MQ/Compose配置保留用于既有兼容与隔离回归，不是本次部署依赖，不能直接照搬启动。
+
+### 制品、配置与进程
+
+原生制品与配置由第6节入口生成。既有容器方案从同一源码构建最终镜像并固定digest，使用 [业务JSON](configs/examples/business-runtime.json)、[应用YAML](configs/app/production.yaml)、[生产环境变量](configs/examples/production.env)及四份 `production-*-mq.yaml`。配置中时长是纳秒整数、用途密钥是32字节Base64；空值必须来自正式配置。`Runtime.Enabled=true` 包含悄悄鲤；生产继续拒绝 `LocalTest`、本地包裹密钥/对象、文件恢复日志、旧 `DatabasePolling=true` 和无鉴权MQ。新的 `Runtime.TaskTransport="postgres"` 仅由完整业务宿主支持，不能混入任何MQ配置文件。
+
+| 进程 | 业务数据库身份（独立LOGIN只继承对应NOLOGIN角色） | 进程专属输入 |
+| --- | --- | --- |
+| API | `liyuanci_api`、`liyuanci_identity_maintenance`、`liyuanci_admin_maintenance`、`liyuanci_admin_api`、`liyuanci_crisis_api`、`liyuanci_privacy_maintenance`、`liyuanci_evidence_delete_api` | 微信AppID/Secret、后台初始化口令文件、13个不同用途密钥、身份检索引用、鉴权Redis |
+| card-worker | `liyuanci_domain_worker` | CardKey、图片/对象能力、card-mq |
+| content-worker | `liyuanci_domain_worker` | 普通内容/私聊处理、关怀/通知、content-mq |
+| whispers-worker | `liyuanci_domain_worker` | 树洞审核、危机补偿、胶囊解锁，review/unlock两个MQ配置 |
+| privacy-worker | `liyuanci_privacy_maintenance` | 账号清理与恢复 |
+| evidence-worker | `liyuanci_evidence_purger` | 证据清理与恢复 |
+| business-init（显式一次性工具） | `liyuanci_identity_maintenance`、`liyuanci_admin_maintenance`；初始化词库时另需 `liyuanci_admin_api` | 身份检索引用、首个超管、可选三类词库；初始化Redis及供应商依赖 |
+
+同角色不同进程也使用独立LOGIN。每进程只挂自己的私有目录，目录之间不得重叠，删除模板中不需要的DSN和额外用途密钥；Runtime的七个共同用途密钥及业务/恢复引用保持一致，API和card的CardKey、API和init的AdminKey等同用途保持一致。所有进程需要独立恢复日志读写池、HTTPS网关、版本化资料与共同运行约束；恢复库角色使用既有 `journal-permissions` 输出，和业务数据库处于独立故障域。主业务各池必须指向同一业务库，禁止复用迁移超级账号。
+
+私有目录不纳入Git，文件应只供运维与容器UID 10001读取；不要将密钥、DSN、二维码联系人或学校身份发到测试日志。新建环境的密钥生成后纳入备份；升级保留历史包裹/检索引用，禁止用新随机密钥替换历史密钥。每份目录内部文件引用统一为 `/run/business/...`，API及init另有 `app.yaml` 和Redis口令文件。使用Compose时环境文件中的secret路径填写绝对路径。
+
+供应商需要实现本仓库的私有HTTPS网关协议，只有云账号还不够。请求 `{Operation,Version,Input}`；版本及能力必须可核验，凭据放 `GatewayTokenFile`，TLS校验系统CA或显式CA，不接受重定向。既有操作为wrap/unwrap、public_analysis、private_classify、redact、erase、notify；完整业务另需：
+
+| 操作 | 关键输入/输出约束 |
+| --- | --- |
+| identity_digest | 输入KeyRef/Purpose/Value；目的为openid或student_number，输出固定32字节Digest；当前与历史引用均可用 |
+| object_put | 输入Key/SHA256/Data（加密字节），同键幂等，输出不可变Version及相同SHA256 |
+| object_open | 按Key和精确Version读取，输出相同Version及有界加密Data；不接受最新版本替换 |
+| image_scan | 输入Data/MediaType；必须显式输出Approved布尔值及DetectorVersion |
+| school_validate | 输入Name/StudentNumber；必须显式输出Valid布尔值及RulesVersion |
+| content_analysis | 输入wish.Content；输出经过处理的Body、Tags、分类结果及DetectorVersion |
+
+所有二进制字段按JSON Base64。完整字段以 [gateway](internal/whisperapp/gateway.go) 和 [business_gateway](internal/whisperapp/business_gateway.go) 为准。erase须同时确认Completed与WriteBarrierConfirmed，覆盖历史版本/副本和写屏障；notify按DeliveryID去重，失败可重试。供应商必须证明这些语义，不能靠固定成功响应通过验收。
+
+### 按顺序执行
+
+1. 完成[外部交付清单](../docs/development/backend/defects.md)、供应商联调及目标环境准备；固定镜像/三端版本、备份点、回滚版本与上线窗口。API只映射loopback，正式HTTPS由目标反向代理终止；管理端同源代理、history fallback与敏感API禁止缓存；小程序使用正式AppID与合法域名。
+2. 建立专用PG/Redis和外部恢复日志库；本次不部署RocketMQ。使用专用迁移身份显式执行 `migrate up`（截至0029）、`migrate permissions`，对恢复库执行 `migrate journal-up` 和 `migrate journal-permissions`。业务DSN从 `APP_DATABASE_DSN`，恢复DSN从 `APP_RECOVERY_DATABASE_DSN` 注入；普通进程不拿到这些迁移凭据。本次必须重放permissions，新增的最小授权仅为identity-maintenance读取匿名黑名单全局开关。
+3. 建立受限LOGIN及Redis独立凭据。本次数据库任务模式跳过全部MQ操作；仅既有MQ部署才提前创建四个主题和各进程ACL：`liyuanci_student_card_scan_v1`、`liyuanci_content_review_v1`、`liyuanci_whisper_review_v1`、`liyuanci_whisper_unlock_v1`，禁止复用探针主题或无鉴权配置。普通worker只访问自身主题/消费组；生产单Broker模板不承诺高可用。
+4. 导入正式 `CatalogFile`（`{Version,Catalog:{Grades,Reports,Help},Care}`）。年级、举报类型、援助与关怀不得用合成联系人代替；Help须ready、有版本与核验日期。用迁移身份受控导入 `report_types`，其已发布code/label须和Catalog.Reports完全一致，记录来源和变更。初始化三类词库JSON格式为 `{"crisis":[...],"school":[...],"ordinary_violation":[...]}`，每类非空；使用 `business-init -config /run/business/app.yaml -login 正式超管名 -wordlists /run/business/wordlists.json` 显式发布。该工具不重置已有账号，不覆盖不同的生效词库，正常运营变更走后台审计流程。
+5. 完成兼容版本三端升级后，迁移身份执行 `migrate opaque-blocks`。该切换单向；正式悄悄鲤启用前必须通过。分别运行 `business-worker -config /run/business/runtime.json -environment production -kind account -recover` 与 `-kind evidence -recover`，恢复日志重删完成后才允许API读取及worker外发。
+6. 执行下面的离线核对，再在目标网络逐进程执行API的 `-check`、五类worker的 `-check`。离线检查不连接网络；在线诊断检查角色、KMS、资料、结构和恢复门禁，不启动消费者，**不证明MQ消息鉴权或正式通知已成功**。实际启动后必须完成学生卡、普通内容、悄悄鲤审核、胶囊解锁四类专用测试工作并核对数据库消费回执。
+7. 经本次上线授权后按第6节启动原生API及五类worker；初始化始终显式执行。既有MQ容器方案才组合 `production.yaml` 和 `business-production.yaml`。检查readyz、worker心跳、积压/重试、真实TLS和告警。先内部验收，再按发布窗口开放入口；小程序另完成体验版真机及平台审核发布。
+8. 验收认证→心愿→匹配→聊天→还愿、资料、普通/树洞治理和隐私。悄悄鲤必须逐项验帖子/三档身份/昵称/暖评/评论关闭/抱抱/通知/胶囊/危机/举报/匿名屏蔽；手机A/B、跨号404、旧版本409、撤权/晚到与重试同时覆盖。本次先按第6节限定试运行负载验收；REQ-021的300在线、约87请求/秒另作正式容量目标，未完成前不得宣称达标。
+9. 回滚先隔离入口和外发、保留任务/回执/恢复日志，再切回已验兼容镜像或原生二进制制品；不自动down迁移，不撤销opaque切换。数据库恢复后先两域recover再放行；清理失败保持屏障。停止只按本项目服务执行，不删卷。
+
+离线检查（材料未齐时应失败，不把模板填成假成功）：
+
+```sh
+python3 scripts/release.py --env-file /绝对私有路径/operations.env
+python3 scripts/release.py --env-file /绝对私有路径/operations.env --validate-containers
+# 单进程离线入口；不会连接数据库、供应商或执行初始化
+bin/server -config /绝对私有路径/app.yaml -check-config
+bin/business-worker -config /绝对私有路径/runtime.json -environment production -kind whispers -check-config
+bin/business-init -config /绝对私有路径/app.yaml -check-config
+```
+
+release.py核对固定digest、七个独立目录、共享用途配置；`--validate-containers` 只用本地已有镜像，在无网络、只读、非root容器中逐进程校验，不拉镜像、不迁移、不部署。Compose组合入口为 `docker compose --env-file /绝对私有路径/operations.env -p 正式项目名 -f deploy/compose/production.yaml -f deploy/compose/business-production.yaml ...`，使用前核对项目/目录，避免带入开发环境。
+
+本轮隔离验收使用真实PG、受限角色、鉴权Redis和实际进程，外部学校/图片/KMS/对象/通知为TLS合成；真实微信登录、云供应商、独立故障域、90天备份、正式告警投递、真机与容量仍未替代。当前结果及资源清单以[后端现状](../docs/development/backend/README.md)和[缺口](../docs/development/backend/defects.md)为准。
+
+## 6. 无MQ原生生产装配
+
+目标为Ubuntu 22.04、[systemd 249](https://www.freedesktop.org/software/systemd/man/249/systemd.exec.html)及以上、x86_64小规模试运行；不要求服务器安装Go、Docker、RocketMQ、Prometheus、Grafana或Loki。以下命令是经部署授权后在目标机器执行的流程，本轮未连接或修改服务器。已有MQ实现与固定设计材料保留兼容，新部署只选择postgres任务通道，不需要MQ账号/主题/端口。
+
+### 制品与私有配置
+
+在构建机Go 1.25环境执行，输出路径必须不存在：
+
+```sh
+python3 scripts/native.py bundle --output .local/native-release --arch amd64
+python3 scripts/native.py verify --bundle .local/native-release
+python3 scripts/native.py scaffold --output .local/native-private
+```
+
+制品包含四个Linux静态二进制、[systemd单元](deploy/systemd)、[公开模板](configs/native)、运维脚本和SHA-256清单；清单注明源码HEAD及dirty状态，工作区构建不能冒称已提交版本。发布时另存清单自身摘要到可信制品记录，校验和不代替来源真实性。私有配置单独传输，不打进发布包；`scaffold`不生成凭据、不覆盖已有文件，空模板必须检查失败。
+
+每份JSON均设置 `Runtime.TaskTransport="postgres"`、`DatabasePolling=false`、`Enabled=true`、连接池2/1、扫描间隔1秒；四个MQ路径为空。共享七个Runtime用途密钥、网关版本和KMS引用保持一致，其余只填各自所需DSN/用途密钥，见第5节角色表。`Card.DecodeSlots=1` 限制图片解码并发。API/init各自提供Redis口令、后台初始口令；API另有微信secret。全部供应商仍为真实HTTPS能力，外部恢复日志仍需独立故障域，不能同机另建一个库冒充。正式Catalog和词库按第5节导入。
+
+`work_items`和关联事务事件是持久任务来源；学生卡、普通内容、悄悄鲤审核和胶囊解锁均沿用版本、租约、重试、取消和消费回执。账号/证据清理继续扫描各自持久待办。进程停止期间不丢任务，重启扫描到期任务与过期租约；重试耗尽进入attention，必须经业务治理处理，不清空回执或手改完成。未来胶囊和待审核waiting不计为普通到期积压。无MQ时不写`sent_at`，不能把未发送outbox总量当积压，也不批量伪造发送成功或删除历史；保留既有隐私清理语义，另监测数据库增长。
+
+每类扫描一次有界处理，成功、失败和空队列后都等待Interval，不热循环。默认1秒间隔使单扫描器处理速率不高于约1次/秒（实际还受处理耗时影响），不适合作为高并发承诺；扩容需连同连接池、供应商配额和幂等竞争验收。
+
+### 目标机显式准备与初始化
+
+1. 安排系统维护窗口，确认同名`lyc-*`身份、`/etc/liyuanci/native`、`/opt/liyuanci`、`/var/lib/liyuanci`和单元均归本项目；保留其他业务。根据[PostgreSQL Ubuntu官方源](https://www.postgresql.org/download/linux/ubuntu/)和[Redis官方安装说明](https://redis.io/docs/latest/operate/oss_and_stack/install/archive/install-redis/install-redis-on-linux/)准备受信软件源/离线包的PostgreSQL 18.x（本地验证18.6）、Redis 7.2.x（本地验证7.2.12）、psql、Python3、curl、CA证书。PG二进制路径须为`/usr/lib/postgresql/18/bin`，Redis为`/usr/bin/redis-server`。发行版旧Redis包不能未经核对直接替代；包安装可能启动默认实例，核实后只使用本项目独立端口/目录，不停其他实例。PG/Redis仅监听127.0.0.1:15432/16379，API为127.0.0.1:18081；先核对端口，zuxing.net此前18081有冲突。
+2. 将制品安装为root拥有、其他身份只读的`/opt/liyuanci/releases/<版本>`，校验清单，再在业务停止时更新`/opt/liyuanci/current`链接。运行 `systemd-sysusers /opt/liyuanci/current/templates/sysusers.conf` 创建专属身份。复制私有配置至`/etc/liyuanci/native`，父目录root:root/0711，子目录root:对应lyc组/0750，配置文件root:对应lyc组/0640。monitor的pgpass是例外：lyc-monitor:lyc-monitor/0600；不共享整个私有目录给所有进程。bootstrap不常驻。首次生成的密钥交付后纳入备份，升级绝不替换历史密钥。
+3. 在私有`redis/users.acl`中保留`user default off`，另加命名用户记录：`user liyuanci on #<实际口令SHA256> ~admin-login:* ~whisper-rate:* +ping +hello +client|setinfo +eval +incr +pexpire +time +zremrangebyscore +zcard +zrange +zadd +zrem`。用实际64位哈希替换尖括号占位，API/init的redis.password保存对应原口令；ACL文件不支持普通注释行。默认用户关闭，密码不出现在命令行或日志。连接失败和内存不足均失败关闭；禁止以驱逐限频状态“修复”可用性。
+4. 创建专属PG数据目录，仅新建空目录执行以下初始化；initdb自身拒绝非空目录，不加删除/覆盖参数：
+
+```sh
+sudo install -d -m 0755 /var/lib/liyuanci
+sudo install -d -m 0700 -o lyc-postgres -g lyc-postgres /var/lib/liyuanci/postgres
+sudo -u lyc-postgres /usr/lib/postgresql/18/bin/initdb -D /var/lib/liyuanci/postgres --username=lyc-postgres --auth-local=peer --auth-host=scram-sha-256 --encoding=UTF8
+# 单元必须来自已校验制品；systemctl link遇到已有同名文件先停下核查，不强制覆盖。
+sudo systemctl link /opt/liyuanci/current/systemd/*.service /opt/liyuanci/current/systemd/*.target /opt/liyuanci/current/systemd/*.timer /opt/liyuanci/current/systemd/*.slice
+sudo install -m 0644 /opt/liyuanci/current/templates/journald.conf /etc/systemd/journald@liyuanci.conf
+sudo systemd-analyze verify /opt/liyuanci/current/systemd/*.service /opt/liyuanci/current/systemd/*.target /opt/liyuanci/current/systemd/*.timer /opt/liyuanci/current/systemd/*.slice
+sudo systemctl daemon-reload
+sudo systemctl start liyuanci-postgres.service liyuanci-redis.service
+sudo -u lyc-postgres /usr/lib/postgresql/18/bin/createdb -h /run/liyuanci-postgres -p 15432 liyuanci
+sudo -u lyc-postgres env APP_DATABASE_DSN='host=/run/liyuanci-postgres port=15432 user=lyc-postgres dbname=liyuanci sslmode=disable' /opt/liyuanci/current/bin/migrate up
+sudo -u lyc-postgres env APP_DATABASE_DSN='host=/run/liyuanci-postgres port=15432 user=lyc-postgres dbname=liyuanci sslmode=disable' /opt/liyuanci/current/bin/migrate permissions
+```
+
+5. 迁移完成后，按第5节为每进程创建不同LOGIN，仅继承其对应NOLOGIN角色，无SUPERUSER/CREATEDB/CREATEROLE/REPLICATION/BYPASSRLS；口令用受控psql `\password`交互设置，不放shell历史。业务DSN指向本机专用库；外部恢复日志库用独立迁移身份显式执行journal-up、journal-permissions，运行进程只拿到受限读写身份。monitor使用独立`lyc_monitor` LOGIN，仅CONNECT、public schema USAGE及work_items/deletion_jobs SELECT；不授业务运行角色、DDL或写权限，私有monitor.env与pgpass填写此身份，普通进程不拿到管理员凭据。
+6. 按第5节导入正式举报字典与资料，用`lyc-bootstrap`执行business-init（私有app.yaml、显式login/wordlists）；再由迁移身份显式执行opaque-blocks。只在业务读写关闭时，分别以`lyc-account`、`lyc-evidence`执行 `business-worker -config /etc/liyuanci/native/<kind>/runtime.json -environment production -kind <kind> -recover`。任一失败都不开放读取和外发。普通systemd启动不会执行这些操作。
+
+### 启停、升级与回滚
+
+先完成跨进程配置一致性及各自OS身份读取权限检查，再验证角色、供应商、字典、词库和恢复门禁：
+
+```sh
+sudo python3 /opt/liyuanci/current/scripts/native.py check-config
+sudo python3 /opt/liyuanci/current/scripts/native.py check
+# 默认只输出待执行命令；--apply才操作本机专属单元。
+sudo python3 /opt/liyuanci/current/scripts/native.py start --scope all --apply
+sudo python3 /opt/liyuanci/current/scripts/native.py status --scope all
+curl --fail http://127.0.0.1:18081/readyz
+sudo journalctl --namespace=liyuanci -u liyuanci-whispers.service --since '10 minutes ago'
+# 日常停止/重启仅操作业务和轻量定时器，保留PG/Redis及数据。
+sudo python3 /opt/liyuanci/current/scripts/native.py stop --apply
+sudo python3 /opt/liyuanci/current/scripts/native.py start --apply
+# 维护全停；不删除数据库、Redis数据、任务、回执或历史密钥。
+sudo python3 /opt/liyuanci/current/scripts/native.py stop --scope all --apply
+```
+
+只有上述检查和业务验收通过后，才显式`systemctl enable liyuanci.target`设置开机启动，并实测一次重启恢复。单元来源必须解析到当前制品，否则脚本拒绝管理同名服务。业务停止反向退出API/业务worker及隐私worker；全停再退出PG/Redis。服务异常5秒后重启，60秒内最多3次；修复原因后显式reset-failed对应单元再启动，不靠无限重启掩盖配置/供应商故障。PG采用SIGINT快速且持久化关闭，Go采用SIGTERM/90秒停止预算。
+
+升级先关闭外部入口、停止业务、备份并核对兼容迁移，再切换current，校验清单和离线/在线配置，daemon-reload后启动。基础设施配置或单元改变时安排全停；不能只改链接便宣称新资源限制生效。回滚切回此前已验兼容制品，保留数据库结构、历史密钥、任务和回执；不自动down迁移、不撤销opaque。恢复数据库后必须重新完成两域recover；恢复日志/KMS不可用或删除未完成时继续保持关闭。
+
+### 资源与轻量监测
+
+初始预算是试运行限制而非容量结论：业务角色池2/1，PG最大48连接/64MiB shared_buffers/1MiB work_mem，Redis maxmemory32MiB且noeviction；API内存上限192MiB，学生卡128MiB，其余worker各96MiB，PG256MiB、Redis64MiB。总slice MemoryHigh896MiB、MemoryMax1100MiB、swap上限128MiB，Go进程GOMAXPROCS=1。限制可能触发拒绝或OOM，须按实测调整，不把6GiB swap当可用内存；已有其他业务未释放时尤其不能直接套用。
+
+日志进入独立journald命名空间，保留7天且持久空间上限128MiB；不覆盖系统全局日志策略。health.timer每分钟检查8个常驻服务、readyz、磁盘80%、宿主可用内存15%、attention及到期待办超过5分钟、隐私待办超时。结果只含聚合数据；`native.py check`只诊断依赖，不消费、不代表验收。`systemctl status liyuanci-health.service`查看最近结果；真实告警渠道与接手人仍由用户交付并验收，定时器失败日志不是“告警已送达”。维护停止业务时定时器一并停止。
+
+详查积压使用只读身份 `psql -X -v ON_ERROR_STOP=1 -f /opt/liyuanci/current/templates/backlog.sql`，连接参数由私有PG环境/pgpass提供。scheduled/waiting单列，waiting需进一步区分审核尚未完成与应解锁未处理。不要只看/healthz判断依赖就绪，也不要把systemd active当消费成功。
+
+### 验收与放行顺序
+
+| 检查 | 必须观察到的结果 |
+| --- | --- |
+| 制品、配置与权限 | 摘要一致；7份配置同用途密钥一致；空模板/开发轮询/MQ混配/管理员DSN被拒；进程不能读取其他私有目录 |
+| 原生中间件 | PG/Redis重启后数据与任务存在；匿名Redis连接失败；数据库运行身份无DDL/跨域权限；只有loopback监听 |
+| 全业务与悄悄鲤 | 学生卡扫描、普通审核、树洞/昵称/暖评/评论开关/抱抱/通知/胶囊、治理与匿名屏蔽；全程无MQ进程和连接；API与五类worker均验收 |
+| 持久任务 | 停worker后提交任务，数据库可查且重启继续；外部故障后retry_wait和重试上限attention；过期租约回收、双进程争抢幂等、取消/旧版本晚到无副作用；未来胶囊不提前返回，批准且到期后仅解锁一次 |
+| 恢复与故障 | 分别中断PG/Redis/供应商；readyz及受保护操作失败关闭；恢复后处理积压；账号/证据删除失败保留屏障；两域recover后才恢复读取/外发 |
+| systemd与运维 | 优雅停止、异常重启、连续失败限速、开机启动、业务停与全停、切版本回滚各一次；无其他服务被启停，数据与历史密钥保留 |
+| 小规模负载 | 建议先5个专用测试账号、总请求约2次/秒、异步任务提交不高于0.2次/秒持续30分钟；记录P95/错误率/RSS/CPU/磁盘/到期积压趋势，无OOM或持续swap增长，积压可回落；这是试运行起点，正式上线人数和指标需结合实测确定 |
+| HTTPS、备份与告警 | 接入现有Nginx且不覆盖其他站点；真实TLS/域名、三端双设备、供应商、备份恢复、告警送达与响应逐项通过 |
+
+不依赖正式外部资料的本地验证入口为`make integration-native`（先为隔离项目提供随机`LIYUANCI_TEST_DB_PASSWORD`和独立`COMPOSE_PROJECT_NAME`，不复用生产凭据）：仅启动隔离PG/Redis与生产业务测试，外部供应商为TLS合成。验后用同一环境文件及项目名执行 `docker compose -f deploy/compose/native-integration.yaml stop`，保留卷；这只是构建机测试依赖，不能冒称目标机systemd/原生安装/性能验收。正式REQ-021容量、全副本/90天恢复和微信真机仍按[后端缺口清单](../docs/development/backend/defects.md)推进。

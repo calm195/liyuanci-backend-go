@@ -1,0 +1,9 @@
+[Unit]
+Description=Li Yuanci lightweight health interval
+PartOf=liyuanci-business.target
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=liyuanci-health.service

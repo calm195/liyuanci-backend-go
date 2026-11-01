@@ -1,0 +1,35 @@
+[Unit]
+Description=Li Yuanci dedicated PostgreSQL
+PartOf=liyuanci.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=lyc-postgres
+Group=lyc-postgres
+RuntimeDirectory=liyuanci-postgres
+RuntimeDirectoryMode=0750
+StateDirectory=liyuanci/postgres
+StateDirectoryMode=0700
+# 数据目录必须已由显式initdb建立；绝不在启动时初始化或迁移。
+ExecStart=/usr/lib/postgresql/18/bin/postgres -D /var/lib/liyuanci/postgres -c config_file=/etc/liyuanci/native/postgres/postgresql.conf
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=90s
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+UMask=0077
+LimitNOFILE=4096
+LogNamespace=liyuanci
+Slice=liyuanci.slice
