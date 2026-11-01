@@ -15,6 +15,17 @@ import (
 // OpenRuntimeDatabase 打开独立运行身份池，拒绝管理身份、跨角色继承、只读副本和DDL权限。
 // 成功后关闭责任转交宿主；本函数不迁移或读取业务内容。
 func OpenRuntimeDatabase(ctx context.Context, dsn, role string, log *zap.Logger) (out *gorm.DB, closePool func() error, err error) {
+	return OpenRuntimeDatabaseWithLimits(ctx, dsn, role, log, 0, 0)
+}
+
+// OpenRuntimeDatabaseWithLimits 在相同权限检查下收紧每个身份池的预算；零值兼容10/2，不能无限连接。
+func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn, role string, log *zap.Logger, maxOpen, maxIdle int) (out *gorm.DB, closePool func() error, err error) {
+	if maxOpen == 0 && maxIdle == 0 {
+		maxOpen, maxIdle = 10, 2
+	}
+	if maxOpen < 1 || maxOpen > 10 || maxIdle < 0 || maxIdle > maxOpen {
+		return nil, nil, command.ErrInvalid
+	}
 	if log == nil {
 		return nil, nil, command.ErrInvalid
 	}
@@ -37,8 +48,8 @@ func OpenRuntimeDatabase(ctx context.Context, dsn, role string, log *zap.Logger)
 	if e != nil {
 		return nil, nil, command.ErrUnavailable
 	}
-	p.SetMaxOpenConns(10)
-	p.SetMaxIdleConns(2)
+	p.SetMaxOpenConns(maxOpen)
+	p.SetMaxIdleConns(maxIdle)
 	p.SetConnMaxLifetime(30 * time.Minute)
 	fail := func() (*gorm.DB, func() error, error) { _ = p.Close(); return nil, nil, command.ErrUnavailable }
 	if p.PingContext(ctx) != nil {
