@@ -455,7 +455,8 @@ GRANT UPDATE (reason,revision_suggestion) ON public.moderation_tasks TO liyuanci
 
 ALTER TABLE public.interaction_block_policy OWNER TO liyuanci_migrator;
 REVOKE ALL ON public.interaction_block_policy FROM PUBLIC;
-GRANT SELECT ON public.interaction_block_policy TO liyuanci_api,liyuanci_domain_worker,liyuanci_privacy_maintenance;
+-- 学生会话Me投影也读取匿名切换状态；只授全局策略读取，不授修改或树洞私密表读取。
+GRANT SELECT ON public.interaction_block_policy TO liyuanci_api,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_identity_maintenance;
 GRANT UPDATE (version,updated_at,recovery_cipher,post_id,privacy_epoch) ON public.whisper_comments TO liyuanci_privacy_maintenance;
 GRANT UPDATE (body_cipher,candidate_cipher,identity_cipher,public_body,public_identity,review_result_cipher,nickname_version) ON public.whisper_comment_versions TO liyuanci_privacy_maintenance;
 GRANT UPDATE (public_label,revoked_at) ON public.whisper_nickname_versions TO liyuanci_privacy_maintenance;
