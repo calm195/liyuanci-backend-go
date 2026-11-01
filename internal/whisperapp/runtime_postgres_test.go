@@ -422,8 +422,8 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	published(p.ID)
 	var public whisper.PublicPost
 	request("GET", "/whispers/posts/"+p.ID, "", nil, 200, &public)
-	if strings.Contains(public.Body, "合成人名") {
-		t.Fatal("公开原文未脱敏")
+	if public.Body != "合成人名 的运行装配验证" {
+		t.Fatal("未命中词库的正文未按当前策略原样通过")
 	}
 	var comment whisper.OwnerComment
 	request("POST", "/whispers/posts/"+p.ID+"/comments", peerToken, whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "作者自有的合成暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: public.Version, ExpectedCommentsEpoch: public.CommentsEpoch}, 202, &comment)
@@ -520,7 +520,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var version int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&version).Error)
-	if version != 27 {
+	if version != 29 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
 	t.Logf("正式server/content-worker/privacy-worker、受限登录、TLS、Redis、MQ=%v、禁用/重启/恢复门禁通过；供应商/KMS/清理为合成", mq != "")

@@ -86,6 +86,10 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
 		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 2, Status: "published"}).Error)
+		if kind == "ordinary_violation" {
+			// 当前策略先命中词库才调用本地人工适配；两条原文夹具共用该词。
+			must(root.Create(&entity.WordlistEntry{ID: uuid.NewString(), VersionID: id, Entry: "原文", Action: kind}).Error)
+		}
 		must(root.Exec("UPDATE wordlist_heads SET effective_id=?,version=3 WHERE kind=?", id, kind).Error)
 	}
 	dir := t.TempDir()

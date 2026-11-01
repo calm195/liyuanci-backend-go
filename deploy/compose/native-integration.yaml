@@ -1,0 +1,16 @@
+# 仅本机隔离验收生产数据库任务通道；不启动MQ、管理界面或监控。
+name: liyuanci-native-check
+services:
+  postgres:
+    extends: {file: integration.yaml, service: postgres}
+  redis-business:
+    extends: {file: integration.yaml, service: redis-business}
+  business-test:
+    extends: {file: integration.yaml, service: business-test}
+    environment:
+      APP_BUSINESS_TEST_NAMESERVER: ""
+    command: ["exec /whisperapp.test -test.v -test.run '^TestPostgresBusinessDatabaseRuntime$$' -test.timeout 240s"]
+networks:
+  foundation: {internal: true}
+volumes:
+  pg-data:

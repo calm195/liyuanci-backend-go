@@ -27,7 +27,7 @@ tidy:
 
 # 真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
 integration:
-	docker compose -f deploy/compose/integration.yaml up -d --wait postgres recovery-postgres redis namesrv broker
+	docker compose -f deploy/compose/integration.yaml up -d --wait postgres recovery-postgres redis redis-business namesrv broker
 	docker compose -f deploy/compose/integration.yaml run --rm migrate
 	# 订阅前显式建立探针主题，不能依赖首次生产才自动创建。
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1
@@ -39,6 +39,12 @@ integration:
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_student_card_scan_v1
 	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_content_review_v1
 	docker compose -f deploy/compose/integration.yaml run --rm --build business-test
+
+# 本机隔离容器仅作PG/Redis测试依赖，生产仍由原生systemd启动。
+.PHONY: integration-native
+integration-native:
+	docker compose -f deploy/compose/native-integration.yaml up -d --wait postgres redis-business
+	docker compose -f deploy/compose/native-integration.yaml run --rm --build business-test
 
 # 日常迭代只验证相关包；交付前执行check，CI仍保留全量质量检查。
 .PHONY: check-fast
