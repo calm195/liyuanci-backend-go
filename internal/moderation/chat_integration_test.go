@@ -23,9 +23,9 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestChatDelivery 覆盖T021、REQ-006/007/015/018和AR-001的真实事务、HTTP与MQ。

@@ -9,7 +9,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // restrict 只处理普通违规限制，解除操作不改变业务状态、危机原因或隐私屏障。

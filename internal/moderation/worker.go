@@ -17,8 +17,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // Assessment 是安全处理器审查组合信息后产生的脱敏候选，未复核前不可公开。

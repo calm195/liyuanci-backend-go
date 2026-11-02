@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 )
 
 // ResourcesAPI 是资料业务的完整读写入口；生产装配注入受限数据库服务。

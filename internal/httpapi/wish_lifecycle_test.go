@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // TestWishLifecycleValidation 追溯 T014/REQ-003/004/018：无效协议必须在访问数据库/供应商之前拒绝。

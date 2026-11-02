@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // screeningProvider 故意失败，证明只有命中/重审才需要原供应商，不能把故障当成批准。

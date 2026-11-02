@@ -19,8 +19,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // Config 显式注入技术字节预算；预算不是产品字符数限制。

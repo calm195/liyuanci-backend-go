@@ -10,7 +10,7 @@ from unittest.mock import patch
 import integration
 
 
-PACKAGE = 'github.com/calm195/liyuanci-backend-go/internal/resourceplaza'
+PACKAGE = 'github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza'
 
 
 def event(action, test='', **extra):

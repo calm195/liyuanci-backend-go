@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # 固定包与必需用例，运行后逐项核验实际结果；不接受外部数据库地址。
 SUITES = {
     'runtime': ('./internal/app', ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime')),
-    'resourceplaza': ('./internal/resourceplaza', ('TestPostgresHTTP',)),
+    'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/moderation', ('TestModerationCore',)),
     'migration': ('./internal/migration', ('TestPostgresMigrations', 'TestBusinessSchema', 'TestRecoverySchema', 'TestPostgresStoryPublication', 'TestPostgresWhisperFoundation')),
 }

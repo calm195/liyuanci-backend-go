@@ -22,8 +22,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 )
 
 // Sessions 只作为事务外有界图像计算的身份准入，写入仍由命令引擎锁后重新授权。

@@ -27,8 +27,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 

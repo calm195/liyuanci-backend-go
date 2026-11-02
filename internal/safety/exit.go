@@ -7,7 +7,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // exceptionExit 保持原期限并转为已撤下，不经过普通回退额度检查，也不解除原有内容限制。

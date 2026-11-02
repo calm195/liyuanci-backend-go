@@ -35,8 +35,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )

@@ -17,12 +17,12 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
-	"github.com/calm195/liyuanci-backend-go/internal/verification"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // unavailable 只用于证明构造及未授权请求不调用供应商，不实现合成业务成功路径。

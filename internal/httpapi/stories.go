@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // StoriesAPI 显式提供完成、故事及分享接口，不接受客户端指定业务或审核状态。

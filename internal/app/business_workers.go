@@ -12,8 +12,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 )
 

@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 type profileFixture struct {

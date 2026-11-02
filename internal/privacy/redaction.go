@@ -11,8 +11,8 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // Redactor 由宿主显式注入个人及组合信息脱敏能力，不传注销人的身份。

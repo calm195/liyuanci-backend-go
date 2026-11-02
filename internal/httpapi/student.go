@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 )
 
 // StudentService 由装配方显式注入；不把后台身份服务或合成供应商自动用于学生。

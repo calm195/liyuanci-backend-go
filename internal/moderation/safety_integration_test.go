@@ -26,10 +26,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestSafetyGovernance 验证T026、REQ-004/005/006/007/014/016/019的真实数据库和HTTP边界。

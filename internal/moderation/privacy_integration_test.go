@@ -26,12 +26,12 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // privacyDependencies 只在隔离测试中模拟外部全版本删除与脱敏；持久日志仍往返独立PostgreSQL。

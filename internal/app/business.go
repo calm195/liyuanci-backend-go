@@ -20,13 +20,13 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
-	"github.com/calm195/liyuanci-backend-go/internal/verification"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // BusinessAPI 复用树洞的正式供应商和恢复边界，拥有完整业务路由；各岗位在共用连接池上由领域授权隔离。

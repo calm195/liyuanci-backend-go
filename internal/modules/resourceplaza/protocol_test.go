@@ -48,7 +48,7 @@ func TestStrictInputs(t *testing.T) {
 func TestSharedTextVectors(t *testing.T) {
 	p := testconfig.Value("resource_contract_dir")
 	if p == "" {
-		p = "../../../docs/contracts/resource-plaza-v1"
+		p = "../../../../docs/contracts/resource-plaza-v1"
 	}
 	b, e := os.ReadFile(filepath.Join(p, "examples.json"))
 	if e != nil {

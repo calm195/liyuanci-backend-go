@@ -11,8 +11,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestRuntimeSharedDatabase 验证唯一配置账号具备领域表访问且没有集群管理权限。

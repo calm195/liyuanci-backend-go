@@ -8,7 +8,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // Analyzer 仅用于开发环境的人工或显式合成分析；零值模式不放行内容。

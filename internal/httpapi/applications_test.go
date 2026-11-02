@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // TestApplicationProtocolValidation 验证T019所有写请求严格字段、必填版本及查询边界，非法输入不进入服务。

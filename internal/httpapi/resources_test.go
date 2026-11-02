@@ -13,7 +13,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 

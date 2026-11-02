@@ -11,7 +11,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // Business 扩展已有TLS供应商协议；生产不装配本地存储、模拟扫描或学校规则。
