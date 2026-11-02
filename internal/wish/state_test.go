@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 func at() time.Time         { return time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC) }

@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // Work 是数据库持久源快照，不从唤醒事件重建，OperationID 是跨投递稳定去重依据。

@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // WeChat 使用小程序wx.login取得的code调用固定微信服务端接口；不接受客户端OpenID或任意端点。

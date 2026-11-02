@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 )
 

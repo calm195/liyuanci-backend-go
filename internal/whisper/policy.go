@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // 稳定错误由边界映射为契约码，不能暴露外部依赖原文。

@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // 稳定错误用于HTTP边界，不透传数据库、缓存或口令校验细节。

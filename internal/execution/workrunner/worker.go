@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 )
 
 // Scanner 共享消息处理与数据库补偿入口；实现必须遵守 context 并复核当前租约。

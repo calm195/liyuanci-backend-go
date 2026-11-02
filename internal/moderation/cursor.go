@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // cursor 使用现有签名格式绑定主体和查询用途，防止审核列表游标跨岗位主体复用。

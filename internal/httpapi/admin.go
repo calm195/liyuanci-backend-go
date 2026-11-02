@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // AdminService 注入独立后台身份服务，处理器只负责协议验证和稳定状态映射。

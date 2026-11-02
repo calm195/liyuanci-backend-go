@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/calm195/liyuanci-backend-go/internal/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 )
 
 // TestPollRecovery 验证失败与 panic 不终止数据库补偿，也不在日志中泄漏原始错误。

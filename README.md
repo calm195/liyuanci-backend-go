@@ -130,9 +130,9 @@ internal/platform/yamlconfig/       # Viper YAML读取与合并
 internal/httpapi/          # HTTP路由、协议校验与状态映射
 internal/platform/         # 数据库/Redis连接、日志及心跳
 internal/<业务模块>/       # 认证、心愿、聊天、悄悄鲤、审核、安全、隐私、资料
-internal/command/          # 事务、锁、幂等
-internal/durable/          # 持久任务
-internal/workrunner/       # 任务扫描生命周期
+internal/execution/command/          # 事务、锁、幂等
+internal/execution/durable/          # 持久任务
+internal/execution/workrunner/       # 任务扫描生命周期
 internal/platform/securedata/       # 加密、对象读取和兼容用途派生
 internal/entity/           # 按模块分文件的纯ORM表模型
 internal/migration/        # 业务模型注册、显式版本SQL与实体同步

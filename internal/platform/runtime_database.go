@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // OpenRuntimeDatabase 打开应用共用连接池，拒绝超级用户、集群管理权限和只读副本。

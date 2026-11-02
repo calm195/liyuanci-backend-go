@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"

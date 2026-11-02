@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // TestPostgresPublicProfile 追溯REQ-004/005/008/014/018：使用隔离PG和真实运行角色验证混合分页与权限屏障。

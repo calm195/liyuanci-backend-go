@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 type adminFixture struct {

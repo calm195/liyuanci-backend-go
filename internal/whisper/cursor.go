@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 type cursor struct {

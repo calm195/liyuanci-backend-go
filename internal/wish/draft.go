@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // DraftPlan 同时携带私有内容与状态计划，必须由调用方在同一根事务加密持久化。

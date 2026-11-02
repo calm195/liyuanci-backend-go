@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 func TestQueueCursor(t *testing.T) {

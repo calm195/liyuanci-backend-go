@@ -2,7 +2,7 @@ package platform
 
 import (
 	"context"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )

@@ -7,7 +7,7 @@ import (
 	"image/png"
 	"io"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // normalizeImage 先以字节/像素上限检查头部，再完整解码和重新编码，去除元数据及尾随载荷。

@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // ProfileSummary 仅公开账号标识与昵称；账号没有独立已审标签，不从私有身份或某条内容推断。

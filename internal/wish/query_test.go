@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // TestCursorBinding 追溯 T014/REQ-018：游标防篡改并绑定公开筛选或本人主体，不接受跨域复用。

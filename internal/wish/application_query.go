@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 func (s *Service) applicationResult(ctx context.Context, db *gorm.DB, row entity.Application, now time.Time, ownerView bool) (out ApplicationResult, err error) {

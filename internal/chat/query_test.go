@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // TestOriginalParticipants 验证终结匹配可读、陌生人不可读及注销意图即时禁读。

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // T011/REQ-002、015、018：有界解码、实际类型匹配及尾部清除，避免不可信图片越过入口。

@@ -3,7 +3,7 @@ package moderation
 import (
 	"context"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )

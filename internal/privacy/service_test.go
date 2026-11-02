@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
 // TestReceiptAuthentication 在数据库访问前拒绝截断、跨用途及篡改回执，防止随机UUID枚举状态。
