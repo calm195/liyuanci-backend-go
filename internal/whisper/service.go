@@ -13,7 +13,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // Service 不拥有客户端生命周期；不注册路由、不迁移、不默认产生审核工作。

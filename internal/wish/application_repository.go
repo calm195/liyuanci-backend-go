@@ -11,7 +11,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // DiscoverInteraction 只读发现心愿、有效申请、当前匹配/会话及待审消息的完整锁集合。

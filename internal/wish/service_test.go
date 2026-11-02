@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // testKeys 仅限合成测试；不实现生产密钥供应商。

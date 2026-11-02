@@ -20,7 +20,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // Config 要求独立回执密钥、清理预算及有限匿名回执保留期。

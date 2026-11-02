@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // IdentityKeys 只接受固定开发引用，包裹密钥和身份检索密钥分别保存。

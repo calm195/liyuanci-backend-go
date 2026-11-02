@@ -30,10 +30,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 var moderationCareFixture = moderation.CareResources{Version: "synthetic-v1", Source: "隔离合成资料", VerifiedAt: "2026-10-28", Hotline24Hours: "隔离合成联系占位", Appointment: "隔离合成预约", Notice: "仅用于测试，不是真实援助资料"}

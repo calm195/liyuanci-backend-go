@@ -11,8 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
 // TestJournalPersistence 验证多实例竞争、重启、已确认重放及篡改失败关闭。

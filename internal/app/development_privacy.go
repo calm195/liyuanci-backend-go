@@ -9,8 +9,8 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
 func developmentPrivacyConfig(cfg DevelopmentSettings) privacy.Config {

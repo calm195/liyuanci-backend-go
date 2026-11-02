@@ -9,7 +9,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 // RunBusinessInitialization 仅供显式初始化命令调用；离线检查不创建客户端或写入词库。

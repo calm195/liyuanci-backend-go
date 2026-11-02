@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // FileJournal 是本机加密删除意图账本；通过进程间锁和原子替换保留重启状态，不代表独立故障域。

@@ -5,17 +5,62 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestPackageBoundaries 防止后续修改把HTTP、配置读取、应用装配或显式迁移引入业务包。
-// 只检查生产源码；测试可以装配夹具，也不会因供应商包的消费者接口依赖被误报。
+// allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
+// 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
+var allowedInternalImports = map[string][]string{
+	"adapters/gateway": {"command", "moderation", "privacy", "whisper", "wish"},
+	"adapters/local":   {"command", "moderation", "privacy", "platform/securedata", "whisper", "wish"},
+	"adminauth":        {"command", "entity"},
+	"app":              {"adapters/gateway", "adapters/local", "adminauth", "blockpolicy", "chat", "command", "config", "durable", "entity", "httpapi", "identity", "migration", "moderation", "platform", "platform/whisperrate", "privacy", "resourceplaza", "safety", "platform/securedata", "studentauth", "studentcard", "verification", "whisper", "wish", "workrunner", "platform/yamlconfig"},
+	"blockpolicy":      {"command"},
+	// 聊天借用心愿审核路由与结果投影，后续按实际职责收敛。
+	"chat":      {"command", "durable", "entity", "platform/securedata", "wish"},
+	"command":   {"entity"},
+	"config":    {"platform/securedata", "platform/yamlconfig"},
+	"durable":   {"command", "entity"},
+	"entity":    {},
+	"httpapi":   {"adminauth", "chat", "command", "moderation", "privacy", "resourceplaza", "safety", "studentauth", "studentcard", "verification", "whisper", "wish"},
+	"identity":  {"entity", "platform/securedata"},
+	"migration": {"entity"},
+	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
+	"moderation":           {"chat", "command", "durable", "entity", "safety", "platform/securedata", "whisper", "wish"},
+	"platform":             {"command", "config"},
+	"platform/whisperrate": {"command", "whisper"},
+	// 删除与脱敏需复核心愿故事及其隐私屏障。
+	"privacy":       {"command", "entity", "platform/securedata", "wish"},
+	"resourceplaza": {"command", "entity", "platform/securedata"},
+	// 安全治理在同一事务中撤销申请、限制会话和消息。
+	"safety":              {"blockpolicy", "chat", "command", "entity", "platform/securedata", "wish"},
+	"platform/securedata": {},
+	// 登录复用身份检索和黑名单协议策略。
+	"studentauth": {"blockpolicy", "command", "entity", "identity"},
+	// 学生卡工作处理复核当前学生会话。
+	"studentcard": {"command", "durable", "entity", "platform/securedata", "studentauth"},
+	"testconfig":  {"platform/yamlconfig"},
+	// 资格认证使用统一身份绑定与检索锁。
+	"verification": {"command", "entity", "identity", "platform/securedata"},
+	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
+	"whisper":             {"blockpolicy", "command", "durable", "entity", "safety", "platform/securedata"},
+	"wish":                {"command", "durable", "entity", "platform/securedata"},
+	"workrunner":          {"durable"},
+	"platform/yamlconfig": {},
+}
+
+func allowedInternalImport(owner, target string) bool {
+	return slices.Contains(allowedInternalImports[owner], target)
+}
+
+// TestPackageBoundaries 约束完整包路径，防止业务回引装配、配置、HTTP或迁移。
+// 生产包必须显式登记，测试夹具可直接装配依赖且不进入生产白名单。
 func TestPackageBoundaries(t *testing.T) {
 	root := filepath.Clean("..")
 	const prefix = "github.com/calm195/liyuanci-backend-go/internal/"
-	assemblyOnly := map[string]bool{"app": true, "httpapi": true, "config": true}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -27,7 +72,10 @@ func TestPackageBoundaries(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		owner := strings.Split(filepath.ToSlash(relative), "/")[0]
+		owner := filepath.ToSlash(filepath.Dir(relative))
+		if _, ok := allowedInternalImports[owner]; !ok {
+			t.Errorf("%s 的生产包未登记职责与依赖", relative)
+		}
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 		if err != nil {
 			return err
@@ -40,29 +88,8 @@ func TestPackageBoundaries(t *testing.T) {
 			if !strings.HasPrefix(dependency, prefix) {
 				continue
 			}
-			target := strings.Split(strings.TrimPrefix(dependency, prefix), "/")[0]
-			// 迁移仅由应用显式装配；业务、HTTP与适配器不能通过导入迁移包获取DDL能力。
-			forbidden := target == "migration" && owner != "app" && owner != "migration"
-			switch owner {
-			case "app":
-			case "config":
-				forbidden = target != "yamlconfig" && target != "securedata"
-			case "migration":
-				// 注册清单依赖纯模型，不反向依赖任何业务服务或运行装配。
-				forbidden = target != "entity" && target != "migration"
-			case "yamlconfig", "securedata", "entity":
-				// 叶子包不能反向引入业务，避免配置经共享能力间接依赖整个业务图。
-				forbidden = target != owner
-			case "platform":
-				forbidden = forbidden || target == "app" || target == "httpapi" || target == "adapters"
-			case "httpapi":
-				forbidden = forbidden || target == "app" || target == "config" || target == "adapters"
-			case "adapters":
-				forbidden = forbidden || assemblyOnly[target]
-			default:
-				forbidden = forbidden || assemblyOnly[target] || target == "adapters"
-			}
-			if forbidden {
+			target := strings.TrimPrefix(dependency, prefix)
+			if !allowedInternalImport(owner, target) {
 				t.Errorf("%s 越过包边界导入 %s", relative, dependency)
 			}
 		}
@@ -70,6 +97,38 @@ func TestPackageBoundaries(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDependencyPolicy 验证合法协作与同父目录越权，防止归组后把叶子规则放宽为整层权限。
+func TestDependencyPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		owner, target string
+		allowed       bool
+	}{
+		{"config", "platform/yamlconfig", true},
+		{"config", "platform/securedata", true},
+		{"config", "platform", false},
+		{"config", "yamlconfig/unregistered", false},
+		{"platform/yamlconfig", "config", false},
+		{"entity", "wish", false},
+		{"migration", "entity", true},
+		{"wish", "migration", false},
+		{"wish", "app", false},
+		{"wish", "httpapi", false},
+		{"wish", "adapters/gateway", false},
+		{"wish", "chat", false},
+		{"chat", "wish", true},
+		{"durable", "wish", false},
+		{"httpapi", "config", false},
+		{"app", "testconfig", false},
+		{"unregistered", "entity", false},
+	} {
+		t.Run(tc.owner+"->"+tc.target, func(t *testing.T) {
+			if got := allowedInternalImport(tc.owner, tc.target); got != tc.allowed {
+				t.Fatalf("允许=%v，期望%v", got, tc.allowed)
+			}
+		})
 	}
 }
 

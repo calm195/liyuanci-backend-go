@@ -5,7 +5,7 @@ import (
 	"flag"
 	"sync"
 
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 var path = flag.String("integration-config", "", "隔离集成测试YAML；不读取环境变量")

@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 // TestDatabaseFieldsRoundTrip 用实际驱动解析结果验证特殊字符不能注入参数，IPv6和公共默认仍可用。

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 // Config 是所有进程共用的配置；database 中的独立字段组成唯一数据库连接。

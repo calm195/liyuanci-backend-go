@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 // Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
 // TestSettingsRejectKeyReuse 验证单主密钥装配后领域仍拒绝错误注入共钥，文件拒绝半套微信凭据。

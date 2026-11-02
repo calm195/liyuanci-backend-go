@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
 // ReserveStudentNumber 在申请根事务中建立有效学号占用，驳回重提允许修正尚未通过的学号。
