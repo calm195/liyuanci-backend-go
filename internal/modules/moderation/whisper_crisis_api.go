@@ -12,7 +12,6 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperCrisisSummary 的来源快照不依赖普通内容存续。
@@ -75,7 +74,7 @@ func whisperCrisisPlan(ctx context.Context, db *gorm.DB, id string) (p command.D
 }
 
 // WhisperCrises 只列出树洞危机元数据，分页主体摘要不包含后台账号。
-func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, limit int) (out whisper.Page[WhisperCrisisSummary], err error) {
+func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperCrisisSummary], err error) {
 	defer s.done("whisper.crisis.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -109,7 +108,7 @@ func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, 
 		return nil
 	})
 	if err != nil {
-		out = whisper.Page[WhisperCrisisSummary]{}
+		out = CursorPage[WhisperCrisisSummary]{}
 	}
 	return
 }

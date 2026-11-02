@@ -12,7 +12,6 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperRef 不暴露昵称内部账号键，昵称ID使用随机内容注册标识。
@@ -83,7 +82,7 @@ func (s *Service) whisperCursor(actor, purpose, id string) string {
 }
 
 // WhisperReviews 列出树洞普通命中元数据，旧业务及危机来源均不可混入。
-func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string, limit int) (out whisper.Page[WhisperReviewSummary], err error) {
+func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperReviewSummary], err error) {
 	defer s.done("whisper.review.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -123,7 +122,7 @@ func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string,
 		return nil
 	})
 	if err != nil {
-		out = whisper.Page[WhisperReviewSummary]{}
+		out = CursorPage[WhisperReviewSummary]{}
 	}
 	return
 }

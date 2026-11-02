@@ -9,7 +9,6 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperReportInput 只能举报当前可见的公开文字，不接受账号或昵称来源。
@@ -150,7 +149,7 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 }
 
 // WhisperReports 仅返回树洞普通举报元数据；危机隔离后不再向普通工作台列出。
-func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string, limit int) (out whisper.Page[WhisperReportSummary], err error) {
+func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperReportSummary], err error) {
 	defer s.done("whisper.report.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -188,7 +187,7 @@ func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string,
 		return nil
 	})
 	if err != nil {
-		out = whisper.Page[WhisperReportSummary]{}
+		out = CursorPage[WhisperReportSummary]{}
 	}
 	return
 }
