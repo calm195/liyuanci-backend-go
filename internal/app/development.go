@@ -170,7 +170,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	privacyDB, evidenceDeletionDB := database, database
 	pc := developmentPrivacyConfig(cfg)
 	accountCfg, evidenceCfg := &pc, &pc
-	router, e = newStudentRouter(StudentDependencies{
+	router, e = newServiceRouter(ServiceDependencies{
 		PrivacyDB: privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
 		CrisisDB:  crisisDB,
 		StudentDB: database,
@@ -185,7 +185,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		Objects:   &local.Objects{Root: cfg.ObjectDirectory, Logger: logger},
 		Scanner:   local.Scanner{Logger: logger},
 		Rules:     local.SchoolRules{Logger: logger},
-	}, StudentConfig{
+	}, ServiceConfig{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,
 		Moderation: moderationConfig,

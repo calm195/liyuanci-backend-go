@@ -58,7 +58,7 @@ func (unavailable) Unwrap(context.Context, string, []byte) ([]byte, error) {
 	panic("密钥不应被调用")
 }
 
-func dependencies(t *testing.T) (StudentDependencies, StudentConfig) {
+func dependencies(t *testing.T) (ServiceDependencies, ServiceConfig) {
 	t.Helper()
 	pool := func() *gorm.DB {
 		// 禁止自动 Ping；若构造器执行任何 SQL，本机未启动的隔离地址会使测试失败。
@@ -78,14 +78,14 @@ func dependencies(t *testing.T) (StudentDependencies, StudentConfig) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := StudentDependencies{
+	d := ServiceDependencies{
 		StudentDB: pool(), ReviewDB: pool(), Logger: logger,
 		Ready:    func(context.Context) error { return command.ErrUnavailable },
 		Exchange: unavailable{}, Identity: unavailable{}, Limiter: unavailable{}, Codec: codec,
 		Objects: unavailable{}, Scanner: unavailable{}, Rules: unavailable{},
 	}
 	cmd := command.Config{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2}
-	cfg := StudentConfig{
+	cfg := ServiceConfig{
 		Auth:         studentauth.Config{SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{1}, 32), Command: cmd},
 		Card:         studentcard.Config{DecodeSlots: 1, MaxBytes: 4096, MaxPixels: 1024, ReceiptKey: bytes.Repeat([]byte{2}, 32), Command: cmd, Lease: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 2},
 		Verification: verification.Config{Command: cmd, ReceiptKey: bytes.Repeat([]byte{3}, 32), MaxCardBytes: 4096},
@@ -96,7 +96,7 @@ func dependencies(t *testing.T) (StudentDependencies, StudentConfig) {
 // TestAuthenticationRoutes 覆盖 T008/T011、REQ-002/015/018/019：完整注册、未授权及整体未就绪行为。
 func TestAuthenticationRoutes(t *testing.T) {
 	d, cfg := dependencies(t)
-	router, err := newStudentRouter(d, cfg)
+	router, err := newServiceRouter(d, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,11 +164,11 @@ func TestRejectPartialApplication(t *testing.T) {
 			case "card_budget":
 				cfg.Verification.MaxCardBytes = cfg.Card.MaxBytes - 1
 			}
-			router, err := newStudentRouter(d, cfg)
+			router, err := newServiceRouter(d, cfg)
 			if err != command.ErrInvalid || router != nil {
 				t.Fatal("无效依赖返回可用入口", err)
 			}
-			if name != "logger" && logs.FilterMessage("学生认证应用装配完成").All()[0].ContextMap()["result"] != "failure" {
+			if name != "logger" && logs.FilterMessage("业务服务构造完成").All()[0].ContextMap()["result"] != "failure" {
 				t.Fatal("缺少失败完成日志")
 			}
 		})
@@ -181,7 +181,7 @@ func TestOptionalWishAssembly(t *testing.T) {
 	other, _ := dependencies(t)
 	d.WishDB = other.StudentDB
 	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
-	router, err := newStudentRouter(d, cfg)
+	router, err := newServiceRouter(d, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,12 +199,12 @@ func TestOptionalWishAssembly(t *testing.T) {
 		}
 	}
 	d.WishDB = d.StudentDB
-	if router, err := newStudentRouter(d, cfg); err != nil || router == nil {
+	if router, err := newServiceRouter(d, cfg); err != nil || router == nil {
 		t.Fatal("共用连接池被错误拒绝")
 	}
 	d.WishDB = other.StudentDB
 	cfg.Wish.ReceiptKey = cfg.Auth.SessionKey
-	if router, err := newStudentRouter(d, cfg); err == nil || router != nil {
+	if router, err := newServiceRouter(d, cfg); err == nil || router != nil {
 		t.Fatal("允许复用用途密钥")
 	}
 }
@@ -216,7 +216,7 @@ func TestOptionalChatAssembly(t *testing.T) {
 	d.WishDB = other.StudentDB
 	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
 	cfg.Chat = &chat.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{5}, 32), MaxBodyBytes: 64 << 10}
-	router, e := newStudentRouter(d, cfg)
+	router, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -231,11 +231,11 @@ func TestOptionalChatAssembly(t *testing.T) {
 		}
 	}
 	cfg.Chat.Key = cfg.Wish.ReceiptKey
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("聊天复用心愿密钥")
 	}
 	cfg.Wish = nil
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("聊天脱离父领域仍启用")
 	}
 }
@@ -246,7 +246,7 @@ func TestStoryAssembly(t *testing.T) {
 	other, _ := dependencies(t)
 	d.WishDB = other.StudentDB
 	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32), MaxStoryBytes: 65536}
-	router, e := newStudentRouter(d, cfg)
+	router, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -265,21 +265,21 @@ func TestStoryAssembly(t *testing.T) {
 // TestOptionalCrisisAssembly 验证显式危机服务、用途密钥和显式注册，普通后台不能隐式获得证据能力。
 func TestOptionalCrisisAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
-	baseline, e := newStudentRouter(d, cfg)
+	baseline, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
 	cfg.Crisis = &moderation.Config{Command: cfg.Auth.Command, CursorKey: bytes.Repeat([]byte{91}, 32), MaxEntries: 100}
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("缺显式危机服务仍装配")
 	}
 	d.CrisisDB = d.ReviewDB
-	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+	if r, e := newServiceRouter(d, cfg); e != nil || r == nil {
 		t.Fatal("共用连接池被错误拒绝")
 	}
 	other, _ := dependencies(t)
 	d.CrisisDB = other.StudentDB
-	r, e := newStudentRouter(d, cfg)
+	r, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -294,7 +294,7 @@ func TestOptionalCrisisAssembly(t *testing.T) {
 		}
 	}
 	cfg.Crisis.CursorKey = cfg.Auth.SessionKey
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("危机复用身份用途密钥")
 	}
 }
@@ -310,22 +310,22 @@ func (deletionJournalStub) Confirm(context.Context, string) error { return nil }
 // TestOptionalPrivacyAssembly 验证删除入口缺省关闭、共享池、独立日志必需且用途密钥不能复用。
 func TestOptionalPrivacyAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
-	base, e := newStudentRouter(d, cfg)
+	base, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
 	cfg.Privacy = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{97}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("缺日志和独立池仍启用")
 	}
 	d.PrivacyDB = d.StudentDB
 	d.DeletionJournal = deletionJournalStub{}
-	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+	if r, e := newServiceRouter(d, cfg); e != nil || r == nil {
 		t.Fatal("共用连接池被错误拒绝")
 	}
 	other, _ := dependencies(t)
 	d.PrivacyDB = other.StudentDB
-	r, e := newStudentRouter(d, cfg)
+	r, e := newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -338,17 +338,17 @@ func TestOptionalPrivacyAssembly(t *testing.T) {
 		t.Fatal("注销未鉴权")
 	}
 	cfg.Privacy.Key = cfg.Auth.SessionKey
-	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+	if r, e := newServiceRouter(d, cfg); e == nil || r != nil {
 		t.Fatal("删除用途复用会话密钥")
 	}
 	cfg.Privacy = nil
 	cfg.EvidenceDeletion = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{98}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
 	d.EvidenceDeletionDB = d.ReviewDB
-	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+	if r, e := newServiceRouter(d, cfg); e != nil || r == nil {
 		t.Fatal("共用连接池被错误拒绝")
 	}
 	d.EvidenceDeletionDB = other.StudentDB
-	r, e = newStudentRouter(d, cfg)
+	r, e = newServiceRouter(d, cfg)
 	if e != nil {
 		t.Fatal(e)
 	}

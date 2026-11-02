@@ -92,10 +92,10 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	pconf := a.r.privacyConfig()
 	econf := pconf
 	econf.Key = cfg.Runtime.EvidenceKey
-	router, e := newStudentRouter(StudentDependencies{
+	router, e := newServiceRouter(ServiceDependencies{
 		StudentDB: student, ReviewDB: a.database, WishDB: a.database, CrisisDB: a.database, PrivacyDB: a.database, EvidenceDeletionDB: a.database,
 		DeletionJournal: a.r.journal, Eraser: b.gateway, Logger: log, Ready: b.Ready, Exchange: exchange, Identity: store, Limiter: limiter, Codec: a.r.codec, Objects: b.gateway, Scanner: b.gateway, Rules: b.gateway, Grades: businessGrades{cfg.Runtime},
-	}, StudentConfig{
+	}, ServiceConfig{
 		Auth: studentauth.Config{SessionTTL: cfg.SessionTTL, ExchangeTTL: cfg.ExchangeTTL, SessionKey: cfg.SessionKey, Command: cmd},
 		Card: businessCardConfig(cfg), Verification: verification.Config{Command: cmd, ReceiptKey: cfg.VerificationKey, MaxCardBytes: cfg.Card.MaxBytes},
 		Wish:       &wish.ServiceConfig{Command: cmd, ReceiptKey: cfg.WishKey, MaxStoryBytes: cfg.MaxTextBytes},

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -34,9 +33,9 @@ type Objects interface {
 	verification.Objects
 }
 
-// StudentDependencies 必须由宿主显式提供；各模块可共用应用连接池，学生/后台授权由当前会话及领域函数执行。
+// ServiceDependencies 显式提供身份、互动、治理和资料模块的借用依赖；各模块可共用应用连接池，学生/后台授权由当前会话及领域函数执行。
 // 装配器不拥有池或供应商，宿主必须先停止 HTTP 并等待在途请求结束，再释放这些资源。
-type StudentDependencies struct {
+type ServiceDependencies struct {
 	// WishDB 与 CrisisDB 复用应用连接池；各领域方法仍复核会话、岗位及访问范围。
 	// WishDB 仅在显式启用心愿模块时必填。
 	// PrivacyDB及EvidenceDeletionDB借用同一应用池，按领域用途分别执行授权。
@@ -60,8 +59,8 @@ type StudentDependencies struct {
 	Rules              verification.Rules
 }
 
-// StudentConfig 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
-type StudentConfig struct {
+// ServiceConfig 显式启用各业务模块并传入各自技术预算和用途密钥。
+type ServiceConfig struct {
 	// Resources 显式启用认证资料与后台维护入口。
 	Resources *resourceplaza.Config
 	// Crisis 显式启用独立危机后台服务。
@@ -82,9 +81,22 @@ type StudentConfig struct {
 	Verification verification.Config
 }
 
-// newStudentRouter 完整构造认证及可选心愿路由后才交给宿主，不执行 DDL、供应商调用或启动后台任务。
-// 任一依赖/配置缺失时不返回局部可用的路由，避免 Me 动作与实际入口不一致。
-func newStudentRouter(d StudentDependencies, cfg StudentConfig) (out *gin.Engine, err error) {
+// serviceSet 只持有已构造的领域服务，不拥有连接池、供应商或调度协程。
+// 字段显式列出，各职责构造器在全部成功后才交给HTTP注册边界。
+type serviceSet struct {
+	auth                              *studentauth.Service
+	cards                             *studentcard.Service
+	students, reviews                 *verification.Service
+	wishes                            *wish.Service
+	chats                             *chat.Service
+	studentResources, adminResources  *resourceplaza.Service
+	studentSafety, adminSafety        *safety.Service
+	accountDeletion, evidenceDeletion *privacy.Service
+	contentReviews, crisisReviews     *moderation.Service
+}
+
+// buildServices 按依赖顺序完整构造服务，不执行DDL、外部调用或启动后台任务。
+func buildServices(d ServiceDependencies, cfg ServiceConfig) (out *serviceSet, err error) {
 	if d.Logger == nil {
 		return nil, command.ErrInvalid
 	}
@@ -94,7 +106,7 @@ func newStudentRouter(d StudentDependencies, cfg StudentConfig) (out *gin.Engine
 		if err != nil {
 			result = "failure"
 		}
-		d.Logger.Info("学生认证应用装配完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("wishes_enabled", cfg.Wish != nil))
+		d.Logger.Info("业务服务构造完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("wishes_enabled", cfg.Wish != nil))
 	}()
 	if d.StudentDB == nil || d.ReviewDB == nil || d.Ready == nil {
 		return nil, command.ErrInvalid
@@ -114,257 +126,24 @@ func newStudentRouter(d StudentDependencies, cfg StudentConfig) (out *gin.Engine
 			return nil, command.ErrInvalid
 		}
 	}
-	var wishes *wish.Service
-	if cfg.Wish != nil {
-		if d.WishDB == nil {
-			return nil, command.ErrInvalid
-		}
-		_, failure := d.WishDB.DB()
-		if failure != nil {
-			return nil, command.ErrInvalid
-		}
-		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
-			if bytes.Equal(key, cfg.Wish.ReceiptKey) {
-				return nil, command.ErrInvalid
-			}
-		}
-		var failureNew error
-		wishes, failureNew = wish.NewService(d.WishDB, d.Logger, d.Codec, d.Grades, *cfg.Wish)
-		if failureNew != nil {
-			return nil, failureNew
-		}
+	out = &serviceSet{}
+	if err = out.buildInteraction(d, cfg); err != nil {
+		return nil, err
 	}
-	var chats *chat.Service
-	if cfg.Chat != nil {
-		if wishes == nil {
-			return nil, command.ErrInvalid
-		}
-		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey} {
-			if bytes.Equal(key, cfg.Chat.Key) {
-				return nil, command.ErrInvalid
-			}
-		}
-		if cfg.Moderation != nil && bytes.Equal(cfg.Moderation.CursorKey, cfg.Chat.Key) {
-			return nil, command.ErrInvalid
-		}
-		chats, e = chat.New(d.WishDB, d.Logger, d.Codec, *cfg.Chat)
-		if e != nil {
-			return nil, e
-		}
+	if err = out.buildResources(d, cfg); err != nil {
+		return nil, err
 	}
-	var studentResources, adminResources *resourceplaza.Service
-	if cfg.Resources != nil {
-		studentResources, e = resourceplaza.New(d.WishDB, d.Logger, d.Codec, *cfg.Resources)
-		if e != nil {
-			return nil, e
-		}
-		adminResources, e = resourceplaza.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Resources)
-		if e != nil {
-			return nil, e
-		}
+	if err = out.buildSafety(d, cfg); err != nil {
+		return nil, err
 	}
-	var studentSafety, adminSafety *safety.Service
-	if cfg.Safety != nil {
-		if wishes == nil {
-			return nil, command.ErrInvalid
-		}
-		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey}
-		if cfg.Chat != nil {
-			keys = append(keys, cfg.Chat.Key)
-		}
-		if cfg.Moderation != nil {
-			keys = append(keys, cfg.Moderation.CursorKey)
-		}
-		for _, key := range keys {
-			if bytes.Equal(key, cfg.Safety.Key) {
-				return nil, command.ErrInvalid
-			}
-		}
-		studentSafety, e = safety.New(d.WishDB, d.Logger, d.Codec, *cfg.Safety)
-		if e != nil {
-			return nil, e
-		}
-		adminSafety, e = safety.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Safety)
-		if e != nil {
-			return nil, e
-		}
+	if err = out.buildPrivacy(d, cfg); err != nil {
+		return nil, err
 	}
-	var accountDeletion, evidenceDeletion *privacy.Service
-	for _, spec := range []struct {
-		cfg *privacy.Config
-		db  *gorm.DB
-		out **privacy.Service
-	}{
-		{cfg.Privacy, d.PrivacyDB, &accountDeletion}, {cfg.EvidenceDeletion, d.EvidenceDeletionDB, &evidenceDeletion},
-	} {
-		if spec.cfg == nil {
-			continue
-		}
-		if spec.db == nil || d.DeletionJournal == nil {
-			return nil, command.ErrInvalid
-		}
-		if _, e := spec.db.DB(); e != nil {
-			return nil, command.ErrInvalid
-		}
-		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
-		if cfg.Wish != nil {
-			keys = append(keys, cfg.Wish.ReceiptKey)
-		}
-		if cfg.Chat != nil {
-			keys = append(keys, cfg.Chat.Key)
-		}
-		if cfg.Safety != nil {
-			keys = append(keys, cfg.Safety.Key)
-		}
-		if cfg.Moderation != nil {
-			keys = append(keys, cfg.Moderation.CursorKey)
-		}
-		if cfg.Crisis != nil {
-			keys = append(keys, cfg.Crisis.CursorKey)
-		}
-		for _, key := range keys {
-			if bytes.Equal(key, spec.cfg.Key) {
-				return nil, command.ErrInvalid
-			}
-		}
-		*spec.out, e = privacy.New(spec.db, d.DeletionJournal, d.Codec, d.Eraser, d.Logger, *spec.cfg)
-		if e != nil {
-			return nil, e
-		}
+	if err = out.buildIdentity(d, cfg); err != nil {
+		return nil, err
 	}
-	cfg.Auth.DeletionRequests = accountDeletion != nil
-	cfg.Auth.Safety = studentSafety != nil
-	cfg.Auth.Wishes = wishes != nil
-	// 路由由本构造器整体注册，动作提示只在同一成功装配中开启，不采纳调用方的过期标志。
-	cfg.Auth.StudentCardAssets = true
-	cfg.Auth.VerificationRequests = true
-	auth, e := studentauth.New(d.StudentDB, d.Logger, d.Exchange, d.Identity, d.Limiter, cfg.Auth)
-	if e != nil {
-		return nil, e
+	if err = out.buildModeration(d, cfg); err != nil {
+		return nil, err
 	}
-	cards, e := studentcard.New(d.StudentDB, d.Logger, auth, d.Codec, d.Objects, d.Scanner, cfg.Card)
-	if e != nil {
-		return nil, e
-	}
-	students, e := verification.New(d.StudentDB, d.Logger, d.Codec, d.Identity, d.Rules, d.Objects, cfg.Verification)
-	if e != nil {
-		return nil, e
-	}
-	reviews, e := verification.New(d.ReviewDB, d.Logger, d.Codec, d.Identity, d.Rules, d.Objects, cfg.Verification)
-	if e != nil {
-		return nil, e
-	}
-	var contentReviews *moderation.Service
-	if cfg.Moderation != nil {
-		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
-			if bytes.Equal(key, cfg.Moderation.CursorKey) {
-				return nil, command.ErrInvalid
-			}
-		}
-		if cfg.Wish != nil && bytes.Equal(cfg.Wish.ReceiptKey, cfg.Moderation.CursorKey) {
-			return nil, command.ErrInvalid
-		}
-		contentReviews, e = moderation.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Moderation)
-		if e != nil {
-			return nil, e
-		}
-	}
-	var crisisReviews *moderation.Service
-	if cfg.Crisis != nil {
-		if d.CrisisDB == nil {
-			return nil, command.ErrInvalid
-		}
-		if _, e := d.CrisisDB.DB(); e != nil {
-			return nil, command.ErrInvalid
-		}
-		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
-		if cfg.Wish != nil {
-			keys = append(keys, cfg.Wish.ReceiptKey)
-		}
-		if cfg.Chat != nil {
-			keys = append(keys, cfg.Chat.Key)
-		}
-		if cfg.Safety != nil {
-			keys = append(keys, cfg.Safety.Key)
-		}
-		if cfg.Moderation != nil {
-			keys = append(keys, cfg.Moderation.CursorKey)
-		}
-		for _, k := range keys {
-			if bytes.Equal(k, cfg.Crisis.CursorKey) {
-				return nil, command.ErrInvalid
-			}
-		}
-
-		crisisReviews, e = moderation.New(d.CrisisDB, d.Logger, d.Codec, *cfg.Crisis)
-		if e != nil {
-			return nil, e
-		}
-	}
-	router := httpapi.New(d.Logger, d.Ready)
-	if accountDeletion != nil {
-		if e = httpapi.RegisterPrivacy(router, accountDeletion); e != nil {
-			return nil, e
-		}
-	}
-	if evidenceDeletion != nil {
-		if e = httpapi.RegisterEvidenceDeletion(router, evidenceDeletion); e != nil {
-			return nil, e
-		}
-	}
-	if crisisReviews != nil {
-		if e = httpapi.RegisterCrisis(router, crisisReviews); e != nil {
-			return nil, e
-		}
-	}
-	if e = httpapi.RegisterStudent(router, auth); e != nil {
-		return nil, e
-	}
-	if e = httpapi.RegisterStudentCards(router, cards); e != nil {
-		return nil, e
-	}
-	if e = httpapi.RegisterVerification(router, students, reviews); e != nil {
-		return nil, e
-	}
-	if wishes != nil {
-		if e = httpapi.RegisterWishes(router, wishes); e != nil {
-			return nil, e
-		}
-		if e = httpapi.RegisterPublicProfile(router, wishes); e != nil {
-			return nil, e
-		}
-		if e = httpapi.RegisterApplications(router, wishes); e != nil {
-			return nil, e
-		}
-	}
-	if chats != nil {
-		if e = httpapi.RegisterCare(router, chats); e != nil {
-			return nil, e
-		}
-		if e = httpapi.RegisterChat(router, chats); e != nil {
-			return nil, e
-		}
-	}
-	if wishes != nil && cfg.Wish.MaxStoryBytes > 0 {
-		if e = httpapi.RegisterStories(router, wishes); e != nil {
-			return nil, e
-		}
-	}
-	if contentReviews != nil {
-
-		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
-			return nil, e
-		}
-	}
-	if studentResources != nil {
-		if e = httpapi.RegisterResources(router, studentResources, adminResources); e != nil {
-			return nil, e
-		}
-	}
-	if studentSafety != nil {
-		if e = httpapi.RegisterSafety(router, studentSafety, adminSafety); e != nil {
-			return nil, e
-		}
-	}
-	return router, nil
+	return out, nil
 }
