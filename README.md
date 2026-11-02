@@ -114,40 +114,43 @@ bin/business-worker -config configs/production.yaml -kind evidence -recover
 
 ## 7. 代码组织与重构边界
 
-工程使用单个Go module。`cmd/`保存8个进程入口，`internal/httpapi`负责HTTP协议，`internal`下的业务包负责领域规则；`command`、`durable`、`securedata`提供事务/幂等、持久任务与加密能力。测试随源码放置，`configs`与`scripts`分别维护配置和原生运维入口。
-
-目录优化已完成适配器分离、应用装配集中与配置依赖解耦。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。应用装配已统一由`internal/app`协调，按服务构造、正式/开发装配、API、worker、初始化和迁移职责分文件；8个`cmd`入口只保留参数、信号和退出状态。配置层使用独立的命令/任务预算与资源数据结构，只依赖yamlconfig、securedata；app显式转换为领域参数和资源快照。业务构造器继续复核准入，资源转换保留可选字段、nil/空数组区别，并复制指针与切片。稳定派生由securedata共享，标签与固定测试向量保持兼容。
-
-当前主要目录：
+工程使用单个Go module，`cmd/`的8个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
 
 ```text
-cmd/                       # 8个薄入口：参数、信号、退出状态
-internal/app/              # 服务构造、运行装配、资源生命周期和集成测试
-internal/adapters/gateway/ # 正式HTTPS供应商协议
-internal/adapters/local/   # 明确隔离的本地供应商
-internal/config/           # 独立配置值、严格校验和稳定派生
-internal/platform/yamlconfig/       # Viper YAML读取与合并
-internal/httpapi/          # HTTP路由、协议校验与状态映射
-internal/platform/         # 数据库/Redis连接、日志及心跳
-internal/<业务模块>/       # 认证、心愿、聊天、悄悄鲤、审核、安全、隐私、资料
-internal/execution/command/          # 事务、锁、幂等
-internal/execution/durable/          # 持久任务
-internal/execution/workrunner/       # 任务扫描生命周期
-internal/platform/securedata/       # 加密、对象读取和兼容用途派生
-internal/entity/           # 按模块分文件的纯ORM表模型
-internal/migration/        # 业务模型注册、显式版本SQL与实体同步
-configs/                   # 公共配置、私有环境覆盖及种子资料
-scripts/                   # 原生运行、配置和临时集成入口
+internal/app/                  # 服务构造、入口装配、资源生命周期
+internal/config/               # 应用配置值、严格校验及稳定派生入口
+internal/httpapi/              # HTTP路由、请求校验、响应映射
+internal/modules/              # 账号认证、心愿、聊天、树洞、治理、资料
+internal/execution/command/    # 授权复核、事务、跨域锁序和幂等
+internal/execution/durable/    # 持久任务、租约、重试及恢复
+internal/execution/workrunner/ # 扫描调度、取消和排空
+internal/platform/             # 数据库/Redis客户端、日志、心跳
+internal/platform/yamlconfig/  # 独立Viper实例、YAML读取与合并
+internal/platform/securedata/  # 加密、对象读取和兼容用途派生
+internal/adapters/gateway/     # 正式HTTPS供应商
+internal/adapters/local/       # 本地运行适配
+internal/adapters/redis/       # 业务限流接口的Redis实现
+internal/entity/               # 纯ORM表模型
+internal/migration/            # 显式迁移、业务模型清单和版本SQL
+internal/testconfig/           # 隔离集成测试的YAML输入
 ```
 
-资料广场在同一包内按授权事务、游标、加密、查询、写入、投影、存取和治理屏障分文件；审核模块抽出共享授权和游标，其余保留已有功能文件。共享类型和方法仍在所属业务包内，避免为文件大小创建无必要的子包。HTTP路由入口保持现有协议边界。
+业务包保留原包名，按实际职责使用service、query、commands、repository和worker等文件；复杂功能以crisis、capsule等前缀聚合。每个业务包的doc.go说明入口、数据归属和协作边界。资料广场与审核继续在所属包内按职责分文件。
 
-实体是跨域锁和业务存取共享的底层模型，继续按模块分文件，不拆到业务服务包内。65项业务模型注册清单归属`internal/migration/models.go`，实体与SQL映射、注释和隔离表排除检查随清单维护；增加表时同时更新模型、清单和版本SQL。恢复日志与集成探针不参与业务AutoMigrate。
+| 查找内容 | 起点与协作 |
+| --- | --- |
+| 学生/后台登录、资格与材料 | modules/studentauth、adminauth、identity、studentcard、verification |
+| 心愿、申请、匹配、还愿和私聊 | modules/wish、chat；审核通过与业务上架分开 |
+| 树洞、暖评、抱抱、胶囊 | modules/whisper；审核和安全策略显式协作 |
+| 审核、危机、处罚、申诉 | modules/moderation、safety；跨模块效果保持同事务与锁顺序 |
+| 删除、脱敏、恢复前重删 | modules/privacy；独立文件账本保存删除意图 |
+| 资料查询、分类、维护、反馈 | modules/resourceplaza |
+| 匿名黑名单协议切换 | modules/blockpolicy；仅显式初始化切换 |
 
-迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。
+配置只依赖两个指定平台叶子包，由app显式转换领域参数和资源快照，保留可选字段、nil/空数组与复制隔离。业务接口由使用方定义，具体适配器不依赖配置或app；app负责选择实现。执行包不反向依赖具体业务模块。
 
-资源关闭遵循所有权：宿主先停止HTTP和后台调度，等待在途操作结束，再释放自己打开的数据库、Redis和供应商连接；借用资源的服务不得自行关闭。新建包和导出符号使用中文注释说明职责，涉及恢复、密钥兼容及失败关闭的逻辑保留决策依据。
+完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；恢复日志与探针不参与业务AutoMigrate。新增表同步模型、清单、版本SQL和中文对象注释。
 
-每阶段先检查相关包，完整交付执行`make fmt`、`make check`、`make build`；装配或入口变化额外运行Python测试和`make integration`。集成脚本中的Go测试包路径须随装配测试同步迁移，临时PG/Redis的清理边界保持不变。
+宿主拥有自己打开的数据库、Redis和供应商资源，借用服务不得自行关闭；停止时先排空请求和后台任务，再逆序释放。普通启动不执行DDL。命令参数、HTTP契约、YAML字段与相对路径规则、密钥派生标签、任务协议、删除账本和恢复门禁属于兼容边界。
 
-`internal/app/architecture_test.go`约束cmd仅依赖标准库和app，以及业务、HTTP、平台和适配器的导入方向，也防止业务导入迁移包、模型反向依赖服务，纳入`make check`。`make integration`顺序执行完整业务、本地组合、独立树洞三组进程测试，以及资料广场15个操作、审核核心和迁移专项。专项入口为`make integration INTEGRATION_SUITE=runtime`、`resourceplaza`、`moderation`或`migration`，共用临时原生PG/Redis清理流程。迁移专项为各上下行/升级场景创建独立空库，检查并发迁移、历史升级、表字段注释及恢复库隔离。历史权限与恢复库夹具仅验证兼容性，当前单连接配置、文件账本与岗位隔离由runtime验证；外部供应商仍为合成测试实现。
+相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、resourceplaza、moderation、migration四类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。

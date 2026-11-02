@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/whisperrate"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
@@ -16,7 +17,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
-	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
 )
 
 // WhisperAPI 持有本模块连接和供应商资源；宿主先停止HTTP及等待请求，再Close。

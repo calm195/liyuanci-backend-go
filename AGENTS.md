@@ -3,7 +3,7 @@
 ## 工程与代码规范
 
 - 模块为 github.com/calm195/liyuanci-backend-go，采用已批准方案 B；PostgreSQL 是业务权威。API 与 worker 分别构建，基础模式只提供健康端点；生产真实服务必须显式配置，无模板用户示例或业务 Mock 路由。
-- cmd下8个命令只负责参数、信号和退出状态；internal/app按文件组织API、worker、初始化与显式迁移的依赖装配和生命周期，业务包不得反向导入app。配置加载放 internal/config，仅依赖yamlconfig和securedata等叶子能力，禁止导入业务服务；领域配置和资源投影由app显式转换，YAML读取/合并统一通过internal/platform/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal；正式HTTPS供应商在 internal/adapters/gateway，本地运行适配在 internal/adapters/local，不依赖 config 或应用装配包。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
+- cmd下8个命令只负责参数、信号和退出状态；internal/app按文件组织API、worker、初始化与显式迁移的依赖装配和生命周期，业务包不得反向导入app。配置加载放 internal/config，仅依赖platform/yamlconfig和platform/securedata等叶子能力，禁止导入业务服务；领域配置和资源投影由app显式转换，YAML读取/合并统一通过internal/platform/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal/modules；事务、持久任务和调度统一在internal/execution，具体Redis业务适配在internal/adapters/redis；正式HTTPS供应商在 internal/adapters/gateway，本地运行适配在 internal/adapters/local，不依赖 config 或应用装配包。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
 - 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 使用私有开发覆盖，纯健康入口显式选择 configs/common.yaml；make build 构建当前 Makefile 列出的进程。真实中间件往返用 make integration。
 - gofmt 使用 Tab；导入按标准库、第三方、本模块分组。多字段配置换行，顶层声明间留空行；包名小写，符号 MixedCaps。I/O 首参为 context.Context，显式注入依赖，避免可变全局客户端。HTTP 校验与状态映射在 handler，业务规则在 service，GORM 查询在 repository 并使用 WithContext；包装错误保留上下文，不向 HTTP 暴露凭据或内部错误。
 - 按用户2026-11-02要求，应用与运维配置只读YAML，口令、令牌、密钥和CA内联私有YAML；禁止恢复环境变量覆盖、业务JSON或独立秘密文件入口；不提交密钥、本地覆盖或生产 DSN。按用户2026-11-02简化要求，所有进程只使用 database 的 host/port/name/user/password/sslmode/timezone/connecttimeout 分项字段生成的唯一连接；禁止恢复可配置的dsn字段；应用账号拥有专用业务库，禁止集群管理权限。GORM AutoMigrate 仅在显式迁移入口执行，普通 API/worker 不隐式 DDL；业务权限由会话和岗位角色在领域函数中复核。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
@@ -16,7 +16,7 @@
 
 ## 验证
 
-日常迭代先运行相关包/相关用例，使用 `make check-fast PACKAGES=./internal/模块/...`；仅在需要定位并发问题时增加 race。一次完整交付前统一运行 make fmt、make check；check 须只读校验格式、go vet ./...、go test -race -cover ./...，CI 保持执行。Go 源码或依赖变化交付前再运行 make build；已通过后仅因新增修改、失败或未解决风险重跑相关检查。测试用标准 testing/net/http/httptest，文件 *_test.go、名称 TestBehavior；校验与 HTTP 失败优先表驱动。单测无需中间件，不设覆盖率硬阈值；真实数据库、Redis与持久任务变化须显式集成检查并说明服务依赖。
+日常迭代先运行相关包/相关用例，使用 `make check-fast PACKAGES=./internal/modules/模块/...`；仅在需要定位并发问题时增加 race。一次完整交付前统一运行 make fmt、make check；check 须只读校验格式、go vet ./...、go test -race -cover ./...，CI 保持执行。Go 源码或依赖变化交付前再运行 make build；已通过后仅因新增修改、失败或未解决风险重跑相关检查。测试用标准 testing/net/http/httptest，文件 *_test.go、名称 TestBehavior；校验与 HTTP 失败优先表驱动。单测无需中间件，不设覆盖率硬阈值；真实数据库、Redis与持久任务变化须显式集成检查并说明服务依赖。
 
 失败修复并复跑；环境受限报告命令和原因，未运行不得宣称通过。文档变动报告完成与验证，另在 docs 工程运行文档检查与固定指纹检查。运维专项检查继续按下文执行。
 
@@ -40,3 +40,5 @@
 - 用户本轮已授权删除本项目Docker容器、卷、网络和相关镜像及本地旧配置/备份，不保留本次备份；这不构成生产服务器部署授权。未来资源清理仍须有明确归属和当次授权，不使用全局force/prune。
 - 启动变更运行Python入口单测、Go规定门槛和受影响的真实原生集成。目标Linux服务管理器、真实供应商、设备与容量未执行时明确说明，不沿用历史验收结论。
 - 应用密钥仅由私有YAML顶层masterkey管理，通过HKDF-SHA256按环境/用途派生，派生字段使用json:"-"，禁止恢复旧用途密钥配置或共用原始主密钥。派生版本、环境与用途标签是持久协议，不得随重构改变。外部服务凭据与KMS引用仍独立配置。用户本次明确允许清空旧开发数据后切换；这不授权清空生产数据。主密钥和当前状态仅在Git忽略的私有环境覆盖及.local/data；初始化不覆盖已有私有文件。对旧生产库的对象所有权和历史日志转换须显式执行，不在普通启动中迁移或清空。
+
+- 用户2026-11-03授权按模块与依赖顺序完成目录归组、装配职责整理及跨模块依赖收敛并逐步提交。internal一级目录固定为app、config、httpapi、modules、execution、platform、adapters、entity、migration、testconfig；modules和execution只作分类目录。完整包路径依赖白名单由app架构测试维护，新增协作边须说明用途；配置与叶子规则不能按父目录放宽。
