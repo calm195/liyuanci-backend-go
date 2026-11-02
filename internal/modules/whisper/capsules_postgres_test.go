@@ -20,7 +20,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )

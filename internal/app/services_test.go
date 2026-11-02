@@ -15,8 +15,8 @@ import (
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"

@@ -12,9 +12,9 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 )
 
 // InitializeBusiness 仅供显式初始化命令调用，不迁移、不替换历史身份密钥、不重置已有后台口令。

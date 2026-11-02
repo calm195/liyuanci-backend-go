@@ -19,8 +19,8 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
