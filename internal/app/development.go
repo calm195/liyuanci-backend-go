@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -130,7 +131,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	}
 	var exchange studentauth.Exchanger = local.Unavailable{Logger: logger}
 	if cfg.WeChatAppID != "" {
-		exchange, e = studentauth.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
+		exchange, e = gateway.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
 		if e != nil {
 			return nil, closeAll, e
 		}

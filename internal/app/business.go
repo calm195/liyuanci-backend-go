@@ -85,7 +85,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	}
 	httpClient := &http.Client{Timeout: cfg.Runtime.ProviderTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	a.r.closes = append(a.r.closes, func() error { httpClient.CloseIdleConnections(); return nil })
-	exchange, e := studentauth.NewWeChat(httpClient, cfg.WeChatAppID, secret, log)
+	exchange, e := gateway.NewWeChat(httpClient, cfg.WeChatAppID, secret, log)
 	if e != nil {
 		return nil, e
 	}
