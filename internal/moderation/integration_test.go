@@ -107,7 +107,7 @@ func (h *handler) Consume(ctx context.Context, event durable.Event) (durable.Con
 	return out, e
 }
 
-// TestModerationCore 验证 T016/REQ-008、015、017、018、019 的真实PG/MQ核心，外部文本分析明确合成。
+// TestModerationCore 验证 T016/REQ-008、015、017、018、019 的真实PG核心，外部文本分析明确合成。
 func TestModerationCore(t *testing.T) {
 	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
@@ -144,7 +144,7 @@ func TestModerationCore(t *testing.T) {
 	}
 	must(migration.Run(ctx, root, logger, "up"))
 	must(migration.ApplyPermissions(ctx, root, logger))
-	// 空库上下行、权限重放与中文对象注释，保留Docker卷及专用测试数据库供追踪。
+	// 空库上下行、权限重放与中文对象注释；原生集成入口退出时删除本轮临时集群。
 	must(migration.Run(ctx, root, logger, "down"))
 	must(migration.Run(ctx, root, logger, "up"))
 	must(migration.ApplyPermissions(ctx, root, logger))

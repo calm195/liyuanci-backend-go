@@ -16,6 +16,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
+// scope 是持久幂等回执的命令标识，必须保持与既有HTTP操作一致，不能随文件重组改名。
 func scope(op, id string) (string, error) {
 	switch op {
 	case "create":
@@ -33,76 +34,9 @@ func scope(op, id string) (string, error) {
 	}
 	return "", command.ErrInvalid
 }
-func (s *Service) lock(db *gorm.DB, op, id string, in Input, a actor) (r entity.ResourceMaterial, c entity.ResourceCategory, err error) {
-	// 分类集合技术锁仅用于分类创建/改名，先于类别行锁，保护唯一名称错误的稳定映射。
-	if op == "category_create" || op == "category_update" {
-		if err = db.Exec("SELECT pg_advisory_xact_lock(624109180)").Error; err != nil {
-			return
-		}
-	}
-	refs := []command.Resource{}
-	if op == "category_update" {
-		refs = append(refs, command.Resource{Kind: command.ResourceCategory, ID: id})
-	}
-	if op == "create" || op == "update" {
-		refs = append(refs, command.Resource{Kind: command.ResourceCategory, ID: in.CategoryID})
-	}
-	if slices.Contains([]string{"update", "publish", "offline", "feedback"}, op) {
-		r, err = material(db, id, a)
-		if err != nil {
-			return
-		}
-		refs = append(refs, command.Resource{Kind: command.ResourceCategory, ID: r.CategoryID}, command.Resource{Kind: command.ResourceMaterial, ID: r.ID})
-	}
-	if len(refs) > 0 {
-		_, err = command.LockPlan(db.Statement.Context, db, command.Discovery{Resources: refs}, s.cfg.Command.LockTimeout)
-		if err != nil {
-			if errors.Is(err, command.ErrNotFound) && (op == "create" || op == "update") {
-				err = command.ErrConflict
-			}
-			return
-		}
-	}
-	if op == "category_update" {
-		c, err = category(db, id)
-		return
-	}
-	if r.ID != "" {
-		old := r.CategoryID
-		r, err = material(db, id, a)
-		if err != nil {
-			return
-		}
-		if old != r.CategoryID {
-			err = command.ErrRetry
-			return
-		}
-		c, err = category(db, r.CategoryID)
-		if err == nil && !c.Enabled {
-			err = command.ErrUnavailable
-		}
-	}
-	return
-}
-func (s *Service) audit(db *gorm.DB, a actor, op, id string, version int64, reason string) error {
-	r := entity.ResourceAudit{ID: uuid.NewString(), ActorID: a.ID, TargetID: id, Operation: op, Version: version, CreatedAt: a.Now}
-	if reason != "" {
-		b, e := s.encrypt(db.Statement.Context, "resource_offline_reason", r.ID, version, reason)
-		if e != nil {
-			return e
-		}
-		r.ReasonCipher = b
-	}
-	return db.Create(&r).Error
-}
+
 func sameDownload(a download, in Input) bool {
 	return a.URL == in.DownloadURL && ((a.Code == nil && in.ExtractionCode == nil) || (a.Code != nil && in.ExtractionCode != nil && *a.Code == *in.ExtractionCode))
-}
-func clearFeedback(db *gorm.DB, id string) error {
-	if e := db.Exec("DELETE FROM public.command_receipts WHERE actor_kind='student' AND result_ref IN (SELECT id FROM public.resource_feedback WHERE resource_id=?)", id).Error; e != nil {
-		return e
-	}
-	return db.Where("resource_id=?", id).Delete(&entity.ResourceFeedback{}).Error
 }
 
 // Write 在同一事务内授权、锁定、重放或更新，最后保存最小回执；不保存请求原文。
@@ -359,54 +293,4 @@ func (s *Service) Write(ctx context.Context, token, rid, key, op, id string, in 
 		}
 	}
 	return
-}
-
-// SetBarrier 是受控治理装配调用的内部入口，不注册任何学生举报或普通后台HTTP路由。
-// 调用方必须持有治理服务能力；与编辑使用相同分类、资料锁，屏障改变使资料离线且增加资源版本。
-func (s *Service) SetBarrier(ctx context.Context, token, rid, key, id string, privacy, content bool) (err error) {
-	defer s.done("barrier", rid, time.Now(), &err)
-	return s.transaction(ctx, token, true, true, func(db *gorm.DB, a actor) error {
-		// 受控操作只允许超级管理员，普通review_operator没有此能力。
-		var n int64
-		if e := db.Model(&entity.AdminRoleBinding{}).Where("admin_id=? AND role='super_admin'", a.ID).Count(&n).Error; e != nil {
-			return e
-		}
-		if n != 1 {
-			return command.ErrForbidden
-		}
-		var r entity.ResourceMaterial
-		if e := db.Where("id=?", id).Take(&r).Error; e != nil {
-			if errors.Is(e, gorm.ErrRecordNotFound) {
-				return command.ErrNotFound
-			}
-			return e
-		}
-		oldCategory := r.CategoryID
-		if _, e := command.LockPlan(ctx, db, command.Discovery{Resources: []command.Resource{{Kind: command.ResourceCategory, ID: r.CategoryID}, {Kind: command.ResourceMaterial, ID: id}}}, s.cfg.Command.LockTimeout); e != nil {
-			return e
-		}
-		if e := db.Where("id=?", id).Take(&r).Error; e != nil {
-			return e
-		}
-		if oldCategory != r.CategoryID {
-			return command.ErrRetry
-		}
-		if r.PrivacyBlocked == privacy && r.ContentBlocked == content {
-			return nil
-		}
-		if r.Version == MaxInteger {
-			return command.ErrUnavailable
-		}
-		r.Version++
-		r.PrivacyBlocked = privacy
-		r.ContentBlocked = content
-		if r.Status == "published" {
-			r.Status = "offline"
-		}
-		r.UpdatedAt = a.Now
-		if e := db.Save(&r).Error; e != nil {
-			return e
-		}
-		return s.audit(db, a, "barrier", id, r.Version, "")
-	})
 }

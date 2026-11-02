@@ -2,6 +2,7 @@ CONFIG ?= configs/development.yaml
 KIND ?= content
 ENVIRONMENT ?= development
 PACKAGES ?= ./...
+INTEGRATION_SUITE ?= all
 .PHONY: run build test fmt fmt-check vet check check-fast tidy configure check-config doctor migrate init worker wordlists integration
 run:
 	python3 scripts/manage.py run --config $(CONFIG)
@@ -36,4 +37,4 @@ tidy:
 	go mod tidy
 # 显式临时原生PG/Redis集成；使用临时目录，结束后清理本轮测试数据。
 integration: build
-	python3 scripts/integration.py
+	python3 scripts/integration.py --suite $(INTEGRATION_SUITE)

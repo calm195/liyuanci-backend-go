@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""在一次性原生PostgreSQL/Redis实例中验证单DSN完整业务；结束后删除本轮数据，不创建备份。"""
-import os
+"""在一次性原生PostgreSQL/Redis实例中验证应用和领域；结束后删除本轮数据。"""
+import argparse
 from pathlib import Path
 import secrets
 import shutil
@@ -12,6 +12,12 @@ import time
 import yaml_settings as yamlio
 
 ROOT = Path(__file__).resolve().parents[1]
+# 固定包与用例，避免专项回归因未提供测试配置而静默跳过；不接受外部数据库地址。
+SUITES = {
+    'runtime': ('./internal/app', '^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$'),
+    'resourceplaza': ('./internal/resourceplaza', '^TestPostgresHTTP$'),
+    'moderation': ('./internal/moderation', '^TestModerationCore$'),
+}
 
 
 def executable(name):
@@ -29,7 +35,7 @@ def port():
         return sock.getsockname()[1]
 
 
-def run():
+def run(suite='all'):
     postgres = {name: executable(name) for name in ('initdb', 'pg_ctl', 'psql')}
     redis = executable('redis-server')
     env = yamlio.process_environment()
@@ -68,10 +74,15 @@ def run():
             dsn=f'host=127.0.0.1 port={pgport} user=test_admin password={dbpassword} dbname=liyuanci sslmode=disable '
             values={'whisper_text_test_dsn':dsn,'whisper_redis_test_address':f'127.0.0.1:{redisport}','business_runtime_redis_address':f'127.0.0.1:{authport}','business_runtime_redis_password':redispassword,
                     'whisper_server_binary':str(ROOT/'bin/server'),'business_runtime_worker_binary':str(ROOT/'bin/business-worker'),'business_runtime_init_binary':str(ROOT/'bin/business-init'),'whisper_content_binary':str(ROOT/'bin/content-worker'),'whisper_privacy_binary':str(ROOT/'bin/privacy-worker')}
+            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn)
             config=root/'tests.yaml'
             yamlio.write(config,values)
-            result=subprocess.run(['go','test','./internal/app','-count=1','-timeout=8m','-v','-run','^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$','-args','-integration-config',str(config)],cwd=ROOT,env=env)
-            if result.returncode:raise ValueError('原生集成失败')
+            # 同一临时集群内顺序执行，避免历史权限夹具并发修改集群级角色。
+            for name in SUITES if suite == 'all' else (suite,):
+                package, pattern = SUITES[name]
+                print('运行原生集成：' + name, flush=True)
+                result=subprocess.run(['go','test',package,'-count=1','-timeout=8m','-v','-run',pattern,'-args','-integration-config',str(config)],cwd=ROOT,env=env)
+                if result.returncode:raise ValueError('原生集成失败：' + name)
         finally:
             for proc in children:
                 proc.terminate()
@@ -82,7 +93,10 @@ def run():
 
 
 if __name__ == '__main__':
-    try: run()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--suite', choices=('all', *SUITES), default='all', help='默认执行全部专项；实例和数据均为本轮临时创建')
+    args = parser.parse_args()
+    try: run(args.suite)
     except (OSError,ValueError,subprocess.SubprocessError):
         print('原生集成未完成，请核对依赖和测试输出；未操作已有数据库。',file=sys.stderr)
         sys.exit(1)
