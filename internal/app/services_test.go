@@ -1,0 +1,358 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlog "gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/wish"
+)
+
+// unavailable 只用于证明构造及未授权请求不调用供应商，不实现合成业务成功路径。
+type unavailable struct{}
+
+func (unavailable) Exchange(context.Context, string) ([]byte, error) {
+	panic("供应商不应被调用")
+}
+func (unavailable) ResolveOpenID(context.Context, *gorm.DB, []byte) (string, error) {
+	panic("身份不应被调用")
+}
+func (unavailable) BindStudentNumber(context.Context, *gorm.DB, string, []byte) error {
+	panic("身份不应被调用")
+}
+func (unavailable) ReserveStudentNumber(context.Context, *gorm.DB, string, []byte) error {
+	panic("身份不应被调用")
+}
+func (unavailable) Allow(context.Context, string) (bool, error) { panic("限流不应被调用") }
+func (unavailable) PutOnce(context.Context, string, []byte) (string, error) {
+	panic("对象不应被调用")
+}
+func (unavailable) Open(context.Context, string, string) (io.ReadCloser, error) {
+	panic("对象不应被调用")
+}
+func (unavailable) Scan(context.Context, []byte, string) (bool, error) {
+	panic("扫描不应被调用")
+}
+func (unavailable) Validate(context.Context, string, string) error { panic("规则不应被调用") }
+func (unavailable) Wrap(context.Context, []byte) (string, []byte, error) {
+	panic("密钥不应被调用")
+}
+func (unavailable) Unwrap(context.Context, string, []byte) ([]byte, error) {
+	panic("密钥不应被调用")
+}
+
+func dependencies(t *testing.T) (StudentDependencies, StudentConfig) {
+	t.Helper()
+	pool := func() *gorm.DB {
+		// 禁止自动 Ping；若构造器执行任何 SQL，本机未启动的隔离地址会使测试失败。
+		db, err := gorm.Open(postgres.Open("host=127.0.0.1 port=1 user=unused dbname=unused sslmode=disable connect_timeout=1"), &gorm.Config{DisableAutomaticPing: true, Logger: gormlog.Default.LogMode(gormlog.Silent)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = sqlDB.Close() })
+		return db
+	}
+	logger := zap.NewNop()
+	codec, err := securedata.New(unavailable{}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := StudentDependencies{
+		StudentDB: pool(), ReviewDB: pool(), Logger: logger,
+		Ready:    func(context.Context) error { return command.ErrUnavailable },
+		Exchange: unavailable{}, Identity: unavailable{}, Limiter: unavailable{}, Codec: codec,
+		Objects: unavailable{}, Scanner: unavailable{}, Rules: unavailable{},
+	}
+	cmd := command.Config{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2}
+	cfg := StudentConfig{
+		Auth:         studentauth.Config{SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{1}, 32), Command: cmd},
+		Card:         studentcard.Config{DecodeSlots: 1, MaxBytes: 4096, MaxPixels: 1024, ReceiptKey: bytes.Repeat([]byte{2}, 32), Command: cmd, Lease: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 2},
+		Verification: verification.Config{Command: cmd, ReceiptKey: bytes.Repeat([]byte{3}, 32), MaxCardBytes: 4096},
+	}
+	return d, cfg
+}
+
+// TestAuthenticationRoutes 覆盖 T008/T011、REQ-002/015/018/019：完整注册、未授权及整体未就绪行为。
+func TestAuthenticationRoutes(t *testing.T) {
+	d, cfg := dependencies(t)
+	router, err := newStudentRouter(d, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.StudentCardAssets || cfg.Auth.VerificationRequests {
+		t.Fatal("修改了调用方动作配置")
+	}
+	if len(router.Routes()) != 14 {
+		t.Fatalf("路由不完整：%d", len(router.Routes()))
+	}
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{"GET", "/healthz", 200}, {"GET", "/readyz", 503},
+		{"POST", "/api/v1/auth/wechat-sessions", 400},
+		{"GET", "/api/v1/me", 401}, {"PUT", "/api/v1/me/profile", 401}, {"DELETE", "/api/v1/auth/session", 401},
+		{"POST", "/api/v1/me/student-card-assets", 401}, {"GET", "/api/v1/me/student-card-assets/id", 401},
+		{"POST", "/api/v1/me/verification-requests", 401}, {"GET", "/api/v1/me/verification-request", 401},
+		{"GET", "/api/v1/admin/identity-reviews", 401}, {"GET", "/api/v1/admin/identity-reviews/id", 401},
+		{"GET", "/api/v1/admin/identity-reviews/id/student-card", 401}, {"POST", "/api/v1/admin/identity-reviews/id/decision", 401},
+		{"POST", "/api/v1/wishes", 404},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
+		if response.Code != tc.status {
+			t.Errorf("%s %s：%d", tc.method, tc.path, response.Code)
+		}
+	}
+}
+
+// TestRejectPartialApplication 验证配置失败不返回半套入口，保留缺依赖拒绝和跨用途密钥隔离。
+func TestRejectPartialApplication(t *testing.T) {
+	for _, name := range []string{"logger", "ready", "pool", "exchange", "identity", "objects", "scanner", "rules", "codec", "auth_config", "card_config", "review_config", "shared_key", "card_budget"} {
+		t.Run(name, func(t *testing.T) {
+			d, cfg := dependencies(t)
+			core, logs := observer.New(zap.InfoLevel)
+			d.Logger = zap.New(core)
+			switch name {
+			case "logger":
+				d.Logger = nil
+			case "ready":
+				d.Ready = nil
+			case "pool":
+				d.StudentDB = nil
+			case "exchange":
+				d.Exchange = nil
+			case "identity":
+				d.Identity = nil
+			case "objects":
+				d.Objects = nil
+			case "scanner":
+				d.Scanner = nil
+			case "rules":
+				d.Rules = nil
+			case "codec":
+				d.Codec = nil
+			case "auth_config":
+				cfg.Auth.ExchangeTTL = 0
+			case "card_config":
+				cfg.Card.DecodeSlots = 0
+			case "review_config":
+				cfg.Verification.MaxCardBytes = 0
+			case "shared_key":
+				cfg.Card.ReceiptKey = bytes.Clone(cfg.Auth.SessionKey)
+			case "card_budget":
+				cfg.Verification.MaxCardBytes = cfg.Card.MaxBytes - 1
+			}
+			router, err := newStudentRouter(d, cfg)
+			if err != command.ErrInvalid || router != nil {
+				t.Fatal("无效依赖返回可用入口", err)
+			}
+			if name != "logger" && logs.FilterMessage("学生认证应用装配完成").All()[0].ContextMap()["result"] != "failure" {
+				t.Fatal("缺少失败完成日志")
+			}
+		})
+	}
+}
+
+// TestOptionalWishAssembly 追溯 T014/REQ-003/004/018：共享池与独立密钥、全部路由及未授权请求不调用供应商。
+func TestOptionalWishAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
+	router, err := newStudentRouter(d, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.Wishes {
+		t.Fatal("修改调用方配置")
+	}
+	if len(router.Routes()) != 30 {
+		t.Fatal("心愿路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes"}, {"PUT", "/api/v1/wishes/id/content"}, {"POST", "/api/v1/wishes/id/submit-review"}, {"POST", "/api/v1/wishes/id/publish"}, {"POST", "/api/v1/wishes/id/withdraw"}, {"DELETE", "/api/v1/wishes/id/draft"}, {"GET", "/api/v1/me/wishes"}, {"POST", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/wishes/id/applications"}, {"GET", "/api/v1/me/applications"}, {"POST", "/api/v1/applications/id/withdraw"}, {"POST", "/api/v1/applications/id/accept"}, {"POST", "/api/v1/wishes/id/rollback"}} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
+		if response.Code != 401 {
+			t.Fatal(tc, response.Code)
+		}
+	}
+	d.WishDB = d.StudentDB
+	if router, err := newStudentRouter(d, cfg); err != nil || router == nil {
+		t.Fatal("共用连接池被错误拒绝")
+	}
+	d.WishDB = other.StudentDB
+	cfg.Wish.ReceiptKey = cfg.Auth.SessionKey
+	if router, err := newStudentRouter(d, cfg); err == nil || router != nil {
+		t.Fatal("允许复用用途密钥")
+	}
+}
+
+// TestOptionalChatAssembly 验证聊天、通知和本人关怀路由与独立密钥，基础认证应用仍按原配置启用。
+func TestOptionalChatAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32)}
+	cfg.Chat = &chat.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{5}, 32), MaxBodyBytes: 64 << 10}
+	router, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(router.Routes()) != 37 {
+		t.Fatal("聊天路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/me/conversations"}, {"GET", "/api/v1/conversations/id/messages"}, {"POST", "/api/v1/conversations/id/messages"}, {"GET", "/api/v1/me/messages/id/status"}, {"GET", "/api/v1/me/care-cards/id"}, {"GET", "/api/v1/me/notifications"}, {"POST", "/api/v1/me/notifications/id/read"}} {
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))
+		if out.Code != 401 {
+			t.Fatal(tc, out.Code)
+		}
+	}
+	cfg.Chat.Key = cfg.Wish.ReceiptKey
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("聊天复用心愿密钥")
+	}
+	cfg.Wish = nil
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("聊天脱离父领域仍启用")
+	}
+}
+
+// TestStoryAssembly 验证八项入口整体装配，基础心愿配置不隐式启用故事。
+func TestStoryAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	other, _ := dependencies(t)
+	d.WishDB = other.StudentDB
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: bytes.Repeat([]byte{4}, 32), MaxStoryBytes: 65536}
+	router, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(router.Routes()) != 38 {
+		t.Fatal("故事路由不完整", len(router.Routes()))
+	}
+	for _, tc := range []struct{ method, path string }{{"POST", "/api/v1/wishes/id/complete"}, {"POST", "/api/v1/wishes/id/stories"}, {"PUT", "/api/v1/wishes/id/story"}, {"POST", "/api/v1/wishes/id/story/withdraw"}, {"POST", "/api/v1/share-links"}} {
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))
+		if out.Code != 401 {
+			t.Fatal(tc, out.Code)
+		}
+	}
+}
+
+// TestOptionalCrisisAssembly 验证显式危机服务、用途密钥和显式注册，普通后台不能隐式获得证据能力。
+func TestOptionalCrisisAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	baseline, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg.Crisis = &moderation.Config{Command: cfg.Auth.Command, CursorKey: bytes.Repeat([]byte{91}, 32), MaxEntries: 100}
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("缺显式危机服务仍装配")
+	}
+	d.CrisisDB = d.ReviewDB
+	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
+	}
+	other, _ := dependencies(t)
+	d.CrisisDB = other.StudentDB
+	r, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(baseline.Routes())+10 {
+		t.Fatal("危机路由不完整", len(r.Routes()))
+	}
+	for _, path := range []string{"/api/v1/admin/crisis-cases", "/api/v1/admin/crisis-cases/id", "/api/v1/admin/crisis-cases/id/work", "/api/v1/admin/evidence/id"} {
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
+		if rr.Code != 401 {
+			t.Fatal(path, rr.Code)
+		}
+	}
+	cfg.Crisis.CursorKey = cfg.Auth.SessionKey
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("危机复用身份用途密钥")
+	}
+}
+
+type deletionJournalStub struct{}
+
+func (deletionJournalStub) Append(context.Context, privacy.Intent) error { return nil }
+func (deletionJournalStub) Pending(context.Context, string, int) ([]privacy.Intent, error) {
+	return nil, nil
+}
+func (deletionJournalStub) Confirm(context.Context, string) error { return nil }
+
+// TestOptionalPrivacyAssembly 验证删除入口缺省关闭、共享池、独立日志必需且用途密钥不能复用。
+func TestOptionalPrivacyAssembly(t *testing.T) {
+	d, cfg := dependencies(t)
+	base, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg.Privacy = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{97}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("缺日志和独立池仍启用")
+	}
+	d.PrivacyDB = d.StudentDB
+	d.DeletionJournal = deletionJournalStub{}
+	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
+	}
+	other, _ := dependencies(t)
+	d.PrivacyDB = other.StudentDB
+	r, e := newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(base.Routes())+2 {
+		t.Fatal("注销路由不完整")
+	}
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest("POST", "/api/v1/me/deletion-requests", nil))
+	if rr.Code != 401 {
+		t.Fatal("注销未鉴权")
+	}
+	cfg.Privacy.Key = cfg.Auth.SessionKey
+	if r, e := newStudentRouter(d, cfg); e == nil || r != nil {
+		t.Fatal("删除用途复用会话密钥")
+	}
+	cfg.Privacy = nil
+	cfg.EvidenceDeletion = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{98}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	d.EvidenceDeletionDB = d.ReviewDB
+	if r, e := newStudentRouter(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
+	}
+	d.EvidenceDeletionDB = other.StudentDB
+	r, e = newStudentRouter(d, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Routes()) != len(base.Routes())+2 {
+		t.Fatal("证据删除路由不完整")
+	}
+}

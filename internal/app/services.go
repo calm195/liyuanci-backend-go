@@ -1,0 +1,370 @@
+package app
+
+import (
+	"bytes"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
+	"github.com/calm195/liyuanci-backend-go/internal/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/wish"
+)
+
+// Identity 让登录和认证申请使用同一身份锁及双代唯一检索实现。
+type Identity interface {
+	studentauth.Resolver
+	verification.Binder
+}
+
+// Objects 将上传和授权原卡读取指向同一私有、不可变版本对象适配器。
+type Objects interface {
+	studentcard.Objects
+	verification.Objects
+}
+
+// StudentDependencies 必须由宿主显式提供；各模块可共用应用连接池，学生/后台授权由当前会话及领域函数执行。
+// 装配器不拥有池或供应商，宿主必须先停止 HTTP 并等待在途请求结束，再释放这些资源。
+type StudentDependencies struct {
+	// WishDB 与 CrisisDB 复用应用连接池；各领域方法仍复核会话、岗位及访问范围。
+	// WishDB 仅在显式启用心愿模块时必填。
+	// PrivacyDB及EvidenceDeletionDB借用同一应用池，按领域用途分别执行授权。
+	PrivacyDB          *gorm.DB
+	EvidenceDeletionDB *gorm.DB
+	DeletionJournal    privacy.Journal
+	Eraser             privacy.Eraser
+	CrisisDB           *gorm.DB
+	WishDB             *gorm.DB
+	Grades             wish.Grades
+	StudentDB          *gorm.DB
+	ReviewDB           *gorm.DB
+	Logger             *zap.Logger
+	Ready              httpapi.Readiness
+	Exchange           studentauth.Exchanger
+	Identity           Identity
+	Limiter            studentauth.Limiter
+	Codec              *securedata.Codec
+	Objects            Objects
+	Scanner            studentcard.Scanner
+	Rules              verification.Rules
+}
+
+// StudentConfig 明确区分学生会话、学生卡与认证材料的技术预算及独立密钥。
+type StudentConfig struct {
+	// Resources 显式启用认证资料与后台维护入口。
+	Resources *resourceplaza.Config
+	// Crisis 显式启用独立危机后台服务。
+	Crisis *moderation.Config
+	// Privacy与EvidenceDeletion显式启用删除能力，使用领域授权限定操作范围。
+	Privacy          *privacy.Config
+	EvidenceDeletion *privacy.Config
+	// Safety 仅在显式给出独立密钥和技术预算时注册安全治理路由。
+	Safety *safety.Config
+	// Chat 仅在心愿模块与技术预算同时显式配置时启用。
+	Chat *chat.Config
+	// Moderation 仅在显式提供独立游标密钥后注册正式后台审核能力。
+	Moderation *moderation.Config
+	// Wish 为空时保持认证应用原有能力，不虚报心愿写动作。
+	Wish         *wish.ServiceConfig
+	Auth         studentauth.Config
+	Card         studentcard.Config
+	Verification verification.Config
+}
+
+// newStudentRouter 完整构造认证及可选心愿路由后才交给宿主，不执行 DDL、供应商调用或启动后台任务。
+// 任一依赖/配置缺失时不返回局部可用的路由，避免 Me 动作与实际入口不一致。
+func newStudentRouter(d StudentDependencies, cfg StudentConfig) (out *gin.Engine, err error) {
+	if d.Logger == nil {
+		return nil, command.ErrInvalid
+	}
+	start := time.Now()
+	defer func() {
+		result := "success"
+		if err != nil {
+			result = "failure"
+		}
+		d.Logger.Info("学生认证应用装配完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("wishes_enabled", cfg.Wish != nil))
+	}()
+	if d.StudentDB == nil || d.ReviewDB == nil || d.Ready == nil {
+		return nil, command.ErrInvalid
+	}
+	// 所有合法上传都必须能在后台完整解密读取，禁止两个入口的资源预算互相矛盾。
+	if cfg.Verification.MaxCardBytes < cfg.Card.MaxBytes {
+		return nil, command.ErrInvalid
+	}
+	// 不允许跨用途复用会话和材料回执密钥，避免单个用途泄漏扩大到其他入口。
+	if bytes.Equal(cfg.Auth.SessionKey, cfg.Card.ReceiptKey) || bytes.Equal(cfg.Auth.SessionKey, cfg.Verification.ReceiptKey) || bytes.Equal(cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey) {
+		return nil, command.ErrInvalid
+	}
+	// 模块共享一个数据库账号及连接池；每个入口仍独立检查当前业务会话、角色和用途密钥。
+	var e error
+	for _, db := range []*gorm.DB{d.StudentDB, d.ReviewDB} {
+		if _, e = db.DB(); e != nil {
+			return nil, command.ErrInvalid
+		}
+	}
+	var wishes *wish.Service
+	if cfg.Wish != nil {
+		if d.WishDB == nil {
+			return nil, command.ErrInvalid
+		}
+		_, failure := d.WishDB.DB()
+		if failure != nil {
+			return nil, command.ErrInvalid
+		}
+		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
+			if bytes.Equal(key, cfg.Wish.ReceiptKey) {
+				return nil, command.ErrInvalid
+			}
+		}
+		var failureNew error
+		wishes, failureNew = wish.NewService(d.WishDB, d.Logger, d.Codec, d.Grades, *cfg.Wish)
+		if failureNew != nil {
+			return nil, failureNew
+		}
+	}
+	var chats *chat.Service
+	if cfg.Chat != nil {
+		if wishes == nil {
+			return nil, command.ErrInvalid
+		}
+		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey} {
+			if bytes.Equal(key, cfg.Chat.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		if cfg.Moderation != nil && bytes.Equal(cfg.Moderation.CursorKey, cfg.Chat.Key) {
+			return nil, command.ErrInvalid
+		}
+		chats, e = chat.New(d.WishDB, d.Logger, d.Codec, *cfg.Chat)
+		if e != nil {
+			return nil, e
+		}
+	}
+	var studentResources, adminResources *resourceplaza.Service
+	if cfg.Resources != nil {
+		studentResources, e = resourceplaza.New(d.WishDB, d.Logger, d.Codec, *cfg.Resources)
+		if e != nil {
+			return nil, e
+		}
+		adminResources, e = resourceplaza.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Resources)
+		if e != nil {
+			return nil, e
+		}
+	}
+	var studentSafety, adminSafety *safety.Service
+	if cfg.Safety != nil {
+		if wishes == nil {
+			return nil, command.ErrInvalid
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey, cfg.Wish.ReceiptKey}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		for _, key := range keys {
+			if bytes.Equal(key, cfg.Safety.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		studentSafety, e = safety.New(d.WishDB, d.Logger, d.Codec, *cfg.Safety)
+		if e != nil {
+			return nil, e
+		}
+		adminSafety, e = safety.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Safety)
+		if e != nil {
+			return nil, e
+		}
+	}
+	var accountDeletion, evidenceDeletion *privacy.Service
+	for _, spec := range []struct {
+		cfg *privacy.Config
+		db  *gorm.DB
+		out **privacy.Service
+	}{
+		{cfg.Privacy, d.PrivacyDB, &accountDeletion}, {cfg.EvidenceDeletion, d.EvidenceDeletionDB, &evidenceDeletion},
+	} {
+		if spec.cfg == nil {
+			continue
+		}
+		if spec.db == nil || d.DeletionJournal == nil {
+			return nil, command.ErrInvalid
+		}
+		if _, e := spec.db.DB(); e != nil {
+			return nil, command.ErrInvalid
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
+		if cfg.Wish != nil {
+			keys = append(keys, cfg.Wish.ReceiptKey)
+		}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Safety != nil {
+			keys = append(keys, cfg.Safety.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		if cfg.Crisis != nil {
+			keys = append(keys, cfg.Crisis.CursorKey)
+		}
+		for _, key := range keys {
+			if bytes.Equal(key, spec.cfg.Key) {
+				return nil, command.ErrInvalid
+			}
+		}
+		*spec.out, e = privacy.New(spec.db, d.DeletionJournal, d.Codec, d.Eraser, d.Logger, *spec.cfg)
+		if e != nil {
+			return nil, e
+		}
+	}
+	cfg.Auth.DeletionRequests = accountDeletion != nil
+	cfg.Auth.Safety = studentSafety != nil
+	cfg.Auth.Wishes = wishes != nil
+	// 路由由本构造器整体注册，动作提示只在同一成功装配中开启，不采纳调用方的过期标志。
+	cfg.Auth.StudentCardAssets = true
+	cfg.Auth.VerificationRequests = true
+	auth, e := studentauth.New(d.StudentDB, d.Logger, d.Exchange, d.Identity, d.Limiter, cfg.Auth)
+	if e != nil {
+		return nil, e
+	}
+	cards, e := studentcard.New(d.StudentDB, d.Logger, auth, d.Codec, d.Objects, d.Scanner, cfg.Card)
+	if e != nil {
+		return nil, e
+	}
+	students, e := verification.New(d.StudentDB, d.Logger, d.Codec, d.Identity, d.Rules, d.Objects, cfg.Verification)
+	if e != nil {
+		return nil, e
+	}
+	reviews, e := verification.New(d.ReviewDB, d.Logger, d.Codec, d.Identity, d.Rules, d.Objects, cfg.Verification)
+	if e != nil {
+		return nil, e
+	}
+	var contentReviews *moderation.Service
+	if cfg.Moderation != nil {
+		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
+			if bytes.Equal(key, cfg.Moderation.CursorKey) {
+				return nil, command.ErrInvalid
+			}
+		}
+		if cfg.Wish != nil && bytes.Equal(cfg.Wish.ReceiptKey, cfg.Moderation.CursorKey) {
+			return nil, command.ErrInvalid
+		}
+		contentReviews, e = moderation.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Moderation)
+		if e != nil {
+			return nil, e
+		}
+	}
+	var crisisReviews *moderation.Service
+	if cfg.Crisis != nil {
+		if d.CrisisDB == nil {
+			return nil, command.ErrInvalid
+		}
+		if _, e := d.CrisisDB.DB(); e != nil {
+			return nil, command.ErrInvalid
+		}
+		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
+		if cfg.Wish != nil {
+			keys = append(keys, cfg.Wish.ReceiptKey)
+		}
+		if cfg.Chat != nil {
+			keys = append(keys, cfg.Chat.Key)
+		}
+		if cfg.Safety != nil {
+			keys = append(keys, cfg.Safety.Key)
+		}
+		if cfg.Moderation != nil {
+			keys = append(keys, cfg.Moderation.CursorKey)
+		}
+		for _, k := range keys {
+			if bytes.Equal(k, cfg.Crisis.CursorKey) {
+				return nil, command.ErrInvalid
+			}
+		}
+
+		crisisReviews, e = moderation.New(d.CrisisDB, d.Logger, d.Codec, *cfg.Crisis)
+		if e != nil {
+			return nil, e
+		}
+	}
+	router := httpapi.New(d.Logger, d.Ready)
+	if accountDeletion != nil {
+		if e = httpapi.RegisterPrivacy(router, accountDeletion); e != nil {
+			return nil, e
+		}
+	}
+	if evidenceDeletion != nil {
+		if e = httpapi.RegisterEvidenceDeletion(router, evidenceDeletion); e != nil {
+			return nil, e
+		}
+	}
+	if crisisReviews != nil {
+		if e = httpapi.RegisterCrisis(router, crisisReviews); e != nil {
+			return nil, e
+		}
+	}
+	if e = httpapi.RegisterStudent(router, auth); e != nil {
+		return nil, e
+	}
+	if e = httpapi.RegisterStudentCards(router, cards); e != nil {
+		return nil, e
+	}
+	if e = httpapi.RegisterVerification(router, students, reviews); e != nil {
+		return nil, e
+	}
+	if wishes != nil {
+		if e = httpapi.RegisterWishes(router, wishes); e != nil {
+			return nil, e
+		}
+		if e = httpapi.RegisterPublicProfile(router, wishes); e != nil {
+			return nil, e
+		}
+		if e = httpapi.RegisterApplications(router, wishes); e != nil {
+			return nil, e
+		}
+	}
+	if chats != nil {
+		if e = httpapi.RegisterCare(router, chats); e != nil {
+			return nil, e
+		}
+		if e = httpapi.RegisterChat(router, chats); e != nil {
+			return nil, e
+		}
+	}
+	if wishes != nil && cfg.Wish.MaxStoryBytes > 0 {
+		if e = httpapi.RegisterStories(router, wishes); e != nil {
+			return nil, e
+		}
+	}
+	if contentReviews != nil {
+
+		if e = httpapi.RegisterModeration(router, contentReviews); e != nil {
+			return nil, e
+		}
+	}
+	if studentResources != nil {
+		if e = httpapi.RegisterResources(router, studentResources, adminResources); e != nil {
+			return nil, e
+		}
+	}
+	if studentSafety != nil {
+		if e = httpapi.RegisterSafety(router, studentSafety, adminSafety); e != nil {
+			return nil, e
+		}
+	}
+	return router, nil
+}

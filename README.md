@@ -114,10 +114,12 @@ bin/business-worker -config configs/production.yaml -kind evidence -recover
 
 工程使用单个Go module。`cmd/`保存8个进程入口，`internal/httpapi`负责HTTP协议，`internal`下的业务包负责领域规则；`command`、`durable`、`securedata`提供事务/幂等、持久任务与加密能力。测试随源码放置，`configs`与`scripts`分别维护配置和原生运维入口。
 
-本轮目录优化依次执行适配器分离、应用装配集中、配置依赖解耦。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。当前装配仍分布在`devapp`、`studentapi`和`whisperapp`，后续统一由`app`协调。配置层只负责读取、字段校验和稳定派生，业务参数由装配层转换。
+目录优化已完成适配器分离与应用装配集中，下一步解耦配置依赖。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。应用装配已统一由`internal/app`协调，按服务构造、正式/开发装配、API、worker、初始化和迁移职责分文件；8个`cmd`入口只保留参数、信号和退出状态。配置层只负责读取、字段校验和稳定派生，业务参数由装配层转换。
 
 迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。实体拆包和业务文件重组另按后续计划推进，避免装配迁移与业务行为改动混在一起。
 
 资源关闭遵循所有权：宿主先停止HTTP和后台调度，等待在途操作结束，再释放自己打开的数据库、Redis和供应商连接；借用资源的服务不得自行关闭。新建包和导出符号使用中文注释说明职责，涉及恢复、密钥兼容及失败关闭的逻辑保留决策依据。
 
 每阶段先检查相关包，完整交付执行`make fmt`、`make check`、`make build`；装配或入口变化额外运行Python测试和`make integration`。集成脚本中的Go测试包路径须随装配测试同步迁移，临时PG/Redis的清理边界保持不变。
+
+`internal/app/architecture_test.go`约束业务、HTTP、平台和适配器的导入方向，纳入`make check`。原生集成脚本从`internal/app`执行完整业务、本地组合和独立树洞三组进程测试。

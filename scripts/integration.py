@@ -70,7 +70,7 @@ def run():
                     'whisper_server_binary':str(ROOT/'bin/server'),'business_runtime_worker_binary':str(ROOT/'bin/business-worker'),'business_runtime_init_binary':str(ROOT/'bin/business-init'),'whisper_content_binary':str(ROOT/'bin/content-worker'),'whisper_privacy_binary':str(ROOT/'bin/privacy-worker')}
             config=root/'tests.yaml'
             yamlio.write(config,values)
-            result=subprocess.run(['go','test','./internal/whisperapp','-count=1','-timeout=8m','-v','-run','^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$','-args','-integration-config',str(config)],cwd=ROOT,env=env)
+            result=subprocess.run(['go','test','./internal/app','-count=1','-timeout=8m','-v','-run','^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$','-args','-integration-config',str(config)],cwd=ROOT,env=env)
             if result.returncode:raise ValueError('原生集成失败')
         finally:
             for proc in children:

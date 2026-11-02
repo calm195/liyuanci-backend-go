@@ -1,0 +1,176 @@
+package app
+
+import (
+	"context"
+	"time"
+
+	"go.uber.org/zap"
+
+	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
+)
+
+// RunWhisperContent 由正式内容入口调用，调度独立审核、解锁及危机补偿；模块关闭不丢弃已持久工作。
+func RunWhisperContent(ctx context.Context, path, environment string, log *zap.Logger) (err error) {
+	if log == nil {
+		return command.ErrInvalid
+	}
+	defer finish(log, "content_run", time.Now(), &err)
+	cfg, e := config.LoadWhispers(ctx, path, environment)
+	if e != nil {
+		return e
+	}
+	return runContentSettings(ctx, cfg, environment, log, false)
+}
+
+func runContentSettings(ctx context.Context, cfg WhisperSettings, environment string, log *zap.Logger, check bool) (err error) {
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	r, e := openResources(startup, cfg, log)
+	if e != nil {
+		return e
+	}
+	defer func() {
+		if r.close() != nil {
+			err = command.ErrUnavailable
+		}
+	}()
+	db, e := r.pool(startup)
+	if e != nil {
+		return e
+	}
+	if e = r.check(startup, db); e != nil {
+		return e
+	}
+	if e = r.rules(startup, db); e != nil {
+		return e
+	}
+	for _, scope := range []string{"account", "evidence"} {
+		if e = r.recoveryGate(startup, db, scope); e != nil {
+			return e
+		}
+	}
+	resources, e := loadResources(startup, cfg)
+	if e != nil {
+		return e
+	}
+	if resources.Version == "" || !cfg.LocalTest && resources.Care == nil {
+		return command.ErrUnavailable
+	}
+	scanner, e := moderation.NewWhisperWorker(db, log, r.codec, r.gateway, r.gateway, moderation.WorkerConfig{Consumer: cfg.Worker.Consumer, AnalysisTimeout: cfg.Worker.AnalysisTimeout, Care: resources.Care, CrisisNotifier: r.gateway})
+	if e != nil {
+		return e
+	}
+	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, cfg.Worker.Consumer)
+	if e != nil {
+		return e
+	}
+	if check {
+		return nil
+	}
+	runners := []*workrunner.Worker{}
+	defer func() {
+		for i := len(runners) - 1; i >= 0; i-- {
+			if runners[i].Close() != nil {
+				err = command.ErrUnavailable
+			}
+		}
+	}()
+	for _, scanner := range []workrunner.Scanner{scanner, unlock} {
+		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Interval, cfg.OperationTimeout)
+		if e != nil {
+			return e
+		}
+		runners = append(runners, runner)
+	}
+	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.String("resource_version", resources.Version))
+	<-ctx.Done()
+	return nil
+}
+
+// RunWhisperPrivacy 按领域授权恢复全部删除意图；recoverOnly用于开放读取和外发前的显式恢复演练。
+// 任何供应商失败均保留processing，进程不把缺失供应商替换为成功。
+func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, recoverOnly bool, log *zap.Logger) (err error) {
+	if log == nil {
+		return command.ErrInvalid
+	}
+	defer finish(log, "privacy_run", time.Now(), &err)
+	if scope != "account" && scope != "evidence" {
+		return command.ErrInvalid
+	}
+	cfg, e := config.LoadWhispers(ctx, path, environment)
+	if e != nil {
+		return e
+	}
+	return runPrivacySettings(ctx, cfg, scope, recoverOnly, log, false)
+}
+
+func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	r, e := openResources(startup, cfg, log)
+	if e != nil {
+		return e
+	}
+	defer func() {
+		if r.close() != nil {
+			err = command.ErrUnavailable
+		}
+	}()
+	db, e := r.pool(startup)
+	if e != nil {
+		return e
+	}
+	pcfg := r.privacyConfig()
+	if scope == "evidence" {
+		pcfg.Key = cfg.EvidenceKey
+	}
+	service, e := privacy.New(db, r.journal, r.codec, r.gateway, log, pcfg)
+	if e != nil {
+		return e
+	}
+	if check {
+		return nil
+	}
+	if recoverOnly {
+		bounded, stop := context.WithTimeout(ctx, cfg.OperationTimeout)
+		defer stop()
+		ctx = bounded
+	}
+	after := ""
+	for {
+		next, e := service.Recover(ctx, after, 100, scope)
+		if e != nil {
+			return e
+		}
+		if next == "" {
+			break
+		}
+		after = next
+	}
+	log.Info("树洞隐私进程启动完成", zap.String("scope", scope), zap.Bool("recovery_only", recoverOnly), zap.String("result", "success"))
+	if !recoverOnly {
+		return service.Run(ctx, scope, cfg.Interval)
+	}
+	for {
+		if e = ctx.Err(); e != nil {
+			return e
+		}
+		processed, e := service.ProcessNext(ctx, scope)
+		if e != nil {
+			return e
+		}
+		if !processed {
+			var n int64
+			if e = db.WithContext(ctx).Model(&entity.DeletionJob{}).Where("scope=? AND phase<>'completed'", scope).Count(&n).Error; e != nil || n != 0 {
+				return command.ErrUnavailable
+			}
+			return r.recoveryGate(ctx, db, scope)
+		}
+	}
+}

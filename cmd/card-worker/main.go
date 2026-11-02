@@ -1,4 +1,4 @@
-// 开发学生卡工作入口仅允许隔离环境，扫描结论为模拟通过。
+// card-worker 保留原参数与信号边界，运行资源交由app管理。
 package main
 
 import (
@@ -7,41 +7,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"go.uber.org/zap"
-
-	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/devapp"
-	"github.com/calm195/liyuanci-backend-go/internal/platform"
+	"github.com/calm195/liyuanci-backend-go/internal/app"
 )
 
 func main() {
+	if run() != nil {
+		os.Exit(1)
+	}
+}
+func run() error {
 	path := flag.String("config", "", "私有应用YAML配置")
 	kind := flag.String("kind", "card", "执行工作职责")
 	flag.Parse()
-	app, loadErr := config.Load(*path)
-	if loadErr != nil || *kind != "card" {
-		os.Exit(1)
-	}
-	logger, err := platform.NewLogger("info")
-	if err != nil {
-		os.Exit(1)
-	}
-	start := time.Now()
-	cfg, err := devapp.Load(app.DevAppFile)
-	if err == nil {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		err = devapp.RunCardWorker(ctx, app.Environment, cfg, logger)
-		stop()
-	}
-	result := "success"
-	if err != nil {
-		result = "failure"
-	}
-	logger.Info("开发学生卡工作入口结束", zap.String("result", result), zap.Duration("duration", time.Since(start)))
-	_ = logger.Sync()
-	if err != nil {
-		os.Exit(1)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return app.RunWorker(ctx, app.WorkerOptions{ConfigFile: *path, Entry: "card", Kind: *kind})
 }
