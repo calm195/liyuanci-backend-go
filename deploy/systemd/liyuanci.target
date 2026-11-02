@@ -1,7 +1,0 @@
-[Unit]
-Description=Li Yuanci native production
-Requires=liyuanci-postgres.service liyuanci-redis.service liyuanci-business.target
-After=network-online.target
-
-[Install]
-WantedBy=multi-user.target

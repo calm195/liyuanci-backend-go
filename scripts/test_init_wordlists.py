@@ -1,5 +1,6 @@
 """词库显式初始化保留既有条目、完整快照及并发发布保护。"""
 import json
+import yaml_settings as yamlio
 from pathlib import Path
 import unittest
 
@@ -8,7 +9,7 @@ from init_wordlists import initialize
 
 class WordlistInitializationTests(unittest.TestCase):
     def test_merge_and_repeat_preserve_existing_versions(self):
-        seeds = json.loads((Path(__file__).resolve().parents[1] / 'configs/examples/moderation-wordlists.json').read_text())
+        seeds = yamlio.loads((Path(__file__).resolve().parents[1] / 'configs/wordlists.yaml').read_text())
         state = {kind: {'kind': kind, 'version': 3, 'effective_id': kind + '-old'} for kind in seeds}
         versions = {kind + '-old': {'entries': ['已有专属规则']} for kind in seeds}
         writes = []

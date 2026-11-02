@@ -1,8 +1,0 @@
-# 显式叠加启用规则；真实通知由独立外部配置提供。
-services:
-  grafana:
-    environment:
-      GF_UNIFIED_ALERTING_ENABLED: "true"
-      GF_UNIFIED_ALERTING_MIN_INTERVAL: 10s
-    volumes:
-      - ../../configs/observability/alerting/rules.json:/etc/grafana/provisioning/alerting/rules.json:ro

@@ -1,6 +1,0 @@
-[Unit]
-Description=Li Yuanci API and all five workers
-Requires=liyuanci-api.service liyuanci-card.service liyuanci-content.service liyuanci-whispers.service liyuanci-account.service liyuanci-evidence.service
-Wants=liyuanci-health.timer
-After=liyuanci-postgres.service liyuanci-redis.service
-PartOf=liyuanci.target

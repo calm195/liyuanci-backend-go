@@ -1,18 +1,26 @@
-.PHONY: run build test fmt fmt-check vet check tidy integration
+CONFIG ?= configs/development.yaml
+KIND ?= content
+ENVIRONMENT ?= development
+PACKAGES ?= ./...
+.PHONY: run build test fmt fmt-check vet check check-fast tidy configure check-config doctor migrate init worker wordlists integration
 run:
-	go run ./cmd/server
+	python3 scripts/manage.py run --config $(CONFIG)
+configure:
+	python3 scripts/manage.py configure --config $(CONFIG) --environment $(ENVIRONMENT)
+check-config:
+	python3 scripts/manage.py check --config $(CONFIG)
+doctor:
+	python3 scripts/manage.py doctor --config $(CONFIG)
+migrate:
+	python3 scripts/manage.py migrate --config $(CONFIG)
+init:
+	python3 scripts/manage.py init --config $(CONFIG)
+worker:
+	python3 scripts/manage.py worker --config $(CONFIG) --kind $(KIND)
+wordlists:
+	python3 scripts/init_wordlists.py --config $(CONFIG)
 build:
-	go build -trimpath -o bin/business-init ./cmd/business-init
-	go build -trimpath -o bin/business-worker ./cmd/business-worker
-	go build -trimpath -o bin/privacy-worker ./cmd/privacy-worker
-	go build -trimpath -o bin/content-worker ./cmd/content-worker
-	go build -trimpath -o bin/card-worker ./cmd/card-worker
-	go build -trimpath -o bin/server ./cmd/server
-	go build -trimpath -o bin/worker ./cmd/worker
-	go build -trimpath -o bin/probe ./cmd/probe
-	go build -trimpath -o bin/migrate ./cmd/migrate
-	go build -trimpath -o bin/admin-init ./cmd/admin-init
-	go build -trimpath -o bin/dev-init ./cmd/dev-init
+	go build -trimpath -o bin/ ./cmd/...
 test:
 	go test -race -cover ./...
 fmt:
@@ -22,44 +30,10 @@ fmt-check:
 vet:
 	go vet ./...
 check: fmt-check vet test
-tidy:
-	go mod tidy
-
-# 真实集成与单元检查分开，不因缺少Docker跳过后声称通过。
-integration:
-	docker compose -f deploy/compose/integration.yaml up -d --wait postgres recovery-postgres redis redis-business namesrv broker
-	docker compose -f deploy/compose/integration.yaml run --rm migrate
-	# 订阅前显式建立探针主题，不能依赖首次生产才自动创建。
-	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_foundation_probe_v1
-	docker compose -f deploy/compose/integration.yaml up -d --build --wait api worker
-	docker compose -f deploy/compose/integration.yaml run --rm probe
-	# 领域主题独立于探针；真实数据库、MQ和业务回执必须在同一隔离项目验证。
-	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_whisper_review_v1
-	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_whisper_unlock_v1
-	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_student_card_scan_v1
-	docker compose -f deploy/compose/integration.yaml exec -T broker sh mqadmin updateTopic -n namesrv:9876 -c DefaultCluster -t liyuanci_content_review_v1
-	docker compose -f deploy/compose/integration.yaml run --rm --build business-test
-
-# 本机隔离容器仅作PG/Redis测试依赖，生产仍由原生systemd启动。
-.PHONY: integration-native
-integration-native:
-	docker compose -f deploy/compose/native-integration.yaml up -d --wait postgres redis-business
-	docker compose -f deploy/compose/native-integration.yaml run --rm --build business-test
-
-# 日常迭代只验证相关包；交付前执行check，CI仍保留全量质量检查。
-.PHONY: check-fast
-PACKAGES ?= ./...
-DEV_ARGS ?=
 check-fast: fmt-check
 	go test $(PACKAGES)
-# 原生模式规则先于通用规则，兼容macOS自带GNU Make 3.81。
-dev-native-%:
-	python3 scripts/dev.py $* --native $(DEV_ARGS)
-dev-%:
-	python3 scripts/dev.py $* $(DEV_ARGS)
-
-# 显式合并并发布本地常见词库；不在普通启动中执行。
-.PHONY: dev-wordlists-init
-WORDLIST_ARGS ?=
-dev-wordlists-init:
-	python3 scripts/init_wordlists.py $(WORDLIST_ARGS)
+tidy:
+	go mod tidy
+# 显式临时原生PG/Redis集成；使用临时目录，结束后清理本轮测试数据。
+integration: build
+	python3 scripts/integration.py
