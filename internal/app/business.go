@@ -29,9 +29,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
-// BusinessAPI 复用树洞的正式供应商和恢复边界，拥有完整业务路由；各岗位在共用连接池上由领域授权隔离。
+// BusinessAPI 组合共享运行资源、树洞与完整业务服务；各岗位仍由领域授权隔离。
 type BusinessAPI struct {
-	*WhisperAPI
+	runtime    *apiRuntime
+	whispers   *whisperServices
 	Router     *gin.Engine
 	cfg        config.Business
 	gateway    *gateway.Business
@@ -44,20 +45,20 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		return nil, command.ErrInvalid
 	}
 	defer finish(log, "business_open", time.Now(), &err)
-	a, e := OpenWhispers(ctx, cfg.Runtime, client, log)
+	a, whispers, e := openAPIComponents(ctx, cfg.Runtime, client, log)
 	if e != nil {
 		return nil, e
 	}
 	defer func() {
 		if err != nil {
-			_ = a.Close()
+			_ = a.close()
 		}
 	}()
 	g, ok := a.r.gateway.(*gateway.Client)
 	if !ok {
 		return nil, command.ErrInvalid
 	}
-	b := &BusinessAPI{WhisperAPI: a, cfg: cfg, gateway: gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536)}
+	b := &BusinessAPI{runtime: a, whispers: whispers, cfg: cfg, gateway: gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536)}
 	student, e := a.r.pool(ctx)
 	if e != nil {
 		return nil, e
@@ -120,7 +121,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e = httpapi.RegisterAdmin(router, admin); e != nil {
 		return nil, e
 	}
-	if e = a.Register(router); e != nil {
+	if e = whispers.register(router); e != nil {
 		return nil, e
 	}
 	b.Router = router
@@ -129,13 +130,16 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 
 // Ready 检查结构、身份检索代次、正式资料和供应商能力，不以healthz替代业务就绪。
 func (b *BusinessAPI) Ready(ctx context.Context) error {
-	if e := b.WhisperAPI.Ready(ctx); e != nil {
+	if e := b.runtime.ready(ctx); e != nil {
 		return e
 	}
-	if e := b.r.rules(ctx, b.database); e != nil {
+	if e := b.whispers.ready(ctx); e != nil {
 		return e
 	}
-	if e := businessSchema(ctx, b.database); e != nil {
+	if e := b.runtime.r.rules(ctx, b.runtime.database); e != nil {
+		return e
+	}
+	if e := businessSchema(ctx, b.runtime.database); e != nil {
 		return e
 	}
 	if e := b.gateway.ReadyFor(ctx, "api"); e != nil {
@@ -149,7 +153,7 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 		return e
 	}
 	var reports []whisper.Item
-	if b.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").Scan(&reports).Error != nil || len(reports) != len(catalog.Catalog.Reports) {
+	if b.runtime.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").Scan(&reports).Error != nil || len(reports) != len(catalog.Catalog.Reports) {
 		return command.ErrUnavailable
 	}
 	for _, item := range catalog.Catalog.Reports {
@@ -159,6 +163,9 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Close 在请求排空后释放完整业务拥有的共享资源，不关闭借用的Redis。
+func (b *BusinessAPI) Close() error { return b.runtime.close() }
 
 func businessSchema(ctx context.Context, db *gorm.DB) error {
 	var ready bool

@@ -34,7 +34,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 			}
 		}
 	}
-	r, e := openResources(ctx, c.Runtime, log)
+	r, e := openRuntimeResources(ctx, c.Runtime, log)
 	if e != nil {
 		return e
 	}

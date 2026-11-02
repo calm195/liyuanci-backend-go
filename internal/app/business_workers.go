@@ -60,7 +60,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 	}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	r, e := openResources(startup, c.Runtime, log)
+	r, e := openRuntimeResources(startup, c.Runtime, log)
 	if e != nil {
 		return e
 	}

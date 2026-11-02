@@ -18,6 +18,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
@@ -354,5 +356,64 @@ func TestOptionalPrivacyAssembly(t *testing.T) {
 	}
 	if len(r.Routes()) != len(base.Routes())+2 {
 		t.Fatal("证据删除路由不完整")
+	}
+}
+
+// completeServices 使用不可调用的供应商和未连接数据库，验证完整构造不产生业务I/O。
+func completeServices(t *testing.T) (ServiceDependencies, ServiceConfig) {
+	d, cfg := dependencies(t)
+	d.WishDB, d.CrisisDB, d.PrivacyDB, d.EvidenceDeletionDB = d.StudentDB, d.StudentDB, d.StudentDB, d.StudentDB
+	d.DeletionJournal = deletionJournalStub{}
+	key := func(v byte) []byte { return bytes.Repeat([]byte{v}, 32) }
+	cfg.Wish = &wish.ServiceConfig{Command: cfg.Auth.Command, ReceiptKey: key(4), MaxStoryBytes: 65536}
+	cfg.Chat = &chat.Config{Command: cfg.Auth.Command, Key: key(5), MaxBodyBytes: 65536}
+	cfg.Moderation = &moderation.Config{Command: cfg.Auth.Command, CursorKey: key(6), MaxEntries: 100}
+	cfg.Safety = &safety.Config{Command: cfg.Auth.Command, Key: key(7), MaxTextBytes: 65536}
+	cfg.Crisis = &moderation.Config{Command: cfg.Auth.Command, CursorKey: key(8), MaxEntries: 100}
+	cfg.Privacy = &privacy.Config{Command: cfg.Auth.Command, Key: key(9), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	cfg.EvidenceDeletion = &privacy.Config{Command: cfg.Auth.Command, Key: key(10), ReceiptTTL: time.Hour, RetryDelay: time.Second}
+	cfg.Resources = &resourceplaza.Config{Command: cfg.Auth.Command, Key: key(11)}
+	return d, cfg
+}
+
+// TestCompleteServiceRoutes 覆盖身份、互动、治理与资料同时启用，以及晚期构造失败不泄露半套服务。
+func TestCompleteServiceRoutes(t *testing.T) {
+	d, cfg := completeServices(t)
+	r, err := newServiceRouter(d, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/me", "/api/v1/me/wishes", "/api/v1/me/conversations", "/api/v1/admin/crisis-cases", "/api/v1/resources"} {
+		response := httptest.NewRecorder()
+		r.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
+		if response.Code != 401 {
+			t.Fatalf("%s：%d", path, response.Code)
+		}
+	}
+	if cfg.Auth.Wishes || cfg.Auth.Safety || cfg.Auth.DeletionRequests {
+		t.Fatal("构造器修改了调用方配置")
+	}
+	for _, name := range []string{"resources", "safety", "privacy", "moderation", "crisis"} {
+		t.Run(name, func(t *testing.T) {
+			d, cfg := completeServices(t)
+			switch name {
+			case "resources":
+				cfg.Resources.Key = nil
+			case "safety":
+				cfg.Safety.Key = cfg.Auth.SessionKey
+			case "privacy":
+				cfg.Privacy.Key = cfg.Auth.SessionKey
+			case "moderation":
+				cfg.Moderation.CursorKey = cfg.Auth.SessionKey
+			case "crisis":
+				cfg.Crisis.CursorKey = cfg.Auth.SessionKey
+			}
+			if services, err := buildServices(d, cfg); err == nil || services != nil {
+				t.Fatal("晚期失败返回半套服务", err)
+			}
+			if router, err := newServiceRouter(d, cfg); err == nil || router != nil {
+				t.Fatal("晚期失败返回半套路由", err)
+			}
+		})
 	}
 }

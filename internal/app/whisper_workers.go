@@ -32,7 +32,7 @@ func RunWhisperContent(ctx context.Context, path, environment string, log *zap.L
 func runContentSettings(ctx context.Context, cfg WhisperSettings, environment string, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	r, e := openResources(startup, cfg, log)
+	r, e := openRuntimeResources(startup, cfg, log)
 	if e != nil {
 		return e
 	}
@@ -114,7 +114,7 @@ func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, rec
 func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	r, e := openResources(startup, cfg, log)
+	r, e := openRuntimeResources(startup, cfg, log)
 	if e != nil {
 		return e
 	}

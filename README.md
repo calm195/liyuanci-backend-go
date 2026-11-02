@@ -151,6 +151,8 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；恢复日志与探针不参与业务AutoMigrate。新增表同步模型、清单、版本SQL和中文对象注释。
 
+应用装配从[services.go](internal/app/services.go)读取显式依赖与配置，按身份、互动、治理分别构造服务，再由[routes.go](internal/app/routes.go)注册HTTP。树洞的构造与注册分别位于[services_whisper.go](internal/app/services_whisper.go)和[routes_whisper.go](internal/app/routes_whisper.go)。[api_runtime.go](internal/app/api_runtime.go)统一API结构检查、共享依赖和两域恢复准入，完整业务与独立树洞入口组合这些组件；API、worker和初始化共用[resources.go](internal/app/resources.go)的资源构造规则。
+
 宿主拥有自己打开的数据库、Redis和供应商资源，借用服务不得自行关闭；停止时先排空请求和后台任务，再逆序释放。普通启动不执行DDL。命令参数、HTTP契约、YAML字段与相对路径规则、密钥派生标签、任务协议、删除账本和恢复门禁属于兼容边界。
 
 相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、resourceplaza、moderation、migration四类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。

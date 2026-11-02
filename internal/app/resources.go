@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -35,16 +36,18 @@ type recoveryJournal interface {
 	AllIntents(context.Context, string, int) ([]privacy.Intent, error)
 }
 
-// resources 拥有本次装配的业务池、网关和加密账本；不拥有调用方传入的Redis。
+// runtimeResources 拥有本次装配的业务池、网关和加密账本；不拥有调用方传入的Redis。
 // API与各类worker分别创建资源，不在进程间共享可变客户端。
-type resources struct {
-	cfg      WhisperSettings
-	log      *zap.Logger
-	gateway  provider
-	codec    *securedata.Codec
-	journal  recoveryJournal
-	closes   []func() error
-	database *gorm.DB
+type runtimeResources struct {
+	closeOnce sync.Once
+	closeErr  error
+	cfg       WhisperSettings
+	log       *zap.Logger
+	gateway   provider
+	codec     *securedata.Codec
+	journal   recoveryJournal
+	closes    []func() error
+	database  *gorm.DB
 }
 
 func finish(log *zap.Logger, op string, start time.Time, err *error) {
@@ -52,23 +55,28 @@ func finish(log *zap.Logger, op string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	log.Info("树洞运行操作完成", zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	log.Info("应用运行操作完成", zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start)))
 }
 
-// close 必须在HTTP请求或扫描协程结束后调用，逆序释放已打开的资源。
-func (r *resources) close() (err error) {
+// close 必须在HTTP请求或扫描协程结束后调用，逆序释放全部资源，即使其中一项失败。
+// 失败清理与宿主停止可重复调用；释放只执行一次，并保留首次关闭结果。
+func (r *runtimeResources) close() (err error) {
 	defer finish(r.log, "resources_close", time.Now(), &err)
-	for i := len(r.closes) - 1; i >= 0; i-- {
-		if r.closes[i]() != nil {
-			err = command.ErrUnavailable
+	r.closeOnce.Do(func() {
+		for i := len(r.closes) - 1; i >= 0; i-- {
+			if r.closes[i]() != nil {
+				r.closeErr = command.ErrUnavailable
+			}
 		}
-	}
-	r.gateway.Close()
-	return
+		if r.gateway != nil {
+			r.gateway.Close()
+		}
+	})
+	return r.closeErr
 }
 
 // pool 在当前宿主内复用唯一业务池；领域授权仍在每次业务调用中执行。
-func (r *resources) pool(ctx context.Context) (*gorm.DB, error) {
+func (r *runtimeResources) pool(ctx context.Context) (*gorm.DB, error) {
 	if r.database != nil {
 		return r.database, nil
 	}
@@ -81,13 +89,13 @@ func (r *resources) pool(ctx context.Context) (*gorm.DB, error) {
 	return db, nil
 }
 
-func openResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (out *resources, err error) {
+func openRuntimeResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (out *runtimeResources, err error) {
 	if log == nil || !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) || cfg.ProviderTimeout <= 0 {
 		return nil, command.ErrInvalid
 	}
 	defer finish(log, "resources_open", time.Now(), &err)
 	if cfg.LocalTest {
-		r := &resources{cfg: cfg, log: log, gateway: local.WhisperProvider{Logger: log}}
+		r := &runtimeResources{cfg: cfg, log: log, gateway: local.WhisperProvider{Logger: log}}
 		r.codec, err = securedata.New(local.Keys{Key: cfg.WrapKey, Logger: log}, log)
 		if err != nil {
 			return nil, err
@@ -100,14 +108,14 @@ func openResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (o
 		if err != nil {
 			return nil, err
 		}
-		log.Info("本地树洞依赖装配完成", zap.Bool("manual_review", true), zap.Bool("external_gateway", false), zap.String("result", "success"))
+		log.Info("本地运行依赖装配完成", zap.Bool("manual_review", true), zap.Bool("external_gateway", false), zap.String("result", "success"))
 		return r, nil
 	}
 	g, e := gateway.New(gatewayConfig(cfg), log)
 	if e != nil {
 		return nil, e
 	}
-	r := &resources{cfg: cfg, log: log, gateway: g}
+	r := &runtimeResources{cfg: cfg, log: log, gateway: g}
 	defer func() {
 		if err != nil {
 			_ = r.close()
@@ -151,7 +159,7 @@ func openResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (o
 	}
 	return r, nil
 }
-func (r *resources) check(ctx context.Context, db *gorm.DB) error {
+func (r *runtimeResources) check(ctx context.Context, db *gorm.DB) error {
 	var schema bool
 	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.resource_feedback') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND to_regclass('public.interaction_block_policy') IS NOT NULL AND to_regclass('public.whisper_capsules') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whisper_notification_refs') AND attname='suppressed' AND NOT attisdropped) AND to_regprocedure('public.clear_held_whisper_comment(bytea,uuid,jsonb)') IS NOT NULL`).Scan(&schema).Error != nil || !schema {
 		return command.ErrUnavailable
@@ -167,7 +175,7 @@ func (r *resources) check(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-func (r *resources) rules(ctx context.Context, db *gorm.DB) error {
+func (r *runtimeResources) rules(ctx context.Context, db *gorm.DB) error {
 	var count int64
 	// head代次用于并发控制，快照版本用于资源状态；发布后两者无需相等。
 	// 准入只接受三类生效指针实际引用的已发布快照，不接受草案或归档版本。
@@ -179,7 +187,7 @@ func (r *resources) rules(ctx context.Context, db *gorm.DB) error {
 
 // recoveryGate 在读取或外发开启前扫描包含已确认项的独立日志，任何恢复目标仍存在则拒绝启动。
 // 由专用隐私进程先恢复屏障并完成重删；普通删除中断后的冷启动也采用同一失败关闭边界。
-func (r *resources) recoveryGate(ctx context.Context, db *gorm.DB, scope string) error {
+func (r *runtimeResources) recoveryGate(ctx context.Context, db *gorm.DB, scope string) error {
 	after := ""
 	for {
 		intents, e := r.journal.AllIntents(ctx, after, 100)
@@ -208,6 +216,6 @@ func (r *resources) recoveryGate(ctx context.Context, db *gorm.DB, scope string)
 		}
 	}
 }
-func (r *resources) privacyConfig() privacy.Config {
+func (r *runtimeResources) privacyConfig() privacy.Config {
 	return privacy.Config{Command: command.Config(r.cfg.Command), Key: r.cfg.PrivacyKey, ReceiptTTL: r.cfg.Command.ReceiptTTL, RetryDelay: r.cfg.Interval, Redactor: r.gateway}
 }

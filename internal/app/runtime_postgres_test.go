@@ -198,14 +198,14 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 2, Status: "published"}).Error)
 		must(root.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,3,?) ON CONFLICT(kind) DO UPDATE SET version=EXCLUDED.version,effective_id=EXCLUDED.effective_id", kind, id).Error)
 	}
-	must((&resources{}).rules(ctx, root))
+	must((&runtimeResources{}).rules(ctx, root))
 	// 生效指针仍在也不能接受归档快照；回滚保持后续真实进程的已发布环境。
 	func() {
 		tx := root.Begin()
 		must(tx.Error)
 		defer tx.Rollback()
 		must(tx.Model(&entity.WordlistVersion{}).Where("type=?", "crisis").Update("status", "archived").Error)
-		if err := (&resources{}).rules(ctx, tx); err != command.ErrUnavailable {
+		if err := (&runtimeResources{}).rules(ctx, tx); err != command.ErrUnavailable {
 			t.Fatal("非发布快照必须阻断树洞启动", err)
 		}
 	}()
