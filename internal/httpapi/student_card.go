@@ -11,7 +11,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 )
 
 // StudentCards 是显式注入的学生卡服务，不替代学生会话与人工认证。

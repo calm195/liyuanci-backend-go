@@ -10,8 +10,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 )
 
 // developmentWorkerSessions 禁止工作进程误用上传入口；持久工作按数据库账号状态重新授权。
