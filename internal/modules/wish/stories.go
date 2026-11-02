@@ -18,6 +18,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -278,7 +279,7 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 		if e = db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{"state": "fulfilled", "current_story_version": nextVersion, "version": gorm.Expr("version+1")}).Error; e != nil {
 			return "", e
 		}
-		if e = durable.Append(ctx, db, s.policy.logger, ReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: nextVersion}); e != nil {
+		if e = durable.Append(ctx, db, s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: nextVersion}); e != nil {
 			return "", e
 		}
 		return id, nil

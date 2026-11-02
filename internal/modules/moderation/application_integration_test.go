@@ -747,6 +747,6 @@ func TestApplicationMatching(t *testing.T) {
 		t.Fatal("数据库对象缺中文注释")
 	}
 	if !t.Failed() {
-		t.Log("T019真实PG/HTTP/MQ应愿审核、唯一匹配、回退与B01通过；供应商、身份及已实现起点均合成")
+		t.Log("T019真实PG/HTTP/数据库持久任务应愿审核、唯一匹配、回退与B01通过；供应商、身份及已实现起点均合成")
 	}
 }

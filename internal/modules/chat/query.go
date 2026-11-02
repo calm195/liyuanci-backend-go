@@ -15,7 +15,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 )
 
 // Query 使用主体及用途绑定的游标；消息增量与列表游标不能同时提供。
@@ -58,10 +58,10 @@ type MessagesPage struct {
 
 // Status 是本人消息的当前结果，取消时不暴露另一方受罚详情。
 type Status struct {
-	MessageID    string             `json:"message_id"`
-	Status       string             `json:"status"`
-	DeliverySeq  *int64             `json:"delivery_seq"`
-	ReviewResult *wish.ReviewResult `json:"review_result,omitempty"`
+	MessageID    string                `json:"message_id"`
+	Status       string                `json:"status"`
+	DeliverySeq  *int64                `json:"delivery_seq"`
+	ReviewResult *contentreview.Result `json:"review_result,omitempty"`
 }
 
 // Notification 是通用进展提示，没有私聊正文或作者身份。
@@ -306,7 +306,7 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 			if t.Status == "approved" || t.Status == "rejected" {
 				decision = t.Status
 			}
-			out.ReviewResult = &wish.ReviewResult{Decision: decision, ContentVersion: m.ContentVersion}
+			out.ReviewResult = &contentreview.Result{Decision: decision, ContentVersion: m.ContentVersion}
 			if decision == "rejected" {
 				out.ReviewResult.Reason = t.Reason
 				out.ReviewResult.RevisionSuggestion = t.RevisionSuggestion

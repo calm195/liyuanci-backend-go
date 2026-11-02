@@ -17,6 +17,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 )
 
 // ApplicationInput 保存留言及用户实际看到的心愿内容版本，不接受申请人或状态。
@@ -27,13 +28,13 @@ type ApplicationInput struct {
 
 // ApplicationResult 按当前授权返回本人状态或许愿人可处理的最小已审投影。
 type ApplicationResult struct {
-	ID           string        `json:"id"`
-	Version      int64         `json:"version"`
-	WishID       string        `json:"wish_id"`
-	Status       string        `json:"status"`
-	ReviewResult *ReviewResult `json:"review_result,omitempty"`
-	Applicant    *PublicAuthor `json:"applicant,omitempty"`
-	Message      *string       `json:"message,omitempty"`
+	ID           string                `json:"id"`
+	Version      int64                 `json:"version"`
+	WishID       string                `json:"wish_id"`
+	Status       string                `json:"status"`
+	ReviewResult *contentreview.Result `json:"review_result,omitempty"`
+	Applicant    *PublicAuthor         `json:"applicant,omitempty"`
+	Message      *string               `json:"message,omitempty"`
 }
 
 // ApplicationPage 游标绑定主体、用途、心愿与状态筛选。
@@ -164,7 +165,7 @@ func (s *Service) Apply(ctx context.Context, token, key, rid, wishID string, in 
 		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).Where("id=?", id).Update("review_task_id", taskID).Error; e != nil {
 			return "", e
 		}
-		if e = durable.Append(ctx, tx.DB(), s.policy.logger, ReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
+		if e = durable.Append(ctx, tx.DB(), s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
 			return "", e
 		}
 		return id, nil

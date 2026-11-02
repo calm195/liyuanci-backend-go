@@ -17,6 +17,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
@@ -185,7 +186,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 		}
 		w.logger.Info("心愿相关内容扫描完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("applied", out.Applied), zap.Bool("cancelled", out.Cancelled), zap.Bool("replayed", out.Replayed))
 	}()
-	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.EventType != wish.ReviewRoute().EventType || event.AggregateVersion < 1 || event.CreatedAt.IsZero() {
+	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.EventType != contentreview.Route().EventType || event.AggregateVersion < 1 || event.CreatedAt.IsZero() {
 		return out, durable.ErrInvalid
 	}
 	// 分析及密钥调用均受总预算约束，直接库调用也不能因无上层截止时间而无限等待。
@@ -207,7 +208,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 		if n != 1 {
 			return nil
 		}
-		if e := db.Where("id=? AND kind=? AND target_kind=? AND target_id=?", event.CorrelationID, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, event.AggregateID).Take(&work).Error; e != nil {
+		if e := db.Where("id=? AND kind=? AND target_kind=? AND target_id=?", event.CorrelationID, contentreview.Route().Kind, contentreview.Route().TargetKind, event.AggregateID).Take(&work).Error; e != nil {
 			return e
 		}
 		valid = true
@@ -306,7 +307,7 @@ func (w *Worker) Consume(ctx context.Context, event durable.Event) (out durable.
 	return consumer.Consume(ctx, event)
 }
 func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare error) (*durable.Consumer, error) {
-	return durable.NewConsumer(w.db, w.logger, durable.ConsumerDefinition{ConsumerKind: "wish_review.scan", Route: wish.ReviewRoute(), Discover: func(ctx context.Context, db *gorm.DB, work durable.Work) (command.Discovery, error) {
+	return durable.NewConsumer(w.db, w.logger, durable.ConsumerDefinition{ConsumerKind: "wish_review.scan", Route: contentreview.Route(), Discover: func(ctx context.Context, db *gorm.DB, work durable.Work) (command.Discovery, error) {
 		return discover(ctx, db, work.TargetID)
 	}, Apply: func(ctx context.Context, tx *command.Tx, work durable.Work) (durable.Decision, error) {
 		db := tx.DB().WithContext(ctx)
@@ -443,7 +444,7 @@ func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err 
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
 	var events []durable.Event
-	err = w.db.WithContext(bounded).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE t.id=w.target_id AND t.privacy_recheck AND c.kind='story' AND EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='wish' AND h.target_id=c.entity_id AND h.status='active')) ORDER BY w.next_at,w.id LIMIT 1`, wish.ReviewRoute().Kind, wish.ReviewRoute().TargetKind, wish.ReviewRoute().EventType).Scan(&events).Error
+	err = w.db.WithContext(bounded).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE t.id=w.target_id AND t.privacy_recheck AND c.kind='story' AND EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='wish' AND h.target_id=c.entity_id AND h.status='active')) ORDER BY w.next_at,w.id LIMIT 1`, contentreview.Route().Kind, contentreview.Route().TargetKind, contentreview.Route().EventType).Scan(&events).Error
 	cancel()
 	if err != nil {
 		return durable.Consumption{}, durable.ErrUnavailable

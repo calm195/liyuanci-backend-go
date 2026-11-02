@@ -28,6 +28,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
@@ -609,7 +610,7 @@ func TestModerationCore(t *testing.T) {
 	// 下列生命周期用例使用同一真实运行权限与持久任务；供应商保持合成。
 	t.Run("数据库补偿分析预算独立", func(t *testing.T) {
 		// 隔离本用例待处理目标，避免历史失败夹具占用有界的一条候选。
-		must(root.Model(&entity.WorkItem{}).Where("kind=? AND status IN ?", wish.ReviewRoute().Kind, []string{"pending", "retry_wait", "leased"}).Update("next_at", time.Now().Add(time.Hour)).Error)
+		must(root.Model(&entity.WorkItem{}).Where("kind=? AND status IN ?", contentreview.Route().Kind, []string{"pending", "retry_wait", "leased"}).Update("next_at", time.Now().Add(time.Hour)).Error)
 		draft, event := submit("普通命中 较慢合成分析")
 		provider.set(false, func() { time.Sleep(700 * time.Millisecond) })
 		defer provider.set(false, nil)

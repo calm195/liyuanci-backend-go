@@ -1,4 +1,5 @@
-// Package command 提供数据库权威的短事务命令入口，不负责 HTTP 会话签发或具体业务规则。
+// Package command 提供项目共享的短事务业务执行协议：当前授权、跨域锁序和幂等回执。
+// 稳定错误与资源白名单由多个模块及HTTP边界共同使用，保持兼容；具体业务状态变化由注入回调负责。
 package command
 
 import (

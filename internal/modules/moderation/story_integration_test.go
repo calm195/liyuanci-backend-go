@@ -777,6 +777,6 @@ func TestStorySharing(t *testing.T) {
 		t.Fatal("数据库对象注释缺失")
 	}
 	if !t.Failed() {
-		t.Log("T023真实PG/HTTP/MQ完成、还愿与分享通过；身份、密钥、分析器及注销入口为合成")
+		t.Log("T023真实PG/HTTP/数据库持久任务完成、还愿与分享通过；身份、密钥、分析器及注销入口为合成")
 	}
 }

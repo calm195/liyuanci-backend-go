@@ -12,6 +12,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -229,5 +230,5 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 	if e = tx.DB().WithContext(ctx).Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", a.row.ID, next.ContentVersion).Update("review_task_id", taskID).Error; e != nil {
 		return e
 	}
-	return durable.Append(ctx, tx.DB(), s.policy.logger, ReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: next.ContentVersion})
+	return durable.Append(ctx, tx.DB(), s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: next.ContentVersion})
 }

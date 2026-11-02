@@ -19,7 +19,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -202,7 +202,7 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 			return "", e
 		}
 		// 消息先写入时审核任务尚不存在；外键使用延迟约束以维持同一原子提交。
-		if e = durable.Append(ctx, db, s.logger, wish.ReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
+		if e = durable.Append(ctx, db, s.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
 			return "", e
 		}
 		return messageID, nil

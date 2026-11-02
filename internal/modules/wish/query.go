@@ -16,33 +16,26 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
-
-// ReviewResult 仅描述当前送审轮次，不把审核通过当成业务上架。
-type ReviewResult struct {
-	Decision           string  `json:"decision"`
-	ContentVersion     int64   `json:"content_version"`
-	Reason             *string `json:"reason,omitempty"`
-	RevisionSuggestion *string `json:"revision_suggestion,omitempty"`
-}
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
 	// PeerDeleted只提供通用提示，不返回原应愿人的账号或身份。
-	PeerDeleted           bool           `json:"peer_deleted,omitempty"`
-	StoryReviewResult     *ReviewResult  `json:"story_review_result,omitempty"`
-	ID                    string         `json:"id"`
-	Version               int64          `json:"version"`
-	ContentVersion        int64          `json:"content_version"`
-	State                 State          `json:"current_state"`
-	AllowedActions        []string       `json:"allowed_actions"`
-	ExpiresAt             *time.Time     `json:"expires_at"`
-	PrivacyReviewRequired bool           `json:"privacy_review_required,omitempty"`
-	OwnContent            *ContentInput  `json:"own_content,omitempty"`
-	Public                *PublicContent `json:"public,omitempty"`
-	Participant           *PublicContent `json:"participant,omitempty"`
-	ReviewResult          *ReviewResult  `json:"review_result,omitempty"`
+	PeerDeleted           bool                  `json:"peer_deleted,omitempty"`
+	StoryReviewResult     *contentreview.Result `json:"story_review_result,omitempty"`
+	ID                    string                `json:"id"`
+	Version               int64                 `json:"version"`
+	ContentVersion        int64                 `json:"content_version"`
+	State                 State                 `json:"current_state"`
+	AllowedActions        []string              `json:"allowed_actions"`
+	ExpiresAt             *time.Time            `json:"expires_at"`
+	PrivacyReviewRequired bool                  `json:"privacy_review_required,omitempty"`
+	OwnContent            *ContentInput         `json:"own_content,omitempty"`
+	Public                *PublicContent        `json:"public,omitempty"`
+	Participant           *PublicContent        `json:"participant,omitempty"`
+	ReviewResult          *contentreview.Result `json:"review_result,omitempty"`
 }
 
 // PublicAuthor 仅含公开账号标识、昵称和当前允许的已审标签。
@@ -218,7 +211,7 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		if a.task.Status == "approved" || a.task.Status == "rejected" {
 			decision = a.task.Status
 		}
-		out.ReviewResult = &ReviewResult{Decision: decision, ContentVersion: a.content.ContentVersion}
+		out.ReviewResult = &contentreview.Result{Decision: decision, ContentVersion: a.content.ContentVersion}
 		if decision == "rejected" {
 			out.ReviewResult.Reason = a.task.Reason
 			out.ReviewResult.RevisionSuggestion = a.task.RevisionSuggestion
@@ -243,7 +236,7 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 			if t.Status == "approved" || t.Status == "rejected" {
 				decision = t.Status
 			}
-			out.StoryReviewResult = &ReviewResult{Decision: decision, ContentVersion: v.StoryVersion}
+			out.StoryReviewResult = &contentreview.Result{Decision: decision, ContentVersion: v.StoryVersion}
 			if decision == "rejected" {
 				out.StoryReviewResult.Reason = t.Reason
 				out.StoryReviewResult.RevisionSuggestion = t.RevisionSuggestion

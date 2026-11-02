@@ -9,6 +9,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 )
 
 func (s *Service) applicationResult(ctx context.Context, db *gorm.DB, row entity.Application, now time.Time, ownerView bool) (out ApplicationResult, err error) {
@@ -33,7 +34,7 @@ func (s *Service) applicationResult(ctx context.Context, db *gorm.DB, row entity
 			decision = task.Status
 		}
 		if !ownerView {
-			out.ReviewResult = &ReviewResult{Decision: decision, ContentVersion: row.ContentVersion}
+			out.ReviewResult = &contentreview.Result{Decision: decision, ContentVersion: row.ContentVersion}
 			if decision == "rejected" {
 				out.ReviewResult.Reason = task.Reason
 				out.ReviewResult.RevisionSuggestion = task.RevisionSuggestion

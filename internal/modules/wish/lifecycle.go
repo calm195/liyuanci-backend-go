@@ -13,6 +13,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -21,15 +22,6 @@ type UpdateInput struct {
 	ContentInput
 	ExpectedVersion int64 `json:"expected_version"`
 	RefreshExpiry   bool  `json:"refresh_expiry"`
-}
-
-// ReviewRoute 返回固定的审核工作路由，消费者必须复核任务、版本和当前授权，不能直接信任唤醒。
-func ReviewRoute() durable.Route {
-	return durable.Route{
-		Kind:       "wish_review",
-		TargetKind: "moderation_task",
-		EventType:  "wish.review_requested",
-	}
 }
 
 func validWishID(id string) bool {
@@ -206,7 +198,7 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 				if e = tx.DB().WithContext(ctx).Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", id, a.content.ContentVersion).Updates(map[string]any{"review_task_id": taskID, "moderation_status": "pending", "public_body": nil, "identity_tags": json.RawMessage(`{}`), "school_related": nil, "school_detection_state": "pending", "school_detection_version": "pending"}).Error; e != nil {
 					return "", e
 				}
-				if e = durable.Append(ctx, tx.DB(), s.policy.logger, ReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: a.content.ContentVersion}); e != nil {
+				if e = durable.Append(ctx, tx.DB(), s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: a.content.ContentVersion}); e != nil {
 					return "", e
 				}
 			}

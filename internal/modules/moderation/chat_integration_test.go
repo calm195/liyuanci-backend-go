@@ -28,7 +28,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-// TestChatDelivery 覆盖T021、REQ-006/007/015/018和AR-001的真实事务、HTTP与MQ。
+// TestChatDelivery 覆盖T021、REQ-006/007/015/018和AR-001的真实事务、HTTP与数据库持久任务。
 // 身份、密钥、词库及文本分析均合成；已实现起点由夹具准备，不宣称完成T023。
 func TestChatDelivery(t *testing.T) {
 	dsn := testconfig.Value("moderation_test_dsn")
@@ -672,7 +672,7 @@ func TestChatDelivery(t *testing.T) {
 		t.Fatal("数据库对象注释缺失")
 	}
 	if !t.Failed() {
-		t.Log("T021真实PG/HTTP/MQ聊天、通知与最终送达序号通过；身份、密钥、分类器及后续状态入口为合成")
+		t.Log("T021真实PG/HTTP/数据库持久任务聊天、通知与最终送达序号通过；身份、密钥、分类器及后续状态入口为合成")
 	}
 }
 

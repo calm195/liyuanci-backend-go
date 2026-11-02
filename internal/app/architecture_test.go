@@ -14,13 +14,14 @@ import (
 // allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
 // 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
 var allowedInternalImports = map[string][]string{
-	"adapters/gateway":    {"execution/command", "modules/moderation", "modules/privacy", "modules/whisper", "modules/wish"},
-	"adapters/local":      {"execution/command", "modules/moderation", "modules/privacy", "platform/securedata", "modules/whisper", "modules/wish"},
-	"modules/adminauth":   {"execution/command", "entity"},
-	"app":                 {"adapters/gateway", "adapters/local", "modules/adminauth", "modules/blockpolicy", "modules/chat", "execution/command", "config", "execution/durable", "entity", "httpapi", "modules/identity", "migration", "modules/moderation", "platform", "adapters/redis/whisperrate", "modules/privacy", "modules/resourceplaza", "modules/safety", "platform/securedata", "modules/studentauth", "modules/studentcard", "modules/verification", "modules/whisper", "modules/wish", "execution/workrunner", "platform/yamlconfig"},
-	"modules/blockpolicy": {"execution/command"},
-	// 聊天借用心愿审核路由与结果投影，后续按实际职责收敛。
-	"modules/chat":      {"execution/command", "execution/durable", "entity", "platform/securedata", "modules/wish"},
+	"modules/contentreview": {"execution/durable"},
+	"adapters/gateway":      {"execution/command", "modules/moderation", "modules/privacy", "modules/whisper", "modules/wish"},
+	"adapters/local":        {"execution/command", "modules/moderation", "modules/privacy", "platform/securedata", "modules/whisper", "modules/wish"},
+	"modules/adminauth":     {"execution/command", "entity"},
+	"app":                   {"adapters/gateway", "adapters/local", "modules/adminauth", "modules/blockpolicy", "modules/chat", "execution/command", "config", "execution/durable", "entity", "httpapi", "modules/identity", "migration", "modules/moderation", "platform", "adapters/redis/whisperrate", "modules/privacy", "modules/resourceplaza", "modules/safety", "platform/securedata", "modules/studentauth", "modules/studentcard", "modules/verification", "modules/whisper", "modules/wish", "execution/workrunner", "platform/yamlconfig"},
+	"modules/blockpolicy":   {"execution/command"},
+	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
+	"modules/chat":      {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
 	"execution/command": {"entity"},
 	"config":            {"platform/securedata", "platform/yamlconfig"},
 	"execution/durable": {"execution/command", "entity"},
@@ -29,7 +30,7 @@ var allowedInternalImports = map[string][]string{
 	"modules/identity":  {"entity", "platform/securedata"},
 	"migration":         {"entity"},
 	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
-	"modules/moderation":         {"modules/chat", "execution/command", "execution/durable", "entity", "modules/safety", "platform/securedata", "modules/whisper", "modules/wish"},
+	"modules/moderation":         {"entity", "execution/command", "execution/durable", "modules/chat", "modules/contentreview", "modules/safety", "modules/whisper", "modules/wish", "platform/securedata"},
 	"platform":                   {"execution/command", "config"},
 	"adapters/redis/whisperrate": {"execution/command", "modules/whisper"},
 	// 删除与脱敏需复核心愿故事及其隐私屏障。
@@ -47,7 +48,7 @@ var allowedInternalImports = map[string][]string{
 	"modules/verification": {"execution/command", "entity", "modules/identity", "platform/securedata"},
 	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
 	"modules/whisper":      {"modules/blockpolicy", "execution/command", "execution/durable", "entity", "modules/safety", "platform/securedata"},
-	"modules/wish":         {"execution/command", "execution/durable", "entity", "platform/securedata"},
+	"modules/wish":         {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
 	"execution/workrunner": {"execution/durable"},
 	"platform/yamlconfig":  {},
 }
@@ -118,7 +119,9 @@ func TestDependencyPolicy(t *testing.T) {
 		{"modules/wish", "httpapi", false},
 		{"modules/wish", "adapters/gateway", false},
 		{"modules/wish", "modules/chat", false},
-		{"modules/chat", "modules/wish", true},
+		{"modules/chat", "modules/wish", false},
+		{"modules/chat", "modules/contentreview", true},
+		{"modules/contentreview", "modules/moderation", false},
 		{"execution/durable", "modules/wish", false},
 		{"httpapi", "config", false},
 		{"app", "testconfig", false},
