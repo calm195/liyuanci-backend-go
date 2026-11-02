@@ -8,6 +8,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
@@ -62,11 +63,11 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 	if resources.Version == "" || !cfg.LocalTest && resources.Care == nil {
 		return command.ErrUnavailable
 	}
-	scanner, e := moderation.NewWhisperWorker(db, log, r.codec, r.gateway, r.gateway, moderation.WorkerConfig{Consumer: cfg.Worker.Consumer, AnalysisTimeout: cfg.Worker.AnalysisTimeout, Care: resources.Care, CrisisNotifier: r.gateway})
+	scanner, e := moderation.NewWhisperWorker(db, log, r.codec, r.gateway, r.gateway, moderation.WorkerConfig{Consumer: durable.ConsumerConfig(cfg.Worker.Consumer), AnalysisTimeout: cfg.Worker.AnalysisTimeout, Care: resources.Care, CrisisNotifier: r.gateway})
 	if e != nil {
 		return e
 	}
-	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, cfg.Worker.Consumer)
+	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, durable.ConsumerConfig(cfg.Worker.Consumer))
 	if e != nil {
 		return e
 	}

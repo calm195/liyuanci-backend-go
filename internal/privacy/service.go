@@ -64,9 +64,7 @@ type Service struct {
 
 // DeriveKey 为删除回执及命令摘要派生独立用途密钥。
 func DeriveKey(root []byte) []byte {
-	h := hmac.New(sha256.New, root)
-	h.Write([]byte("privacy.receipt.v1"))
-	return h.Sum(nil)
+	return securedata.PrivacyReceiptKey(root)
 }
 
 // New 显式构造服务，缺失独立日志拒绝启用，缺失清理适配器允许受理但保持processing。

@@ -25,14 +25,17 @@ func CheckBusinessWorkerConfig(c config.Business, environment, kind string) erro
 	return nil
 }
 
+// workerSessions 禁止正式扫描进程借用学生上传入口，持久任务仍按领域授权。
 type workerSessions struct{}
 
+// Current 始终拒绝交互会话，避免工作进程被误接到学生请求链。
 func (workerSessions) Current(context.Context, string, string) (studentauth.Me, error) {
 	return studentauth.Me{}, command.ErrForbidden
 }
 
 type cardScan struct{ *studentcard.Service }
 
+// ProcessNext 将学生卡的全库到期扫描适配为统一任务循环，不指定外部任务ID。
 func (s cardScan) ProcessNext(ctx context.Context) (durable.Consumption, error) {
 	return s.Service.ProcessNext(ctx, "")
 }
@@ -104,7 +107,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 		if e != nil {
 			return e
 		}
-		scanner, e = moderation.NewWorker(db, log, r.codec, b, moderation.WorkerConfig{Consumer: c.Runtime.Worker.Consumer, AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout, Care: catalog.Care, CrisisNotifier: b, MessageAnalyzer: b})
+		scanner, e = moderation.NewWorker(db, log, r.codec, b, moderation.WorkerConfig{Consumer: durable.ConsumerConfig(c.Runtime.Worker.Consumer), AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout, Care: catalog.Care, CrisisNotifier: b, MessageAnalyzer: b})
 		if e != nil {
 			return e
 		}

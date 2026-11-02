@@ -94,6 +94,7 @@ type privateObject struct {
 	data []byte
 }
 
+// Close 清除当前对象的响应缓冲，调用后不能继续读取该版本。
 func (o *privateObject) Close() error { clear(o.data); o.Reader.Reset(nil); return nil }
 
 // Scan 要求供应商返回明确结论与检测版本，缺字段不能视作通过。

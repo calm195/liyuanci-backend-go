@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 )
 
 // Business 是完整业务宿主的显式配置；不接受开发适配，按进程校验所需身份与凭据。
@@ -44,20 +42,20 @@ func LoadBusiness(ctx context.Context, path, environment, process string) (cfg B
 // ValidateBusiness 按用途校验配置，生产不得借用本地密钥、对象或学校规则。
 func ValidateBusiness(c Business, environment, process string) error {
 	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) || c.Runtime.LocalTest || len(c.Runtime.WrapKey) > 0 || len(c.Runtime.RecoveryWrapKey) > 0 || c.Runtime.Contact != "" {
-		return command.ErrInvalid
+		return ErrInvalid
 	}
 	if _, e := validateWhispers(c.Runtime, environment, true); e != nil {
 		return e
 	}
 	u, e := url.Parse(c.Runtime.GatewayURL)
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return command.ErrInvalid
+		return ErrInvalid
 	}
 	allRefs := []string{}
 	for _, group := range [][]string{c.Runtime.KeyRefs, c.Runtime.RecoveryKeyRefs, c.LookupKeyRefs} {
 		for _, ref := range group {
 			if strings.TrimSpace(ref) == "" || slices.Contains(allRefs, ref) {
-				return command.ErrInvalid
+				return ErrInvalid
 			}
 			allRefs = append(allRefs, ref)
 		}
@@ -68,18 +66,18 @@ func ValidateBusiness(c Business, environment, process string) error {
 			continue
 		}
 		if len(key) != 32 {
-			return command.ErrInvalid
+			return ErrInvalid
 		}
 		for _, prior := range keys {
 			if bytes.Equal(key, prior) {
-				return command.ErrInvalid
+				return ErrInvalid
 			}
 		}
 		keys = append(keys, key)
 	}
 	if process == "api" || process == "bootstrap" {
 		if c.Runtime.DatabaseDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 || c.LoginLimit < 1 {
-			return command.ErrInvalid
+			return ErrInvalid
 		}
 		if _, e := ValidateSecret(c.AdminPassword, 12); e != nil {
 			return e
@@ -88,11 +86,11 @@ func ValidateBusiness(c Business, environment, process string) error {
 	if process == "api" {
 		for _, key := range [][]byte{c.SessionKey, c.CardKey, c.VerificationKey, c.WishKey, c.CrisisKey} {
 			if len(key) != 32 {
-				return command.ErrInvalid
+				return ErrInvalid
 			}
 		}
 		if c.WeChatAppID == "" || c.SessionTTL <= 0 || c.ExchangeTTL <= 0 || c.MaxTextBytes < 1 || c.MaxTextBytes > 1<<20 {
-			return command.ErrInvalid
+			return ErrInvalid
 		}
 		if _, e := ValidateSecret(c.WeChatSecret, 16); e != nil {
 			return e
@@ -100,12 +98,12 @@ func ValidateBusiness(c Business, environment, process string) error {
 	}
 	if process == "api" || process == "card" {
 		if len(c.CardKey) != 32 || c.Card.MaxBytes < 1 || c.Card.MaxBytes > 8<<20 || c.Card.MaxPixels < 1 || c.Card.MaxPixels > 32_000_000 || c.Card.DecodeSlots < 1 || c.Card.DecodeSlots > 16 || c.Card.Lease < c.Runtime.Command.Timeout || c.Card.RetryDelay < time.Millisecond || c.Card.MaxAttempts < 1 || c.Card.MaxAttempts > 1000 {
-			return command.ErrInvalid
+			return ErrInvalid
 		}
 	}
 	if process == "card" || process == "content" || process == "whispers" {
 		if c.Runtime.DatabaseDSN == "" {
-			return command.ErrInvalid
+			return ErrInvalid
 		}
 	}
 	return nil
@@ -115,7 +113,7 @@ func ValidateBusiness(c Business, environment, process string) error {
 func ValidateSecret(value string, minimum int) (string, error) {
 	s := strings.TrimSpace(value)
 	if len(s) < minimum || len(s) > 4096 || strings.ContainsAny(s, "\r\n\x00") {
-		return "", command.ErrInvalid
+		return "", ErrInvalid
 	}
 	return s, nil
 }

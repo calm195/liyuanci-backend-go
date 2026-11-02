@@ -5,8 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
 // resolveKeys 仅从主密钥派生用途密钥，不生成随机值或写回配置。
@@ -65,8 +64,8 @@ func (c *Config) resolveKeys() error {
 		// 本地组合API共享加密身份、恢复账本和安全索引，必须沿用同一领域的密钥。
 		c.Whispers.WrapKey = append([]byte(nil), d.WrapKey...)
 		c.Whispers.RecoveryWrapKey = append([]byte(nil), d.RecoveryWrapKey...)
-		c.Whispers.PrivacyKey = privacy.DeriveKey(d.WishKey)
-		c.Whispers.SafetyKey = safety.DeriveKey(d.WishKey)
+		c.Whispers.PrivacyKey = securedata.PrivacyReceiptKey(d.WishKey)
+		c.Whispers.SafetyKey = securedata.SafetyScopeKey(d.WishKey)
 	}
 	return nil
 }

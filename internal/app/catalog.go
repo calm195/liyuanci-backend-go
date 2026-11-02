@@ -5,26 +5,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 type runtimeCatalog struct{ cfg WhisperSettings }
 
+// Load 每次读取当前资源快照，版本和可用性由领域投影再次判断。
 func (c runtimeCatalog) Load(ctx context.Context) (whisper.CatalogSnapshot, error) {
 	r, e := loadResources(ctx, c.cfg)
 	return r.Catalog, e
 }
 func loadResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile, error) {
 	if !cfg.LocalTest {
-		return config.LoadWhisperResources(ctx, cfg.CatalogFile)
+		return readResources(ctx, cfg.CatalogFile)
 	}
 	if e := ctx.Err(); e != nil {
 		return ResourcesFile{}, e
 	}
 	if cfg.CatalogFile != "" {
-		return config.LoadWhisperResources(ctx, cfg.CatalogFile)
+		return readResources(ctx, cfg.CatalogFile)
 	}
 	r := ResourcesFile{Version: "local-business-v1", Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Items: []whisper.Item{}}, Reports: []whisper.Item{}, Help: whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}}}}
 	// 联系方式为空时不生成假号码；有配置时仅标记为本地测试关怀来源。

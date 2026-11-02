@@ -209,5 +209,5 @@ func (r *resources) recoveryGate(ctx context.Context, db *gorm.DB, scope string)
 	}
 }
 func (r *resources) privacyConfig() privacy.Config {
-	return privacy.Config{Command: r.cfg.Command, Key: r.cfg.PrivacyKey, ReceiptTTL: r.cfg.Command.ReceiptTTL, RetryDelay: r.cfg.Interval, Redactor: r.gateway}
+	return privacy.Config{Command: command.Config(r.cfg.Command), Key: r.cfg.PrivacyKey, ReceiptTTL: r.cfg.Command.ReceiptTTL, RetryDelay: r.cfg.Interval, Redactor: r.gateway}
 }

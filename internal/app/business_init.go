@@ -76,7 +76,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	admin, e := adminauth.New(adminDB, limiter, log, adminauth.Config{SessionTTL: c.AdminSessionTTL, Command: c.Runtime.Command, InitialPassword: password, ReceiptKey: c.AdminKey})
+	admin, e := adminauth.New(adminDB, limiter, log, adminauth.Config{SessionTTL: c.AdminSessionTTL, Command: command.Config(c.Runtime.Command), InitialPassword: password, ReceiptKey: c.AdminKey})
 	if e != nil {
 		return e
 	}
@@ -107,7 +107,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	service, e := moderation.New(review, log, r.codec, moderation.Config{Command: c.Runtime.Command, CursorKey: c.Runtime.GovernanceKey, MaxEntries: 2000})
+	service, e := moderation.New(review, log, r.codec, moderation.Config{Command: command.Config(c.Runtime.Command), CursorKey: c.Runtime.GovernanceKey, MaxEntries: 2000})
 	if e != nil {
 		return e
 	}

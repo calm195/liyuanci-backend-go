@@ -88,7 +88,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	cmd := cfg.Runtime.Command
+	cmd := command.Config(cfg.Runtime.Command)
 	pconf := a.r.privacyConfig()
 	econf := pconf
 	econf.Key = cfg.Runtime.EvidenceKey
@@ -196,7 +196,7 @@ func lookupReady(ctx context.Context, db *gorm.DB, g *gateway.Business) error {
 }
 
 func businessCardConfig(c config.Business) studentcard.Config {
-	return studentcard.Config{Command: c.Runtime.Command, ReceiptKey: c.CardKey, DecodeSlots: c.Card.DecodeSlots, MaxBytes: c.Card.MaxBytes, MaxPixels: c.Card.MaxPixels, Lease: c.Card.Lease, RetryDelay: c.Card.RetryDelay, MaxAttempts: c.Card.MaxAttempts}
+	return studentcard.Config{Command: command.Config(c.Runtime.Command), ReceiptKey: c.CardKey, DecodeSlots: c.Card.DecodeSlots, MaxBytes: c.Card.MaxBytes, MaxPixels: c.Card.MaxPixels, Lease: c.Card.Lease, RetryDelay: c.Card.RetryDelay, MaxAttempts: c.Card.MaxAttempts}
 }
 
 func businessResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile, error) {
@@ -209,6 +209,7 @@ func businessResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile,
 
 type businessGrades struct{ cfg WhisperSettings }
 
+// Allows 按当前已核验资源校验年级，资料读取失败不能放行新输入。
 func (g businessGrades) Allows(ctx context.Context, value string) (bool, error) {
 	r, e := loadResources(ctx, g.cfg)
 	if e != nil || len(r.Catalog.Grades.Items) == 0 {

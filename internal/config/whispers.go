@@ -7,10 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/durable"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
@@ -29,9 +25,9 @@ type Whispers struct {
 	KeyRefs, RecoveryKeyRefs                                                          []string
 	ReceiptKey, CursorKey, RateKey, GovernanceKey, PrivacyKey, EvidenceKey, SafetyKey []byte `json:"-"`
 	CatalogFile                                                                       string
-	Command                                                                           command.Config
+	Command                                                                           Command
 	Worker                                                                            struct {
-		Consumer        durable.ConsumerConfig
+		Consumer        Consumer
 		AnalysisTimeout time.Duration
 	}
 	Interval, OperationTimeout, ProviderTimeout time.Duration
@@ -40,8 +36,8 @@ type Whispers struct {
 // WhisperResources 保存版本化公共资料及独立关怀内容，不包含主体或密钥。
 type WhisperResources struct {
 	Version string
-	Catalog whisper.CatalogSnapshot
-	Care    *moderation.CareResources
+	Catalog Catalog
+	Care    *CareResources
 }
 
 // readWhisperYAML 不读取其他凭据文件，所有秘密值来自当前私有YAML。
@@ -50,7 +46,7 @@ func readWhisperYAML(ctx context.Context, path string, out any) error {
 		return err
 	}
 	if err := yamlconfig.Read(path, out); err != nil {
-		return command.ErrInvalid
+		return ErrInvalid
 	}
 	return ctx.Err()
 }
@@ -71,56 +67,56 @@ func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, 
 // validateWhispers 只有完整业务宿主可申请生产启用；独立树洞入口继续保留原门禁。
 func validateWhispers(cfg Whispers, environment string, business bool) (Whispers, error) {
 	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 100 || cfg.DatabaseMaxIdle < 0 || cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	if (environment != "integration" && environment != "development") && environment != "production" {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	if environment == "production" && (cfg.LocalTest || cfg.Enabled && !business) {
-		return cfg, command.ErrForbidden
+		return cfg, ErrForbidden
 	}
 	if cfg.DatabaseDSN == "" || !filepath.IsAbs(cfg.JournalFile) {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	if cfg.LocalTest {
 		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
-			return cfg, command.ErrInvalid
+			return cfg, ErrInvalid
 		}
 	}
 	for _, v := range []string{cfg.CatalogFile, cfg.ProviderVersion, cfg.GatewayToken} {
 		if !cfg.LocalTest && strings.TrimSpace(v) == "" {
-			return cfg, command.ErrInvalid
+			return cfg, ErrInvalid
 		}
 	}
 	keys := [][]byte{cfg.ReceiptKey, cfg.CursorKey, cfg.RateKey, cfg.GovernanceKey, cfg.PrivacyKey, cfg.EvidenceKey, cfg.SafetyKey}
 	for i, key := range keys {
 		if len(key) != 32 {
-			return cfg, command.ErrInvalid
+			return cfg, ErrInvalid
 		}
 		for _, prior := range keys[:i] {
 			if bytes.Equal(key, prior) {
-				return cfg, command.ErrInvalid
+				return cfg, ErrInvalid
 			}
 		}
 	}
 	if !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	for _, key := range cfg.KeyRefs {
 		if strings.TrimSpace(key) == "" {
-			return cfg, command.ErrInvalid
+			return cfg, ErrInvalid
 		}
 		for _, other := range cfg.RecoveryKeyRefs {
 			if key == other {
-				return cfg, command.ErrInvalid
+				return cfg, ErrInvalid
 			}
 		}
 	}
 	if cfg.Command.Timeout <= 0 || cfg.Command.LockTimeout < time.Millisecond || cfg.Command.LockTimeout > cfg.Command.Timeout || cfg.Command.ReceiptTTL <= 0 || cfg.Command.MaxAttempts < 1 || cfg.Command.MaxAttempts > 10 || cfg.Interval < time.Millisecond || cfg.OperationTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ProviderTimeout > 30*time.Second {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	if cfg.Worker.AnalysisTimeout <= 0 || cfg.Worker.Consumer.Timeout <= 0 || cfg.Worker.Consumer.LockTimeout < time.Millisecond || cfg.Worker.Consumer.RetryDelay < time.Millisecond || cfg.Worker.Consumer.MaxAttempts < 1 || cfg.OperationTimeout < 2*cfg.Worker.Consumer.Timeout+cfg.Worker.AnalysisTimeout {
-		return cfg, command.ErrInvalid
+		return cfg, ErrInvalid
 	}
 	return cfg, nil
 }
@@ -131,7 +127,7 @@ func LoadWhisperResources(ctx context.Context, path string) (out WhisperResource
 		return
 	}
 	if strings.TrimSpace(out.Version) == "" {
-		return out, command.ErrUnavailable
+		return out, ErrUnavailable
 	}
 	return
 }

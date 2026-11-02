@@ -1,7 +1,6 @@
 package config
 
 import "time"
-import "github.com/calm195/liyuanci-backend-go/internal/moderation"
 
 // Development 保存仅开发环境使用的本地适配器配置。
 type Development struct {
@@ -13,7 +12,7 @@ type Development struct {
 	JournalFile                      string
 	// 以下密钥由顶层masterkey派生，YAML不能单独设置。
 	RecoveryWrapKey []byte `json:"-"`
-	Care            *moderation.CareResources
+	Care            *CareResources
 	// ModerationKey 使用独立用途派生；关怀资料仍需显式核验提供。
 	ModerationKey                                                               []byte `json:"-"`
 	WrapKey, LookupKey, SessionKey, CardKey, VerificationKey, WishKey, AdminKey []byte `json:"-"`

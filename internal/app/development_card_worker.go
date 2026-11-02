@@ -17,6 +17,7 @@ import (
 // developmentWorkerSessions 禁止工作进程误用上传入口；持久工作按数据库账号状态重新授权。
 type developmentWorkerSessions struct{}
 
+// Current 禁止本地worker作为学生会话来源，开发模拟不绕过授权。
 func (developmentWorkerSessions) Current(context.Context, string, string) (studentauth.Me, error) {
 	return studentauth.Me{}, command.ErrUnavailable
 }

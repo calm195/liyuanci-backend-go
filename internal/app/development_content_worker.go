@@ -60,7 +60,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	}
 	analyzer := local.Analyzer{Logger: logger, Synthetic: options.Analyzer == "synthetic", Manual: options.Analyzer == "manual"}
 	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
-		Care:            cfg.Care,
+		Care:            careResources(cfg.Care),
 		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},
 		AnalysisTimeout: 5 * time.Second,
 		MessageAnalyzer: analyzer,

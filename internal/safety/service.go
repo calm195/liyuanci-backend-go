@@ -43,9 +43,7 @@ type Service struct {
 
 // DeriveKey 从私有根密钥派生安全治理独立摘要和游标密钥。
 func DeriveKey(root []byte) []byte {
-	m := hmac.New(sha256.New, root)
-	m.Write([]byte("safety.scope.v1"))
-	return m.Sum(nil)
+	return securedata.SafetyScopeKey(root)
 }
 
 // New 只构造服务，不加载默认举报类型、不迁移、不启动任务。

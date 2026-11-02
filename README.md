@@ -114,7 +114,29 @@ bin/business-worker -config configs/production.yaml -kind evidence -recover
 
 工程使用单个Go module。`cmd/`保存8个进程入口，`internal/httpapi`负责HTTP协议，`internal`下的业务包负责领域规则；`command`、`durable`、`securedata`提供事务/幂等、持久任务与加密能力。测试随源码放置，`configs`与`scripts`分别维护配置和原生运维入口。
 
-目录优化已完成适配器分离与应用装配集中，下一步解耦配置依赖。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。应用装配已统一由`internal/app`协调，按服务构造、正式/开发装配、API、worker、初始化和迁移职责分文件；8个`cmd`入口只保留参数、信号和退出状态。配置层只负责读取、字段校验和稳定派生，业务参数由装配层转换。
+目录优化已完成适配器分离、应用装配集中与配置依赖解耦。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。应用装配已统一由`internal/app`协调，按服务构造、正式/开发装配、API、worker、初始化和迁移职责分文件；8个`cmd`入口只保留参数、信号和退出状态。配置层使用独立的命令/任务预算与资源数据结构，只依赖yamlconfig、securedata；app显式转换为领域参数和资源快照。业务构造器继续复核准入，资源转换保留可选字段、nil/空数组区别，并复制指针与切片。稳定派生由securedata共享，标签与固定测试向量保持兼容。
+
+当前主要目录：
+
+```text
+cmd/                       # 8个薄入口：参数、信号、退出状态
+internal/app/              # 服务构造、运行装配、资源生命周期和集成测试
+internal/adapters/gateway/ # 正式HTTPS供应商协议
+internal/adapters/local/   # 明确隔离的本地供应商
+internal/config/           # 独立配置值、严格校验和稳定派生
+internal/yamlconfig/       # Viper YAML读取与合并
+internal/httpapi/          # HTTP路由、协议校验与状态映射
+internal/platform/         # 数据库/Redis连接、日志及心跳
+internal/<业务模块>/       # 认证、心愿、聊天、悄悄鲤、审核、安全、隐私、资料
+internal/command/          # 事务、锁、幂等
+internal/durable/          # 持久任务
+internal/workrunner/       # 任务扫描生命周期
+internal/securedata/       # 加密、对象读取和兼容用途派生
+internal/entity/           # ORM实体，初期保持稳定
+internal/migration/        # 显式版本SQL与实体同步
+configs/                   # 公共配置、私有环境覆盖及种子资料
+scripts/                   # 原生运行、配置和临时集成入口
+```
 
 迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。实体拆包和业务文件重组另按后续计划推进，避免装配迁移与业务行为改动混在一起。
 

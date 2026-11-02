@@ -43,8 +43,12 @@ func TestPackageBoundaries(t *testing.T) {
 			target := strings.Split(strings.TrimPrefix(dependency, prefix), "/")[0]
 			forbidden := false
 			switch owner {
-			case "app", "config":
-				// 配置自身依赖边界在配置解耦时进一步收紧。
+			case "app":
+			case "config":
+				forbidden = target != "yamlconfig" && target != "securedata"
+			case "yamlconfig", "securedata", "entity":
+				// 叶子包不能反向引入业务，避免配置经共享能力间接依赖整个业务图。
+				forbidden = target != owner
 			case "platform":
 				forbidden = target == "app" || target == "httpapi" || target == "adapters"
 			case "httpapi":
