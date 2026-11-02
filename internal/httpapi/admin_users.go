@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 // AdminUsersAPI 提供后台普通资料查询，与既有用户处罚POST共享路径但不共享写权限。

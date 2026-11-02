@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
 )
 
 // TestMasterKeyDerivation 验证重启/进程一致性、环境隔离及领域共用数据的兼容规则。

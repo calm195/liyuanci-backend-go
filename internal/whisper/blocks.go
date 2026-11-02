@@ -12,7 +12,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 // BlockSource 只接受当前可访问公开来源，不接受匿名身份或目标账号的反查。

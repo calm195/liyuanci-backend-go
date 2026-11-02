@@ -3,8 +3,8 @@ package local
 import (
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 )
 
 // Journal 复用正式文件账本，保留本地测试调用方式。

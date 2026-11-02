@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 )
 
 // PrivacyAPI 是本人注销及匿名回执的最小边界，不提供账号参数或普通数据导出。

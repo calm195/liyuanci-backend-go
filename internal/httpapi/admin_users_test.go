@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 type usersStub struct {

@@ -22,12 +22,12 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
 )
 
 // DevelopmentSettings 从公共配置与私有环境覆盖加载，使用唯一数据库连接；密钥不进入环境或日志。
