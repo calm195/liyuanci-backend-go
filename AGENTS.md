@@ -3,10 +3,10 @@
 ## 工程与代码规范
 
 - 模块为 github.com/calm195/liyuanci-backend-go，采用已批准方案 B；PostgreSQL 是业务权威。API 与 worker 分别构建，基础模式只提供健康端点；生产真实服务必须显式配置，无模板用户示例或业务 Mock 路由。
-- cmd/server 负责 API 依赖装配与生命周期；cmd/worker 是隔离集成探针消费者。配置加载放 internal/config，日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
-- 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 默认无需外部服务；make build 构建当前 Makefile 列出的进程。真实中间件往返用 make integration。
+- cmd/server 负责 API 依赖装配与生命周期；cmd/business-worker 执行 PostgreSQL 持久任务。配置加载放 internal/config，YAML读取/合并统一通过internal/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
+- 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 使用私有开发覆盖，纯健康入口显式选择 configs/common.yaml；make build 构建当前 Makefile 列出的进程。真实中间件往返用 make integration。
 - gofmt 使用 Tab；导入按标准库、第三方、本模块分组。多字段配置换行，顶层声明间留空行；包名小写，符号 MixedCaps。I/O 首参为 context.Context，显式注入依赖，避免可变全局客户端。HTTP 校验与状态映射在 handler，业务规则在 service，GORM 查询在 repository 并使用 WithContext；包装错误保留上下文，不向 HTTP 暴露凭据或内部错误。
-- APP_ 为应用环境前缀；不提交密钥、本地覆盖或生产 DSN。GORM AutoMigrate 仅在显式迁移入口由专用身份执行；普通 API/worker 启动不隐式 DDL，运行身份不授 DDL 权限。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
+- 按用户2026-11-02要求，应用与运维配置只读YAML，口令、令牌、密钥和CA内联私有YAML；禁止恢复环境变量覆盖、业务JSON或独立秘密文件入口；不提交密钥、本地覆盖或生产 DSN。按用户2026-11-02简化要求，所有进程只使用 database 的 host/port/name/user/password/sslmode/timezone/connecttimeout 分项字段生成的唯一连接；禁止恢复可配置的dsn字段；应用账号拥有专用业务库，禁止集群管理权限。GORM AutoMigrate 仅在显式迁移入口执行，普通 API/worker 不隐式 DDL；业务权限由会话和岗位角色在领域函数中复核。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
 - SQL 每表、每字段必须有中文数据库对象注释（COMMENT ON TABLE/COLUMN），含迁移账本与探针；SQL 行注释不能替代。迁移集成检查验证目录注释非空。已应用迁移不改写，通过新增迁移变更；未交付迁移首次验收前可补齐。
 - 注释默认中文，覆盖包、导出符号、关键逻辑和测试说明；导出注释以 Go 标识符开头。技术术语、工具指令如 //go:build 及生成代码保留原样；用户明确要求其他语言时遵循用户。
 - 非测试代码的标识符、注释、字符串和日志不出现任务/里程碑编号；追踪在测试和 docs 工程。日志消息与人类说明使用中文，字段名、协议值和必要技术标识稳定。关键业务规则、生命周期、资源归属、恢复及非显然决策变动必须同步准确注释。
@@ -15,7 +15,7 @@
 
 ## 验证
 
-日常迭代先运行相关包/相关用例，使用 `make check-fast PACKAGES=./internal/模块/...`；仅在需要定位并发问题时增加 race。一次完整交付前统一运行 make fmt、make check；check 须只读校验格式、go vet ./...、go test -race -cover ./...，CI 保持执行。Go 源码或依赖变化交付前再运行 make build；已通过后仅因新增修改、失败或未解决风险重跑相关检查。测试用标准 testing/net/http/httptest，文件 *_test.go、名称 TestBehavior；校验与 HTTP 失败优先表驱动。单测无需中间件，不设覆盖率硬阈值；真实数据库、Redis、RocketMQ 变化须显式集成检查并说明服务依赖。
+日常迭代先运行相关包/相关用例，使用 `make check-fast PACKAGES=./internal/模块/...`；仅在需要定位并发问题时增加 race。一次完整交付前统一运行 make fmt、make check；check 须只读校验格式、go vet ./...、go test -race -cover ./...，CI 保持执行。Go 源码或依赖变化交付前再运行 make build；已通过后仅因新增修改、失败或未解决风险重跑相关检查。测试用标准 testing/net/http/httptest，文件 *_test.go、名称 TestBehavior；校验与 HTTP 失败优先表驱动。单测无需中间件，不设覆盖率硬阈值；真实数据库、Redis与持久任务变化须显式集成检查并说明服务依赖。
 
 失败修复并复跑；环境受限报告命令和原因，未运行不得宣称通过。文档变动报告完成与验证，另在 docs 工程运行文档检查与固定指纹检查。运维专项检查继续按下文执行。
 
@@ -26,33 +26,16 @@
 - 按用户2026-10-30最新要求，docs本端目录仅保留上述三份滚动文档，按模块维护；不再新增milestones、validation、阶段补证、截图或原始日志。源码仓库只保留运行/开发必要说明。
 - 现状写源码完整SHA、当前能力和实际验证边界；缺陷区分已复现问题、依赖缺口和待验收项；计划写优先级、依赖和完成标准，不虚构负责人或日期。完成任务同步更新这三份文档，不将已解决问题继续列为开放缺陷。
 - 本次明确退役的历史材料按docs清单保存在Git快照；既有需求、审批、有效契约及未退役固定输入不改写。AI不签发G1/G2/G3，业务范围和契约语义变化另走适用授权。
-- 修改前核对本仓库及docs分支、完整HEAD和工作区，保护已有改动。源码与docs仅保留develop/main；后端源码及对应文档在各自develop维护，经授权合入main并推送。并行任务协调写入，必要时使用detached工作树并在汇总后清理。
+- 修改前核对本仓库及docs分支、完整HEAD和工作区，保护已有改动。用户2026-11-02明确新增简化分支，主仓库、后端与docs当前使用codex/simplify-backend；保留develop/main，不删除其他分支。提交合并推送仍按当次授权执行。并行任务协调写入，必要时使用detached工作树并在汇总后清理。
 - 已授权提交时先提交源码仓库，再补docs精确版本；提交、合并、推送和部署按当次授权执行，不重复索取已有授权。共享模块映射与跨端计划由docs协调维护。
 - 中文文档保留必要代码标识；报告真实/合成/未执行边界。纯文档整理只执行文档工具检查、链接/固定输入和差异检查；业务代码变化继续遵循本仓库完整质量门槛，不将历史测试冒充本轮重测。
 
-## 中间件部署约定
+## 简化分支运行约定
 
-用户2026-11-01已选定kurous.cn小规模原生生产例外：PostgreSQL、Redis和Go静态二进制由本项目systemd管理，`Runtime.TaskTransport=postgres`使用持久任务；不部署RocketMQ、管理界面和完整监控栈。沿用既有权限、租约/重试、幂等、隐私门禁及独立恢复日志，不使用开发DatabasePolling开关。生产操作入口为scripts/native.py和README第6节，普通启动不得迁移/初始化；本地验证可用隔离容器执行make integration-native。该授权仅涵盖本地装配和验收流程，不授权修改服务器。以下既有Docker约定适用于原有集成与MQ兼容部署，不覆盖此明确例外。
-
-日常可选原生PG/Redis模式（`make dev-native-init/infra/api/worker/doctor/stop`）：连接用户已运行的本地PG/Redis，不隐式启停、重置或清理它们，无MQ时完全不要求Docker；`dev-native-mq`最多启动隔离Docker NameServer/Broker。该模式需宿主psql及显式本地数据库管理员身份完成首次初始化，运行身份继续受限，原生口令只从仓库.local忽略目录或显式外部文件读取。
-
-日常默认宿主运行Go API与业务card-worker，入口为 `make dev-init/dev-infra/dev-api/dev-worker/dev-doctor/dev-stop`。本机Docker默认只启动PostgreSQL、Redis；MQ、管理工具和监控显式按需开启。基础设施常驻，普通修改只重启对应Go进程，`dev-stop`保留中间件，`dev-infra-stop`显式停止所选隔离项目并保留卷。`make run`仍为健康模式；旧完整Docker入口用于集成验收。开发凭据一次自动生成并复用，保留权限、RLS、加密和幂等行为，不引入生产资源。
-
-T003/T004/REQ-018、020：开发集成及未来生产的 PostgreSQL、Redis、RocketMQ（NameServer/Broker）统一使用 Docker 部署，保持环境、网络、数据卷与凭据隔离。配套管理工具使用 pgAdmin、Redis Insight、Apache RocketMQ Dashboard 官方发布镜像，固定版本与 digest；管理端口仅绑定 loopback，远程经 SSH 隧道访问。生产配置独立于集成探针，凭据使用仓库.local忽略目录或显式外部文件/secret 注入，不得将集成无鉴权设置用于生产；生产部署仍须完成业务、安全、备份恢复等验收，未经用户明确授权不部署。
-
-## 可观测性变更约定
-
-本次原生小规模方案使用独立journald命名空间及systemd健康定时器，监测服务、readyz、资源及数据库任务聚合积压；正式告警渠道未交付前，不声称失败通知已送达。业务审计、隐私删除日志与恢复能力不能随完整监控栈删减。
-
-T004/REQ-018、020：日志采用独立Docker监控项目中的Alloy/Loki/Grafana，指标采用Prometheus及显式启用的exporter，固定版本/digest。日志索引仅用environment/service/host，禁止把请求ID、消息ID、用户身份作为索引标签；指标不得采SQL正文、业务键值或个人信息。Docker API只读代理与Alloy可读取inspect元数据，属于高信任宿主组件，项目过滤不等于租户隔离。技术日志不代替D05删除日志或业务审计。生产监控显式提供持久状态密钥、secret及保留期，不复用开发账号/卷；Linux宿主指标不能用macOS Docker VM结果冒充。采集、告警、中间件指标和Broker变更按影响临时验证，记录真实依赖及实际结果；专项验收脚本不再留存。真实通知未配置时只验收隔离合成Webhook，不宣称通知闭环或生产验收完成；每个模块仍须同步 docs 中的现状、缺陷与后续计划，按需同步 README，并完成规定质量检查。
-
-## 启停入口维护
-
-T004/REQ-018、020：完整Docker运维入口为scripts/init-dev.sh、start.sh、stop.sh，共用services.py；宿主入口scripts/dev.py共用其项目归属和字面环境配置；普通启动不得隐式迁移或重置账号，生产不得运行开发API/worker/探针。凭据默认在仓库.local忽略目录显式初始化，旧卷缺原口令时拒绝生成；环境文件不执行shell。停止按项目标签及依赖顺序执行，永远不删除卷，不使用force/prune或操作其他项目。启停变更运行`python3 -m unittest discover -s scripts -p 'test_*.py' -v`，按影响临时验证原生模式、宿主进程及Docker生命周期；真实中间件往返使用`make integration`。专项验收脚本按用户授权删除，CI保留全量Go检查、入口单测和Make集成往返；不在日常启动隐式执行验收。更新README及当前运维文档，报告未验证边界。
-
-## 配置和目录
-
-- 公共模板与必要覆盖项放configs/app、middleware、observability、examples；Compose统一放deploy/compose，共用MQ定义避免复制。
-- 开发/运维入口与共享模块在scripts，离线单测在scripts/tests；不保留独立专项验收脚本或过时指纹检查副本。
-- 实际凭据、密钥、对象和本机状态统一放.local/<模式>，Git与Docker构建上下文均忽略；禁止放入普通源码目录。兼容显式外部路径，旧配置导入只复制且不覆盖，运行中的旧应用先停止。不得因切换目录生成替代历史密钥或口令。
-- 普通停止始终保留卷；只有用户明确授权的独立清理才可删除无引用资源，先检查所有容器（含停止容器）引用，不使用force/prune。
+- 用户2026-11-02要求删除MQ和Docker，配置只保留configs/common.yaml及development.yaml、production.yaml环境覆盖；实际覆盖Git忽略，公共example保留中文字段注释。禁止恢复环境变量、JSON配置、分角色DSN或独立秘密文件入口。
+- PostgreSQL保存持久任务，Redis提供共享限流；学生卡、内容、树洞/胶囊、账号清理及证据清理均按现有租约、重试、幂等和取消语义执行。角色区别由业务账号会话及领域函数检查，不能以“共用连接”跳过授权。
+- 日常入口为scripts/manage.py和Makefile。普通运行不创建数据库、不迁移、不初始化账号，不自动启动/关闭已有PG或Redis。make integration使用本轮临时原生实例，退出后删除本轮测试数据。
+- 删除意图使用独立加密文件账本；保持原密钥和历史意图、跨进程锁、原子替换及fsync，不把同机文件称作独立故障域。恢复数据库前先执行两域recover，失败保持读取/外发门禁。
+- 用户本轮已授权删除本项目Docker容器、卷、网络和相关镜像及本地旧配置/备份，不保留本次备份；这不构成生产服务器部署授权。未来资源清理仍须有明确归属和当次授权，不使用全局force/prune。
+- 启动变更运行Python入口单测、Go规定门槛和受影响的真实原生集成。目标Linux服务管理器、真实供应商、设备与容量未执行时明确说明，不沿用历史验收结论。
+- 应用密钥仅由私有YAML顶层masterkey管理，通过HKDF-SHA256按环境/用途派生，派生字段使用json:"-"，禁止恢复旧用途密钥配置或共用原始主密钥。派生版本、环境与用途标签是持久协议，不得随重构改变。外部服务凭据与KMS引用仍独立配置。用户本次明确允许清空旧开发数据后切换；这不授权清空生产数据。主密钥和当前状态仅在Git忽略的私有环境覆盖及.local/data；初始化不覆盖已有私有文件。对旧生产库的对象所有权和历史日志转换须显式执行，不在普通启动中迁移或清空。
