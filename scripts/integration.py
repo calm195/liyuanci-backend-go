@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """在一次性原生PostgreSQL/Redis实例中验证应用和领域；结束后删除本轮数据。"""
 import argparse
+import json
 from pathlib import Path
 import secrets
 import shutil
@@ -12,12 +13,12 @@ import time
 import yaml_settings as yamlio
 
 ROOT = Path(__file__).resolve().parents[1]
-# 固定包与用例，避免专项回归因未提供测试配置而静默跳过；不接受外部数据库地址。
+# 固定包与必需用例，运行后逐项核验实际结果；不接受外部数据库地址。
 SUITES = {
-    'runtime': ('./internal/app', '^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$'),
-    'resourceplaza': ('./internal/resourceplaza', '^TestPostgresHTTP$'),
-    'moderation': ('./internal/moderation', '^TestModerationCore$'),
-    'migration': ('./internal/migration', '^Test(PostgresMigrations|BusinessSchema|RecoverySchema|PostgresStoryPublication|PostgresWhisperFoundation)$'),
+    'runtime': ('./internal/app', ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime')),
+    'resourceplaza': ('./internal/resourceplaza', ('TestPostgresHTTP',)),
+    'moderation': ('./internal/moderation', ('TestModerationCore',)),
+    'migration': ('./internal/migration', ('TestPostgresMigrations', 'TestBusinessSchema', 'TestRecoverySchema', 'TestPostgresStoryPublication', 'TestPostgresWhisperFoundation')),
 }
 # 原地上下行/升级测试需要各自空库；只在本轮临时集群创建这些固定名称的数据库。
 MIGRATION_DATABASES = {
@@ -41,6 +42,66 @@ def port():
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         return sock.getsockname()[1]
+
+
+def run_suite(name, config, env):
+    """退出码与Go结构化事件同时通过才算成功；未匹配或跳过用例不能冒充集成验收。"""
+    package, tests = SUITES[name]
+    pattern = '^(' + '|'.join(tests) + ')$'
+    result = subprocess.run(
+        ['go', 'test', package, '-count=1', '-timeout=8m', '-json', '-run', pattern,
+         '-args', '-integration-config', str(config)],
+        cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True,
+    )
+    expected_package = 'github.com/calm195/liyuanci-backend-go/' + package[2:]
+    started, passed, skipped = set(), set(), set()
+    invalid, failed, package_passed = False, False, False
+    for line in result.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            invalid = True
+            continue
+        if not isinstance(event, dict):
+            invalid = True
+            continue
+        output = event.get('Output')
+        if isinstance(output, str):
+            # 仍显示原始测试说明，机器事件仅用于核验，不写入仓库或持久日志。
+            print(output, end='', flush=True)
+        if event.get('Package') != expected_package:
+            continue
+        action, test = event.get('Action'), event.get('Test', '')
+        if not isinstance(test, str):
+            invalid = True
+            continue
+        if action == 'fail':
+            failed = True
+        if not test:
+            package_passed = action == 'pass' or package_passed
+            continue
+        root = test.split('/', 1)[0]
+        if root not in tests:
+            continue
+        if action == 'skip':
+            skipped.add(test)
+        if test == root:
+            if action == 'run':
+                started.add(test)
+            elif action == 'pass':
+                passed.add(test)
+    if result.returncode or failed:
+        raise ValueError('原生集成失败：' + name)
+    if invalid:
+        raise ValueError('原生集成结果事件无效：' + name)
+    if skipped:
+        raise ValueError('原生集成用例被跳过：' + ', '.join(sorted(skipped)))
+    missing = set(tests) - (started & passed)
+    if missing:
+        raise ValueError('原生集成缺少执行通过的必需用例：' + ', '.join(sorted(missing)))
+    if not package_passed:
+        raise ValueError('原生集成缺少测试包完成结果：' + name)
+    print('原生专项通过：' + name + '，必需用例 ' + str(len(tests)) + ' 项。', flush=True)
 
 
 def run(suite='all'):
@@ -93,10 +154,8 @@ def run(suite='all'):
             yamlio.write(config,values)
             # 同一临时集群内顺序执行，避免历史权限夹具并发修改集群级角色。
             for name in SUITES if suite == 'all' else (suite,):
-                package, pattern = SUITES[name]
                 print('运行原生集成：' + name, flush=True)
-                result=subprocess.run(['go','test',package,'-count=1','-timeout=8m','-v','-run',pattern,'-args','-integration-config',str(config)],cwd=ROOT,env=env)
-                if result.returncode:raise ValueError('原生集成失败：' + name)
+                run_suite(name, config, env)
         finally:
             for proc in children:
                 proc.terminate()
