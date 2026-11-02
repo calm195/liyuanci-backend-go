@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestPackageBoundaries 防止后续修改把HTTP、配置读取或应用装配重新引入业务包。
+// TestPackageBoundaries 防止后续修改把HTTP、配置读取、应用装配或显式迁移引入业务包。
 // 只检查生产源码；测试可以装配夹具，也不会因供应商包的消费者接口依赖被误报。
 func TestPackageBoundaries(t *testing.T) {
 	root := filepath.Clean("..")
@@ -41,22 +41,26 @@ func TestPackageBoundaries(t *testing.T) {
 				continue
 			}
 			target := strings.Split(strings.TrimPrefix(dependency, prefix), "/")[0]
-			forbidden := false
+			// 迁移仅由应用显式装配；业务、HTTP与适配器不能通过导入迁移包获取DDL能力。
+			forbidden := target == "migration" && owner != "app" && owner != "migration"
 			switch owner {
 			case "app":
 			case "config":
 				forbidden = target != "yamlconfig" && target != "securedata"
+			case "migration":
+				// 注册清单依赖纯模型，不反向依赖任何业务服务或运行装配。
+				forbidden = target != "entity" && target != "migration"
 			case "yamlconfig", "securedata", "entity":
 				// 叶子包不能反向引入业务，避免配置经共享能力间接依赖整个业务图。
 				forbidden = target != owner
 			case "platform":
-				forbidden = target == "app" || target == "httpapi" || target == "adapters"
+				forbidden = forbidden || target == "app" || target == "httpapi" || target == "adapters"
 			case "httpapi":
-				forbidden = target == "app" || target == "config" || target == "adapters"
+				forbidden = forbidden || target == "app" || target == "config" || target == "adapters"
 			case "adapters":
-				forbidden = assemblyOnly[target]
+				forbidden = forbidden || assemblyOnly[target]
 			default:
-				forbidden = assemblyOnly[target] || target == "adapters"
+				forbidden = forbidden || assemblyOnly[target] || target == "adapters"
 			}
 			if forbidden {
 				t.Errorf("%s 越过包边界导入 %s", relative, dependency)

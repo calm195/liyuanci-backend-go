@@ -96,8 +96,8 @@ COMMENT ON COLUMN public.schema_migrations.applied_at IS '迁移事务应用时�
 				}
 			}
 			// 历史迁移先建立生成列、隔离域、权限和锁函数；实体仅同步常规字段。
-			// 与版本迁移共享事务和锁，任一失败会回滚，运行账号无需 DDL 权限。
-			if e := tx.AutoMigrate(entity.BusinessModels()...); e != nil {
+			// 与版本迁移共享事务和锁，任一失败会回滚；普通API/worker不会进入此显式DDL入口。
+			if e := tx.AutoMigrate(businessModels()...); e != nil {
 				return fmt.Errorf("实体自动迁移失败：%w", e)
 			}
 			return nil

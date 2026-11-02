@@ -19,7 +19,7 @@ func schemaDB(t *testing.T, env string) *gorm.DB {
 	t.Helper()
 	dsn := testconfig.Value(env)
 	if dsn == "" {
-		t.Skip("需专用 Docker 数据库；运行 按模块要求提供隔离依赖后运行相关集成测试")
+		t.Skip("需临时PostgreSQL；运行make integration INTEGRATION_SUITE=migration")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
@@ -288,7 +288,7 @@ func TestBusinessSchema(t *testing.T) {
 }
 
 func TestRecoverySchema(t *testing.T) {
-	// T005/T031/REQ-018、020：支持独立日志容器；仍不代表正式故障域、备份及恢复放行验收。
+	// T005/T031/REQ-018、020：验证历史独立日志库的结构兼容，不代表当前文件账本或正式灾备验收。
 	db := schemaDB(t, "recovery_test_dsn")
 	ctx := context.Background()
 	core, observed := observer.New(zap.InfoLevel)

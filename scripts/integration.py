@@ -17,6 +17,14 @@ SUITES = {
     'runtime': ('./internal/app', '^TestPostgres(LocalBusiness|WhisperRuntime|BusinessDatabaseRuntime)$'),
     'resourceplaza': ('./internal/resourceplaza', '^TestPostgresHTTP$'),
     'moderation': ('./internal/moderation', '^TestModerationCore$'),
+    'migration': ('./internal/migration', '^Test(PostgresMigrations|BusinessSchema|RecoverySchema|PostgresStoryPublication|PostgresWhisperFoundation)$'),
+}
+# 原地上下行/升级测试需要各自空库；只在本轮临时集群创建这些固定名称的数据库。
+MIGRATION_DATABASES = {
+    'migration_test_dsn': 'migration_test',
+    'schema_test_dsn': 'schema_test',
+    'recovery_test_dsn': 'recovery_test',
+    'story_publication_test_dsn': 'story_publication_test',
 }
 
 
@@ -75,6 +83,12 @@ def run(suite='all'):
             values={'whisper_text_test_dsn':dsn,'whisper_redis_test_address':f'127.0.0.1:{redisport}','business_runtime_redis_address':f'127.0.0.1:{authport}','business_runtime_redis_password':redispassword,
                     'whisper_server_binary':str(ROOT/'bin/server'),'business_runtime_worker_binary':str(ROOT/'bin/business-worker'),'business_runtime_init_binary':str(ROOT/'bin/business-init'),'whisper_content_binary':str(ROOT/'bin/content-worker'),'whisper_privacy_binary':str(ROOT/'bin/privacy-worker')}
             values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn)
+            if suite in ('all', 'migration'):
+                for key, database in MIGRATION_DATABASES.items():
+                    subprocess.run([postgres['psql'], '-h', str(root), '-p', str(pgport), '-U', 'test_admin', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE DATABASE ' + database], env=env, check=True, stdout=subprocess.DEVNULL)
+                    values[key] = dsn.replace('dbname=liyuanci ', 'dbname=' + database + ' ', 1)
+                # 树洞升级场景自行创建随机子库，只借用本轮临时父库连接。
+                values['whisper_schema_test_dsn'] = dsn
             config=root/'tests.yaml'
             yamlio.write(config,values)
             # 同一临时集群内顺序执行，避免历史权限夹具并发修改集群级角色。

@@ -26,10 +26,10 @@ func TestInvalidDependencies(t *testing.T) {
 }
 
 func TestPostgresMigrations(t *testing.T) {
-	// T005/REQ-020：只允许专用 Docker 测试库；普通单元检查不连接中间件。
+	// T005/REQ-020：只使用原生集成入口创建的专用测试库；普通单元检查不连接中间件。
 	dsn := testconfig.Value("migration_test_dsn")
 	if dsn == "" {
-		t.Skip("需显式专用 PostgreSQL；运行 按模块要求提供隔离依赖后运行相关集成测试")
+		t.Skip("需临时PostgreSQL；运行make integration INTEGRATION_SUITE=migration")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {

@@ -132,18 +132,20 @@ internal/command/          # 事务、锁、幂等
 internal/durable/          # 持久任务
 internal/workrunner/       # 任务扫描生命周期
 internal/securedata/       # 加密、对象读取和兼容用途派生
-internal/entity/           # ORM实体，初期保持稳定
-internal/migration/        # 显式版本SQL与实体同步
+internal/entity/           # 按模块分文件的纯ORM表模型
+internal/migration/        # 业务模型注册、显式版本SQL与实体同步
 configs/                   # 公共配置、私有环境覆盖及种子资料
 scripts/                   # 原生运行、配置和临时集成入口
 ```
 
 资料广场在同一包内按授权事务、游标、加密、查询、写入、投影、存取和治理屏障分文件；审核模块抽出共享授权和游标，其余保留已有功能文件。共享类型和方法仍在所属业务包内，避免为文件大小创建无必要的子包。HTTP路由入口保持现有协议边界。
 
-迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。实体注册归属仍按后续阶段推进。
+实体是跨域锁和业务存取共享的底层模型，继续按模块分文件，不拆到业务服务包内。65项业务模型注册清单归属`internal/migration/models.go`，实体与SQL映射、注释和隔离表排除检查随清单维护；增加表时同时更新模型、清单和版本SQL。恢复日志与集成探针不参与业务AutoMigrate。
+
+迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。
 
 资源关闭遵循所有权：宿主先停止HTTP和后台调度，等待在途操作结束，再释放自己打开的数据库、Redis和供应商连接；借用资源的服务不得自行关闭。新建包和导出符号使用中文注释说明职责，涉及恢复、密钥兼容及失败关闭的逻辑保留决策依据。
 
 每阶段先检查相关包，完整交付执行`make fmt`、`make check`、`make build`；装配或入口变化额外运行Python测试和`make integration`。集成脚本中的Go测试包路径须随装配测试同步迁移，临时PG/Redis的清理边界保持不变。
 
-`internal/app/architecture_test.go`约束业务、HTTP、平台和适配器的导入方向，纳入`make check`。`make integration`顺序执行完整业务、本地组合、独立树洞三组进程测试，以及资料广场15个操作、审核核心专项。专项入口为`make integration INTEGRATION_SUITE=runtime`、`resourceplaza`或`moderation`，共用临时原生PG/Redis清理流程。历史权限夹具仅验证迁移和领域行为，当前单连接配置与岗位隔离由runtime验证；外部供应商仍为合成测试实现。
+`internal/app/architecture_test.go`约束业务、HTTP、平台和适配器的导入方向，也防止业务导入迁移包、模型反向依赖服务，纳入`make check`。`make integration`顺序执行完整业务、本地组合、独立树洞三组进程测试，以及资料广场15个操作、审核核心和迁移专项。专项入口为`make integration INTEGRATION_SUITE=runtime`、`resourceplaza`、`moderation`或`migration`，共用临时原生PG/Redis清理流程。迁移专项为各上下行/升级场景创建独立空库，检查并发迁移、历史升级、表字段注释及恢复库隔离。历史权限与恢复库夹具仅验证兼容性，当前单连接配置、文件账本与岗位隔离由runtime验证；外部供应商仍为合成测试实现。

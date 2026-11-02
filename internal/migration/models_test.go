@@ -1,4 +1,4 @@
-package entity
+package migration
 
 import (
 	"os"
@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"gorm.io/gorm/schema"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
 // TestEntityCatalog 验证 T005/T008、REQ-020 的每张实体表和字段均有唯一结构体映射。
 func TestEntityCatalog(t *testing.T) {
-	models := append(BusinessModels(), &RecoveryDeleteJournal{}, &RecoverySchemaMigration{}, &FoundationProbeReceipt{})
+	models := append(businessModels(), &entity.RecoveryDeleteJournal{}, &entity.RecoverySchemaMigration{}, &entity.FoundationProbeReceipt{})
 	catalog := map[string]*schema.Schema{}
 	for _, model := range models {
 		parsed, err := schema.Parse(model, &sync.Map{}, schema.NamingStrategy{})
@@ -33,11 +35,11 @@ func TestEntityCatalog(t *testing.T) {
 			}
 		}
 	}
-	paths, err := filepath.Glob("../migration/sql/*.up.sql")
+	paths, err := filepath.Glob("sql/*.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths = append(paths, "../migration/journal/0001_journal.up.sql", "../../migrations/integration/0001_probe.up.sql")
+	paths = append(paths, "journal/0001_journal.up.sql", "../../migrations/integration/0001_probe.up.sql")
 	columns := regexp.MustCompile(`COMMENT ON COLUMN ([a-z_.]+) IS`)
 	seen := map[string]bool{}
 	for _, path := range paths {
@@ -79,7 +81,7 @@ func TestEntityCatalog(t *testing.T) {
 			t.Errorf("生成列必须只读且不参与普通字段迁移：%s", column)
 		}
 	}
-	for _, model := range BusinessModels() {
+	for _, model := range businessModels() {
 		parsed, _ := schema.Parse(model, &sync.Map{}, schema.NamingStrategy{})
 		if strings.Contains(parsed.Table, "recovery_") || strings.Contains(parsed.Table, "probe_") {
 			t.Errorf("隔离表混入业务实体：%s", parsed.Table)
