@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -24,14 +23,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestApplicationMatching 覆盖T019、REQ-004/005/006/007/015/018的真实PG事务与HTTP。
 // 身份、密钥、词库及文本分析均合成；已实现起点由夹具准备，不宣称完成T023。
 func TestApplicationMatching(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}
@@ -741,46 +740,7 @@ func TestApplicationMatching(t *testing.T) {
 			t.Fatal("回退HTTP失败", got.Code)
 		}
 	})
-	if nameserver := os.Getenv("APP_MODERATION_TEST_NAMESERVER"); nameserver != "" {
-		t.Run("真实MQ应愿扫描重复回执", func(t *testing.T) {
-			_, owner := student()
-			_, applicant := student()
-			w := published(owner)
-			a := apply(applicant, w, "MQ应愿留言")
-			ev := event("application", a.ID)
-			unique := "app_" + uuid.NewString()[:8]
-			cfg := transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 30 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1}
-			must(transportmq.ConfigureSDKLogging(logger))
-			sender, e := transportmq.OpenSender(ctx, cfg, logger)
-			must(e)
-			defer sender.Close()
-			h := &handler{worker: worker, seen: make(chan durable.Consumption, 512)}
-			sub, e := transportmq.OpenSubscriber(ctx, cfg, h, logger)
-			must(e)
-			defer sub.Close()
-			must(sender.Send(ctx, ev))
-			timer := time.NewTimer(70 * time.Second)
-			defer timer.Stop()
-			applied, replayed := false, false
-			for !applied || !replayed {
-				select {
-				case out := <-h.seen:
-					applied = applied || out.Applied
-					replayed = replayed || out.Replayed
-				case <-timer.C:
-					t.Fatal("真实MQ应愿重投超时")
-				}
-			}
-			if appRow(a.ID).Status != "active" {
-				t.Fatal("MQ扫描未生效")
-			}
-			var n int64
-			must(root.Model(&entity.Notification{}).Where("target_ref=?", a.ID).Count(&n).Error)
-			if n != 1 {
-				t.Fatal("重复消费重复通知")
-			}
-		})
-	}
+
 	var missing int64
 	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
 	if missing != 0 {

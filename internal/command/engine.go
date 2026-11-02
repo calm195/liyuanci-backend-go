@@ -20,7 +20,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 )
 
-// Engine 拥有命令事务及提交后的完成日志，不依赖 Redis 权限或 MQ 投递结果。
+// Engine 拥有命令事务及提交后的完成日志，不依赖缓存中的授权结论。
 type Engine struct {
 	db     *gorm.DB
 	logger *zap.Logger

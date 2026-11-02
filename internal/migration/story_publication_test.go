@@ -11,7 +11,7 @@ import (
 
 // TestPostgresStoryPublication 验证REQ-008/018的旧版升级：仅已审故事建立切换位置，重跑不刷新历史位置。
 func TestPostgresStoryPublication(t *testing.T) {
-	db := schemaDB(t, "APP_STORY_PUBLICATION_TEST_DSN")
+	db := schemaDB(t, "story_publication_test_dsn")
 	ctx, logger := context.Background(), zap.NewNop()
 	if e := Run(ctx, db, logger, "up"); e != nil {
 		t.Fatal(e)

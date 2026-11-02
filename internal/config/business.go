@@ -3,9 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
-	"io"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -17,11 +15,9 @@ import (
 // Runtime 复用树洞的密钥、供应商、恢复日志和角色边界，同一用途的历史引用必须保留。
 type Business struct {
 	Runtime                                                            Whispers
-	StudentDSN, AdminDSN                                               string
-	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte
+	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte `json:"-"`
 	LookupKeyRefs                                                      []string
-	WeChatAppID, WeChatSecretFile, AdminPasswordFile                   string
-	CardMQFile, ContentMQFile                                          string
+	WeChatAppID, WeChatSecret, AdminPassword                           string
 	SessionTTL, ExchangeTTL, AdminSessionTTL, LoginWindow              time.Duration
 	LoginLimit, MaxTextBytes                                           int
 	Card                                                               struct {
@@ -33,16 +29,21 @@ type Business struct {
 
 // LoadBusiness 严格解析私有配置，拒绝未知字段、开发模式和缺失依赖；不连接网络或改写文件。
 func LoadBusiness(ctx context.Context, path, environment, process string) (cfg Business, err error) {
-	if err = readWhisperJSON(ctx, path, &cfg); err != nil {
-		return
+	if err = ctx.Err(); err != nil {
+		return cfg, err
 	}
+	app, e := Load(path)
+	if e != nil {
+		return cfg, e
+	}
+	cfg = app.Business
 	err = ValidateBusiness(cfg, environment, process)
 	return
 }
 
-// ValidateBusiness 按用途校验配置，生产不得借用集成轮询或本地密钥、对象、学校规则。
+// ValidateBusiness 按用途校验配置，生产不得借用本地密钥、对象或学校规则。
 func ValidateBusiness(c Business, environment, process string) error {
-	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) || c.Runtime.LocalTest || c.Runtime.DatabaseDSN != "" || c.Runtime.JournalFile != "" || len(c.Runtime.WrapKey) > 0 || len(c.Runtime.RecoveryWrapKey) > 0 || c.Runtime.Contact != "" {
+	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) || c.Runtime.LocalTest || len(c.Runtime.WrapKey) > 0 || len(c.Runtime.RecoveryWrapKey) > 0 || c.Runtime.Contact != "" {
 		return command.ErrInvalid
 	}
 	if _, e := validateWhispers(c.Runtime, environment, true); e != nil {
@@ -77,10 +78,10 @@ func ValidateBusiness(c Business, environment, process string) error {
 		keys = append(keys, key)
 	}
 	if process == "api" || process == "bootstrap" {
-		if c.StudentDSN == "" || c.AdminDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 || c.LoginLimit < 1 {
+		if c.Runtime.DatabaseDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 || c.LoginLimit < 1 {
 			return command.ErrInvalid
 		}
-		if _, e := BusinessSecret(c.AdminPasswordFile, 12); e != nil {
+		if _, e := ValidateSecret(c.AdminPassword, 12); e != nil {
 			return e
 		}
 	}
@@ -90,15 +91,10 @@ func ValidateBusiness(c Business, environment, process string) error {
 				return command.ErrInvalid
 			}
 		}
-		for _, dsn := range []string{c.Runtime.APIDSN, c.Runtime.ReviewDSN, c.Runtime.CrisisDSN, c.Runtime.PrivacyDSN, c.Runtime.EvidenceDeletionDSN} {
-			if dsn == "" {
-				return command.ErrInvalid
-			}
-		}
 		if c.WeChatAppID == "" || c.SessionTTL <= 0 || c.ExchangeTTL <= 0 || c.MaxTextBytes < 1 || c.MaxTextBytes > 1<<20 {
 			return command.ErrInvalid
 		}
-		if _, e := BusinessSecret(c.WeChatSecretFile, 16); e != nil {
+		if _, e := ValidateSecret(c.WeChatSecret, 16); e != nil {
 			return e
 		}
 	}
@@ -108,36 +104,17 @@ func ValidateBusiness(c Business, environment, process string) error {
 		}
 	}
 	if process == "card" || process == "content" || process == "whispers" {
-		if c.Runtime.WorkerDSN == "" {
+		if c.Runtime.DatabaseDSN == "" {
 			return command.ErrInvalid
 		}
-	}
-	if process == "card" && c.CardMQFile == "" && !c.Runtime.DatabaseTasks() || process == "content" && c.ContentMQFile == "" && !c.Runtime.DatabaseTasks() {
-		return command.ErrInvalid
-	}
-	if c.Runtime.DatabaseTasks() && (c.CardMQFile != "" || c.ContentMQFile != "") {
-		return command.ErrInvalid
-	}
-	if process == "account" && c.Runtime.PrivacyDSN == "" || process == "evidence" && c.Runtime.EvidencePurgerDSN == "" {
-		return command.ErrInvalid
 	}
 	return nil
 }
 
-// BusinessSecret 只读取有界单行凭据；错误不含路径或内容，既有凭据永不自动替换。
-func BusinessSecret(path string, minimum int) (string, error) {
-	f, e := os.Open(path)
-	if e != nil {
-		return "", command.ErrUnavailable
-	}
-	defer f.Close()
-	b, e := io.ReadAll(io.LimitReader(f, 4097))
-	defer clear(b)
-	if e != nil || len(b) > 4096 {
-		return "", command.ErrInvalid
-	}
-	s := strings.TrimSpace(string(b))
-	if len(s) < minimum || strings.ContainsAny(s, "\r\n\x00") {
+// ValidateSecret 校验YAML内联的有界单行凭据；不读取外部文件，不生成或替换原值。
+func ValidateSecret(value string, minimum int) (string, error) {
+	s := strings.TrimSpace(value)
+	if len(s) < minimum || len(s) > 4096 || strings.ContainsAny(s, "\r\n\x00") {
 		return "", command.ErrInvalid
 	}
 	return s, nil

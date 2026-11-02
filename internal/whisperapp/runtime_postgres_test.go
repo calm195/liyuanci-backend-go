@@ -9,7 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,18 +25,15 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
-	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
+	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 var moderationCareFixture = moderation.CareResources{Version: "synthetic-v1", Source: "隔离合成资料", VerifiedAt: "2026-10-28", Hotline24Hours: "隔离合成联系占位", Appointment: "隔离合成预约", Notice: "仅用于测试，不是真实援助资料"}
@@ -80,9 +77,9 @@ func (p *runtimeProcess) stop(t *testing.T) {
 // TestPostgresWhisperRuntime 验证B08真实二进制、受限登录身份、TLS供应商、Redis、MQ/补偿和恢复启动门禁。
 // TLS供应商、KMS、文本处理与全副本清理为隔离合成，不代表生产供应商及灾备验收。
 func TestPostgresWhisperRuntime(t *testing.T) {
-	dsn := os.Getenv("APP_WHISPER_TEXT_TEST_DSN")
-	redisAddress := os.Getenv("APP_WHISPER_REDIS_TEST_ADDRESS")
-	serverBin, contentBin, privacyBin := os.Getenv("APP_WHISPER_SERVER_BINARY"), os.Getenv("APP_WHISPER_CONTENT_BINARY"), os.Getenv("APP_WHISPER_PRIVACY_BINARY")
+	dsn := testconfig.Value("whisper_text_test_dsn")
+	redisAddress := testconfig.Value("whisper_redis_test_address")
+	serverBin, contentBin, privacyBin := testconfig.Value("whisper_server_binary"), testconfig.Value("whisper_content_binary"), testconfig.Value("whisper_privacy_binary")
 	if dsn == "" || redisAddress == "" || serverBin == "" || contentBin == "" || privacyBin == "" {
 		t.Skip("需显式隔离PG/Redis及三个实际进程，make integration覆盖")
 	}
@@ -93,58 +90,9 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 			t.Fatal("运行装配验证失败", e)
 		}
 	}
-	open := func(value string) *gorm.DB {
-		t.Helper()
-		db, e := gorm.Open(postgres.New(postgres.Config{DSN: value, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-		must(e)
-		pool, e := db.DB()
-		must(e)
-		t.Cleanup(func() { _ = pool.Close() })
-		return db
-	}
-	parent := open(dsn)
-	var parentName string
-	must(parent.Raw("SELECT current_database()").Scan(&parentName).Error)
-	needle := "dbname=" + parentName + " "
-	if !strings.Contains(dsn, needle) || (parentName != "liyuanci" && parentName != "whisper_test") {
-		t.Fatal("需显式隔离父库")
-	}
-	name := "whisper_runtime_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	must(parent.Exec("CREATE DATABASE " + name).Error)
-	must(parent.Exec("CREATE DATABASE " + name + "_journal").Error)
-	businessDSN := strings.Replace(dsn, needle, "dbname="+name+" ", 1)
-	journalDSN := strings.Replace(dsn, needle, "dbname="+name+"_journal ", 1)
-	root, journalRoot := open(businessDSN), open(journalDSN)
-	must(migration.Run(ctx, root, log, "up"))
-	must(migration.ApplyPermissions(ctx, root, log))
-	must(migration.RunJournal(ctx, journalRoot, log, "up"))
-	must(migration.RunJournal(ctx, journalRoot, log, "permissions"))
-	login := func(base, role string) string {
-		username := "runtime_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-		password := uuid.NewString()
-		must(parent.Exec("CREATE ROLE " + username + " LOGIN PASSWORD '" + password + "' IN ROLE " + role).Error)
-		// DSN格式由固定隔离fixture生成，不保留管理员身份或SET ROLE绕过登录检查。
-		parts := strings.Fields(base)
-		for i, v := range parts {
-			if strings.HasPrefix(v, "user=") {
-				parts[i] = "user=" + username
-			}
-			if strings.HasPrefix(v, "password=") {
-				parts[i] = "password=" + password
-			}
-		}
-		return strings.Join(parts, " ")
-	}
+	root, shared, businessDSN := applicationDatabase(t, dsn)
 	cfg := testSettings()
-	cfg.APIDSN = login(businessDSN, "liyuanci_api")
-	cfg.ReviewDSN = login(businessDSN, "liyuanci_admin_api")
-	cfg.CrisisDSN = login(businessDSN, "liyuanci_crisis_api")
-	cfg.PrivacyDSN = login(businessDSN, "liyuanci_privacy_maintenance")
-	cfg.EvidenceDeletionDSN = login(businessDSN, "liyuanci_evidence_delete_api")
-	cfg.WorkerDSN = login(businessDSN, "liyuanci_domain_worker")
-	cfg.EvidencePurgerDSN = login(businessDSN, "liyuanci_evidence_purger")
-	cfg.RecoveryWriterDSN = login(journalDSN, "liyuanci_recovery_writer")
-	cfg.RecoveryReaderDSN = login(journalDSN, "liyuanci_recovery_reader")
+	cfg.DatabaseDSN = shared
 	cfg.Command.Timeout = 5 * time.Second
 	cfg.Command.LockTimeout = time.Second
 	cfg.Worker.Consumer.Timeout = 3 * time.Second
@@ -155,10 +103,12 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	cfg.OperationTimeout = 20 * time.Second
 	cfg.Interval = 50 * time.Millisecond
 	dir := t.TempDir()
+	must(os.Chmod(dir, 0700))
+	cfg.JournalFile = filepath.Join(dir, "deletions.json")
 	write := func(name string, value any) string {
 		t.Helper()
 		path := filepath.Join(dir, name)
-		raw, e := json.Marshal(value)
+		raw, e := yamlconfig.Marshal(value)
 		must(e)
 		must(os.WriteFile(path, raw, 0600))
 		return path
@@ -239,11 +189,9 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	}))
 	defer gatewayServer.Close()
 	cfg.GatewayURL = gatewayServer.URL
-	cfg.GatewayTokenFile = filepath.Join(dir, "gateway.token")
-	must(os.WriteFile(cfg.GatewayTokenFile, []byte("synthetic-runtime-gateway-token"), 0600))
-	cfg.GatewayCAFile = filepath.Join(dir, "gateway.pem")
-	must(os.WriteFile(cfg.GatewayCAFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayServer.Certificate().Raw}), 0600))
-	cfg.CatalogFile = write("catalog.json", ResourcesFile{Version: "synthetic-runtime-resources-v1", Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Items: []whisper.Item{}}, Help: whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}}}, Care: &moderationCareFixture})
+	cfg.GatewayToken = "synthetic-runtime-gateway-token"
+	cfg.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayServer.Certificate().Raw}))
+	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{Version: "synthetic-runtime-resources-v1", Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Items: []whisper.Item{}}, Help: whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}}}, Care: &moderationCareFixture})
 	for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
 		// 首次创建、发布推进head至3，快照由草案1推进至已发布2，模拟正式发布语义。
@@ -262,59 +210,32 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		}
 	}()
 	must(blockpolicy.Enable(ctx, root, log))
-	mq := os.Getenv("APP_BUSINESS_TEST_NAMESERVER")
-	if mq != "" {
-		cfg.DatabasePolling = false
-		suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
-		for i, item := range []struct {
-			path         *string
-			topic, event string
-		}{{&cfg.ReviewMQFile, "liyuanci_whisper_review_v1", "whisper.review.requested"}, {&cfg.UnlockMQFile, "liyuanci_whisper_unlock_v1", "whisper.capsule.unlock.requested"}} {
-			c := workrunner.Config{}
-			c.MQ.NameServers = []string{mq}
-			c.MQ.Topic = item.topic
-			c.MQ.EventType = item.event
-			c.MQ.ProducerGroup = fmt.Sprintf("runtime_relay_%s_%d", suffix, i)
-			c.MQ.ConsumerGroup = fmt.Sprintf("runtime_scan_%s_%d", suffix, i)
-			c.MQ.Instance = fmt.Sprintf("runtime_%s_%d", suffix, i)
-			c.MQ.AllowUnauthenticated = true
-			c.MQ.SendTimeout = time.Second
-			c.MQ.HandlerTimeout = cfg.OperationTimeout
-			c.MQ.Concurrency = 1
-			c.MQ.MaxReconsume = 2
-			c.MQ.RetryDelayLevel = 1
-			c.Relay.DatabaseTimeout = 3 * time.Second
-			c.Relay.SendTimeout = time.Second
-			c.Relay.LeaseDuration = 5 * time.Second
-			c.Relay.RetryDelay = time.Second
-			c.Relay.MaxAttempts = 3
-			c.RelayInterval = 50 * time.Millisecond
-			c.ScanInterval = 30 * time.Second
-			c.OperationTimeout = cfg.OperationTimeout
-			// LoadCardWorkerMQ接受JSON作为YAML子集，期限使用数值纳秒，与私有配置保持相同格式。
-			*item.path = write(fmt.Sprintf("mq-%d.json", i), c)
-		}
-	}
-	configPath := write("runtime.json", cfg)
+
 	listener, e := net.Listen("tcp", "127.0.0.1:0")
 	must(e)
 	address := listener.Addr().String()
 	must(listener.Close())
-	appPath := filepath.Join(dir, "server.yaml")
-	must(os.WriteFile(appPath, []byte("environment: integration\nwhispersfile: "+configPath+"\nserver:\n  address: "+address+"\ndatabase:\n  driver: postgres\nredis:\n  enabled: true\n  address: "+redisAddress+"\n"), 0600))
-	environment := func() []string {
-		out := []string{}
-		for _, v := range os.Environ() {
-			if !strings.HasPrefix(v, "APP_") {
-				out = append(out, v)
-			}
-		}
-		return append(out, "APP_ENVIRONMENT=integration", "APP_WHISPERSFILE="+configPath, "APP_PRIVACY_SCOPE=account", "APP_PRIVACY_RECOVER=true")
+	doc := config.Defaults()
+	doc.MasterKey = bytes.Repeat([]byte{95}, 32)
+	doc.Mode, doc.Environment = "whispers", "integration"
+	doc.Database = databaseSettings(shared)
+	doc.Redis.Enabled, doc.Redis.Address = true, redisAddress
+	doc.Server.Address = address
+	doc.Whispers = cfg
+	configPath := write("common.yaml", doc)
+	appPath := write("integration.yaml", map[string]any{"environment": "integration"})
+	resolved, e := config.Load(appPath)
+	must(e)
+	cfg = resolved.Whispers
+	saveConfig := func() {
+		doc.Whispers = cfg
+		doc.Database = databaseSettings(cfg.DatabaseDSN)
+		must(os.WriteFile(configPath, mustYAML(t, doc), 0600))
 	}
 	start := func(binary string, args ...string) *runtimeProcess {
 		t.Helper()
 		p := &runtimeProcess{cmd: exec.Command(binary, args...), log: &processLog{}, done: make(chan error, 1)}
-		p.cmd.Env = environment()
+		p.cmd.Env = os.Environ()
 		p.cmd.Stdout = p.log
 		p.cmd.Stderr = p.log
 		must(p.cmd.Start())
@@ -338,7 +259,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		call, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(call, binary, args...)
-		cmd.Env = environment()
+		cmd.Env = os.Environ()
 		raw, e := cmd.CombinedOutput()
 		if (e == nil) != wantSuccess {
 			t.Fatalf("进程结果与预期不符：success=%v 输出=%s", wantSuccess, string(raw))
@@ -404,7 +325,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	if !module.Enabled || module.SemiAvailable {
 		t.Fatal("资料缺失边界错误")
 	}
-	content := start(contentBin)
+	content := start(contentBin, "-config", appPath, "-kind", "whispers")
 	wait("内容调度启动", func() bool { return strings.Contains(content.log.String(), "树洞内容进程启动完成") })
 	createPost := func(body string) whisper.OwnerPost {
 		var post whisper.OwnerPost
@@ -448,25 +369,20 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	if capsule.Body == nil || *capsule.Body != "私密原文保持不变" {
 		t.Fatal("私密分类替换原文")
 	}
-	if mq != "" {
-		wait("真实MQ发送与消费确认", func() bool {
-			var count int64
-			return strings.Contains(content.log.String(), "消息确认决策完成") && root.Model(&entity.OutboxEvent{}).Where("aggregate_id=? AND event_type='whisper.capsule.unlock.requested' AND sent_at IS NOT NULL", capsule.ID).Count(&count).Error == nil && count == 1
-		})
-	}
+
 	outage.Store(true)
 	checkHTTP("/readyz", 503)
 	checkHTTP("/healthz", 200)
 	outage.Store(false)
 	content.stop(t)
 	pending := createPost("停机期间受理的合成稿")
-	content = start(contentBin)
+	content = start(contentBin, "-config", appPath, "-kind", "whispers")
 	wait("补偿进程启动", func() bool { return strings.Contains(content.log.String(), "树洞内容进程启动完成") })
 	published(pending.ID)
 	// 关闭模块只改变普通能力，不回退旧黑名单保护；密钥与历史引用保持原值。
 	server.stop(t)
 	cfg.Enabled = false
-	must(os.WriteFile(configPath, mustJSON(t, cfg), 0600))
+	saveConfig()
 	server = start(serverBin, "-config", appPath)
 	wait("关闭模块重启", func() bool {
 		response, e := client.Get("http://" + address + "/healthz")
@@ -491,15 +407,15 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	server.stop(t)
 	content.stop(t)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(privacyBin, true)
+	oneShot(privacyBin, true, "-config", appPath, "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	// 模拟恢复出已确认删除的主体；读取进程必须再次拒绝，隐私进程重删后才可启动。
 	must(root.Create(&entity.Account{ID: actor, Nickname: "恢复合成残留"}).Error)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(privacyBin, true)
+	oneShot(privacyBin, true, "-config", appPath, "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	cfg.Enabled = true
-	must(os.WriteFile(configPath, mustJSON(t, cfg), 0600))
+	saveConfig()
 	server = start(serverBin, "-config", appPath)
 	wait("恢复重删后API", func() bool {
 		response, e := client.Get("http://" + address + "/healthz")
@@ -515,15 +431,15 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	}
 	server.stop(t)
 	// 管理员池、未迁移库和供应商缺失不会退回开发适配器或触发DDL。
-	cfg.APIDSN = businessDSN
-	must(os.WriteFile(configPath, mustJSON(t, cfg), 0600))
+	cfg.DatabaseDSN = businessDSN
+	saveConfig()
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var version int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&version).Error)
 	if version != 29 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
-	t.Logf("正式server/content-worker/privacy-worker、受限登录、TLS、Redis、MQ=%v、禁用/重启/恢复门禁通过；供应商/KMS/清理为合成", mq != "")
+	t.Logf("正式server/content-worker/privacy-worker、受限登录、TLS、Redis、数据库任务、禁用/重启/恢复门禁通过；供应商/KMS/清理为合成")
 }
 
 func mustJSON(t *testing.T, value any) []byte {

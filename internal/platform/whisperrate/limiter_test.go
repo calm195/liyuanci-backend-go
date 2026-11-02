@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,12 +15,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // TestRedisWhisperAdmission 验证真实滚动窗口、原子并发、释放与依赖失败；只操作本测试随机主体的键。
 func TestRedisWhisperAdmission(t *testing.T) {
-	address := os.Getenv("APP_WHISPER_REDIS_TEST_ADDRESS")
+	address := testconfig.Value("whisper_redis_test_address")
 	if address == "" {
 		t.Skip("需显式隔离 Redis；make integration 覆盖此用例")
 	}

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -30,7 +29,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
@@ -110,7 +109,7 @@ func (h *handler) Consume(ctx context.Context, event durable.Event) (durable.Con
 
 // TestModerationCore 验证 T016/REQ-008、015、017、018、019 的真实PG/MQ核心，外部文本分析明确合成。
 func TestModerationCore(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PG，使用make integration执行")
 	}
@@ -657,70 +656,13 @@ func TestModerationCore(t *testing.T) {
 		}
 		checkReceipt(event)
 	})
-	if nameserver := os.Getenv("APP_MODERATION_TEST_NAMESERVER"); nameserver != "" {
-		t.Run("真实MQ提交后NACK重投", func(t *testing.T) {
-			_, event := submit("普通命中消息往返")
-			unique := "review_" + uuid.NewString()[:8]
-			cfg := transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 15 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1}
-			must(transportmq.ConfigureSDKLogging(logger))
-			h := &handler{worker: worker, seen: make(chan durable.Consumption, 128)}
-			sub, e := transportmq.OpenSubscriber(ctx, cfg, h, logger)
-			must(e)
-			defer sub.Close()
-			sender, e := transportmq.OpenSender(ctx, cfg, logger)
-			must(e)
-			defer sender.Close()
-			must(sender.Send(ctx, event))
-			deadline := time.NewTimer(70 * time.Second)
-			defer deadline.Stop()
-			applied, replayed := false, false
-			for !applied || !replayed {
-				select {
-				case out := <-h.seen:
-					applied = applied || out.Applied
-					replayed = replayed || out.Replayed
-				case <-deadline.C:
-					t.Fatal("真实MQ重投超时")
-				}
-			}
-			checkReceipt(event)
-		})
-		t.Run("常驻消息转发与内容订阅", func(t *testing.T) {
-			unique := "runtime_" + uuid.NewString()[:8]
-			cfg := workrunner.Config{
-				MQ:            transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 30 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1},
-				Relay:         durable.Config{DatabaseTimeout: 3 * time.Second, SendTimeout: 3 * time.Second, LeaseDuration: 15 * time.Second, RetryDelay: time.Second, MaxAttempts: 5},
-				RelayInterval: 10 * time.Millisecond, ScanInterval: time.Hour, OperationTimeout: 30 * time.Second,
-			}
-			// 先让补偿首轮完成，再提交新任务，使本目标只能经真实MQ消费或测试超时。
-			run, e := workrunner.Open(ctx, workerDB, worker, logger, cfg, wish.ReviewRoute())
-			must(e)
-			defer run.Close()
-			time.Sleep(100 * time.Millisecond)
-			draft, event := submit("常驻消息合成正文")
-			deadline := time.Now().Add(20 * time.Second)
-			for state(draft.ID).State != "ready" && time.Now().Before(deadline) {
-				time.Sleep(20 * time.Millisecond)
-			}
-			must(run.Close())
-			if state(draft.ID).State != "ready" {
-				t.Fatal("常驻消息链未完成审核")
-			}
-			var row entity.OutboxEvent
-			must(root.Where("event_id=?", event.EventID).Take(&row).Error)
-			if row.SentAt == nil {
-				t.Fatal("领域结果缺消息转发确认")
-			}
-			checkReceipt(event)
-		})
 
-	}
 	for _, entry := range logs.All() {
 		if strings.Contains(entry.Message, "SYNTHETIC_PROVIDER_SECRET") || strings.Contains(entry.Message, "合成个人姓名") {
 			t.Fatal("敏感数据进入日志")
 		}
 	}
 	if !t.Failed() {
-		t.Log("真实PG权限/事务/增量迁移、完整词库双版本、心愿扫描/人工复核及实际MQ往返通过；安全分析供应商为合成夹具")
+		t.Log("真实PG权限/事务/增量迁移、完整词库双版本、心愿扫描/人工复核及数据库持久任务通过；安全分析供应商为合成夹具")
 	}
 }

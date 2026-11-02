@@ -58,16 +58,15 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		return nil, command.ErrInvalid
 	}
 	b := &BusinessAPI{API: a, cfg: cfg, gateway: &businessGateway{gateway: g, lookupRefs: cfg.LookupKeyRefs, maxObjectBytes: cfg.Card.MaxBytes*2 + 65536}}
-	student, e := a.r.pool(ctx, cfg.StudentDSN, "liyuanci_identity_maintenance")
+	student, e := a.r.pool(ctx)
 	if e != nil {
 		return nil, e
 	}
-	adminDB, e := a.r.pool(ctx, cfg.AdminDSN, "liyuanci_admin_maintenance")
+	adminDB, e := a.r.pool(ctx)
 	if e != nil {
 		return nil, e
 	}
 	b.identityDB = student
-	a.databases = append(a.databases, student, adminDB)
 	if e = b.Ready(ctx); e != nil {
 		return nil, e
 	}
@@ -79,7 +78,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	secret, e := config.BusinessSecret(cfg.WeChatSecretFile, 16)
+	secret, e := config.ValidateSecret(cfg.WeChatSecret, 16)
 	if e != nil {
 		return nil, e
 	}
@@ -94,7 +93,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	econf := pconf
 	econf.Key = cfg.Runtime.EvidenceKey
 	router, e := studentapi.New(studentapi.Dependencies{
-		StudentDB: student, ReviewDB: a.databases[1], WishDB: a.databases[0], CrisisDB: a.databases[2], PrivacyDB: a.databases[3], EvidenceDeletionDB: a.databases[4],
+		StudentDB: student, ReviewDB: a.database, WishDB: a.database, CrisisDB: a.database, PrivacyDB: a.database, EvidenceDeletionDB: a.database,
 		DeletionJournal: a.r.journal, Eraser: b.gateway, Logger: log, Ready: b.Ready, Exchange: exchange, Identity: store, Limiter: limiter, Codec: a.r.codec, Objects: b.gateway, Scanner: b.gateway, Rules: b.gateway, Grades: businessGrades{cfg.Runtime},
 	}, studentapi.Config{
 		Auth: studentauth.Config{SessionTTL: cfg.SessionTTL, ExchangeTTL: cfg.ExchangeTTL, SessionKey: cfg.SessionKey, Command: cmd},
@@ -110,7 +109,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	password, e := config.BusinessSecret(cfg.AdminPasswordFile, 12)
+	password, e := config.ValidateSecret(cfg.AdminPassword, 12)
 	if e != nil {
 		return nil, e
 	}
@@ -133,10 +132,10 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 	if e := b.API.Ready(ctx); e != nil {
 		return e
 	}
-	if e := b.r.rules(ctx, b.databases[1]); e != nil {
+	if e := b.r.rules(ctx, b.database); e != nil {
 		return e
 	}
-	if e := businessSchema(ctx, b.databases[0]); e != nil {
+	if e := businessSchema(ctx, b.database); e != nil {
 		return e
 	}
 	if e := b.gateway.readyBusiness(ctx, "api"); e != nil {
@@ -150,7 +149,7 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 		return e
 	}
 	var reports []whisper.Item
-	if b.databases[0].WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").Scan(&reports).Error != nil || len(reports) != len(catalog.Catalog.Reports) {
+	if b.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").Scan(&reports).Error != nil || len(reports) != len(catalog.Catalog.Reports) {
 		return command.ErrUnavailable
 	}
 	for _, item := range catalog.Catalog.Reports {

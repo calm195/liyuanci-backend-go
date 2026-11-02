@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -25,14 +24,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestStorySharing 覆盖T023、REQ-004/007/008/015/018的真实PG、HTTP和MQ。
 // 身份、密钥、词库及文本分析均合成；确认实现走正式服务，注销生效由同锁序夹具模拟。
 func TestStorySharing(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}
@@ -771,44 +770,7 @@ func TestStorySharing(t *testing.T) {
 			t.Fatal("技术分页上限失效")
 		}
 	})
-	if nameserver := os.Getenv("APP_MODERATION_TEST_NAMESERVER"); nameserver != "" {
-		t.Run("真实MQ故事重投不重复审核版本", func(t *testing.T) {
-			f := matched()
-			complete(f)
-			submit(f, "MQ故事")
-			ev := event("story", f.w.ID)
-			before := wishRow(f.w.ID).Version
-			unique := "story_" + uuid.NewString()[:8]
-			cfg := transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 30 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1}
-			must(transportmq.ConfigureSDKLogging(logger))
-			sender, e := transportmq.OpenSender(ctx, cfg, logger)
-			must(e)
-			defer sender.Close()
-			h := &handler{worker: worker, seen: make(chan durable.Consumption, 512)}
-			sub, e := transportmq.OpenSubscriber(ctx, cfg, h, logger)
-			must(e)
-			defer sub.Close()
-			must(sender.Send(ctx, ev))
-			timer := time.NewTimer(70 * time.Second)
-			defer timer.Stop()
-			applied, replayed := false, false
-			for !applied || !replayed {
-				select {
-				case out := <-h.seen:
-					applied = applied || out.Applied
-					replayed = replayed || out.Replayed
-				case <-timer.C:
-					t.Fatal("故事MQ重投超时")
-				}
-			}
-			if wishRow(f.w.ID).Version != before+1 {
-				t.Fatal("重复扫描重复增版本")
-			}
-			if _, e = wishes.Story(ctx, "", "MQ公开", f.w.ID); e != nil {
-				t.Fatal(e)
-			}
-		})
-	}
+
 	var missing int64
 	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
 	if missing != 0 {

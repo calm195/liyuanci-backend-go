@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"go.uber.org/zap"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
@@ -21,7 +21,7 @@ type leased struct {
 	payload entity.StudentCardPayload
 }
 
-// ProcessNext 只从数据库扫描一条到期工作；MQ丢失唤醒时仍可由显式调度补偿。
+// ProcessNext 只从数据库扫描一条到期工作；由显式后台调度执行，保留租约与重试。
 func (s *Service) ProcessNext(ctx context.Context, requestID string) (out durable.Consumption, err error) {
 	start := time.Now()
 	defer func() {

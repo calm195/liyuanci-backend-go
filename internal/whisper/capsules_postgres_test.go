@@ -21,6 +21,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
@@ -453,7 +454,7 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 			t.Fatal("隔离未占用额度", e)
 		}
 	})
-	if output := os.Getenv("APP_WHISPER_CAPSULE_WIRE_OUTPUT"); output != "" {
+	if output := testconfig.Value("whisper_capsule_wire_output"); output != "" {
 		b, e := json.MarshalIndent(samples, "", "  ")
 		must(e)
 		must(os.WriteFile(output, append(b, '\n'), 0600))

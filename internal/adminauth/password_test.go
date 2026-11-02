@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/gorm"
+
+	"github.com/calm195/liyuanci-backend-go/internal/command"
 )
 
 // T008/REQ-018、019：口令不截断、独立随机盐、畸形摘要失败关闭，期限必须显式注入。

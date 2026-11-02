@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
-	"testing"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // TestTextContract 覆盖规范化、URL字节与各位置非法百分号，禁止静默替换输入。
@@ -45,7 +46,7 @@ func TestStrictInputs(t *testing.T) {
 
 // TestSharedTextVectors 读取固定正式契约的真实向量，避免另造一套规范样例。
 func TestSharedTextVectors(t *testing.T) {
-	p := os.Getenv("APP_RESOURCE_CONTRACT_DIR")
+	p := testconfig.Value("resource_contract_dir")
 	if p == "" {
 		p = "../../../docs/contracts/resource-plaza-v1"
 	}

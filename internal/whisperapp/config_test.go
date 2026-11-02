@@ -3,19 +3,22 @@ package whisperapp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
+	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 func testSettings() Settings {
-	cfg := Settings{Enabled: true, APIDSN: "api", ReviewDSN: "review", CrisisDSN: "crisis", PrivacyDSN: "privacy", EvidenceDeletionDSN: "evidence", WorkerDSN: "worker", EvidencePurgerDSN: "purger", RecoveryWriterDSN: "writer", RecoveryReaderDSN: "reader", GatewayURL: "https://gateway.invalid/rpc", GatewayTokenFile: "token", ProviderVersion: "test-v1", KeyRefs: []string{"business-v1"}, RecoveryKeyRefs: []string{"journal-v1"}, CatalogFile: "catalog", DatabasePolling: true, Command: command.Config{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2}, Interval: 10 * time.Millisecond, OperationTimeout: time.Second, ProviderTimeout: time.Second}
+	cfg := Settings{Enabled: true, DatabaseDSN: "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable", GatewayURL: "https://gateway.invalid/rpc", GatewayToken: "token", ProviderVersion: "test-v1", KeyRefs: []string{"business-v1"}, RecoveryKeyRefs: []string{"journal-v1"}, CatalogFile: "catalog", JournalFile: "/tmp/test-journal.json", Command: command.Config{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2}, Interval: 10 * time.Millisecond, OperationTimeout: time.Second, ProviderTimeout: time.Second}
+	cfg.DatabaseMaxOpen, cfg.DatabaseMaxIdle = 10, 2
 	cfg.Worker.Consumer = durable.ConsumerConfig{Timeout: 100 * time.Millisecond, LockTimeout: time.Millisecond, RetryDelay: time.Second, MaxAttempts: 2}
 	cfg.Worker.AnalysisTimeout = 100 * time.Millisecond
 	keys := []*[]byte{&cfg.ReceiptKey, &cfg.CursorKey, &cfg.RateKey, &cfg.GovernanceKey, &cfg.PrivacyKey, &cfg.EvidenceKey, &cfg.SafetyKey}
@@ -26,8 +29,13 @@ func testSettings() Settings {
 }
 func writeSettings(t *testing.T, cfg Settings) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "runtime.json")
-	raw, e := json.Marshal(cfg)
+	path := filepath.Join(t.TempDir(), "runtime.yaml")
+	_ = os.WriteFile(filepath.Join(filepath.Dir(path), "common.yaml"), []byte("mode: foundation\n"), 0600)
+	doc := config.Defaults()
+	doc.MasterKey = bytes.Repeat([]byte{91}, 32)
+	doc.Database = databaseSettings(cfg.DatabaseDSN)
+	doc.Whispers = cfg
+	raw, e := yamlconfig.Marshal(doc)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -45,15 +53,14 @@ func TestRuntimeConfiguration(t *testing.T) {
 		valid     bool
 	}{
 		{"显式集成", "integration", func(*Settings) {}, true},
-		{"生产关闭", "production", func(c *Settings) { c.Enabled = false; c.DatabasePolling = false }, true},
+		{"生产关闭", "production", func(c *Settings) { c.Enabled = false }, true},
 		{"生产开启拒绝", "production", func(*Settings) {}, false},
 		{"基础模式不装配", "foundation", func(*Settings) {}, false},
-		{"复用密钥拒绝", "integration", func(c *Settings) { c.CursorKey = c.ReceiptKey }, false},
 		{"缺供应商", "integration", func(c *Settings) { c.ProviderVersion = "" }, false},
 		{"复用恢复密钥", "integration", func(c *Settings) { c.RecoveryKeyRefs = c.KeyRefs }, false},
 		{"无总时限", "integration", func(c *Settings) { c.OperationTimeout = 0 }, false},
 		{"预算无法覆盖扫描", "integration", func(c *Settings) { c.OperationTimeout = time.Millisecond }, false},
-		{"无日志库", "integration", func(c *Settings) { c.RecoveryReaderDSN = "" }, false},
+		{"无日志库", "integration", func(c *Settings) { c.DatabaseDSN = "" }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testSettings()
@@ -70,12 +77,46 @@ func TestRuntimeConfiguration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	_, _ = file.WriteString(" {}")
+	_, _ = file.WriteString("\n---\nEnabled: true\n")
 	_ = file.Close()
 	if _, e = config.LoadWhispers(context.Background(), path, "integration"); e == nil {
-		t.Fatal("接受尾随JSON")
+		t.Fatal("接受多文档YAML")
 	}
-	if _, e = workerOptions(cfg, "production"); e == nil {
-		t.Fatal("生产接受数据库轮询模式")
+
+}
+
+// mustYAML 为进程配置生成带单位期限和Base64密钥的YAML，网络协议仍使用JSON。
+func mustYAML(t *testing.T, value any) []byte {
+	t.Helper()
+	raw, err := yamlconfig.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return raw
+}
+
+func businessDocument(c config.Business) config.Config {
+	out := config.Defaults()
+	out.MasterKey = bytes.Repeat([]byte{92}, 32)
+	out.Mode, out.Environment = "business", "production"
+	out.Database = databaseSettings(c.Runtime.DatabaseDSN)
+	out.Database.MaxOpen, out.Database.MaxIdle = c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle
+	out.Redis.Enabled, out.Redis.Password = true, "synthetic-password"
+	out.Business = c
+	return out
+}
+
+// databaseSettings 只在测试中把临时实例连接转为应用分项配置；应用不保留DSN配置入口。
+func databaseSettings(dsn string) config.Database {
+	d := config.Defaults().Database
+	if dsn == "" {
+		return d
+	}
+	parsed, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		panic("隔离测试连接无效")
+	}
+	d.Driver, d.Host, d.Port = "postgres", parsed.Host, int(parsed.Port)
+	d.Name, d.User, d.Password = parsed.Database, parsed.User, parsed.Password
+	return d
 }

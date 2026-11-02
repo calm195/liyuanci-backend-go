@@ -127,9 +127,9 @@ func TestAuthenticationRoutes(t *testing.T) {
 	}
 }
 
-// TestRejectPartialApplication 验证配置失败不返回半套入口，拒绝共池及跨用途复用密钥。
+// TestRejectPartialApplication 验证配置失败不返回半套入口，保留缺依赖拒绝和跨用途密钥隔离。
 func TestRejectPartialApplication(t *testing.T) {
-	for _, name := range []string{"logger", "ready", "pool", "shared_pool", "exchange", "identity", "objects", "scanner", "rules", "codec", "auth_config", "card_config", "review_config", "shared_key", "card_budget"} {
+	for _, name := range []string{"logger", "ready", "pool", "exchange", "identity", "objects", "scanner", "rules", "codec", "auth_config", "card_config", "review_config", "shared_key", "card_budget"} {
 		t.Run(name, func(t *testing.T) {
 			d, cfg := dependencies(t)
 			core, logs := observer.New(zap.InfoLevel)
@@ -141,8 +141,6 @@ func TestRejectPartialApplication(t *testing.T) {
 				d.Ready = nil
 			case "pool":
 				d.StudentDB = nil
-			case "shared_pool":
-				d.ReviewDB = d.StudentDB.Session(&gorm.Session{})
 			case "exchange":
 				d.Exchange = nil
 			case "identity":
@@ -177,7 +175,7 @@ func TestRejectPartialApplication(t *testing.T) {
 	}
 }
 
-// TestOptionalWishAssembly 追溯 T014/REQ-003/004/018：独立池/密钥、全部路由及未授权请求不调用供应商。
+// TestOptionalWishAssembly 追溯 T014/REQ-003/004/018：共享池与独立密钥、全部路由及未授权请求不调用供应商。
 func TestOptionalWishAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
 	other, _ := dependencies(t)
@@ -201,8 +199,8 @@ func TestOptionalWishAssembly(t *testing.T) {
 		}
 	}
 	d.WishDB = d.StudentDB
-	if router, err := New(d, cfg); err == nil || router != nil {
-		t.Fatal("允许复用身份维护池")
+	if router, err := New(d, cfg); err != nil || router == nil {
+		t.Fatal("共用连接池被错误拒绝")
 	}
 	d.WishDB = other.StudentDB
 	cfg.Wish.ReceiptKey = cfg.Auth.SessionKey
@@ -264,7 +262,7 @@ func TestStoryAssembly(t *testing.T) {
 	}
 }
 
-// TestOptionalCrisisAssembly 验证独立危机池、用途密钥和显式注册，普通后台不能隐式获得证据能力。
+// TestOptionalCrisisAssembly 验证显式危机服务、用途密钥和显式注册，普通后台不能隐式获得证据能力。
 func TestOptionalCrisisAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
 	baseline, e := New(d, cfg)
@@ -273,11 +271,11 @@ func TestOptionalCrisisAssembly(t *testing.T) {
 	}
 	cfg.Crisis = &moderation.Config{Command: cfg.Auth.Command, CursorKey: bytes.Repeat([]byte{91}, 32), MaxEntries: 100}
 	if r, e := New(d, cfg); e == nil || r != nil {
-		t.Fatal("缺独立危机池仍装配")
+		t.Fatal("缺显式危机服务仍装配")
 	}
 	d.CrisisDB = d.ReviewDB
-	if r, e := New(d, cfg); e == nil || r != nil {
-		t.Fatal("复用了普通审核池")
+	if r, e := New(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
 	}
 	other, _ := dependencies(t)
 	d.CrisisDB = other.StudentDB
@@ -309,7 +307,7 @@ func (deletionJournalStub) Pending(context.Context, string, int) ([]privacy.Inte
 }
 func (deletionJournalStub) Confirm(context.Context, string) error { return nil }
 
-// TestOptionalPrivacyAssembly 验证删除入口缺省关闭、独立池/日志必需且用途密钥不能复用。
+// TestOptionalPrivacyAssembly 验证删除入口缺省关闭、共享池、独立日志必需且用途密钥不能复用。
 func TestOptionalPrivacyAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
 	base, e := New(d, cfg)
@@ -322,8 +320,8 @@ func TestOptionalPrivacyAssembly(t *testing.T) {
 	}
 	d.PrivacyDB = d.StudentDB
 	d.DeletionJournal = deletionJournalStub{}
-	if r, e := New(d, cfg); e == nil || r != nil {
-		t.Fatal("允许复用身份连接池")
+	if r, e := New(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
 	}
 	other, _ := dependencies(t)
 	d.PrivacyDB = other.StudentDB
@@ -346,8 +344,8 @@ func TestOptionalPrivacyAssembly(t *testing.T) {
 	cfg.Privacy = nil
 	cfg.EvidenceDeletion = &privacy.Config{Command: cfg.Auth.Command, Key: bytes.Repeat([]byte{98}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Second}
 	d.EvidenceDeletionDB = d.ReviewDB
-	if r, e := New(d, cfg); e == nil || r != nil {
-		t.Fatal("证据删除复用普通审核池")
+	if r, e := New(d, cfg); e != nil || r == nil {
+		t.Fatal("共用连接池被错误拒绝")
 	}
 	d.EvidenceDeletionDB = other.StudentDB
 	r, e = New(d, cfg)

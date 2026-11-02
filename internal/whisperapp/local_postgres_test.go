@@ -16,25 +16,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // TestPostgresLocalBusiness 验证真实PG/Redis下单登录身份、组合API、人工树洞消费、岗位隔离及文件日志恢复。
 // 学生身份为隔离fixture，不替代真实wx.login；无外部审核、通知或清理供应商。
 func TestPostgresLocalBusiness(t *testing.T) {
-	dsn, redisAddress := os.Getenv("APP_WHISPER_TEXT_TEST_DSN"), os.Getenv("APP_WHISPER_REDIS_TEST_ADDRESS")
+	dsn, redisAddress := testconfig.Value("whisper_text_test_dsn"), testconfig.Value("whisper_redis_test_address")
 	if dsn == "" || redisAddress == "" {
 		t.Skip("需显式隔离PG/Redis，make integration覆盖")
 	}
@@ -45,44 +42,8 @@ func TestPostgresLocalBusiness(t *testing.T) {
 			t.Fatal("本地业务验证失败", e)
 		}
 	}
-	open := func(value string) *gorm.DB {
-		t.Helper()
-		db, e := gorm.Open(postgres.New(postgres.Config{DSN: value, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-		must(e)
-		p, e := db.DB()
-		must(e)
-		t.Cleanup(func() { _ = p.Close() })
-		return db
-	}
-	parent := open(dsn)
-	var base string
-	must(parent.Raw("SELECT current_database()").Scan(&base).Error)
-	if base != "liyuanci" && base != "whisper_test" {
-		t.Fatal("仅允许隔离测试父库")
-	}
-	name := "local_business_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	must(parent.Exec("CREATE DATABASE " + name).Error)
-	businessDSN := strings.Replace(dsn, "dbname="+base+" ", "dbname="+name+" ", 1)
-	if businessDSN == dsn {
-		t.Fatal("未定位隔离库")
-	}
-	root := open(businessDSN)
-	must(migration.Run(ctx, root, log, "up"))
-	must(migration.ApplyPermissions(ctx, root, log))
+	root, shared, _ := applicationDatabase(t, dsn)
 	must(blockpolicy.Enable(ctx, root, log))
-	login := "local_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	password := uuid.NewString()
-	must(parent.Exec("CREATE ROLE " + login + " LOGIN PASSWORD '" + password + "' IN ROLE liyuanci_api,liyuanci_identity_maintenance,liyuanci_admin_api,liyuanci_admin_maintenance,liyuanci_domain_worker,liyuanci_crisis_api,liyuanci_privacy_maintenance,liyuanci_evidence_delete_api,liyuanci_evidence_purger").Error)
-	parts := strings.Fields(businessDSN)
-	for i, v := range parts {
-		if strings.HasPrefix(v, "user=") {
-			parts[i] = "user=" + login
-		}
-		if strings.HasPrefix(v, "password=") {
-			parts[i] = "password=" + password
-		}
-	}
-	shared := strings.Join(parts, " ")
 	for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
 		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 2, Status: "published"}).Error)
@@ -97,11 +58,17 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	objects := filepath.Join(dir, "objects")
 	must(os.Mkdir(objects, 0700))
 	dc := devapp.Settings{LocalTest: true, DatabaseDSN: shared, JournalFile: filepath.Join(dir, "journal.json"), AdminPassword: "isolated-local-password", ObjectDirectory: objects}
-	for i, k := range []*[]byte{&dc.WrapKey, &dc.LookupKey, &dc.SessionKey, &dc.CardKey, &dc.VerificationKey, &dc.WishKey, &dc.AdminKey, &dc.ModerationKey, &dc.RecoveryWrapKey} {
-		*k = bytes.Repeat([]byte{byte(20 + i)}, 32)
-	}
-	devPath := filepath.Join(dir, "business.json")
-	must(os.WriteFile(devPath, mustJSON(t, dc), 0600))
+	devDoc := config.Defaults()
+	devDoc.MasterKey = bytes.Repeat([]byte{94}, 32)
+	devDoc.Mode = "development"
+	devDoc.Database = databaseSettings(shared)
+	devDoc.Database.TimeZone = "Asia/Shanghai"
+	devDoc.Redis.Enabled, devDoc.Redis.Address = true, redisAddress
+	devDoc.Development = config.Development(dc)
+	common := filepath.Join(dir, "common.yaml")
+	must(os.WriteFile(common, mustYAML(t, devDoc), 0600))
+	devPath := filepath.Join(dir, "development.yaml")
+	must(os.WriteFile(devPath, []byte("environment: development\n"), 0600))
 	dc, e := devapp.Load(devPath)
 	must(e)
 	must(devapp.Initialize(ctx, dc, log, "local-root"))
@@ -109,18 +76,16 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	cfg.LocalTest = true
 	cfg.DatabaseDSN = shared
 	cfg.JournalFile = dc.JournalFile
-	cfg.WrapKey = dc.WrapKey
-	cfg.RecoveryWrapKey = dc.RecoveryWrapKey
-	cfg.PrivacyKey = privacy.DeriveKey(dc.WishKey)
-	cfg.SafetyKey = safety.DeriveKey(dc.WishKey)
 	cfg.CatalogFile = ""
-	cfg.DatabasePolling = true
-	cfg.ReviewMQFile = ""
-	cfg.UnlockMQFile = ""
-	path := filepath.Join(dir, "whispers.json")
-	must(os.WriteFile(path, mustJSON(t, cfg), 0600))
+	path := filepath.Join(dir, "whispers.yaml")
+	devDoc.Whispers = cfg
+	must(os.WriteFile(common, mustYAML(t, devDoc), 0600))
+	must(os.WriteFile(path, []byte("environment: development\n"), 0600))
 	cfg, e = config.LoadWhispers(ctx, path, "integration")
 	must(e)
+	if !bytes.Equal(cfg.WrapKey, dc.WrapKey) || !bytes.Equal(cfg.RecoveryWrapKey, dc.RecoveryWrapKey) || !bytes.Equal(cfg.PrivacyKey, privacy.DeriveKey(dc.WishKey)) || !bytes.Equal(cfg.SafetyKey, safety.DeriveKey(dc.WishKey)) {
+		t.Fatal("本地组合API密钥不一致")
+	}
 	client := redis.NewClient(&redis.Options{Addr: redisAddress})
 	defer client.Close()
 	router, closeApp, e := devapp.Open(ctx, "integration", dc, client, log, func(context.Context) error { return nil })
@@ -246,9 +211,9 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	rebuilt, e := OpenAPI(ctx, cfg, client, log)
 	must(e)
 	must(rebuilt.Close())
-	if bin := os.Getenv("APP_WHISPER_SERVER_BINARY"); bin != "" {
+	if bin := testconfig.Value("whisper_server_binary"); bin != "" {
 		yaml := filepath.Join(dir, "server.yaml")
-		must(os.WriteFile(yaml, []byte("environment: integration\ndevappfile: "+devPath+"\nwhispersfile: "+path+"\nredis:\n  enabled: true\n  address: "+redisAddress+"\ndatabase:\n  driver: postgres\n"), 0600))
+		must(os.WriteFile(yaml, []byte("environment: development\n"), 0600))
 		cmd := exec.Command(bin, "-config", yaml, "-check")
 		cmd.Env = []string{}
 		for _, v := range os.Environ() {

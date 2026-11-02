@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // T006/T007/REQ-014、016、018、020：后台工作复用锁序，不把取得账号 guard 等同于账号写权限。
@@ -19,7 +19,7 @@ func TestBackgroundPlan(t *testing.T) {
 	if _, err := LockPlan(context.Background(), nil, Discovery{}, time.Second); err != ErrInvalid {
 		t.Fatal("无事务应拒绝")
 	}
-	dsn := os.Getenv("APP_COMMAND_TEST_DSN")
+	dsn := testconfig.Value("command_test_dsn")
 	if dsn == "" {
 		t.Skip("需专用 PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

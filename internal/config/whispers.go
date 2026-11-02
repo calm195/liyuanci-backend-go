@@ -3,9 +3,6 @@ package config
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,28 +11,26 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 // Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
 type Whispers struct {
 	// LocalTest 仅用于integration业务联调，使用单一业务连接和本机测试适配。
-	LocalTest                         bool
-	DatabaseDSN, JournalFile, Contact string
-	WrapKey, RecoveryWrapKey          []byte
-	Enabled                           bool
-	DatabasePolling                   bool
-	// TaskTransport 显式选择完整业务生产任务通道：空值兼容rocketmq，postgres使用持久任务扫描。
-	TaskTransport string
-	// DatabaseMaxOpen/Idle 限制每个受限身份连接池；同时为零时兼容原来的10/2。
-	DatabaseMaxOpen, DatabaseMaxIdle                                                            int
-	APIDSN, ReviewDSN, CrisisDSN, PrivacyDSN, EvidenceDeletionDSN, WorkerDSN, EvidencePurgerDSN string
-	RecoveryWriterDSN, RecoveryReaderDSN                                                        string
-	GatewayURL, GatewayTokenFile, GatewayCAFile, ProviderVersion                                string
-	KeyRefs, RecoveryKeyRefs                                                                    []string
-	ReceiptKey, CursorKey, RateKey, GovernanceKey, PrivacyKey, EvidenceKey, SafetyKey           []byte
-	CatalogFile, ReviewMQFile, UnlockMQFile                                                     string
-	Command                                                                                     command.Config
-	Worker                                                                                      struct {
+	LocalTest                bool
+	DatabaseDSN              string `json:"-"`
+	JournalFile, Contact     string
+	WrapKey, RecoveryWrapKey []byte `json:"-"`
+	Enabled                  bool
+	// 数据库预算只从顶层database注入，业务块不能重复设置。
+	DatabaseMaxOpen, DatabaseMaxIdle                                                  int           `json:"-"`
+	DatabaseMaxLifetime                                                               time.Duration `json:"-"`
+	GatewayURL, GatewayToken, GatewayCA, ProviderVersion                              string
+	KeyRefs, RecoveryKeyRefs                                                          []string
+	ReceiptKey, CursorKey, RateKey, GovernanceKey, PrivacyKey, EvidenceKey, SafetyKey []byte `json:"-"`
+	CatalogFile                                                                       string
+	Command                                                                           command.Config
+	Worker                                                                            struct {
 		Consumer        durable.ConsumerConfig
 		AnalysisTimeout time.Duration
 	}
@@ -49,27 +44,12 @@ type WhisperResources struct {
 	Care    *moderation.CareResources
 }
 
-func readWhisperJSON(ctx context.Context, path string, out any) error {
-	if e := ctx.Err(); e != nil {
-		return e
+// readWhisperYAML 不读取其他凭据文件，所有秘密值来自当前私有YAML。
+func readWhisperYAML(ctx context.Context, path string, out any) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	file, e := os.Open(path)
-	if e != nil {
-		return command.ErrUnavailable
-	}
-	defer file.Close()
-	raw, e := io.ReadAll(io.LimitReader(file, 1<<20+1))
-	defer clear(raw)
-	if e != nil || len(raw) > 1<<20 {
-		return command.ErrInvalid
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(out) != nil {
-		return command.ErrInvalid
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
+	if err := yamlconfig.Read(path, out); err != nil {
 		return command.ErrInvalid
 	}
 	return ctx.Err()
@@ -77,38 +57,37 @@ func readWhisperJSON(ctx context.Context, path string, out any) error {
 
 // LoadWhispers 在开连接前拒绝无效配置、密钥复用及生产启用，绝不生成凭据或运行迁移。
 func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, err error) {
-	if err = readWhisperJSON(ctx, path, &cfg); err != nil {
-		return
+	if err = ctx.Err(); err != nil {
+		return cfg, err
 	}
+	app, e := Load(path)
+	if e != nil {
+		return cfg, e
+	}
+	cfg = app.Whispers
 	return validateWhispers(cfg, environment, false)
 }
 
 // validateWhispers 只有完整业务宿主可申请生产启用；独立树洞入口继续保留原门禁。
 func validateWhispers(cfg Whispers, environment string, business bool) (Whispers, error) {
-	if cfg.TaskTransport != "" && cfg.TaskTransport != "rocketmq" && cfg.TaskTransport != "postgres" || cfg.DatabasePolling && cfg.TaskTransport != "" {
+	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 100 || cfg.DatabaseMaxIdle < 0 || cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
 		return cfg, command.ErrInvalid
 	}
-	if cfg.TaskTransport == "postgres" && (!business || cfg.LocalTest || cfg.ReviewMQFile != "" || cfg.UnlockMQFile != "") {
+	if (environment != "integration" && environment != "development") && environment != "production" {
+		return cfg, command.ErrInvalid
+	}
+	if environment == "production" && (cfg.LocalTest || cfg.Enabled && !business) {
 		return cfg, command.ErrForbidden
 	}
-	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 10 || cfg.DatabaseMaxIdle < 0 || cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
+	if cfg.DatabaseDSN == "" || !filepath.IsAbs(cfg.JournalFile) {
 		return cfg, command.ErrInvalid
-	}
-	if environment != "integration" && environment != "production" {
-		return cfg, command.ErrInvalid
-	}
-	if environment == "production" && (cfg.LocalTest || cfg.Enabled && !business || cfg.DatabasePolling) {
-		return cfg, command.ErrForbidden
 	}
 	if cfg.LocalTest {
 		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
 			return cfg, command.ErrInvalid
 		}
-		cfg.APIDSN, cfg.ReviewDSN, cfg.CrisisDSN = cfg.DatabaseDSN, cfg.DatabaseDSN, cfg.DatabaseDSN
-		cfg.PrivacyDSN, cfg.EvidenceDeletionDSN = cfg.DatabaseDSN, cfg.DatabaseDSN
-		cfg.WorkerDSN, cfg.EvidencePurgerDSN = cfg.DatabaseDSN, cfg.DatabaseDSN
 	}
-	for _, v := range []string{cfg.RecoveryWriterDSN, cfg.RecoveryReaderDSN, cfg.CatalogFile, cfg.ProviderVersion, cfg.GatewayTokenFile} {
+	for _, v := range []string{cfg.CatalogFile, cfg.ProviderVersion, cfg.GatewayToken} {
 		if !cfg.LocalTest && strings.TrimSpace(v) == "" {
 			return cfg, command.ErrInvalid
 		}
@@ -146,14 +125,9 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 	return cfg, nil
 }
 
-// DatabaseTasks 表示数据库负责任务调度；旧DatabasePolling仍只允许集成环境。
-func (cfg Whispers) DatabaseTasks() bool {
-	return cfg.DatabasePolling || cfg.TaskTransport == "postgres"
-}
-
 // LoadWhisperResources 读取当前版本的公共资源文件，缺失或无版本时失败关闭。
 func LoadWhisperResources(ctx context.Context, path string) (out WhisperResources, err error) {
-	if err = readWhisperJSON(ctx, path, &out); err != nil {
+	if err = readWhisperYAML(ctx, path, &out); err != nil {
 		return
 	}
 	if strings.TrimSpace(out.Version) == "" {

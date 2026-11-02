@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,11 +20,12 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // T007/REQ-006、007、015、017、018、020：补偿直接走当前持久源，重驱动经真实命令会话与数据库权限验证。
 func TestPostgresRecovery(t *testing.T) {
-	dsn := os.Getenv("APP_DURABLE_TEST_DSN")
+	dsn := testconfig.Value("durable_test_dsn")
 	if dsn == "" {
 		t.Skip("需专用 PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

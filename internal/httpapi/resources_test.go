@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
-	"go.uber.org/zap"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.uber.org/zap"
+
+	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 type resourceProbe struct{ calls int }
@@ -27,7 +30,7 @@ func (p *resourceProbe) Write(context.Context, string, string, string, string, s
 
 // TestResourceProtocolVectors 将正式包全部原始协议向量送入真实Gin边界；服务探针仅验证是否允许进入领域层。
 func TestResourceProtocolVectors(t *testing.T) {
-	dir := os.Getenv("APP_RESOURCE_CONTRACT_DIR")
+	dir := testconfig.Value("resource_contract_dir")
 	if dir == "" {
 		dir = "../../../docs/contracts/resource-plaza-v1"
 	}

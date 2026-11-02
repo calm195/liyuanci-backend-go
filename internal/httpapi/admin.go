@@ -7,11 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-
-	"github.com/google/uuid"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/command"

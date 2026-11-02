@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,11 +19,12 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // T007/REQ-006、007、015、017、018、020：真实数据库消费边界，事件仅为技术唤醒，无 Broker 替身验收。
 func TestPostgresConsumer(t *testing.T) {
-	dsn := os.Getenv("APP_DURABLE_TEST_DSN")
+	dsn := testconfig.Value("durable_test_dsn")
 	if dsn == "" {
 		t.Skip("需专用 PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -29,13 +28,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestSafetyGovernance 验证T026、REQ-004/005/006/007/014/016/019的真实数据库和HTTP边界。
 // 身份、规则与分析供应商均为合成；警告时间夹具调整服务器持久时刻，不等待真实三十秒。
 func TestSafetyGovernance(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}

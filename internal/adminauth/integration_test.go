@@ -3,15 +3,11 @@ package adminauth_test
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -26,14 +22,15 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/platform"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // T008/REQ-002、014、016、018、019：真实PG+Redis+HTTP，只有身份资料为合成夹具，不接微信。
 func TestPostgresAdmin(t *testing.T) {
-	dsn, address := os.Getenv("APP_ADMINAUTH_TEST_DSN"), os.Getenv("APP_ADMINAUTH_TEST_REDIS")
+	dsn, address := testconfig.Value("adminauth_test_dsn"), testconfig.Value("adminauth_test_redis")
 	if dsn == "" || address == "" {
 		t.Skip("需隔离真实PostgreSQL与Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}
@@ -71,68 +68,12 @@ func TestPostgresAdmin(t *testing.T) {
 		ReceiptKey:      []byte(strings.Repeat("SYNTHETIC_KEY_", 4)),
 		Command:         command.Config{Timeout: 20 * time.Second, LockTimeout: 5 * time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
 	}
-	// 装配层拒绝真实超级用户，即使通过启动参数切换成受限role，也不能伪装独立连接。
-	passwordPath, keyPath := filepath.Join(t.TempDir(), "initial"), filepath.Join(t.TempDir(), "key")
-	if e := os.WriteFile(passwordPath, []byte(cfg.InitialPassword), 0600); e != nil {
-		t.Fatal(e)
+	// 共用应用池依然拒绝超级用户及通过SET ROLE掩盖真实身份。
+	for _, value := range []string{dsn, dsn + " options='-c role=liyuanci_admin_maintenance'"} {
+		if _, _, e := platform.OpenRuntimeDatabase(ctx, value, logger); e == nil {
+			t.Fatal("超级用户不得进入业务运行池")
+		}
 	}
-	if e := os.WriteFile(keyPath, cfg.ReceiptKey, 0600); e != nil {
-		t.Fatal(e)
-	}
-	settings := config.Config{}
-	settings.Database.MaxOpen = 4
-	settings.Database.MaxIdle = 2
-	settings.Database.MaxLifetime = time.Minute
-	settings.AdminAuth.Enabled = true
-	settings.AdminAuth.DSN = dsn
-	settings.AdminAuth.InitialPasswordFile = passwordPath
-	settings.AdminAuth.ReceiptKeyFile = keyPath
-	settings.AdminAuth.SessionTTL = cfg.SessionTTL
-	settings.AdminAuth.Timeout = cfg.Command.Timeout
-	settings.AdminAuth.LockTimeout = cfg.Command.LockTimeout
-	settings.AdminAuth.ReceiptTTL = cfg.Command.ReceiptTTL
-	settings.AdminAuth.MaxAttempts = cfg.Command.MaxAttempts
-	settings.AdminAuth.LoginWindow = time.Minute
-	settings.AdminAuth.LoginLimit = 1000
-	if _, _, e := adminauth.Open(ctx, settings, client, logger); e != adminauth.ErrUnavailable {
-		t.Fatal("超级用户身份不得伪装独立连接", e)
-	}
-	settings.AdminAuth.DSN = dsn + " options='-c role=liyuanci_admin_maintenance'"
-	if _, _, e := adminauth.Open(ctx, settings, client, logger); e != adminauth.ErrUnavailable {
-		t.Fatal("切换role不能掩盖原始超级用户身份", e)
-	}
-	var random [24]byte
-	if _, e := rand.Read(random[:]); e != nil {
-		t.Fatal(e)
-	}
-	databasePassword := hex.EncodeToString(random[:])
-	if e := db.Exec("CREATE ROLE adminauth_fixture LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '" + databasePassword + "' IN ROLE liyuanci_admin_maintenance").Error; e != nil {
-		t.Fatal("隔离运行身份创建失败")
-	}
-	fixtureDSN := strings.Replace(dsn, "user=postgres", "user=adminauth_fixture", 1)
-	// 本工具DSN中密码是随机十六进制；不输出替换前后的连接串。
-	startAt := strings.Index(fixtureDSN, "password=")
-	endAt := strings.Index(fixtureDSN[startAt:], " ") + startAt
-	if startAt < 0 || endAt < startAt {
-		t.Fatal("隔离DSN形状无效")
-	}
-	settings.AdminAuth.DSN = fixtureDSN[:startAt] + "password=" + databasePassword + fixtureDSN[endAt:]
-	// T008/REQ-018、019：旧留迹结构不能启用新增角色写入口，普通启动不隐式补迁移。
-	if e := db.Exec("ALTER TABLE public.admin_account_actions DROP CONSTRAINT admin_account_actions_action_kind_check").Error; e != nil {
-		t.Fatal(e)
-	}
-	if _, _, e := adminauth.Open(ctx, settings, client, logger); e != adminauth.ErrUnavailable {
-		t.Fatal("缺第八版留迹能力应拒绝启动", e)
-	}
-	if e := db.Exec("ALTER TABLE public.admin_account_actions ADD CONSTRAINT admin_account_actions_action_kind_check CHECK (action_kind IN ('bootstrap','create','password_change','roles_change'))").Error; e != nil {
-		t.Fatal(e)
-	}
-	opened, closeOpened, e := adminauth.Open(ctx, settings, client, logger)
-	if e != nil {
-		t.Fatal("显式装配失败", e)
-	}
-	defer closeOpened()
-	_ = opened
 	service, err := adminauth.New(restricted, limiter, logger, cfg)
 	if err != nil {
 		t.Fatal(err)

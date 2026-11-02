@@ -33,12 +33,13 @@ type recoveryJournal interface {
 	AllIntents(context.Context, string, int) ([]privacy.Intent, error)
 }
 type resources struct {
-	cfg     Settings
-	log     *zap.Logger
-	gateway provider
-	codec   *securedata.Codec
-	journal recoveryJournal
-	closes  []func() error
+	cfg      Settings
+	log      *zap.Logger
+	gateway  provider
+	codec    *securedata.Codec
+	journal  recoveryJournal
+	closes   []func() error
+	database *gorm.DB
 }
 
 func finish(log *zap.Logger, op string, start time.Time, err *error) {
@@ -58,18 +59,15 @@ func (r *resources) close() (err error) {
 	r.gateway.close()
 	return
 }
-func (r *resources) pool(ctx context.Context, dsn, role string) (*gorm.DB, error) {
-	var db *gorm.DB
-	var closePool func() error
-	var e error
-	if r.cfg.LocalTest {
-		db, closePool, e = platform.OpenLocalDatabase(ctx, "integration", r.cfg.DatabaseDSN, r.log)
-	} else {
-		db, closePool, e = platform.OpenRuntimeDatabaseWithLimits(ctx, dsn, role, r.log, r.cfg.DatabaseMaxOpen, r.cfg.DatabaseMaxIdle)
+func (r *resources) pool(ctx context.Context) (*gorm.DB, error) {
+	if r.database != nil {
+		return r.database, nil
 	}
-	if e != nil {
-		return nil, e
+	db, closePool, err := platform.OpenRuntimeDatabaseWithLimits(ctx, r.cfg.DatabaseDSN, r.log, r.cfg.DatabaseMaxOpen, r.cfg.DatabaseMaxIdle, r.cfg.DatabaseMaxLifetime)
+	if err != nil {
+		return nil, err
 	}
+	r.database = db
 	r.closes = append(r.closes, closePool)
 	return db, nil
 }
@@ -89,7 +87,7 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 		if e != nil {
 			return nil, e
 		}
-		r.journal, err = localtest.NewJournal(cfg.JournalFile, recovery, log)
+		r.journal, err = privacy.NewFileJournal(cfg.JournalFile, recovery, log)
 		if err != nil {
 			return nil, err
 		}
@@ -138,15 +136,7 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 			return nil, command.ErrUnavailable
 		}
 	}
-	writer, e := r.pool(ctx, cfg.RecoveryWriterDSN, "liyuanci_recovery_writer")
-	if e != nil {
-		return nil, e
-	}
-	reader, e := r.pool(ctx, cfg.RecoveryReaderDSN, "liyuanci_recovery_reader")
-	if e != nil {
-		return nil, e
-	}
-	r.journal, err = privacy.NewJournal(ctx, writer, reader, recovery, log, cfg.ProviderTimeout)
+	r.journal, err = privacy.NewFileJournal(cfg.JournalFile, recovery, log)
 	if err != nil {
 		return nil, err
 	}

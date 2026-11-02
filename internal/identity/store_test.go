@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // 合成包裹密钥与检索密钥彼此独立，仅用于 T005/REQ-002、018 的协议测试。
@@ -88,7 +88,7 @@ func TestMissingDependencies(t *testing.T) {
 
 func TestPostgresIdentity(t *testing.T) {
 	// T005/REQ-002、018、020：专用 Docker 数据库中验证真实事务和唯一约束，无真实个人资料。
-	dsn := os.Getenv("APP_MIGRATION_TEST_DSN")
+	dsn := testconfig.Value("migration_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式专用 PostgreSQL；运行 按模块要求提供隔离依赖后运行相关集成测试")
 	}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,6 +30,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
@@ -80,7 +80,7 @@ func (p *privacyDependencies) Redact(ctx context.Context, _ string, body string)
 // TestPrivacyDeletion 验证T031/REQ-004/005/007/008/014/017/018/019真实事务与六行矩阵。
 // 中间件真实、身份及外部对象/脱敏合成，不作为正式全副本或90天恢复验收。
 func TestPrivacyDeletion(t *testing.T) {
-	dsn, recoveryDSN := os.Getenv("APP_MODERATION_TEST_DSN"), os.Getenv("APP_RECOVERY_TEST_DSN")
+	dsn, recoveryDSN := testconfig.Value("moderation_test_dsn"), testconfig.Value("recovery_test_dsn")
 	if dsn == "" || recoveryDSN == "" {
 		t.Skip("需独立业务及恢复PostgreSQL，运行make integration")
 	}

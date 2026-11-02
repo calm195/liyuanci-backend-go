@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -34,22 +33,14 @@ func newGateway(cfg Settings, log *zap.Logger) (*gateway, error) {
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, command.ErrInvalid
 	}
-	token, e := os.ReadFile(cfg.GatewayTokenFile)
+	credential, e := config.ValidateSecret(cfg.GatewayToken, 16)
 	if e != nil {
-		return nil, command.ErrUnavailable
-	}
-	defer clear(token)
-	credential := strings.TrimSpace(string(token))
-	if len(credential) < 16 || strings.ContainsAny(credential, "\r\n") {
-		return nil, command.ErrInvalid
+		return nil, e
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	if cfg.GatewayCAFile != "" {
-		pem, e := os.ReadFile(cfg.GatewayCAFile)
-		if e != nil {
-			return nil, command.ErrUnavailable
-		}
+	if cfg.GatewayCA != "" {
+		pem := []byte(cfg.GatewayCA)
 		roots, e := x509.SystemCertPool()
 		if e != nil {
 			roots = x509.NewCertPool()

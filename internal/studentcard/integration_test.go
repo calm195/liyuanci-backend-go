@@ -15,7 +15,6 @@ import (
 	"mime/multipart"
 	"net/http/httptest"
 	"net/textproto"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -39,11 +38,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // T007/T011：编译期确保实际订阅器可直接注入领域消费者。
-var _ transportmq.Handler = (*studentcard.Service)(nil)
 
 type keys struct{}
 
@@ -144,7 +142,7 @@ func picture(t *testing.T, c color.Color) []byte {
 
 // T011/REQ-002、015、018：PG/Redis/HTTP真实，微信、KMS、私有对象和扫描均显式合成；不使用真实学生卡。
 func TestPostgresStudentCards(t *testing.T) {
-	dsn, address := os.Getenv("APP_STUDENTCARD_TEST_DSN"), os.Getenv("APP_STUDENTCARD_TEST_REDIS")
+	dsn, address := testconfig.Value("studentcard_test_dsn"), testconfig.Value("studentcard_test_redis")
 	if dsn == "" || address == "" {
 		t.Skip("需真实隔离PG/Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}

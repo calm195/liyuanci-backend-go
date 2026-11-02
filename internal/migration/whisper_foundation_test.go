@@ -18,7 +18,7 @@ import (
 // whisperSchemaDB 为每个升级场景创建独立数据库，不使用日常开发数据。
 func whisperSchemaDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	parent := schemaDB(t, "APP_WHISPER_SCHEMA_TEST_DSN")
+	parent := schemaDB(t, "whisper_schema_test_dsn")
 	name := "whisper_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if err := parent.Exec("CREATE DATABASE " + name).Error; err != nil {
 		t.Fatal("创建隔离测试数据库失败")

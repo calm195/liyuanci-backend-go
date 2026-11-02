@@ -8,38 +8,12 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
-
-func workerOptions(cfg Settings, environment string) ([]*workrunner.Config, error) {
-	if cfg.DatabaseTasks() {
-		if cfg.DatabasePolling && environment != "integration" || cfg.ReviewMQFile != "" || cfg.UnlockMQFile != "" {
-			return nil, command.ErrInvalid
-		}
-		return []*workrunner.Config{nil, nil}, nil
-	}
-	options := make([]*workrunner.Config, 2)
-	for i, spec := range []struct {
-		path  string
-		route durable.Route
-	}{{cfg.ReviewMQFile, moderation.WhisperReviewRoute()}, {cfg.UnlockMQFile, whisper.CapsuleUnlockRoute()}} {
-		c := &workrunner.Config{}
-		if config.LoadCardWorkerMQ(spec.path, c) != nil || workrunner.Validate(*c, spec.route) != nil || c.OperationTimeout < cfg.OperationTimeout || c.MQ.HandlerTimeout < cfg.OperationTimeout || environment == "production" && c.MQ.AllowUnauthenticated {
-			return nil, command.ErrInvalid
-		}
-		options[i] = c
-	}
-	if options[0].MQ.Topic == options[1].MQ.Topic || options[0].MQ.ConsumerGroup == options[1].MQ.ConsumerGroup || options[0].MQ.ProducerGroup == options[1].MQ.ProducerGroup {
-		return nil, command.ErrInvalid
-	}
-	return options, nil
-}
 
 // RunContent 由正式内容入口调用，调度独立审核、解锁及危机补偿；模块关闭不丢弃已持久工作。
 func RunContent(ctx context.Context, path, environment string, log *zap.Logger) (err error) {
@@ -55,10 +29,6 @@ func RunContent(ctx context.Context, path, environment string, log *zap.Logger) 
 }
 
 func runContentSettings(ctx context.Context, cfg Settings, environment string, log *zap.Logger, check bool) (err error) {
-	options, e := workerOptions(cfg, environment)
-	if e != nil {
-		return e
-	}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openResources(startup, cfg, log)
@@ -70,7 +40,7 @@ func runContentSettings(ctx context.Context, cfg Settings, environment string, l
 			err = command.ErrUnavailable
 		}
 	}()
-	db, e := r.pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker")
+	db, e := r.pool(startup)
 	if e != nil {
 		return e
 	}
@@ -103,11 +73,6 @@ func runContentSettings(ctx context.Context, cfg Settings, environment string, l
 	if check {
 		return nil
 	}
-	if !cfg.DatabaseTasks() {
-		if e = transportmq.ConfigureSDKLogging(log); e != nil {
-			return e
-		}
-	}
 	runners := []*workrunner.Worker{}
 	defer func() {
 		for i := len(runners) - 1; i >= 0; i-- {
@@ -116,22 +81,14 @@ func runContentSettings(ctx context.Context, cfg Settings, environment string, l
 			}
 		}
 	}()
-	for i, item := range []struct {
-		scanner workrunner.Scanner
-		route   durable.Route
-	}{{scanner, moderation.WhisperReviewRoute()}, {unlock, whisper.CapsuleUnlockRoute()}} {
-		var runner *workrunner.Worker
-		if options[i] == nil {
-			runner, e = workrunner.OpenDatabase(startup, item.scanner, log, cfg.Interval, cfg.OperationTimeout)
-		} else {
-			runner, e = workrunner.Open(startup, db, item.scanner, log, *options[i], item.route)
-		}
+	for _, scanner := range []workrunner.Scanner{scanner, unlock} {
+		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Interval, cfg.OperationTimeout)
 		if e != nil {
 			return e
 		}
 		runners = append(runners, runner)
 	}
-	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.Bool("mq_enabled", !cfg.DatabaseTasks()), zap.String("resource_version", resources.Version))
+	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.String("resource_version", resources.Version))
 	<-ctx.Done()
 	return nil
 }
@@ -165,11 +122,7 @@ func runPrivacySettings(ctx context.Context, cfg Settings, scope string, recover
 			err = command.ErrUnavailable
 		}
 	}()
-	dsn, role := cfg.PrivacyDSN, "liyuanci_privacy_maintenance"
-	if scope == "evidence" {
-		dsn, role = cfg.EvidencePurgerDSN, "liyuanci_evidence_purger"
-	}
-	db, e := r.pool(startup, dsn, role)
+	db, e := r.pool(startup)
 	if e != nil {
 		return e
 	}

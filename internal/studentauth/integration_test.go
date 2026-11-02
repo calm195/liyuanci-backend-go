@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -34,6 +33,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 type keys struct{ unavailable atomic.Bool }
@@ -94,7 +94,7 @@ func (e *exchange) Exchange(_ context.Context, code string) ([]byte, error) {
 
 // T008/REQ-002、014、018：真实隔离PG/Redis/HTTP，微信和KMS为明确注入的合成适配器，不跨端联调。
 func TestPostgresStudent(t *testing.T) {
-	dsn, address := os.Getenv("APP_STUDENTAUTH_TEST_DSN"), os.Getenv("APP_STUDENTAUTH_TEST_REDIS")
+	dsn, address := testconfig.Value("studentauth_test_dsn"), testconfig.Value("studentauth_test_redis")
 	if dsn == "" || address == "" {
 		t.Skip("需专用PG/Redis：按模块要求提供隔离依赖后运行相关集成测试")
 	}

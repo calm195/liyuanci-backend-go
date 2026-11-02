@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,11 +22,12 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // TestPostgresCreateDraft 追溯 T014/REQ-003/004/005/018：隔离PG真实事务与运行角色；密钥仅为合成适配器，不做跨端联调。
 func TestPostgresCreateDraft(t *testing.T) {
-	dsn := os.Getenv("APP_WISH_TEST_DSN")
+	dsn := testconfig.Value("wish_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

@@ -14,6 +14,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 func TestInvalidDependencies(t *testing.T) {
@@ -25,7 +27,7 @@ func TestInvalidDependencies(t *testing.T) {
 
 func TestPostgresMigrations(t *testing.T) {
 	// T005/REQ-020：只允许专用 Docker 测试库；普通单元检查不连接中间件。
-	dsn := os.Getenv("APP_MIGRATION_TEST_DSN")
+	dsn := testconfig.Value("migration_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式专用 PostgreSQL；运行 按模块要求提供隔离依赖后运行相关集成测试")
 	}

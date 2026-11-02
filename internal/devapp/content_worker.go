@@ -10,7 +10,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
@@ -19,7 +18,6 @@ import (
 // 消息配置为空时仅补偿数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
-	MQ       *workrunner.Config
 }
 
 type developmentAnalyzer struct {
@@ -63,11 +61,8 @@ func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out 
 
 // ValidateContentWorker 在任何数据库或消息客户端启动前拒绝生产环境、未知分析模式及跨领域事件。
 func ValidateContentWorker(environment string, cfg Settings, options ContentWorkerConfig) error {
-	if environment != "integration" || cfg.WorkerDSN == "" || len(cfg.WrapKey) != 32 || len(cfg.LookupKey) != 32 ||
+	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" || len(cfg.WrapKey) != 32 || len(cfg.LookupKey) != 32 ||
 		(options.Analyzer != "" && options.Analyzer != "unavailable" && options.Analyzer != "synthetic" && options.Analyzer != "manual") {
-		return command.ErrInvalid
-	}
-	if options.MQ != nil && (workrunner.Validate(*options.MQ, wish.ReviewRoute()) != nil || options.MQ.OperationTimeout < 20*time.Second || options.MQ.MQ.HandlerTimeout < 20*time.Second) {
 		return command.ErrInvalid
 	}
 	return nil
@@ -85,7 +80,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
-	db, closePool, err := cfg.pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
+	db, closePool, err := cfg.pool(startup, logger)
 	cancel()
 	if err != nil {
 		return err
@@ -112,15 +107,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 	if err != nil {
 		return err
 	}
-	var runner *workrunner.Worker
-	if options.MQ == nil {
-		runner, err = workrunner.OpenDatabase(ctx, scanner, logger, time.Second, 20*time.Second)
-	} else {
-		if err = transportmq.ConfigureSDKLogging(logger); err != nil {
-			return err
-		}
-		runner, err = workrunner.Open(ctx, db, scanner, logger, *options.MQ, wish.ReviewRoute())
-	}
+	runner, err := workrunner.OpenDatabase(ctx, scanner, logger, time.Second, 20*time.Second)
 	if err != nil {
 		return err
 	}
@@ -129,7 +116,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 			err = command.ErrUnavailable
 		}
 	}()
-	logger.Info("开发内容工作进程启动完成", zap.Bool("simulated", options.Analyzer == "synthetic"), zap.Bool("manual_review", options.Analyzer == "manual"), zap.Bool("mq_enabled", options.MQ != nil), zap.String("result", "success"))
+	logger.Info("开发内容工作进程启动完成", zap.Bool("simulated", options.Analyzer == "synthetic"), zap.Bool("manual_review", options.Analyzer == "manual"), zap.String("result", "success"))
 	<-ctx.Done()
 	return nil
 }

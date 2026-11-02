@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -30,12 +29,13 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // TestAdminUsersQuery 覆盖REQ-022/016/018/019/021的受限PG身份、真实HTTP与合成账号。
 // 不访问真实供应商或微信；单客户端测量不代替获确认并发负载下的性能验收。
 func TestAdminUsersQuery(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}

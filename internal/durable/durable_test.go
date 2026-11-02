@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +18,7 @@ import (
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 type sendFunc func(context.Context, Event) error
@@ -64,7 +64,7 @@ func TestContracts(t *testing.T) {
 
 // T007/REQ-006、007、015、017、018、020：真 PostgreSQL 事务/租约，Sender 为合成故障适配器。
 func TestPostgresDurable(t *testing.T) {
-	dsn := os.Getenv("APP_DURABLE_TEST_DSN")
+	dsn := testconfig.Value("durable_test_dsn")
 	if dsn == "" {
 		t.Skip("需专用数据库：按模块要求提供隔离依赖后运行相关集成测试")
 	}

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -25,14 +24,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
 // TestChatDelivery 覆盖T021、REQ-006/007/015/018和AR-001的真实事务、HTTP与MQ。
 // 身份、密钥、词库及文本分析均合成；已实现起点由夹具准备，不宣称完成T023。
 func TestChatDelivery(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}
@@ -666,44 +665,7 @@ func TestChatDelivery(t *testing.T) {
 			t.Fatal("已读HTTP失败", got.Code)
 		}
 	})
-	if nameserver := os.Getenv("APP_MODERATION_TEST_NAMESERVER"); nameserver != "" {
-		t.Run("真实MQ私聊提交后NACK重投同号", func(t *testing.T) {
-			f := matched()
-			a := send(f, "真实MQ私聊")
-			ev := event("message", a.MessageID)
-			unique := "chat_" + uuid.NewString()[:8]
-			cfg := transportmq.Config{NameServers: []string{nameserver}, Topic: "liyuanci_content_review_v1", EventType: wish.ReviewRoute().EventType, ProducerGroup: unique + "_p", ConsumerGroup: unique + "_c", Instance: unique, AllowUnauthenticated: true, SendTimeout: 3 * time.Second, HandlerTimeout: 30 * time.Second, Concurrency: 1, MaxReconsume: 3, RetryDelayLevel: 1}
-			must(transportmq.ConfigureSDKLogging(logger))
-			sender, e := transportmq.OpenSender(ctx, cfg, logger)
-			must(e)
-			defer sender.Close()
-			h := &handler{worker: worker, seen: make(chan durable.Consumption, 512)}
-			sub, e := transportmq.OpenSubscriber(ctx, cfg, h, logger)
-			must(e)
-			defer sub.Close()
-			must(sender.Send(ctx, ev))
-			timer := time.NewTimer(70 * time.Second)
-			defer timer.Stop()
-			applied, replayed := false, false
-			for !applied || !replayed {
-				select {
-				case out := <-h.seen:
-					applied = applied || out.Applied
-					replayed = replayed || out.Replayed
-				case <-timer.C:
-					t.Fatal("MQ私聊重投超时")
-				}
-			}
-			if m := message(a.MessageID); m.Status != "delivered" || m.DeliverySeq == nil || *m.DeliverySeq != 1 {
-				t.Fatal("MQ未送达同号")
-			}
-			var n int64
-			must(root.Model(&entity.Notification{}).Where("type='message_delivered' AND target_ref=?", f.m.ConversationID).Count(&n).Error)
-			if n != 1 {
-				t.Fatal("MQ重复通知")
-			}
-		})
-	}
+
 	var missing int64
 	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
 	if missing != 0 {

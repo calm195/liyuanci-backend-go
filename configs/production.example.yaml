@@ -1,0 +1,57 @@
+# Viper读取公共配置后合并私有环境覆盖；秘密只填私有YAML，时长必须带单位。
+# 环境：development开发、production生产；不从环境变量推断。
+environment: production
+# foundation仅健康探针；development为本地适配器；business为完整正式业务。
+mode: business
+# 唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。
+masterkey: ''
+# 唯一数据库配置；API、后台任务、显式迁移使用同一账号。
+database:
+  # 数据库驱动只支持postgres；foundation未启用数据库时可省略。
+  driver: postgres
+  # PostgreSQL单个主机名或IP，不含端口；IPv6不加方括号，不支持多主机列表。
+  host: 127.0.0.1
+  # PostgreSQL端口，整数1至65535；默认5432。
+  port: 5432
+  # PostgreSQL数据库名；须由管理员预先创建。
+  name: ''
+  # 专用业务库账号，拥有本库对象；禁止超级用户、BYPASSRLS和集群管理权限。
+  user: ''
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+  # TLS模式：disable关闭；allow/prefer允许明文回退；require仅加密；verify-ca校验证书链；verify-full同时校验主机名，生产跨主机建议verify-full（系统信任根）。
+  sslmode: verify-full
+  # 数据库会话时区，默认UTC；也可填写Asia/Shanghai等有效时区。
+  timezone: UTC
+  # 数据库建立连接超时，1s至60s的整秒时长；区别于连接复用寿命。
+  connecttimeout: 5s
+# 共享限流与缓存连接；正式业务必须启用鉴权。
+redis:
+  # 显式启用当前配置块；关闭不会自动清理已有数据。
+  enabled: true
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+# 正式供应商业务配置；业务权限通过账号会话、岗位及领域函数检查。
+business:
+  # 身份检索专用KMS引用，不能与其他用途重复。
+  lookupkeyrefs: []
+  # 真实小程序AppID；不使用示例用户绕过微信身份校验。
+  wechatappid: ''
+  # 原微信AppSecret，内联单行字符串；至少16字符。
+  wechatsecret: ''
+  # 后台初始化原口令，内联单行字符串；至少12字符，不自动重置账号。
+  adminpassword: ''
+  # 业务任务、供应商、密钥与删除恢复的共用设置。
+  runtime:
+    # 正式供应商网关HTTPS地址；不得含账号、查询参数或片段。
+    gatewayurl: ''
+    # 网关Bearer令牌，内联单行字符串；至少16字符，不记录到日志。
+    gatewaytoken: ''
+    # 可选私有CA的完整PEM；多行用 | 块。空值使用系统信任根。
+    gatewayca: ''
+    # 供应商能力协议版本，须与网关实际返回一致。
+    providerversion: ''
+    # 当前加密用途的KMS引用列表；保留仍解密历史数据所需的引用。
+    keyrefs: []
+    # 恢复日志专用KMS引用，不能与业务用途重复。
+    recoverykeyrefs: []

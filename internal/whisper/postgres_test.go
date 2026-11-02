@@ -29,6 +29,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
@@ -98,7 +99,7 @@ func (r fixtureReview) Append(ctx context.Context, db *gorm.DB, v whisper.Review
 
 // TestPostgresWhisperText 真实验证 SQL 权限、回执、并发、加密和同步投影；供应商、资料与审核入口为显式合成适配。
 func TestPostgresWhisperText(t *testing.T) {
-	dsn := os.Getenv("APP_WHISPER_TEXT_TEST_DSN")
+	dsn := testconfig.Value("whisper_text_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离 PostgreSQL；make integration 覆盖此用例")
 	}
@@ -150,7 +151,7 @@ func TestPostgresWhisperText(t *testing.T) {
 	version := int64(1)
 	catalog := &fixtureCatalog{value: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "g1", Label: "合成年级"}}}}}
 	admission := &fixtureAdmission{}
-	if address := os.Getenv("APP_WHISPER_REDIS_TEST_ADDRESS"); address != "" {
+	if address := testconfig.Value("whisper_redis_test_address"); address != "" {
 		client := redis.NewClient(&redis.Options{Addr: address})
 		t.Cleanup(func() { _ = client.Close() })
 		limiter, e := whisperrate.New(client, bytes.Repeat([]byte{17}, 32), log, time.Second)
@@ -397,7 +398,7 @@ func TestPostgresWhisperText(t *testing.T) {
 	if visible["my_hug"] == nil {
 		t.Fatal("登录未抱抱须有初始目标态")
 	}
-	if output := os.Getenv("APP_WHISPER_TEXT_WIRE_OUTPUT"); output != "" {
+	if output := testconfig.Value("whisper_text_wire_output"); output != "" {
 		b, e := json.MarshalIndent(samples, "", "  ")
 		must(e)
 		must(os.WriteFile(output, b, 0600))

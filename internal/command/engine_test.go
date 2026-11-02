@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +19,7 @@ import (
 	gormlog "gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 const actorID = "10000000-0000-0000-0000-000000000001"
@@ -138,7 +138,7 @@ func TestErrorBoundary(t *testing.T) {
 
 // T006/REQ-004、005、006、007、014、016、018：专用 Docker PostgreSQL，全部身份及输入均为合成夹具。
 func TestPostgresCommands(t *testing.T) {
-	dsn := os.Getenv("APP_COMMAND_TEST_DSN")
+	dsn := testconfig.Value("command_test_dsn")
 	if dsn == "" {
 		t.Skip("需专用 PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

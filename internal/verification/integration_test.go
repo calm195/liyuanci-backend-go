@@ -11,7 +11,6 @@ import (
 	"errors"
 	"io"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +32,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/verification"
 )
 
@@ -96,7 +96,7 @@ func (o *objects) Open(_ context.Context, key, version string) (io.ReadCloser, e
 
 // T011/REQ-002、015、018、020：真实隔离PostgreSQL与HTTP，身份/密钥/对象/学校规则使用合成材料，不执行跨端联调。
 func TestPostgresVerification(t *testing.T) {
-	dsn := os.Getenv("APP_VERIFICATION_TEST_DSN")
+	dsn := testconfig.Value("verification_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

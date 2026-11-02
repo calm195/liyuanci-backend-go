@@ -56,7 +56,7 @@ type WorkerConfig struct {
 	AnalysisTimeout time.Duration
 }
 
-// Worker 不拥有数据库、密钥或安全分析供应商；可同时作为MQ处理器及数据库补偿入口。
+// Worker 不拥有数据库、密钥或安全分析供应商；按持久事件和数据库任务执行。
 type Worker struct {
 	// whispersOnly 将共享危机投递按来源隔离，避免不同进程抢占彼此的待办。
 	whispersOnly bool
@@ -422,7 +422,7 @@ func (w *Worker) consumer(scan *entity.ModerationScan, a *Assessment, prepare er
 	}}, w.cfg.Consumer)
 }
 
-// ProcessNext 从数据库扫描一条当前有效事件，补偿丢失或已确认的MQ唤醒，不重建工作。
+// ProcessNext 从数据库扫描一条当前有效事件，恢复中断或到期的持久任务，不重建工作。
 // 等待父隐私审批的故事暂不占候选位，避免其阻塞其他内容扫描。
 func (w *Worker) ProcessNext(ctx context.Context) (out durable.Consumption, err error) {
 	start := time.Now()

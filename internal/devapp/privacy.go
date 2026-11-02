@@ -18,45 +18,12 @@ func privacyConfig(cfg Settings) privacy.Config {
 }
 
 func openDeletionJournal(ctx context.Context, cfg Settings, logger *zap.Logger) (out privacy.Journal, closeAll func(), err error) {
-	if cfg.LocalTest {
-		codec, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
-		if e != nil {
-			return nil, nil, e
-		}
-		journal, e := localtest.NewJournal(cfg.JournalFile, codec, logger)
-		return journal, func() {}, e
-	}
-	if cfg.RecoveryWriterDSN == "" || cfg.RecoveryReaderDSN == "" || len(cfg.RecoveryWrapKey) != 32 {
-		return nil, nil, command.ErrInvalid
-	}
-	var closes []func() error
-	closeAll = func() {
-		for i := len(closes) - 1; i >= 0; i-- {
-			e := closes[i]()
-			completed(logger, "privacy_journal_pool_close", time.Now(), &e)
-		}
-	}
-	defer func() {
-		if err != nil {
-			closeAll()
-		}
-	}()
-	writer, c, e := pool(ctx, cfg.RecoveryWriterDSN, "liyuanci_recovery_writer")
+	codec, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
 	if e != nil {
-		return nil, closeAll, e
+		return nil, nil, e
 	}
-	closes = append(closes, c)
-	reader, c, e := pool(ctx, cfg.RecoveryReaderDSN, "liyuanci_recovery_reader")
-	if e != nil {
-		return nil, closeAll, e
-	}
-	closes = append(closes, c)
-	codec, e := securedata.New(&localKeys{wrap: cfg.RecoveryWrapKey, logger: logger}, logger)
-	if e != nil {
-		return nil, closeAll, e
-	}
-	out, e = privacy.NewJournal(ctx, writer, reader, codec, logger, 5*time.Second)
-	return out, closeAll, e
+	journal, e := privacy.NewFileJournal(cfg.JournalFile, codec, logger)
+	return journal, func() {}, e
 }
 
 // RunPrivacyWorker 只用于显式隔离开发环境；没有正式清理/脱敏适配器时保持待办，不模拟完成。
@@ -66,7 +33,7 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg Settings, sco
 		return command.ErrInvalid
 	}
 	defer completed(logger, "privacy_worker", time.Now(), &err)
-	if environment != "integration" || (scope != "account" && scope != "evidence") {
+	if (environment != "integration" && environment != "development") || (scope != "account" && scope != "evidence") {
 		return command.ErrInvalid
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -76,13 +43,9 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg Settings, sco
 		return e
 	}
 	defer closeJournal()
-	dsn, role := cfg.PrivacyDSN, "liyuanci_privacy_maintenance"
-	if scope == "evidence" {
-		dsn, role = cfg.EvidencePurgerDSN, "liyuanci_evidence_purger"
-	}
 	var db *gorm.DB
 	var closePool func() error
-	db, closePool, e = cfg.pool(startup, dsn, role, logger)
+	db, closePool, e = cfg.pool(startup, logger)
 	if e != nil {
 		return e
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 type lifecycleFixture struct {
@@ -32,7 +32,7 @@ type lifecycleFixture struct {
 
 func lifecycleSetup(t *testing.T) *lifecycleFixture {
 	t.Helper()
-	dsn := os.Getenv("APP_WISH_LIFECYCLE_TEST_DSN")
+	dsn := testconfig.Value("wish_lifecycle_test_dsn")
 	if dsn == "" {
 		t.Skip("需隔离PG：按模块要求提供隔离依赖后运行相关集成测试")
 	}

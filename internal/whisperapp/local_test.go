@@ -17,26 +17,21 @@ import (
 func TestLocalConfiguration(t *testing.T) {
 	cfg := testSettings()
 	cfg.LocalTest = true
-	cfg.DatabaseDSN = "single-test-dsn"
 	cfg.JournalFile = filepath.Join(t.TempDir(), "journal.json")
 	cfg.WrapKey = bytes.Repeat([]byte{31}, 32)
 	cfg.RecoveryWrapKey = bytes.Repeat([]byte{32}, 32)
 	cfg.GatewayURL = ""
-	cfg.GatewayTokenFile = ""
+	cfg.GatewayToken = ""
 	cfg.ProviderVersion = ""
 	cfg.CatalogFile = ""
 	cfg.KeyRefs = nil
 	cfg.RecoveryKeyRefs = nil
-	cfg.RecoveryWriterDSN = ""
-	cfg.RecoveryReaderDSN = ""
 	loaded, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), "integration")
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, dsn := range []string{loaded.APIDSN, loaded.ReviewDSN, loaded.CrisisDSN, loaded.PrivacyDSN, loaded.WorkerDSN, loaded.EvidencePurgerDSN} {
-		if dsn != cfg.DatabaseDSN {
-			t.Fatal("存在第二份业务连接")
-		}
+	if databaseSettings(loaded.DatabaseDSN) != databaseSettings(cfg.DatabaseDSN) {
+		t.Fatal("分项配置改变业务连接")
 	}
 	cfg.Enabled = false
 	if _, e = config.LoadWhispers(context.Background(), writeSettings(t, cfg), "production"); e == nil {

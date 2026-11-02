@@ -35,11 +35,11 @@ type Objects interface {
 	verification.Objects
 }
 
-// Dependencies 必须由宿主显式提供；数据库池须分别使用学生维护和后台审核最小权限身份。
+// Dependencies 必须由宿主显式提供；各模块可共用应用连接池，学生/后台授权由当前会话及领域函数执行。
 // 装配器不拥有池或供应商，宿主必须先停止 HTTP 并等待在途请求结束，再释放这些资源。
 type Dependencies struct {
-	// WishDB 使用独立普通业务运行池，仅在显式启用心愿模块时必填。
-	// CrisisDB 使用独立危机运行身份；普通后台池不获得证据域权限。
+	// WishDB 与 CrisisDB 复用应用连接池；各领域方法仍复核会话、岗位及访问范围。
+	// WishDB 仅在显式启用心愿模块时必填。
 	// PrivacyDB及EvidenceDeletionDB分别使用普通隐私维护与证据删除受理身份。
 	PrivacyDB          *gorm.DB
 	EvidenceDeletionDB *gorm.DB
@@ -67,7 +67,7 @@ type Config struct {
 	Resources *resourceplaza.Config
 	// Crisis 显式启用独立危机后台服务。
 	Crisis *moderation.Config
-	// Privacy与EvidenceDeletion显式启用删除能力，不借用普通API或危机读取连接池。
+	// Privacy与EvidenceDeletion显式启用删除能力，使用领域授权限定操作范围。
 	Privacy          *privacy.Config
 	EvidenceDeletion *privacy.Config
 	// Safety 仅在显式给出独立密钥和技术预算时注册安全治理路由。
@@ -108,21 +108,20 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 	if bytes.Equal(cfg.Auth.SessionKey, cfg.Card.ReceiptKey) || bytes.Equal(cfg.Auth.SessionKey, cfg.Verification.ReceiptKey) || bytes.Equal(cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey) {
 		return nil, command.ErrInvalid
 	}
-	studentPool, e := d.StudentDB.DB()
-	if e != nil {
-		return nil, command.ErrInvalid
-	}
-	reviewPool, e := d.ReviewDB.DB()
-	if e != nil || studentPool == reviewPool {
-		return nil, command.ErrInvalid
+	// 模块共享一个数据库账号及连接池；每个入口仍独立检查当前业务会话、角色和用途密钥。
+	var e error
+	for _, db := range []*gorm.DB{d.StudentDB, d.ReviewDB} {
+		if _, e = db.DB(); e != nil {
+			return nil, command.ErrInvalid
+		}
 	}
 	var wishes *wish.Service
 	if cfg.Wish != nil {
 		if d.WishDB == nil {
 			return nil, command.ErrInvalid
 		}
-		pool, failure := d.WishDB.DB()
-		if failure != nil || pool == studentPool || pool == reviewPool {
+		_, failure := d.WishDB.DB()
+		if failure != nil {
 			return nil, command.ErrInvalid
 		}
 		for _, key := range [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey} {
@@ -205,25 +204,8 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		if spec.db == nil || d.DeletionJournal == nil {
 			return nil, command.ErrInvalid
 		}
-		p, e := spec.db.DB()
-		if e != nil {
+		if _, e := spec.db.DB(); e != nil {
 			return nil, command.ErrInvalid
-		}
-		for _, other := range []*gorm.DB{d.StudentDB, d.ReviewDB, d.WishDB, d.CrisisDB} {
-			if other == nil {
-				continue
-			}
-			o, e := other.DB()
-			if e != nil || p == o {
-				return nil, command.ErrInvalid
-			}
-		}
-		if cfg.Privacy != nil && cfg.EvidenceDeletion != nil && d.PrivacyDB != nil && d.EvidenceDeletionDB != nil {
-			a, e := d.PrivacyDB.DB()
-			b, f := d.EvidenceDeletionDB.DB()
-			if e != nil || f != nil || a == b {
-				return nil, command.ErrInvalid
-			}
 		}
 		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
 		if cfg.Wish != nil {
@@ -293,15 +275,8 @@ func New(d Dependencies, cfg Config) (out *gin.Engine, err error) {
 		if d.CrisisDB == nil {
 			return nil, command.ErrInvalid
 		}
-		cp, e := d.CrisisDB.DB()
-		if e != nil || cp == reviewPool || cp == studentPool {
+		if _, e := d.CrisisDB.DB(); e != nil {
 			return nil, command.ErrInvalid
-		}
-		if d.WishDB != nil {
-			wp, e := d.WishDB.DB()
-			if e != nil || cp == wp {
-				return nil, command.ErrInvalid
-			}
 		}
 		keys := [][]byte{cfg.Auth.SessionKey, cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey}
 		if cfg.Wish != nil {

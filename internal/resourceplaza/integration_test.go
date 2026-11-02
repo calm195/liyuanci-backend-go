@@ -17,17 +17,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 type testKeys struct{}
@@ -41,7 +43,7 @@ func (testKeys) Unwrap(_ context.Context, _ string, b []byte) ([]byte, error) {
 
 // TestPostgresHTTP 使用独立临时数据库及真实受限PG身份、HTTP；KMS和账号是明确合成夹具。
 func TestPostgresHTTP(t *testing.T) {
-	dsn := os.Getenv("APP_RESOURCE_TEST_DSN")
+	dsn := testconfig.Value("resource_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL管理员DSN")
 	}
@@ -136,7 +138,7 @@ func TestPostgresHTTP(t *testing.T) {
 	_, nt := makeStudent("unverified")
 	captures := []map[string]any{}
 	defer func() {
-		if path := os.Getenv("APP_RESOURCE_HTTP_CAPTURE"); path != "" && !t.Failed() {
+		if path := testconfig.Value("resource_http_capture"); path != "" && !t.Failed() {
 			b, e := json.MarshalIndent(captures, "", "  ")
 			must(e)
 			must(os.WriteFile(path, b, 0600))

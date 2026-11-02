@@ -10,7 +10,7 @@ import (
 // TestDevelopmentCardWorkerBoundary 保留 T011/REQ-015/018 开发模拟与生产隔离追溯。
 func TestDevelopmentCardWorkerBoundary(t *testing.T) {
 	logger := zap.NewNop()
-	if err := RunCardWorker(context.Background(), "production", Settings{WorkerDSN: "unused"}, logger); err == nil {
+	if err := RunCardWorker(context.Background(), "production", Settings{DatabaseDSN: "unused"}, logger); err == nil {
 		t.Fatal("生产环境必须拒绝模拟扫描")
 	}
 	scanner := developmentScanner{logger}

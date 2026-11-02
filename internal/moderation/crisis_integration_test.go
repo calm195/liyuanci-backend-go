@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +26,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
@@ -56,7 +56,7 @@ func (n *crisisNotifier) NotifyCrisis(ctx context.Context, id, caseID string) er
 
 // TestCrisisCare 验证T029/REQ-015/017/018/019的真实数据库、HTTP、持久待办与误报路径；所有资料和供应商合成。
 func TestCrisisCare(t *testing.T) {
-	dsn := os.Getenv("APP_MODERATION_TEST_DSN")
+	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL，使用make integration执行")
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
@@ -487,7 +488,7 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 			t.Fatal(c)
 		}
 	})
-	if path := os.Getenv("APP_WHISPER_PRIVACY_WIRE_OUTPUT"); path != "" {
+	if path := testconfig.Value("whisper_privacy_wire_output"); path != "" {
 		raw, _ := json.MarshalIndent(samples, "", "  ")
 		must(os.WriteFile(path, append(raw, '\n'), 0600))
 	}

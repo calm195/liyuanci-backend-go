@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,11 +15,12 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // TestPostgresWhisperLocks 验证四类资源真实行锁、昵称随机引用及评论双并发字段，非业务接口验收。
 func TestPostgresWhisperLocks(t *testing.T) {
-	dsn := os.Getenv("APP_WHISPER_COMMAND_TEST_DSN")
+	dsn := testconfig.Value("whisper_command_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL；make integration覆盖此用例")
 	}

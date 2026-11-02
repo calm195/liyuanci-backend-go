@@ -1,0 +1,4 @@
+# 公共配置或覆盖示例；秘密值请填入私有环境覆盖，时长必须含单位。
+Version: unconfigured
+Catalog: {}
+Care: {}

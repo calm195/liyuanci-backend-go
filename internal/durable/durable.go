@@ -69,7 +69,7 @@ func validRoute(r Route) bool {
 }
 
 // Append 仅在调用方事务内追加工作和事件，最终提交/回滚及完成日志由命令入口拥有。
-// 返回成功只代表 SQL 已暂存；不得自行提交、在此发送 MQ 或把暂存日志当持久化成功。
+// 返回成功只代表 SQL 已暂存；不得自行提交、在此调用外部供应商 或把暂存日志当持久化成功。
 func Append(ctx context.Context, tx *gorm.DB, logger *zap.Logger, route Route, draft Draft) (err error) {
 	if logger == nil {
 		return ErrInvalid

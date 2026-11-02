@@ -6,8 +6,6 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"go.uber.org/zap"
@@ -21,15 +19,8 @@ func testGateway(t *testing.T, handler http.HandlerFunc) (*gateway, Settings) {
 	t.Cleanup(server.Close)
 	cfg := testSettings()
 	cfg.GatewayURL = server.URL
-	cfg.GatewayTokenFile = filepath.Join(t.TempDir(), "token")
-	cfg.GatewayCAFile = filepath.Join(t.TempDir(), "ca.pem")
-	if e := os.WriteFile(cfg.GatewayTokenFile, []byte("synthetic-gateway-token"), 0600); e != nil {
-		t.Fatal(e)
-	}
-	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	if e := os.WriteFile(cfg.GatewayCAFile, cert, 0600); e != nil {
-		t.Fatal(e)
-	}
+	cfg.GatewayToken = "synthetic-gateway-token"
+	cfg.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
 	g, e := newGateway(cfg, zap.NewNop())
 	if e != nil {
 		t.Fatal(e)

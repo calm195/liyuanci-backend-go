@@ -24,7 +24,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	}
 	defer finish(log, "business_initialize", time.Now(), &err)
 	if wordlists != nil {
-		if len(wordlists) != 3 || c.Runtime.ReviewDSN == "" {
+		if len(wordlists) != 3 || c.Runtime.DatabaseDSN == "" {
 			return command.ErrInvalid
 		}
 		for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
@@ -50,7 +50,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e = b.readyBusiness(ctx, "bootstrap"); e != nil {
 		return e
 	}
-	db, e := r.pool(ctx, c.StudentDSN, "liyuanci_identity_maintenance")
+	db, e := r.pool(ctx)
 	if e != nil {
 		return e
 	}
@@ -63,7 +63,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 			return e
 		}
 	}
-	adminDB, e := r.pool(ctx, c.AdminDSN, "liyuanci_admin_maintenance")
+	adminDB, e := r.pool(ctx)
 	if e != nil {
 		return e
 	}
@@ -71,7 +71,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	password, e := config.BusinessSecret(c.AdminPasswordFile, 12)
+	password, e := config.ValidateSecret(c.AdminPassword, 12)
 	if e != nil {
 		return e
 	}
@@ -102,7 +102,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 			err = command.ErrUnavailable
 		}
 	}()
-	review, e := r.pool(ctx, c.Runtime.ReviewDSN, "liyuanci_admin_api")
+	review, e := r.pool(ctx)
 	if e != nil {
 		return e
 	}

@@ -7,12 +7,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/cardworker"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
-	"github.com/calm195/liyuanci-backend-go/internal/transportmq"
 )
 
 // developmentScanner 仅由隔离开发宿主装配，模拟结论不代表真实内容审核。
@@ -37,7 +35,7 @@ func (workerSessions) Current(context.Context, string, string) (studentauth.Me, 
 // CheckCardWorker 验证工作身份、业务结构和共享目录，不消费或修改持久任务。
 func CheckCardWorker(ctx context.Context, cfg Settings, logger *zap.Logger) (err error) {
 	defer completed(logger, "card_worker_check", time.Now(), &err)
-	_, closePool, err := cfg.pool(ctx, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
+	_, closePool, err := cfg.pool(ctx, logger)
 	if err != nil {
 		return err
 	}
@@ -52,7 +50,7 @@ func CheckCardWorker(ctx context.Context, cfg Settings, logger *zap.Logger) (err
 	return nil
 }
 
-// RunCardWorker 仅在隔离开发环境执行；显式配置消息模式时启动转发、订阅和数据库补偿。
+// RunCardWorker 仅在隔离开发环境扫描数据库持久任务，保留租约、重试与幂等语义。
 // 无消息配置时仅轮询数据库，不迁移、不创建主题或重置历史任务。
 // 先等当前处理返回再关闭池，取消中的租约由后续启动恢复。
 func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger *zap.Logger) (err error) {
@@ -60,11 +58,11 @@ func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger
 		return command.ErrInvalid
 	}
 	defer completed(logger, "card_worker", time.Now(), &err)
-	if environment != "integration" || cfg.WorkerDSN == "" {
+	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" {
 		return command.ErrInvalid
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
-	db, closePool, err := cfg.pool(startup, cfg.WorkerDSN, "liyuanci_domain_worker", logger)
+	db, closePool, err := cfg.pool(startup, logger)
 	cancel()
 	if err != nil {
 		return err
@@ -96,24 +94,6 @@ func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger
 	})
 	if err != nil {
 		return err
-	}
-	if cfg.CardMQ != nil {
-		if err = transportmq.ConfigureSDKLogging(logger); err != nil {
-			return err
-		}
-		worker, failure := cardworker.Open(ctx, db, service, logger, *cfg.CardMQ)
-		if failure != nil {
-			return failure
-		}
-		// 先停止消息与补偿，再由外层释放数据库和对象依赖。
-		defer func() {
-			if worker.Close() != nil {
-				err = command.ErrUnavailable
-			}
-		}()
-		logger.Info("开发学生卡消息工作进程启动完成", zap.Bool("simulated", true), zap.String("result", "success"))
-		<-ctx.Done()
-		return nil
 	}
 	logger.Info("开发学生卡工作进程启动完成", zap.Bool("simulated", true), zap.String("result", "success"))
 	// 每轮结束后等待，空队列和失败都不能形成热循环；工作失败由服务边界持久化和记录。

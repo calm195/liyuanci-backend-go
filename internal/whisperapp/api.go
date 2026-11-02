@@ -23,7 +23,7 @@ import (
 type API struct {
 	r                                *resources
 	client                           redis.UniversalClient
-	databases                        []*gorm.DB
+	database                         *gorm.DB
 	service                          *whisper.Service
 	reviews, crises, student         *moderation.Service
 	deletion, evidence               *privacy.Service
@@ -47,14 +47,12 @@ func OpenAPI(ctx context.Context, cfg Settings, client redis.UniversalClient, lo
 		}
 	}()
 	a := &API{r: r, client: client}
-	for _, spec := range []struct{ dsn, role string }{{cfg.APIDSN, "liyuanci_api"}, {cfg.ReviewDSN, "liyuanci_admin_api"}, {cfg.CrisisDSN, "liyuanci_crisis_api"}, {cfg.PrivacyDSN, "liyuanci_privacy_maintenance"}, {cfg.EvidenceDeletionDSN, "liyuanci_evidence_delete_api"}} {
-		db, e := r.pool(ctx, spec.dsn, spec.role)
-		if e != nil {
-			return nil, e
-		}
-		a.databases = append(a.databases, db)
+	db, e := r.pool(ctx)
+	if e != nil {
+		return nil, e
 	}
-	api, review, crisis, priv, evidence := a.databases[0], a.databases[1], a.databases[2], a.databases[3], a.databases[4]
+	a.database = db
+	api, review, crisis, priv, evidence := db, db, db, db, db
 	if err = r.check(ctx, api); err != nil {
 		return nil, err
 	}
@@ -181,27 +179,25 @@ func (a *API) Register(router *gin.Engine) (err error) {
 
 // Ready 复核本模块依赖及资料；旧宿主仍负责其余认证、对象和业务就绪条件。
 func (a *API) Ready(ctx context.Context) error {
-	for _, db := range a.databases {
-		pool, e := db.DB()
-		if e != nil || pool.PingContext(ctx) != nil {
-			return command.ErrUnavailable
-		}
+	pool, e := a.database.DB()
+	if e != nil || pool.PingContext(ctx) != nil {
+		return command.ErrUnavailable
 	}
 	if a.client.Ping(ctx).Err() != nil {
 		return command.ErrUnavailable
 	}
-	if e := a.r.check(ctx, a.databases[0]); e != nil {
+	if e := a.r.check(ctx, a.database); e != nil {
 		return e
 	}
 	if a.r.cfg.Enabled {
-		if e := a.r.rules(ctx, a.databases[1]); e != nil {
+		if e := a.r.rules(ctx, a.database); e != nil {
 			return e
 		}
 	}
 	if e := a.r.gateway.ready(ctx); e != nil {
 		return e
 	}
-	_, e := a.service.Configuration(ctx, "")
+	_, e = a.service.Configuration(ctx, "")
 	return e
 }
 

@@ -14,7 +14,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
@@ -30,9 +29,9 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "", "YAML配置路径；留空时仅使用环境变量")
+	path := flag.String("config", "configs/development.yaml", "应用YAML配置路径")
 	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")
-	checkConfig := flag.Bool("check-config", false, "只检查完整业务配置，不连接外部依赖")
+	checkConfig := flag.Bool("check-config", false, "只检查所选业务YAML，不连接外部依赖")
 	flag.Parse()
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -55,14 +54,7 @@ func run() error {
 			return errors.New("完整业务配置无效或必需凭据缺失")
 		}
 		businessSettings = &settings
-		cfg.Database.DSN = settings.Runtime.APIDSN
-	}
-	if *checkConfig {
-		if businessSettings == nil {
-			return errors.New("离线配置诊断要求完整业务配置")
-		}
-		log.Info("业务配置诊断完成", zap.String("result", "success"))
-		return nil
+		cfg.Database.DSN = settings.Runtime.DatabaseDSN
 	}
 	var whisperSettings *whisperapp.Settings
 	if cfg.WhispersFile != "" {
@@ -72,7 +64,7 @@ func run() error {
 		}
 		whisperSettings = &settings
 		if cfg.DevAppFile == "" {
-			cfg.Database.DSN = settings.APIDSN
+			cfg.Database.DSN = settings.DatabaseDSN
 		}
 	}
 	var development *devapp.Settings
@@ -84,7 +76,11 @@ func run() error {
 		}
 		development = &settings
 		// 开发业务进程的共享健康连接也使用业务运行身份，不能保留探针管理员连接。
-		cfg.Database.DSN = settings.WishDSN
+		cfg.Database.DSN = settings.DatabaseDSN
+	}
+	if *checkConfig {
+		log.Info("业务配置诊断完成", zap.String("result", "success"))
+		return nil
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -99,7 +95,6 @@ func run() error {
 	log.Info("资源初始化完成",
 		zap.Bool("database_enabled", resources.DB != nil),
 		zap.Bool("redis_enabled", resources.Redis != nil),
-		zap.Bool("rocketmq_enabled", resources.Producer != nil),
 	)
 	defer func() {
 		if err := resources.Close(); err != nil {
@@ -133,7 +128,7 @@ func run() error {
 	if cfg.DevAppFile != "" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
-			// 本地业务允许数据库轮询，不把探针MQ客户端作为API就绪前置。
+			// 本地业务允许数据库轮询，就绪检查只覆盖实际装配依赖。
 			// devapp仍检查业务池，树洞存在时继续检查其真实装配依赖。
 			if development.LocalTest {
 				if resources.Redis == nil {
@@ -169,18 +164,6 @@ func run() error {
 		whisperAPI = app
 		if e = app.Register(router); e != nil {
 			return errors.New("树洞路由装配失败")
-		}
-	}
-	if cfg.AdminAuth.Enabled {
-		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		service, closePool, e := adminauth.Open(initCtx, cfg, resources.Redis, log)
-		cancel()
-		if e != nil {
-			return errors.New("后台身份资源初始化失败")
-		}
-		defer func() { _ = closePool() }()
-		if e = httpapi.RegisterAdmin(router, service); e != nil {
-			return errors.New("后台身份路由装配失败")
 		}
 	}
 	if *check {

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,18 +15,24 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/devapp"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/whisperapp"
-	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
 func main() {
+	path := flag.String("config", "", "私有应用YAML配置")
+	kind := flag.String("kind", "content", "执行工作职责")
+	flag.Parse()
+	app, loadErr := config.Load(*path)
+	if loadErr != nil || (*kind != "content" && *kind != "whispers") || (*kind == "whispers" && app.WhispersFile == "") {
+		os.Exit(1)
+	}
 	logger, err := platform.NewLogger("info")
 	if err != nil {
 		os.Exit(1)
 	}
 	start := time.Now()
-	if path := os.Getenv("APP_WHISPERSFILE"); path != "" {
+	if path := app.WhispersFile; path != "" && *kind == "whispers" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		err = whisperapp.RunContent(ctx, path, os.Getenv("APP_ENVIRONMENT"), logger)
+		err = whisperapp.RunContent(ctx, path, app.Environment, logger)
 		stop()
 		result := "success"
 		if err != nil {
@@ -38,15 +45,11 @@ func main() {
 		}
 		return
 	}
-	cfg, err := devapp.Load(os.Getenv("APP_DEVAPPFILE"))
-	options := devapp.ContentWorkerConfig{Analyzer: os.Getenv("APP_CONTENT_ANALYZER")}
-	if path := os.Getenv("APP_CONTENT_MQFILE"); err == nil && path != "" {
-		options.MQ = &workrunner.Config{}
-		err = config.LoadCardWorkerMQ(path, options.MQ)
-	}
+	cfg, err := devapp.Load(app.DevAppFile)
+	options := devapp.ContentWorkerConfig{Analyzer: app.Worker.ContentAnalyzer}
 	if err == nil {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		err = devapp.RunContentWorker(ctx, os.Getenv("APP_ENVIRONMENT"), cfg, options, logger)
+		err = devapp.RunContentWorker(ctx, app.Environment, cfg, options, logger)
 		stop()
 	}
 	result := "success"

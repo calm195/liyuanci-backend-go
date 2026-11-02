@@ -11,22 +11,16 @@ import (
 	"time"
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
 func testBusinessSettings(t *testing.T) config.Business {
 	t.Helper()
-	c := config.Business{Runtime: testSettings(), StudentDSN: "identity", AdminDSN: "admin", LookupKeyRefs: []string{"lookup-v1"}, WeChatAppID: "synthetic-app", SessionTTL: time.Hour, ExchangeTTL: time.Minute, AdminSessionTTL: time.Hour, LoginWindow: time.Minute, LoginLimit: 30, MaxTextBytes: 65536}
+	c := config.Business{Runtime: testSettings(), LookupKeyRefs: []string{"lookup-v1"}, WeChatAppID: "synthetic-app", SessionTTL: time.Hour, ExchangeTTL: time.Minute, AdminSessionTTL: time.Hour, LoginWindow: time.Minute, LoginLimit: 30, MaxTextBytes: 65536}
 	for i, k := range []*[]byte{&c.SessionKey, &c.CardKey, &c.VerificationKey, &c.WishKey, &c.AdminKey, &c.CrisisKey} {
 		*k = bytes.Repeat([]byte{byte(30 + i)}, 32)
 	}
-	c.WeChatSecretFile = filepath.Join(t.TempDir(), "wechat.secret")
-	c.AdminPasswordFile = filepath.Join(t.TempDir(), "admin.password")
-	for _, p := range []string{c.WeChatSecretFile, c.AdminPasswordFile} {
-		if e := os.WriteFile(p, []byte("synthetic-business-secret"), 0600); e != nil {
-			t.Fatal(e)
-		}
-	}
+	c.WeChatSecret = "synthetic-wechat-secret"
+	c.AdminPassword = "synthetic-business-secret"
 	c.Card.MaxBytes, c.Card.MaxPixels, c.Card.DecodeSlots, c.Card.Lease, c.Card.RetryDelay, c.Card.MaxAttempts = 1<<20, 4_000_000, 2, 30*time.Second, time.Second, 3
 	return c
 }
@@ -40,29 +34,22 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 	}{
 		{"完整生产含悄悄鲤", func(c *config.Business) {}, true},
 		{"收紧连接池", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1 }, true},
-		{"池配置不完整", func(c *config.Business) { c.Runtime.DatabaseMaxIdle = 1 }, false},
+		{"池配置不完整", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 0, 1 }, false},
 		{"池空闲超过总额", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 1, 2 }, false},
-		{"池预算扩张", func(c *config.Business) { c.Runtime.DatabaseMaxOpen = 11 }, false},
+		{"池预算扩张", func(c *config.Business) { c.Runtime.DatabaseMaxOpen = 101 }, false},
 		{"本地适配", func(c *config.Business) { c.Runtime.LocalTest = true }, false},
-		{"无MQ轮询", func(c *config.Business) { c.Runtime.DatabasePolling = true }, false},
-		{"正式数据库任务", func(c *config.Business) { c.Runtime.TaskTransport = "postgres" }, true},
-		{"未知任务通道", func(c *config.Business) { c.Runtime.TaskTransport = "memory" }, false},
-		{"混入开发轮询", func(c *config.Business) { c.Runtime.TaskTransport = "postgres"; c.Runtime.DatabasePolling = true }, false},
-		{"数据库任务混入MQ", func(c *config.Business) { c.Runtime.TaskTransport = "postgres"; c.CardMQFile = "unused" }, false},
-		{"数据库任务混入树洞MQ", func(c *config.Business) { c.Runtime.TaskTransport = "postgres"; c.Runtime.ReviewMQFile = "unused" }, false},
 		{"明文供应商", func(c *config.Business) { c.Runtime.GatewayURL = "http://gateway.invalid" }, false},
-		{"缺微信凭据", func(c *config.Business) { c.WeChatSecretFile = "" }, false},
-		{"复用业务密钥", func(c *config.Business) { c.CardKey = c.Runtime.ReceiptKey }, false},
+		{"缺微信凭据", func(c *config.Business) { c.WeChatSecret = "" }, false},
 		{"检索与包裹混用", func(c *config.Business) { c.LookupKeyRefs = c.Runtime.KeyRefs }, false},
-		{"缺身份池", func(c *config.Business) { c.StudentDSN = "" }, false},
+		{"缺身份池", func(c *config.Business) { c.Runtime.DatabaseDSN = "" }, false},
 		{"空上传预算", func(c *config.Business) { c.Card.MaxBytes = 0 }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testBusinessSettings(t)
-			c.Runtime.DatabasePolling = false
 			tc.change(&c)
-			p := filepath.Join(t.TempDir(), "business.json")
-			if e := os.WriteFile(p, mustJSON(t, c), 0600); e != nil {
+			p := filepath.Join(t.TempDir(), "business.yaml")
+			_ = os.WriteFile(filepath.Join(filepath.Dir(p), "common.yaml"), []byte("mode: foundation\n"), 0600)
+			if e := os.WriteFile(p, mustYAML(t, businessDocument(c)), 0600); e != nil {
 				t.Fatal(e)
 			}
 			_, e := config.LoadBusiness(context.Background(), p, "production", "api")
@@ -72,15 +59,14 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		})
 	}
 	c := testBusinessSettings(t)
-	c.Runtime.DatabasePolling = false
+	c.CardKey = c.Runtime.ReceiptKey
+	if config.ValidateBusiness(c, "production", "api") == nil {
+		t.Fatal("领域构造器接受跨用途共钥")
+	}
 	if _, e := config.LoadWhispers(context.Background(), writeSettings(t, c.Runtime), "production"); e == nil {
 		t.Fatal("独立旧入口绕过完整宿主门禁")
 	}
-	c.Runtime.Enabled = false
-	c.Runtime.TaskTransport = "postgres"
-	if _, e := config.LoadWhispers(context.Background(), writeSettings(t, c.Runtime), "production"); e == nil {
-		t.Fatal("独立旧入口擅自启用完整业务数据库任务")
-	}
+
 }
 
 // TestBusinessGatewayRejectsAmbiguousResults 缺少显式扫描结论、错误不可变对象版本和不完整能力声明必须失败。
@@ -112,54 +98,5 @@ func TestBusinessGatewayRejectsAmbiguousResults(t *testing.T) {
 	b := &businessGateway{gateway: g, lookupRefs: []string{"lookup-v1"}}
 	if _, e := b.Digest(context.Background(), "business-v1", "openid", []byte("synthetic")); e == nil || called {
 		t.Fatal("未授权检索引用到达供应商")
-	}
-}
-
-// TestBusinessMQIsolation 生产拒绝无鉴权通道、错误领域事件和不能覆盖完整处理的超时预算。
-func TestBusinessMQIsolation(t *testing.T) {
-	c := testBusinessSettings(t)
-	c.Runtime.DatabasePolling = false
-	c.Runtime.OperationTimeout = 60 * time.Second
-	for _, kind := range []string{"card", "content", "whispers-review", "whispers-unlock"} {
-		var options workrunner.Config
-		if e := config.LoadCardWorkerMQ("../../configs/examples/production-"+kind+"-mq.yaml", &options); e != nil {
-			t.Fatal(e)
-		}
-		options.MQ.Credentials.AccessKey = "synthetic-access"
-		options.MQ.Credentials.SecretKey = "synthetic-secret"
-		path := filepath.Join(t.TempDir(), "mq.json")
-		if e := os.WriteFile(path, mustJSON(t, options), 0600); e != nil {
-			t.Fatal(e)
-		}
-		switch kind {
-		case "card":
-			c.CardMQFile = path
-		case "content":
-			c.ContentMQFile = path
-		case "whispers-review":
-			c.Runtime.ReviewMQFile = path
-		case "whispers-unlock":
-			c.Runtime.UnlockMQFile = path
-		}
-	}
-	for _, kind := range []string{"card", "content", "whispers"} {
-		if e := CheckBusinessWorkerConfig(c, "production", kind); e != nil {
-			t.Fatal(kind, e)
-		}
-	}
-	var options workrunner.Config
-	if e := config.LoadCardWorkerMQ(c.CardMQFile, &options); e != nil {
-		t.Fatal(e)
-	}
-	options.MQ.AllowUnauthenticated = true
-	if e := os.WriteFile(c.CardMQFile, mustJSON(t, options), 0600); e != nil {
-		t.Fatal(e)
-	}
-	if e := CheckBusinessWorkerConfig(c, "production", "card"); e == nil {
-		t.Fatal("生产接受无鉴权标志")
-	}
-	c.Runtime.UnlockMQFile = c.Runtime.ReviewMQFile
-	if e := CheckBusinessWorkerConfig(c, "production", "whispers"); e == nil {
-		t.Fatal("审核与解锁复用通道")
 	}
 }

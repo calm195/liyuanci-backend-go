@@ -1,11 +1,11 @@
-// 显式迁移工具只读取外部 DSN，不加载开发账号或打印底层驱动错误。
+// 显式迁移工具使用 YAML 分项配置生成的唯一连接，不加载开发账号或打印底层驱动错误。
 package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 )
 
@@ -31,23 +32,23 @@ func run() int {
 	defer func() {
 		log.Info("迁移命令完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
 	}()
-	if len(os.Args) != 2 {
+	path := flag.String("config", "configs/development.yaml", "与API相同的环境覆盖YAML")
+	flag.Parse()
+	if flag.NArg() != 1 {
 		log.Error("需要显式迁移操作")
 		return 1
 	}
-	action := os.Args[1]
-	journal := strings.HasPrefix(action, "journal-")
-	if journal {
-		action = strings.TrimPrefix(action, "journal-")
-	}
+	action := flag.Arg(0)
 	if action != "up" && action != "down" && action != "permissions" && action != "opaque-blocks" {
 		log.Error("迁移操作无效")
 		return 1
 	}
-	dsn := os.Getenv("APP_DATABASE_DSN")
-	if journal {
-		dsn = os.Getenv("APP_RECOVERY_DATABASE_DSN")
+	settings, err := config.Load(*path)
+	if err != nil {
+		log.Error("应用YAML配置无效")
+		return 1
 	}
+	dsn := settings.Database.DSN
 	if dsn == "" {
 		log.Error("缺少目标数据库外部配置")
 		return 1
@@ -74,14 +75,15 @@ func run() int {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if journal {
-		err = migration.RunJournal(ctx, db, log, action)
-	} else if action == "opaque-blocks" {
+	if action == "opaque-blocks" {
 		err = blockpolicy.Enable(ctx, db, log)
 	} else if action == "permissions" {
-		err = migration.ApplyPermissions(ctx, db, log)
+		err = migration.ApplyApplicationPermissions(ctx, db, log)
 	} else {
 		err = migration.Run(ctx, db, log, action)
+		if err == nil && action == "up" {
+			err = migration.ApplyApplicationPermissions(ctx, db, log)
+		}
 	}
 	if err != nil {
 		log.Error("迁移执行失败，请核对版本、权限和数据约束")

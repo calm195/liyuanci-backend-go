@@ -9,10 +9,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
 
-// pool 根据显式配置选择共用测试身份，正式分角色连接校验保持原边界。
-func (cfg Settings) pool(ctx context.Context, dsn, role string, log *zap.Logger) (*gorm.DB, func() error, error) {
-	if cfg.LocalTest {
-		return platform.OpenLocalDatabase(ctx, "integration", cfg.DatabaseDSN, log)
-	}
-	return pool(ctx, dsn, role)
+// pool 复用顶层数据库连接及预算，并拒绝拥有集群管理权限的账号。
+func (cfg Settings) pool(ctx context.Context, log *zap.Logger) (*gorm.DB, func() error, error) {
+	return platform.OpenRuntimeDatabaseWithLimits(ctx, cfg.DatabaseDSN, log, cfg.DatabaseMaxOpen, cfg.DatabaseMaxIdle, cfg.DatabaseMaxLifetime)
 }

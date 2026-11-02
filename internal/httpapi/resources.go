@@ -9,9 +9,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
-	"github.com/gin-gonic/gin"
 )
 
 // ResourcesAPI 是资料业务的完整读写入口；生产装配注入受限数据库服务。

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -23,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
@@ -38,7 +38,7 @@ func (wishHTTPKeys) Unwrap(_ context.Context, _ string, key []byte) ([]byte, err
 
 // TestPostgresWishHTTP 追溯 T014/REQ-003/004/005/018：HTTP到实际PG事务；不含前端或真实供应商联调。
 func TestPostgresWishHTTP(t *testing.T) {
-	dsn := os.Getenv("APP_WISH_HTTP_TEST_DSN")
+	dsn := testconfig.Value("wish_http_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
@@ -359,7 +360,7 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		}
 	})
 
-	if output := os.Getenv("APP_WHISPER_INTERACTION_WIRE_OUTPUT"); output != "" {
+	if output := testconfig.Value("whisper_interaction_wire_output"); output != "" {
 		b, e := json.MarshalIndent(samples, "", "  ")
 		must(e)
 		must(os.WriteFile(output, append(b, '\n'), 0600))

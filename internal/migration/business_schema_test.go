@@ -3,7 +3,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 
@@ -12,11 +11,13 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 func schemaDB(t *testing.T, env string) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv(env)
+	dsn := testconfig.Value(env)
 	if dsn == "" {
 		t.Skip("需专用 Docker 数据库；运行 按模块要求提供隔离依赖后运行相关集成测试")
 	}
@@ -63,7 +64,7 @@ func underRole(db *gorm.DB, role, statement string) error {
 
 func TestBusinessSchema(t *testing.T) {
 	// T005/REQ-002–008、014–020：验证数据库存储不变量，不冒称对应领域服务已完成。
-	db := schemaDB(t, "APP_SCHEMA_TEST_DSN")
+	db := schemaDB(t, "schema_test_dsn")
 	ctx := context.Background()
 	log := zap.NewNop()
 	if err := Run(ctx, db, log, "up"); err != nil {
@@ -288,7 +289,7 @@ func TestBusinessSchema(t *testing.T) {
 
 func TestRecoverySchema(t *testing.T) {
 	// T005/T031/REQ-018、020：支持独立日志容器；仍不代表正式故障域、备份及恢复放行验收。
-	db := schemaDB(t, "APP_RECOVERY_TEST_DSN")
+	db := schemaDB(t, "recovery_test_dsn")
 	ctx := context.Background()
 	core, observed := observer.New(zap.InfoLevel)
 	log := zap.New(core)

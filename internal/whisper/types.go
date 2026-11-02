@@ -205,7 +205,7 @@ type Workspace struct {
 	AllowedActions  []string `json:"allowed_actions"`
 }
 
-// ReviewSubmission 是同事务送审技术上下文，不传明文或账号至 MQ。
+// ReviewSubmission 是同事务送审技术上下文，不将明文或账号放入技术事件。
 type ReviewSubmission struct {
 	TaskID         string
 	ContentID      string

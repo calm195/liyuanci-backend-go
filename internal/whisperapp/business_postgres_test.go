@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"image"
 	"image/png"
 	"mime/multipart"
@@ -29,28 +28,18 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/verification"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
-	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
-
-// TestPostgresBusinessRuntime 使用真实生产API二进制、受限角色、PG/Redis和可选鉴权MQ。
-// 微信主体、学校规则、扫描、KMS、通知和对象清理均由隔离TLS夹具替代，不是正式供应商验收。
-func TestPostgresBusinessRuntime(t *testing.T) {
-	testPostgresBusinessRuntime(t, false)
-}
 
 // TestPostgresBusinessDatabaseRuntime 使用生产数据库任务通道与收紧的连接池，完全不构造MQ客户端。
 func TestPostgresBusinessDatabaseRuntime(t *testing.T) {
@@ -58,9 +47,9 @@ func TestPostgresBusinessDatabaseRuntime(t *testing.T) {
 }
 
 func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
-	dsn, redisAddress := os.Getenv("APP_WHISPER_TEXT_TEST_DSN"), os.Getenv("APP_BUSINESS_RUNTIME_REDIS_ADDRESS")
-	redisPassword := os.Getenv("APP_BUSINESS_RUNTIME_REDIS_PASSWORD")
-	serverBin, workerBin, initBin := os.Getenv("APP_WHISPER_SERVER_BINARY"), os.Getenv("APP_BUSINESS_RUNTIME_WORKER_BINARY"), os.Getenv("APP_BUSINESS_RUNTIME_INIT_BINARY")
+	dsn, redisAddress := testconfig.Value("whisper_text_test_dsn"), testconfig.Value("business_runtime_redis_address")
+	redisPassword := testconfig.Value("business_runtime_redis_password")
+	serverBin, workerBin, initBin := testconfig.Value("whisper_server_binary"), testconfig.Value("business_runtime_worker_binary"), testconfig.Value("business_runtime_init_binary")
 	if dsn == "" || redisAddress == "" || redisPassword == "" || serverBin == "" || workerBin == "" || initBin == "" {
 		t.Skip("需隔离PG、鉴权Redis及实际业务二进制，make integration覆盖")
 	}
@@ -71,61 +60,10 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			t.Fatal("完整业务装配验收失败", e)
 		}
 	}
-	open := func(value string) *gorm.DB {
-		t.Helper()
-		db, e := gorm.Open(postgres.New(postgres.Config{DSN: value, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-		must(e)
-		p, e := db.DB()
-		must(e)
-		t.Cleanup(func() { _ = p.Close() })
-		return db
-	}
-	parent := open(dsn)
-	var parentName string
-	must(parent.Raw("SELECT current_database()").Scan(&parentName).Error)
-	needle := "dbname=" + parentName + " "
-	if !strings.Contains(dsn, needle) || parentName != "liyuanci" && parentName != "whisper_test" {
-		t.Fatal("要求显式隔离父库")
-	}
-	name := "business_release_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	must(parent.Exec("CREATE DATABASE " + name).Error)
-	must(parent.Exec("CREATE DATABASE " + name + "_journal").Error)
-	businessDSN := strings.Replace(dsn, needle, "dbname="+name+" ", 1)
-	journalDSN := strings.Replace(dsn, needle, "dbname="+name+"_journal ", 1)
-	root, journalRoot := open(businessDSN), open(journalDSN)
-	must(migration.Run(ctx, root, log, "up"))
-	must(migration.ApplyPermissions(ctx, root, log))
-	must(migration.RunJournal(ctx, journalRoot, log, "up"))
-	must(migration.RunJournal(ctx, journalRoot, log, "permissions"))
-	login := func(base, role string) string {
-		user, pass := "release_"+strings.ReplaceAll(uuid.NewString(), "-", ""), uuid.NewString()
-		must(parent.Exec("CREATE ROLE " + user + " LOGIN PASSWORD '" + pass + "' IN ROLE " + role).Error)
-		parts := strings.Fields(base)
-		for i, v := range parts {
-			if strings.HasPrefix(v, "user=") {
-				parts[i] = "user=" + user
-			}
-			if strings.HasPrefix(v, "password=") {
-				parts[i] = "password=" + pass
-			}
-		}
-		return strings.Join(parts, " ")
-	}
+	root, shared, businessDSN := applicationDatabase(t, dsn)
 	c := testBusinessSettings(t)
-	if databaseTasks {
-		c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1
-	}
-	c.Runtime.APIDSN = login(businessDSN, "liyuanci_api")
-	c.Runtime.ReviewDSN = login(businessDSN, "liyuanci_admin_api")
-	c.Runtime.CrisisDSN = login(businessDSN, "liyuanci_crisis_api")
-	c.Runtime.PrivacyDSN = login(businessDSN, "liyuanci_privacy_maintenance")
-	c.Runtime.EvidenceDeletionDSN = login(businessDSN, "liyuanci_evidence_delete_api")
-	c.Runtime.WorkerDSN = login(businessDSN, "liyuanci_domain_worker")
-	c.Runtime.EvidencePurgerDSN = login(businessDSN, "liyuanci_evidence_purger")
-	c.Runtime.RecoveryWriterDSN = login(journalDSN, "liyuanci_recovery_writer")
-	c.Runtime.RecoveryReaderDSN = login(journalDSN, "liyuanci_recovery_reader")
-	c.StudentDSN = login(businessDSN, "liyuanci_identity_maintenance")
-	c.AdminDSN = login(businessDSN, "liyuanci_admin_maintenance")
+	c.Runtime.DatabaseDSN = shared
+	c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1
 	c.Runtime.Command.Timeout = 5 * time.Second
 	c.Runtime.Command.LockTimeout = time.Second
 	c.Runtime.Worker.Consumer.Timeout = 3 * time.Second
@@ -140,10 +78,12 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		c.Card.RetryDelay = time.Second
 	}
 	dir := t.TempDir()
+	must(os.Chmod(dir, 0700))
+	c.Runtime.JournalFile = filepath.Join(dir, "deletions.json")
 	write := func(name string, v any) string {
 		t.Helper()
 		p := filepath.Join(dir, name)
-		must(os.WriteFile(p, mustJSON(t, v), 0600))
+		must(os.WriteFile(p, mustYAML(t, v), 0600))
 		return p
 	}
 	var outage, eraseFailure, imageFailure atomic.Bool
@@ -270,69 +210,29 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	}))
 	t.Cleanup(tlsServer.Close)
 	c.Runtime.GatewayURL = tlsServer.URL
-	c.Runtime.GatewayTokenFile = filepath.Join(dir, "gateway.token")
-	must(os.WriteFile(c.Runtime.GatewayTokenFile, []byte("synthetic-business-gateway-token"), 0600))
-	c.Runtime.GatewayCAFile = filepath.Join(dir, "ca.pem")
-	must(os.WriteFile(c.Runtime.GatewayCAFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw}), 0600))
+	c.Runtime.GatewayToken = "synthetic-business-gateway-token"
+	c.Runtime.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw}))
 	version, verified := int64(1), "2026-10-31T00:00:00Z"
-	c.Runtime.CatalogFile = write("catalog.json", ResourcesFile{Version: "synthetic-release-v1", Care: &moderationCareFixture, Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "grade_test", Label: "隔离合成年级"}}}, Reports: []whisper.Item{{Code: "other", Label: "隔离合成举报"}}, Help: whisper.HelpDirectory{Status: "ready", Version: &version, VerifiedAt: &verified, Items: []whisper.HelpItem{{Kind: "school_appointment", Label: "隔离合成援助", Contact: "仅用于测试，非真实联系渠道", SourceURL: "https://example.invalid/test"}}}}})
+	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{Version: "synthetic-release-v1", Care: &moderationCareFixture, Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "grade_test", Label: "隔离合成年级"}}}, Reports: []whisper.Item{{Code: "other", Label: "隔离合成举报"}}, Help: whisper.HelpDirectory{Status: "ready", Version: &version, VerifiedAt: &verified, Items: []whisper.HelpItem{{Kind: "school_appointment", Label: "隔离合成援助", Contact: "仅用于测试，非真实联系渠道", SourceURL: "https://example.invalid/test"}}}}})
 	must(root.Exec("INSERT INTO public.report_types(code,label,published) VALUES ('other','隔离合成举报',true)").Error)
-	workerEnv := "integration"
-	if mq := os.Getenv("APP_BUSINESS_TEST_NAMESERVER"); mq != "" && !databaseTasks {
-		c.Runtime.DatabasePolling = false
-		access, secret := os.Getenv("APP_BUSINESS_RUNTIME_MQ_ACCESS_KEY"), os.Getenv("APP_BUSINESS_RUNTIME_MQ_SECRET_KEY")
-		if access != "" && secret != "" {
-			workerEnv = "production"
-		}
-		for _, kind := range []string{"card", "content", "whispers-review", "whispers-unlock"} {
-			var options workrunner.Config
-			must(json.Unmarshal([]byte(`{}`), &options))
-			// 公共模板不含凭据；各测试组使用随机消费者组，避免前序测试历史影响结果。
-			must(loadMQTemplate(kind, &options))
-			options.MQ.NameServers = []string{mq}
-			options.MQ.Credentials.AccessKey = access
-			options.MQ.Credentials.SecretKey = secret
-			options.MQ.AllowUnauthenticated = workerEnv != "production"
-			suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
-			options.MQ.ProducerGroup = "release_p_" + suffix
-			options.MQ.ConsumerGroup = "release_c_" + suffix
-			options.MQ.Instance = "release_i_" + suffix
-			options.ScanInterval = time.Second
-			if workerEnv == "production" {
-				// 鉴权验收延后周期补偿，让新任务必须经消息投递唤醒。
-				options.ScanInterval = time.Minute
-			}
-			options.RelayInterval = 50 * time.Millisecond
-			p := write(kind+"-mq.json", options)
-			switch kind {
-			case "card":
-				c.CardMQFile = p
-			case "content":
-				c.ContentMQFile = p
-			case "whispers-review":
-				c.Runtime.ReviewMQFile = p
-			case "whispers-unlock":
-				c.Runtime.UnlockMQFile = p
-			}
-		}
-	}
-	if databaseTasks {
-		c.Runtime.DatabasePolling = false
-		c.Runtime.TaskTransport = "postgres"
-		workerEnv = "production"
-	}
-	workerPath := write("worker.json", c)
-	apiCfg := c
-	apiCfg.Runtime.DatabasePolling = false
-	apiPath := write("api.json", apiCfg)
-	redisFile := filepath.Join(dir, "redis.password")
-	must(os.WriteFile(redisFile, []byte(redisPassword), 0600))
+	workerEnv := "production"
 	listener, e := net.Listen("tcp", "127.0.0.1:0")
 	must(e)
 	address := listener.Addr().String()
 	must(listener.Close())
-	appPath := filepath.Join(dir, "app.yaml")
-	must(os.WriteFile(appPath, []byte(fmt.Sprintf("environment: production\nbusinessfile: %s\nserver:\n  address: %s\ndatabase:\n  driver: postgres\nredis:\n  enabled: true\n  address: %s\n  passwordfile: %s\n", apiPath, address, redisAddress, redisFile)), 0600))
+	words := write("wordlists.yaml", map[string][]string{"crisis": {"隔离危机词"}, "school": {"隔离涉校词"}, "ordinary_violation": {"隔离违规词"}})
+	appDoc := businessDocument(c)
+	appDoc.Server.Address = address
+	appDoc.Redis.Address, appDoc.Redis.Password = redisAddress, redisPassword
+	appDoc.Bootstrap.Login, appDoc.Bootstrap.WordlistsFile = "release-admin", words
+	apiPath := write("common.yaml", appDoc)
+	appPath := write("production.yaml", map[string]any{"environment": "production"})
+	resolved, e := config.Load(appPath)
+	must(e)
+	c = resolved.Business
+	workerApp := func(kind string) string {
+		return write(kind+".yaml", map[string]any{"worker": map[string]any{"kind": kind}})
+	}
 	cleanEnv := []string{}
 	for _, v := range os.Environ() {
 		if !strings.HasPrefix(v, "APP_") {
@@ -383,11 +283,10 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}
 		t.Fatal("等待超时", name)
 	}
-	words := write("wordlists.json", map[string][]string{"crisis": {"隔离危机词"}, "school": {"隔离涉校词"}, "ordinary_violation": {"隔离违规词"}})
 	oneShot(initBin, true, "-config", appPath, "-check-config")
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(initBin, true, "-config", appPath, "-login", "release-admin", "-wordlists", words)
-	oneShot(initBin, true, "-config", appPath, "-login", "release-admin", "-wordlists", words)
+	oneShot(initBin, true, "-config", appPath)
+	oneShot(initBin, true, "-config", appPath)
 	must(blockpolicy.Enable(ctx, root, log))
 	oneShot(serverBin, true, "-config", appPath, "-check-config")
 	oneShot(serverBin, true, "-config", appPath, "-check")
@@ -445,11 +344,11 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	}
 	request("GET", "/admin/users", token, nil, 403, nil)
 	for _, kind := range []string{"card", "content", "whispers", "account", "evidence"} {
-		oneShot(workerBin, true, "-config", workerPath, "-environment", workerEnv, "-kind", kind, "-check")
+		oneShot(workerBin, true, "-config", workerApp(kind), "-check")
 	}
-	card := start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "card")
-	content := start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "content")
-	whispers := start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "whispers")
+	card := start(workerBin, "-config", workerApp("card"))
+	content := start(workerBin, "-config", workerApp("content"))
+	whispers := start(workerBin, "-config", workerApp("whispers"))
 	var form bytes.Buffer
 	multipartWriter := multipart.NewWriter(&form)
 	part, e := multipartWriter.CreatePart(textproto.MIMEHeader{"Content-Disposition": {`form-data; name="file"; filename="synthetic.png"`}, "Content-Type": {"image/png"}})
@@ -478,7 +377,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}, card)
 		card.stop(t)
 		imageFailure.Store(false)
-		card = start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "card")
+		card = start(workerBin, "-config", workerApp("card"))
 	}
 	wait("真实工作进程调用图片供应商", func() bool {
 		request("GET", "/me/student-card-assets/"+asset.AssetID, token, nil, 200, &asset)
@@ -522,8 +421,8 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			t.Fatal("停止期间任务未持久保存")
 		}
 		// 两个正式进程竞争同一持久工作，不能重复公开或产生重复回执。
-		whispers = start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "whispers")
-		duplicate := start(workerBin, "-config", workerPath, "-environment", workerEnv, "-kind", "whispers")
+		whispers = start(workerBin, "-config", workerApp("whispers"))
+		duplicate := start(workerBin, "-config", workerApp("whispers"))
 		wait("重启竞争完成", func() bool {
 			var n int64
 			return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil && n == 1
@@ -573,14 +472,6 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if capsule.Body == nil || *capsule.Body != "本人胶囊私密原文" {
 		t.Fatal("解锁内容错误")
 	}
-	if workerEnv == "production" && !databaseTasks {
-		for _, event := range []string{"student_card.scan_requested", "wish.review_requested", "whisper.review.requested", "whisper.capsule.unlock.requested"} {
-			wait("鉴权消息发送回执", func() bool {
-				var n int64
-				return root.Model(&entity.OutboxEvent{}).Where("event_type=? AND sent_at IS NOT NULL", event).Count(&n).Error == nil && n > 0
-			}, card, content, whispers)
-		}
-	}
 	if databaseTasks {
 		var sent, receipts int64
 		must(root.Model(&entity.OutboxEvent{}).Where("sent_at IS NOT NULL").Count(&sent).Error)
@@ -605,7 +496,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	whispers.stop(t)
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	eraseFailure.Store(true)
-	oneShot(workerBin, false, "-config", workerPath, "-environment", workerEnv, "-kind", "account", "-recover")
+	oneShot(workerBin, false, "-config", workerApp("account"), "-recover")
 	var remaining int64
 	must(root.Model(&entity.DeletionJob{}).Where("phase<>'completed' AND scope='account'").Count(&remaining).Error)
 	if remaining == 0 {
@@ -613,18 +504,18 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	}
 	eraseFailure.Store(false)
 	must(root.Exec("UPDATE public.deletion_jobs SET next_at=clock_timestamp() WHERE scope='account'").Error)
-	oneShot(workerBin, true, "-config", workerPath, "-environment", workerEnv, "-kind", "account", "-recover")
+	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	must(root.Create(&entity.Account{ID: actor, Nickname: "模拟恢复出的已注销主体"}).Error)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(workerBin, true, "-config", workerPath, "-environment", workerEnv, "-kind", "account", "-recover")
+	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	if eraseCalls.Load() == 0 {
 		t.Fatal("外部清理未调用")
 	}
-	bad := apiCfg
-	bad.Runtime.APIDSN = businessDSN
-	must(os.WriteFile(apiPath, mustJSON(t, bad), 0600))
+	bad := appDoc
+	bad.Database = databaseSettings(businessDSN)
+	must(os.WriteFile(apiPath, mustYAML(t, bad), 0600))
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var latest int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error)
@@ -632,8 +523,4 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		t.Fatal("运行入口改变迁移版本", latest)
 	}
 	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，外部依赖为隔离TLS合成", workerEnv)
-}
-
-func loadMQTemplate(kind string, c *workrunner.Config) error {
-	return config.LoadCardWorkerMQ("../../configs/examples/production-"+kind+"-mq.yaml", c)
 }

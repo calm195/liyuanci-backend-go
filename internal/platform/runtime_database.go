@@ -12,18 +12,18 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 )
 
-// OpenRuntimeDatabase 打开独立运行身份池，拒绝管理身份、跨角色继承、只读副本和DDL权限。
+// OpenRuntimeDatabase 打开应用共用连接池，拒绝超级用户、集群管理权限和只读副本。
 // 成功后关闭责任转交宿主；本函数不迁移或读取业务内容。
-func OpenRuntimeDatabase(ctx context.Context, dsn, role string, log *zap.Logger) (out *gorm.DB, closePool func() error, err error) {
-	return OpenRuntimeDatabaseWithLimits(ctx, dsn, role, log, 0, 0)
+func OpenRuntimeDatabase(ctx context.Context, dsn string, log *zap.Logger) (out *gorm.DB, closePool func() error, err error) {
+	return OpenRuntimeDatabaseWithLimits(ctx, dsn, log, 0, 0)
 }
 
-// OpenRuntimeDatabaseWithLimits 在相同权限检查下收紧每个身份池的预算；零值兼容10/2，不能无限连接。
-func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn, role string, log *zap.Logger, maxOpen, maxIdle int) (out *gorm.DB, closePool func() error, err error) {
+// OpenRuntimeDatabaseWithLimits 在相同权限检查下收紧应用池的预算；零值兼容10/2，不能无限连接。
+func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn string, log *zap.Logger, maxOpen, maxIdle int, lifetimes ...time.Duration) (out *gorm.DB, closePool func() error, err error) {
 	if maxOpen == 0 && maxIdle == 0 {
 		maxOpen, maxIdle = 10, 2
 	}
-	if maxOpen < 1 || maxOpen > 10 || maxIdle < 0 || maxIdle > maxOpen {
+	if maxOpen < 1 || maxOpen > 100 || maxIdle < 0 || maxIdle > maxOpen {
 		return nil, nil, command.ErrInvalid
 	}
 	if log == nil {
@@ -50,18 +50,21 @@ func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn, role string, log *z
 	}
 	p.SetMaxOpenConns(maxOpen)
 	p.SetMaxIdleConns(maxIdle)
-	p.SetConnMaxLifetime(30 * time.Minute)
+	lifetime := 30 * time.Minute
+	if len(lifetimes) > 0 && lifetimes[0] != 0 {
+		lifetime = lifetimes[0]
+	}
+	if lifetime <= 0 {
+		_ = p.Close()
+		return nil, nil, command.ErrInvalid
+	}
+	p.SetConnMaxLifetime(lifetime)
 	fail := func() (*gorm.DB, func() error, error) { _ = p.Close(); return nil, nil, command.ErrUnavailable }
 	if p.PingContext(ctx) != nil {
 		return fail()
 	}
 	var safe bool
-	e = db.WithContext(ctx).Raw(`SELECT NOT pg_is_in_recovery() AND current_user=session_user AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication
- AND pg_has_role(current_user,?,'member') AND NOT has_schema_privilege(current_user,'public','CREATE')
- AND NOT has_database_privilege(current_user,current_database(),'CREATE')
- AND NOT EXISTS(SELECT 1 FROM pg_roles g WHERE g.rolname<>? AND g.rolname<>current_user AND pg_has_role(current_user,g.oid,'member'))
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','evidence') AND c.relowner=r.oid)
- FROM pg_roles r WHERE r.rolname=current_user`, role, role).Scan(&safe).Error
+	e = db.WithContext(ctx).Raw(`SELECT NOT pg_is_in_recovery() AND current_user=session_user AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication FROM pg_roles r WHERE r.rolname=current_user`).Scan(&safe).Error
 	if e != nil || !safe {
 		return fail()
 	}

@@ -158,7 +158,7 @@ func (c *Consumer) RedrivePlan(ctx context.Context, db *gorm.DB, id string) (com
 }
 
 // Redrive 仅可作为已认证后台 command.Apply 内的操作；必须先通过 RedrivePlan 锁定完整依赖。
-// 不建立独立事务，不发 MQ，不调用领域 Apply；新事件替代旧事件，永不重置旧租约代次。
+// 不建立独立事务，不调用外部通道，不调用领域 Apply；新事件替代旧事件，永不重置旧租约代次。
 func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePolicy, input RedriveRequest) (out Redriven, err error) {
 	start := time.Now()
 	defer func() {

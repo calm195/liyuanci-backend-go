@@ -15,13 +15,14 @@ import (
 	"slices"
 	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
 // 分类特定冲突供HTTP边界明确提示，不能降级为空页。

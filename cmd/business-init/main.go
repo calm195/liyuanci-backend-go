@@ -3,22 +3,21 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"os"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/whisperapp"
-	"go.uber.org/zap"
+	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 func run() error {
-	path := flag.String("config", "", "包含businessfile及Redis的私有应用YAML")
-	login := flag.String("login", "", "首个超级管理员登录名")
-	words := flag.String("wordlists", "", "可选正式三类词库JSON，已有生效快照仅等值重放")
+	path := flag.String("config", "", "公共配置旁的私有环境YAML")
 	check := flag.Bool("check-config", false, "仅离线校验配置，不连接或初始化")
 	flag.Parse()
 	c, e := config.Load(*path)
@@ -35,13 +34,8 @@ func run() error {
 		return nil
 	}
 	var lists map[string][]string
-	if *words != "" {
-		raw, e := os.ReadFile(*words)
-		if e != nil {
-			return command.ErrUnavailable
-		}
-		defer clear(raw)
-		if len(raw) > 1<<20 || json.Unmarshal(raw, &lists) != nil || lists == nil {
+	if c.Bootstrap.WordlistsFile != "" {
+		if yamlconfig.Read(c.Bootstrap.WordlistsFile, &lists) != nil || lists == nil {
 			return command.ErrInvalid
 		}
 	}
@@ -57,7 +51,7 @@ func run() error {
 		return command.ErrUnavailable
 	}
 	defer r.Close()
-	e = whisperapp.InitializeBusiness(ctx, b, c.Environment, *login, lists, r.Redis, log)
+	e = whisperapp.InitializeBusiness(ctx, b, c.Environment, c.Bootstrap.Login, lists, r.Redis, log)
 	result := "success"
 	if e != nil {
 		result = "failure"

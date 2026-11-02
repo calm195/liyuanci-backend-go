@@ -30,6 +30,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
@@ -76,7 +77,7 @@ func (a *reviewAnalyzer) ClassifyWhisperCapsule(ctx context.Context, body string
 
 // TestPostgresWhisperModeration 验证B04的真实角色、消费、治理和双版本栅栏；外部供应商仍为合成。
 func TestPostgresWhisperModeration(t *testing.T) {
-	dsn := os.Getenv("APP_WHISPER_TEXT_TEST_DSN")
+	dsn := testconfig.Value("whisper_text_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离 PostgreSQL；make integration 覆盖此用例")
 	}
@@ -213,7 +214,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		return raw.Data
 	}
 	t.Cleanup(func() {
-		if path := os.Getenv("APP_WHISPER_GOVERNANCE_WIRE_OUTPUT"); path != "" {
+		if path := testconfig.Value("whisper_governance_wire_output"); path != "" {
 			b, _ := json.MarshalIndent(samples, "", "  ")
 			if e := os.WriteFile(path, b, 0600); e != nil {
 				t.Error(e)

@@ -3,7 +3,6 @@ package devapp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/calm195/liyuanci-backend-go/internal/yamlconfig"
 )
 
 // TestLocalKeyIsolation 追溯 T008/T011/T014、REQ-002/018：密钥实际包裹、用途隔离、篡改和取消失败关闭。
@@ -98,27 +99,25 @@ func TestObjectsPublishAtomically(t *testing.T) {
 	}
 }
 
-// TestSettingsRejectKeyReuse 追溯 T008/T011/T014、REQ-018：文件配置拒绝跨用途共钥及半套微信凭据。
+// TestSettingsRejectKeyReuse 验证单主密钥装配后领域仍拒绝错误注入共钥，文件拒绝半套微信凭据。
 func TestSettingsRejectKeyReuse(t *testing.T) {
-	cfg := Settings{StudentDSN: "s", ReviewDSN: "r", WishDSN: "w", AdminDSN: "a", AdminPassword: "long-enough-password", ObjectDirectory: t.TempDir()}
-	keys := []*[]byte{&cfg.WrapKey, &cfg.LookupKey, &cfg.SessionKey, &cfg.CardKey, &cfg.VerificationKey, &cfg.WishKey, &cfg.AdminKey}
-	for i, key := range keys {
-		*key = bytes.Repeat([]byte{byte(i + 1)}, 32)
-	}
-	path := filepath.Join(t.TempDir(), "business.json")
+	cfg := Settings{DatabaseDSN: "shared", AdminPassword: "long-enough-password", ObjectDirectory: t.TempDir(), JournalFile: "/tmp/unit-journal.json"}
+	path := filepath.Join(t.TempDir(), "business.yaml")
 	save := func() {
-		data, _ := json.Marshal(cfg)
+		_ = os.WriteFile(filepath.Join(filepath.Dir(path), "common.yaml"), []byte("mode: foundation\n"), 0600)
+		data, _ := yamlconfig.Marshal(map[string]any{"masterkey": bytes.Repeat([]byte{93}, 32), "database": map[string]any{"driver": "postgres", "host": "127.0.0.1", "name": "synthetic", "user": "application", "password": "synthetic"}, "development": cfg})
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	save()
-	if _, err := Load(path); err != nil {
+	loaded, err := Load(path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	cfg = loaded
 	cfg.CardKey = cfg.SessionKey
-	save()
-	if _, err := Load(path); err == nil {
+	if _, err := validate(cfg); err == nil {
 		t.Fatal("复用密钥未拒绝")
 	}
 	cfg.CardKey = bytes.Repeat([]byte{4}, 32)
