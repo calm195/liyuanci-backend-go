@@ -1,5 +1,4 @@
-// Package localtest 提供显式本地业务联调适配，不实现正式外部审核或灾备能力。
-package localtest
+package local
 
 import (
 	"context"

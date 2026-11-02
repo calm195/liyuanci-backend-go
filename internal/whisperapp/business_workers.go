@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
@@ -65,12 +66,12 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			err = command.ErrUnavailable
 		}
 	}()
-	g, ok := r.gateway.(*gateway)
+	g, ok := r.gateway.(*gateway.Client)
 	if !ok {
 		return command.ErrInvalid
 	}
-	b := &businessGateway{gateway: g, lookupRefs: c.LookupKeyRefs, maxObjectBytes: c.Card.MaxBytes*2 + 65536}
-	if e = b.readyBusiness(startup, kind); e != nil {
+	b := gateway.NewBusiness(g, c.LookupKeyRefs, c.Card.MaxBytes*2+65536)
+	if e = b.ReadyFor(startup, kind); e != nil {
 		return e
 	}
 	db, e := r.pool(startup)

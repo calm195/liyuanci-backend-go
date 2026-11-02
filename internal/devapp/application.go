@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
@@ -115,7 +116,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		return nil, closeAll, e
 	}
 	closes = append(closes, closePool)
-	keys := &localKeys{wrap: cfg.WrapKey, lookup: cfg.LookupKey, logger: logger}
+	keys := &local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}
 	codec, e := securedata.New(keys, logger)
 	if e != nil {
 		return nil, closeAll, e
@@ -128,7 +129,7 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 	if e != nil {
 		return nil, closeAll, e
 	}
-	var exchange studentauth.Exchanger = unavailable{logger}
+	var exchange studentauth.Exchanger = local.Unavailable{Logger: logger}
 	if cfg.WeChatAppID != "" {
 		exchange, e = studentauth.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
 		if e != nil {
@@ -182,9 +183,9 @@ func Open(ctx context.Context, environment string, cfg Settings, client redis.Un
 		Identity:  store,
 		Limiter:   limiter,
 		Codec:     codec,
-		Objects:   &localObjects{cfg.ObjectDirectory, logger},
-		Scanner:   developmentScanner{logger},
-		Rules:     developmentSchoolRules{logger},
+		Objects:   &local.Objects{Root: cfg.ObjectDirectory, Logger: logger},
+		Scanner:   local.Scanner{Logger: logger},
+		Rules:     local.SchoolRules{Logger: logger},
 	}, studentapi.Config{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,
@@ -245,7 +246,7 @@ func Initialize(ctx context.Context, cfg Settings, logger *zap.Logger, login str
 		return e
 	}
 	defer closePool()
-	keys := &localKeys{cfg.WrapKey, cfg.LookupKey, logger}
+	keys := &local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}
 	codec, e := securedata.New(keys, logger)
 	if e != nil {
 		return e

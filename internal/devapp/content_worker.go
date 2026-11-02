@@ -6,11 +6,11 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/workrunner"
 )
 
@@ -18,45 +18,6 @@ import (
 // 消息配置为空时仅补偿数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
-}
-
-type developmentAnalyzer struct {
-	logger    *zap.Logger
-	synthetic bool
-	manual    bool
-}
-
-func (a developmentAnalyzer) Analyze(ctx context.Context, input wish.Content) (out moderation.Assessment, err error) {
-	defer completed(a.logger, "development_content_analysis", time.Now(), &err)
-	if err = ctx.Err(); err != nil {
-		return out, err
-	}
-	// 调用本适配器前已完成词库筛选；人工模式对命中或重审保留原文/标签，生成必须复核候选。
-	if a.manual {
-		a.logger.Info("开发内容提交人工复核", zap.Bool("manual_review", true), zap.String("result", "success"))
-		return moderation.Assessment{Body: input.Body, Tags: input.IdentityTags, OrdinaryHit: true, DetectorVersion: "development-manual-v1"}, nil
-	}
-	if !a.synthetic {
-		return out, command.ErrUnavailable
-	}
-	// 合成模式清除所有原始正文与标签；只验证技术链路，不模拟隐私识别能力。
-	a.logger.Info("开发内容分析使用合成结果", zap.Bool("simulated", true), zap.String("result", "success"))
-	return moderation.Assessment{Body: "[开发合成审核正文]", DetectorVersion: "development-synthetic-v1"}, nil
-}
-
-// AnalyzeMessage 保留私聊原文；合成模式只产生分类，人工模式对命中/重审强制交人工复核。
-func (a developmentAnalyzer) AnalyzeMessage(ctx context.Context, _ string) (out moderation.MessageAssessment, err error) {
-	defer completed(a.logger, "development_message_analysis", time.Now(), &err)
-	if err = ctx.Err(); err != nil {
-		return out, err
-	}
-	if a.manual {
-		return moderation.MessageAssessment{OrdinaryHit: true, DetectorVersion: "development-manual-private-v1"}, nil
-	}
-	if !a.synthetic {
-		return out, command.ErrUnavailable
-	}
-	return moderation.MessageAssessment{DetectorVersion: "development-synthetic-private-v1"}, nil
 }
 
 // ValidateContentWorker 在任何数据库或消息客户端启动前拒绝生产环境、未知分析模式及跨领域事件。
@@ -93,11 +54,11 @@ func RunContentWorker(ctx context.Context, environment string, cfg Settings, opt
 			err = command.ErrUnavailable
 		}
 	}()
-	codec, err := securedata.New(&localKeys{wrap: cfg.WrapKey, lookup: cfg.LookupKey, logger: logger}, logger)
+	codec, err := securedata.New(&local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}, logger)
 	if err != nil {
 		return err
 	}
-	analyzer := developmentAnalyzer{logger: logger, synthetic: options.Analyzer == "synthetic", manual: options.Analyzer == "manual"}
+	analyzer := local.Analyzer{Logger: logger, Synthetic: options.Analyzer == "synthetic", Manual: options.Analyzer == "manual"}
 	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
 		Care:            cfg.Care,
 		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},

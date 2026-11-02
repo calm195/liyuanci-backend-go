@@ -1,4 +1,4 @@
-package whisperapp
+package gateway
 
 import (
 	"bytes"
@@ -16,31 +16,32 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
-type gateway struct {
+// Client 拥有独立HTTP连接池；调用方在所有业务请求退出后调用Close。
+type Client struct {
 	client              *http.Client
 	url, token, version string
 	logger              *zap.Logger
 }
 
-func newGateway(cfg Settings, log *zap.Logger) (*gateway, error) {
-	u, e := url.Parse(cfg.GatewayURL)
+// New 创建只访问显式HTTPS地址的客户端，拒绝重定向和无界请求期限。
+func New(cfg Config, log *zap.Logger) (*Client, error) {
+	u, e := url.Parse(cfg.URL)
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, command.ErrInvalid
 	}
-	credential, e := config.ValidateSecret(cfg.GatewayToken, 16)
-	if e != nil {
-		return nil, e
+	credential := strings.TrimSpace(cfg.Token)
+	if log == nil || cfg.Timeout <= 0 || len(credential) < 16 || len(credential) > 4096 || strings.ContainsAny(credential, "\r\n\x00") {
+		return nil, command.ErrInvalid
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	if cfg.GatewayCA != "" {
-		pem := []byte(cfg.GatewayCA)
+	if cfg.CA != "" {
+		pem := []byte(cfg.CA)
 		roots, e := x509.SystemCertPool()
 		if e != nil {
 			roots = x509.NewCertPool()
@@ -50,16 +51,18 @@ func newGateway(cfg Settings, log *zap.Logger) (*gateway, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
-	client := &http.Client{Transport: transport, Timeout: cfg.ProviderTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &gateway{client, cfg.GatewayURL, credential, cfg.ProviderVersion, log}, nil
+	client := &http.Client{Transport: transport, Timeout: cfg.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &Client{client, cfg.URL, credential, cfg.Version, log}, nil
 }
-func (g *gateway) close() { g.client.CloseIdleConnections() }
-func (g *gateway) call(ctx context.Context, operation string, input, out any) (err error) {
+
+// Close 释放本客户端的空闲连接，不拥有数据库或调用方上下文。
+func (g *Client) Close() { g.client.CloseIdleConnections() }
+func (g *Client) call(ctx context.Context, operation string, input, out any) (err error) {
 	return g.callLimit(ctx, operation, input, out, 1<<20)
 }
 
 // callLimit 为私有加密对象响应提供独立上限，普通内容接口保持原有预算。
-func (g *gateway) callLimit(ctx context.Context, operation string, input, out any, limit int64) (err error) {
+func (g *Client) callLimit(ctx context.Context, operation string, input, out any, limit int64) (err error) {
 	start := time.Now()
 	defer func() {
 		result := "success"
@@ -106,11 +109,13 @@ func (g *gateway) callLimit(ctx context.Context, operation string, input, out an
 	}
 	return ctx.Err()
 }
-func (g *gateway) ready(ctx context.Context) error {
+
+// Ready 核对供应商版本与树洞、恢复所需能力，缺项时失败关闭。
+func (g *Client) Ready(ctx context.Context) error {
 	return g.capabilities(ctx, []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"})
 }
 
-func (g *gateway) capabilities(ctx context.Context, required []string) error {
+func (g *Client) capabilities(ctx context.Context, required []string) error {
 	var out struct {
 		Version      string
 		Capabilities []string
@@ -129,13 +134,15 @@ func (g *gateway) capabilities(ctx context.Context, required []string) error {
 	return nil
 }
 
-type gatewayKeys struct {
-	g     *gateway
+// Keys 将KMS调用绑定到固定用途和允许的历史引用；用途字符串属于持久协议。
+type Keys struct {
+	g     *Client
 	refs  []string
 	scope string
 }
 
-func (k gatewayKeys) Wrap(ctx context.Context, key []byte) (string, []byte, error) {
+// Wrap 仅使用当前引用封装数据密钥，不接受供应商静默切换引用。
+func (k Keys) Wrap(ctx context.Context, key []byte) (string, []byte, error) {
 	var out struct {
 		KeyRef  string
 		Wrapped []byte
@@ -149,7 +156,9 @@ func (k gatewayKeys) Wrap(ctx context.Context, key []byte) (string, []byte, erro
 	}
 	return out.KeyRef, out.Wrapped, nil
 }
-func (k gatewayKeys) Unwrap(ctx context.Context, ref string, wrapped []byte) ([]byte, error) {
+
+// Unwrap 拒绝未登记历史引用，业务用途与恢复用途不能互换。
+func (k Keys) Unwrap(ctx context.Context, ref string, wrapped []byte) ([]byte, error) {
 	if !slices.Contains(k.refs, ref) {
 		return nil, command.ErrUnavailable
 	}
@@ -164,7 +173,9 @@ func (k gatewayKeys) Unwrap(ctx context.Context, ref string, wrapped []byte) ([]
 	}
 	return out.Key, nil
 }
-func (g *gateway) AnalyzeWhisper(ctx context.Context, kind, body string, identity whisper.IdentityInput) (out moderation.WhisperAssessment, err error) {
+
+// AnalyzeWhisper 返回经过结构校验的公开树洞审核候选。
+func (g *Client) AnalyzeWhisper(ctx context.Context, kind, body string, identity whisper.IdentityInput) (out moderation.WhisperAssessment, err error) {
 	err = g.call(ctx, "public_analysis", struct {
 		Kind, Body string
 		Identity   whisper.IdentityInput
@@ -174,14 +185,18 @@ func (g *gateway) AnalyzeWhisper(ctx context.Context, kind, body string, identit
 	}
 	return
 }
-func (g *gateway) ClassifyWhisperCapsule(ctx context.Context, body string) (out moderation.MessageAssessment, err error) {
+
+// ClassifyWhisperCapsule 只接收胶囊分类结论，不允许响应携带替换正文。
+func (g *Client) ClassifyWhisperCapsule(ctx context.Context, body string) (out moderation.MessageAssessment, err error) {
 	err = g.call(ctx, "private_classify", struct{ Body string }{body}, &out)
 	if err != nil || out.DetectorVersion == "" {
 		return moderation.MessageAssessment{}, command.ErrUnavailable
 	}
 	return
 }
-func (g *gateway) Redact(ctx context.Context, kind, body string) (string, error) {
+
+// Redact 要求非空脱敏结果，失败时保留调用方的恢复门禁。
+func (g *Client) Redact(ctx context.Context, kind, body string) (string, error) {
 	var out struct{ Body string }
 	e := g.call(ctx, "redact", struct{ Kind, Body string }{kind, body}, &out)
 	if e != nil || strings.TrimSpace(out.Body) == "" {
@@ -189,7 +204,9 @@ func (g *gateway) Redact(ctx context.Context, kind, body string) (string, error)
 	}
 	return out.Body, nil
 }
-func (g *gateway) Erase(ctx context.Context, in privacy.Intent, objects []privacy.Object) error {
+
+// Erase 只有全副本清理及写屏障均被确认时才报告成功。
+func (g *Client) Erase(ctx context.Context, in privacy.Intent, objects []privacy.Object) error {
 	var out struct{ Completed, WriteBarrierConfirmed bool }
 	if e := g.call(ctx, "erase", struct {
 		Intent  privacy.Intent
@@ -202,7 +219,9 @@ func (g *gateway) Erase(ctx context.Context, in privacy.Intent, objects []privac
 	}
 	return nil
 }
-func (g *gateway) NotifyCrisis(ctx context.Context, delivery, caseID string) error {
+
+// NotifyCrisis 只发送稳定投递标识与案件标识；供应商须据此幂等处理。
+func (g *Client) NotifyCrisis(ctx context.Context, delivery, caseID string) error {
 	var out struct{ Completed bool }
 	if e := g.call(ctx, "notify", struct{ DeliveryID, CaseID string }{delivery, caseID}, &out); e != nil {
 		return e
@@ -213,18 +232,7 @@ func (g *gateway) NotifyCrisis(ctx context.Context, delivery, caseID string) err
 	return nil
 }
 
-type catalogFile struct{ path string }
-
-func (c catalogFile) Load(ctx context.Context) (whisper.CatalogSnapshot, error) {
-	if e := ctx.Err(); e != nil {
-		return whisper.CatalogSnapshot{}, e
-	}
-	out, e := config.LoadWhisperResources(ctx, c.path)
-	if e != nil {
-		return whisper.CatalogSnapshot{}, e
-	}
-	if out.Version == "" {
-		return whisper.CatalogSnapshot{}, command.ErrUnavailable
-	}
-	return out.Catalog, nil
+// NewKeys 借用客户端并复制引用清单；不改变business/recovery用途或密钥顺序。
+func NewKeys(client *Client, refs []string, scope string) Keys {
+	return Keys{client, slices.Clone(refs), scope}
 }

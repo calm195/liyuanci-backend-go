@@ -1,4 +1,4 @@
-package localtest
+package local
 
 import (
 	"bytes"

@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
@@ -34,7 +35,7 @@ type BusinessAPI struct {
 	*API
 	Router     *gin.Engine
 	cfg        config.Business
-	gateway    *businessGateway
+	gateway    *gateway.Business
 	identityDB *gorm.DB
 }
 
@@ -53,11 +54,11 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 			_ = a.Close()
 		}
 	}()
-	g, ok := a.r.gateway.(*gateway)
+	g, ok := a.r.gateway.(*gateway.Client)
 	if !ok {
 		return nil, command.ErrInvalid
 	}
-	b := &BusinessAPI{API: a, cfg: cfg, gateway: &businessGateway{gateway: g, lookupRefs: cfg.LookupKeyRefs, maxObjectBytes: cfg.Card.MaxBytes*2 + 65536}}
+	b := &BusinessAPI{API: a, cfg: cfg, gateway: gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536)}
 	student, e := a.r.pool(ctx)
 	if e != nil {
 		return nil, e
@@ -138,7 +139,7 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 	if e := businessSchema(ctx, b.database); e != nil {
 		return e
 	}
-	if e := b.gateway.readyBusiness(ctx, "api"); e != nil {
+	if e := b.gateway.ReadyFor(ctx, "api"); e != nil {
 		return e
 	}
 	if e := lookupReady(ctx, b.identityDB, b.gateway); e != nil {
@@ -168,7 +169,7 @@ func businessSchema(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-func lookupReady(ctx context.Context, db *gorm.DB, g *businessGateway) error {
+func lookupReady(ctx context.Context, db *gorm.DB, g *gateway.Business) error {
 	var rows []entity.IdentityLookupKey
 	if db.WithContext(ctx).Find(&rows).Error != nil || len(rows) != 2 {
 		return command.ErrUnavailable
@@ -182,7 +183,7 @@ func lookupReady(ctx context.Context, db *gorm.DB, g *businessGateway) error {
 			refs = append(refs, *row.PreviousRef)
 		}
 		for _, ref := range refs {
-			if !slices.Contains(g.lookupRefs, ref) {
+			if !g.HasLookupReference(ref) {
 				return command.ErrUnavailable
 			}
 			probe, e := g.Digest(ctx, ref, row.Purpose, []byte("runtime-readiness-probe"))

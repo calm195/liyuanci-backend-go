@@ -7,23 +7,12 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 )
-
-// developmentScanner 仅由隔离开发宿主装配，模拟结论不代表真实内容审核。
-type developmentScanner struct{ logger *zap.Logger }
-
-func (s developmentScanner) Scan(ctx context.Context, _ []byte, _ string) (approved bool, err error) {
-	defer completed(s.logger, "development_scan", time.Now(), &err)
-	if err = ctx.Err(); err != nil {
-		return false, err
-	}
-	s.logger.Info("开发图片扫描模拟通过", zap.Bool("simulated", true), zap.String("result", "approved"))
-	return true, nil
-}
 
 // workerSessions 禁止工作进程误用上传入口；持久工作按数据库账号状态重新授权。
 type workerSessions struct{}
@@ -78,11 +67,11 @@ func RunCardWorker(ctx context.Context, environment string, cfg Settings, logger
 	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
 		return command.ErrUnavailable
 	}
-	codec, err := securedata.New(&localKeys{wrap: cfg.WrapKey, lookup: cfg.LookupKey, logger: logger}, logger)
+	codec, err := securedata.New(&local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}, logger)
 	if err != nil {
 		return err
 	}
-	service, err := studentcard.New(db, logger, workerSessions{}, codec, &localObjects{cfg.ObjectDirectory, logger}, developmentScanner{logger}, studentcard.Config{
+	service, err := studentcard.New(db, logger, workerSessions{}, codec, &local.Objects{Root: cfg.ObjectDirectory, Logger: logger}, local.Scanner{Logger: logger}, studentcard.Config{
 		DecodeSlots: 1,
 		MaxBytes:    1 << 20,
 		MaxPixels:   4_000_000,

@@ -194,7 +194,7 @@ func (a *API) Ready(ctx context.Context) error {
 			return e
 		}
 	}
-	if e := a.r.gateway.ready(ctx); e != nil {
+	if e := a.r.gateway.Ready(ctx); e != nil {
 		return e
 	}
 	_, e = a.service.Configuration(ctx, "")

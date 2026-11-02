@@ -1,4 +1,4 @@
-package whisperapp
+package gateway
 
 import (
 	"bytes"
@@ -14,14 +14,15 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/wish"
 )
 
-// businessGateway 扩展已有TLS供应商协议；生产不装配本地存储、模拟扫描或学校规则。
-type businessGateway struct {
-	*gateway
+// Business 扩展已有TLS供应商协议；生产不装配本地存储、模拟扫描或学校规则。
+type Business struct {
+	*Client
 	lookupRefs     []string
 	maxObjectBytes int64
 }
 
-func (g *businessGateway) readyBusiness(ctx context.Context, process string) error {
+// ReadyFor 按进程职责核对供应商能力；检查不消费任务或修改业务数据。
+func (g *Business) ReadyFor(ctx context.Context, process string) error {
 	ops := []string{"wrap", "unwrap", "redact", "erase"}
 	switch process {
 	case "api":
@@ -36,7 +37,8 @@ func (g *businessGateway) readyBusiness(ctx context.Context, process string) err
 	return g.capabilities(ctx, ops)
 }
 
-func (g *businessGateway) Digest(ctx context.Context, ref, purpose string, value []byte) ([]byte, error) {
+// Digest 仅允许已配置引用及身份用途，拒绝长度异常的检索摘要。
+func (g *Business) Digest(ctx context.Context, ref, purpose string, value []byte) ([]byte, error) {
 	if !slices.Contains(g.lookupRefs, ref) || purpose != "openid" && purpose != "student_number" {
 		return nil, command.ErrUnavailable
 	}
@@ -52,7 +54,8 @@ func (g *businessGateway) Digest(ctx context.Context, ref, purpose string, value
 	return out.Digest, nil
 }
 
-func (g *businessGateway) PutOnce(ctx context.Context, key string, data []byte) (string, error) {
+// PutOnce 上传不可变密文对象，只有供应商确认相同摘要后才返回版本。
+func (g *Business) PutOnce(ctx context.Context, key string, data []byte) (string, error) {
 	if key == "" || len(data) == 0 || int64(len(data)) > g.maxObjectBytes {
 		return "", command.ErrInvalid
 	}
@@ -69,7 +72,8 @@ func (g *businessGateway) PutOnce(ctx context.Context, key string, data []byte) 
 	return out.Version, nil
 }
 
-func (g *businessGateway) Open(ctx context.Context, key, version string) (io.ReadCloser, error) {
+// Open 读取精确对象版本；调用方必须关闭返回的读取器以清除缓冲密文。
+func (g *Business) Open(ctx context.Context, key, version string) (io.ReadCloser, error) {
 	var out struct {
 		Version string
 		Data    []byte
@@ -92,7 +96,8 @@ type privateObject struct {
 
 func (o *privateObject) Close() error { clear(o.data); o.Reader.Reset(nil); return nil }
 
-func (g *businessGateway) Scan(ctx context.Context, data []byte, mediaType string) (bool, error) {
+// Scan 要求供应商返回明确结论与检测版本，缺字段不能视作通过。
+func (g *Business) Scan(ctx context.Context, data []byte, mediaType string) (bool, error) {
 	var out struct {
 		Approved        *bool
 		DetectorVersion string
@@ -107,7 +112,8 @@ func (g *businessGateway) Scan(ctx context.Context, data []byte, mediaType strin
 	return *out.Approved, nil
 }
 
-func (g *businessGateway) Validate(ctx context.Context, number, name string) error {
+// Validate 检查学校权威结论，不把供应商不可用解释为认证有效。
+func (g *Business) Validate(ctx context.Context, number, name string) error {
 	var out struct {
 		Valid        *bool
 		RulesVersion string
@@ -121,7 +127,8 @@ func (g *businessGateway) Validate(ctx context.Context, number, name string) err
 	return nil
 }
 
-func (g *businessGateway) Analyze(ctx context.Context, in wish.Content) (out moderation.Assessment, err error) {
+// Analyze 校验公开内容候选与检测版本，保留严格响应字段约束。
+func (g *Business) Analyze(ctx context.Context, in wish.Content) (out moderation.Assessment, err error) {
 	err = g.call(ctx, "content_analysis", in, &out)
 	if err != nil || strings.TrimSpace(out.Body) == "" || strings.TrimSpace(out.DetectorVersion) == "" {
 		return moderation.Assessment{}, command.ErrUnavailable
@@ -129,6 +136,16 @@ func (g *businessGateway) Analyze(ctx context.Context, in wish.Content) (out mod
 	return
 }
 
-func (g *businessGateway) AnalyzeMessage(ctx context.Context, body string) (moderation.MessageAssessment, error) {
+// AnalyzeMessage 只分类私聊，不接受供应商替换私密正文。
+func (g *Business) AnalyzeMessage(ctx context.Context, body string) (moderation.MessageAssessment, error) {
 	return g.ClassifyWhisperCapsule(ctx, body)
 }
+
+// NewBusiness 借用已有网关连接，绑定身份检索引用与加密对象预算。
+// 调用方先校验对应进程配置；初始化命令不读取对象，允许对象预算为零。
+func NewBusiness(client *Client, lookupRefs []string, maxObjectBytes int64) *Business {
+	return &Business{client, slices.Clone(lookupRefs), maxObjectBytes}
+}
+
+// HasLookupReference 表示当前配置允许使用该检索引用，不会向供应商发起请求。
+func (g *Business) HasLookupReference(ref string) bool { return slices.Contains(g.lookupRefs, ref) }

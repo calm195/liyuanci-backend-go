@@ -1,9 +1,10 @@
-package localtest
+package local
 
 import (
+	"go.uber.org/zap"
+
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"go.uber.org/zap"
 )
 
 // Journal 复用正式文件账本，保留本地测试调用方式。

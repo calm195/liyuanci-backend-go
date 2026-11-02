@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
@@ -66,10 +67,10 @@ func TestContentWorkerBoundary(t *testing.T) {
 		t.Fatal("缺日志仍启动")
 	}
 	input := wish.Content{Body: "合成敏感正文"}
-	if out, err := (developmentAnalyzer{logger: zap.NewNop()}).Analyze(context.Background(), input); err == nil || out.Body != "" {
+	if out, err := (local.Analyzer{Logger: zap.NewNop()}).Analyze(context.Background(), input); err == nil || out.Body != "" {
 		t.Fatal("未配置供应商被放行")
 	}
-	a := developmentAnalyzer{logger: zap.NewNop(), synthetic: true}
+	a := local.Analyzer{Logger: zap.NewNop(), Synthetic: true}
 	out, err := a.Analyze(context.Background(), input)
 	if err != nil || out.Body == input.Body || out.DetectorVersion != "development-synthetic-v1" || out.Tags != (wish.IdentityTags{}) {
 		t.Fatal("合成模式泄漏原文或标签")
@@ -86,7 +87,7 @@ func TestContentWorkerBoundary(t *testing.T) {
 func TestManualContentReview(t *testing.T) {
 	campus := "east"
 	input := wish.Content{Body: "保留待人工检查的原始正文", IdentityTags: wish.IdentityTags{Campus: &campus}}
-	a := developmentAnalyzer{logger: zap.NewNop(), manual: true}
+	a := local.Analyzer{Logger: zap.NewNop(), Manual: true}
 	out, err := a.Analyze(context.Background(), input)
 	if err != nil || out.Body != input.Body || out.Tags.Campus == nil || *out.Tags.Campus != campus || !out.OrdinaryHit || out.CrisisHit || out.DetectorVersion != "development-manual-v1" {
 		t.Fatal("人工候选未保留原文标签或没有强制复核")

@@ -8,10 +8,11 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
-	"github.com/calm195/liyuanci-backend-go/internal/localtest"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
@@ -20,8 +21,8 @@ import (
 )
 
 type provider interface {
-	ready(context.Context) error
-	close()
+	Ready(context.Context) error
+	Close()
 	AnalyzeWhisper(context.Context, string, string, whisper.IdentityInput) (moderation.WhisperAssessment, error)
 	ClassifyWhisperCapsule(context.Context, string) (moderation.MessageAssessment, error)
 	Redact(context.Context, string, string) (string, error)
@@ -56,7 +57,7 @@ func (r *resources) close() (err error) {
 			err = command.ErrUnavailable
 		}
 	}
-	r.gateway.close()
+	r.gateway.Close()
 	return
 }
 func (r *resources) pool(ctx context.Context) (*gorm.DB, error) {
@@ -78,12 +79,12 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 	}
 	defer finish(log, "resources_open", time.Now(), &err)
 	if cfg.LocalTest {
-		r := &resources{cfg: cfg, log: log, gateway: localProvider{log}}
-		r.codec, err = securedata.New(localtest.Keys{Key: cfg.WrapKey, Logger: log}, log)
+		r := &resources{cfg: cfg, log: log, gateway: local.WhisperProvider{Logger: log}}
+		r.codec, err = securedata.New(local.Keys{Key: cfg.WrapKey, Logger: log}, log)
 		if err != nil {
 			return nil, err
 		}
-		recovery, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: log}, log)
+		recovery, e := securedata.New(local.Keys{Key: cfg.RecoveryWrapKey, Logger: log}, log)
 		if e != nil {
 			return nil, e
 		}
@@ -94,7 +95,7 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 		log.Info("本地树洞依赖装配完成", zap.Bool("manual_review", true), zap.Bool("external_gateway", false), zap.String("result", "success"))
 		return r, nil
 	}
-	g, e := newGateway(cfg, log)
+	g, e := gateway.New(gatewayConfig(cfg), log)
 	if e != nil {
 		return nil, e
 	}
@@ -104,14 +105,14 @@ func openResources(ctx context.Context, cfg Settings, log *zap.Logger) (out *res
 			_ = r.close()
 		}
 	}()
-	if err = g.ready(ctx); err != nil {
+	if err = g.Ready(ctx); err != nil {
 		return nil, err
 	}
-	r.codec, err = securedata.New(gatewayKeys{g, cfg.KeyRefs, "business"}, log)
+	r.codec, err = securedata.New(gateway.NewKeys(g, cfg.KeyRefs, "business"), log)
 	if err != nil {
 		return nil, err
 	}
-	recovery, e := securedata.New(gatewayKeys{g, cfg.RecoveryKeyRefs, "recovery"}, log)
+	recovery, e := securedata.New(gateway.NewKeys(g, cfg.RecoveryKeyRefs, "recovery"), log)
 	if e != nil {
 		return nil, e
 	}

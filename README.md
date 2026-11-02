@@ -80,7 +80,7 @@ make integration              # 真实、一次性的原生PG/Redis与实际Go�
 
 ### 制品配置与进程
 
-生产使用同一个 `configs/production.yaml`，包含唯一一组数据库分项配置、鉴权 Redis、微信、HTTPS 网关、一个应用 `masterkey`、外部 KMS 引用及独立删除账本路径。填写真实版本化资料；默认空秘密与未核验资源不能用于上线。网关实现见 [business_gateway.go](internal/whisperapp/business_gateway.go) 和 [gateway.go](internal/whisperapp/gateway.go)，涵盖身份检索、KMS、对象、学校规则、图片/文本分析、通知、脱敏及全副本清理。
+生产使用同一个 `configs/production.yaml`，包含唯一一组数据库分项配置、鉴权 Redis、微信、HTTPS 网关、一个应用 `masterkey`、外部 KMS 引用及独立删除账本路径。填写真实版本化资料；默认空秘密与未核验资源不能用于上线。网关实现见 [business_gateway.go](internal/adapters/gateway/business.go) 和 [gateway.go](internal/adapters/gateway/gateway.go)，涵盖身份检索、KMS、对象、学校规则、图片/文本分析、通知、脱敏及全副本清理。
 
 ```sh
 make check-config CONFIG=configs/production.yaml
@@ -114,7 +114,7 @@ bin/business-worker -config configs/production.yaml -kind evidence -recover
 
 工程使用单个Go module。`cmd/`保存8个进程入口，`internal/httpapi`负责HTTP协议，`internal`下的业务包负责领域规则；`command`、`durable`、`securedata`提供事务/幂等、持久任务与加密能力。测试随源码放置，`configs`与`scripts`分别维护配置和原生运维入口。
 
-本轮目录优化依次执行适配器分离、应用装配集中、配置依赖解耦。当前装配分布在`devapp`、`studentapi`和`whisperapp`，正式供应商与本地适配器也在其中；后续统一由`app`装配，适配器放在`adapters`下的独立包。配置层只负责读取、字段校验和稳定派生，业务参数由装配层转换。
+本轮目录优化依次执行适配器分离、应用装配集中、配置依赖解耦。正式网关已放在`adapters/gateway`，本地供应商放在`adapters/local`，适配器不再依赖应用配置或装配。当前装配仍分布在`devapp`、`studentapi`和`whisperapp`，后续统一由`app`协调。配置层只负责读取、字段校验和稳定派生，业务参数由装配层转换。
 
 迁移保持8个命令名称及参数、HTTP路由和响应、YAML字段与相对路径规则、密钥用途标签、任务租约/重试/取消、删除恢复门禁不变。版本SQL及其校验和不改写，普通启动不执行DDL。实体拆包和业务文件重组另按后续计划推进，避免装配迁移与业务行为改动混在一起。
 

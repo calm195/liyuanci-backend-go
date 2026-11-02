@@ -3,7 +3,7 @@
 ## 工程与代码规范
 
 - 模块为 github.com/calm195/liyuanci-backend-go，采用已批准方案 B；PostgreSQL 是业务权威。API 与 worker 分别构建，基础模式只提供健康端点；生产真实服务必须显式配置，无模板用户示例或业务 Mock 路由。
-- cmd/server 负责 API 依赖装配与生命周期；cmd/business-worker 执行 PostgreSQL 持久任务。配置加载放 internal/config，YAML读取/合并统一通过internal/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
+- cmd/server 负责 API 依赖装配与生命周期；cmd/business-worker 执行 PostgreSQL 持久任务。配置加载放 internal/config，YAML读取/合并统一通过internal/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal；正式HTTPS供应商在 internal/adapters/gateway，本地运行适配在 internal/adapters/local，不依赖 config 或应用装配包。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
 - 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 使用私有开发覆盖，纯健康入口显式选择 configs/common.yaml；make build 构建当前 Makefile 列出的进程。真实中间件往返用 make integration。
 - gofmt 使用 Tab；导入按标准库、第三方、本模块分组。多字段配置换行，顶层声明间留空行；包名小写，符号 MixedCaps。I/O 首参为 context.Context，显式注入依赖，避免可变全局客户端。HTTP 校验与状态映射在 handler，业务规则在 service，GORM 查询在 repository 并使用 WithContext；包装错误保留上下文，不向 HTTP 暴露凭据或内部错误。
 - 按用户2026-11-02要求，应用与运维配置只读YAML，口令、令牌、密钥和CA内联私有YAML；禁止恢复环境变量覆盖、业务JSON或独立秘密文件入口；不提交密钥、本地覆盖或生产 DSN。按用户2026-11-02简化要求，所有进程只使用 database 的 host/port/name/user/password/sslmode/timezone/connecttimeout 分项字段生成的唯一连接；禁止恢复可配置的dsn字段；应用账号拥有专用业务库，禁止集群管理权限。GORM AutoMigrate 仅在显式迁移入口执行，普通 API/worker 不隐式 DDL；业务权限由会话和岗位角色在领域函数中复核。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。

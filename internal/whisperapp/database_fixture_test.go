@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/migration"
 )
 
 // applicationDatabase 用隔离测试管理员创建普通应用账号；实际迁移、初始化和运行共用其单DSN。

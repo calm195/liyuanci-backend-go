@@ -1,5 +1,6 @@
-// Package devapp 装配明确隔离的本地开发资源，禁止用于生产。
-package devapp
+// Package local 实现本地开发供应商，不能证明正式身份、外部审核或灾备能力。
+// 应用宿主负责环境准入；本包不读取配置、不创建数据库、不装配业务服务。
+package local
 
 import (
 	"bytes"
@@ -21,10 +22,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
 
-// localKeys 只接受固定开发引用，包裹密钥和身份检索密钥分别保存。
-type localKeys struct {
-	wrap, lookup []byte
-	logger       *zap.Logger
+// IdentityKeys 只接受固定开发引用，包裹密钥和身份检索密钥分别保存。
+type IdentityKeys struct {
+	WrapKey, LookupKey []byte
+	Logger             *zap.Logger
 }
 
 func completed(log *zap.Logger, operation string, start time.Time, err *error) {
@@ -35,12 +36,13 @@ func completed(log *zap.Logger, operation string, start time.Time, err *error) {
 	log.Info("开发资源操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
 }
 
-func (k *localKeys) Wrap(ctx context.Context, key []byte) (ref string, out []byte, err error) {
-	defer completed(k.logger, "wrap", time.Now(), &err)
+// Wrap 使用固定开发用途封装数据密钥，随机nonce不改变持久引用。
+func (k *IdentityKeys) Wrap(ctx context.Context, key []byte) (ref string, out []byte, err error) {
+	defer completed(k.Logger, "wrap", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return
 	}
-	block, err := aes.NewCipher(k.wrap)
+	block, err := aes.NewCipher(k.WrapKey)
 	if err != nil {
 		return
 	}
@@ -55,15 +57,16 @@ func (k *localKeys) Wrap(ctx context.Context, key []byte) (ref string, out []byt
 	return "local-wrap-v1", append(nonce, gcm.Seal(nil, nonce, key, []byte("local-wrap-v1"))...), nil
 }
 
-func (k *localKeys) Unwrap(ctx context.Context, ref string, data []byte) (out []byte, err error) {
-	defer completed(k.logger, "unwrap", time.Now(), &err)
+// Unwrap 只解包固定开发引用，错误引用或认证失败不会返回明文。
+func (k *IdentityKeys) Unwrap(ctx context.Context, ref string, data []byte) (out []byte, err error) {
+	defer completed(k.Logger, "unwrap", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return
 	}
 	if ref != "local-wrap-v1" || len(data) < 28 {
 		return nil, command.ErrUnavailable
 	}
-	block, err := aes.NewCipher(k.wrap)
+	block, err := aes.NewCipher(k.WrapKey)
 	if err != nil {
 		return
 	}
@@ -74,31 +77,33 @@ func (k *localKeys) Unwrap(ctx context.Context, ref string, data []byte) (out []
 	return gcm.Open(nil, data[:12], data[12:], []byte(ref))
 }
 
-func (k *localKeys) Digest(ctx context.Context, ref, purpose string, data []byte) (out []byte, err error) {
-	defer completed(k.logger, "digest", time.Now(), &err)
+// Digest 按身份用途隔离检索摘要，开发引用不得替代正式KMS。
+func (k *IdentityKeys) Digest(ctx context.Context, ref, purpose string, data []byte) (out []byte, err error) {
+	defer completed(k.Logger, "digest", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return
 	}
 	if ref != "local-lookup-v1" || (purpose != "openid" && purpose != "student_number") {
 		return nil, command.ErrUnavailable
 	}
-	return securedata.LookupDigest(k.lookup, purpose, string(data))
+	return securedata.LookupDigest(k.LookupKey, purpose, string(data))
 }
 
-// localObjects 用密文摘要命名不可变版本，随机业务键经哈希后不能形成路径穿越。
+// Objects 用密文摘要命名不可变版本，随机业务键经哈希后不能形成路径穿越。
 // 同目录临时文件写完并同步后才以硬链接发布，读者永远看不到半写文件。
-type localObjects struct {
-	root   string
-	logger *zap.Logger
+type Objects struct {
+	Root   string
+	Logger *zap.Logger
 }
 
-func (o *localObjects) path(key string) string {
+func (o *Objects) path(key string) string {
 	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(o.root, hex.EncodeToString(sum[:]))
+	return filepath.Join(o.Root, hex.EncodeToString(sum[:]))
 }
 
-func (o *localObjects) PutOnce(ctx context.Context, key string, data []byte) (version string, err error) {
-	defer completed(o.logger, "object_put", time.Now(), &err)
+// PutOnce 用临时文件、同步和原子硬链接发布密文；同键不同内容拒绝覆盖。
+func (o *Objects) PutOnce(ctx context.Context, key string, data []byte) (version string, err error) {
+	defer completed(o.Logger, "object_put", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return
 	}
@@ -107,7 +112,7 @@ func (o *localObjects) PutOnce(ctx context.Context, key string, data []byte) (ve
 	}
 	sum := sha256.Sum256(data)
 	version = hex.EncodeToString(sum[:])
-	file, err := os.CreateTemp(o.root, ".pending-")
+	file, err := os.CreateTemp(o.Root, ".pending-")
 	if err != nil {
 		return "", command.ErrUnavailable
 	}
@@ -134,7 +139,7 @@ func (o *localObjects) PutOnce(ctx context.Context, key string, data []byte) (ve
 			return "", command.ErrConflict
 		}
 	}
-	directory, err := os.Open(o.root)
+	directory, err := os.Open(o.Root)
 	if err != nil {
 		return "", command.ErrUnavailable
 	}
@@ -145,8 +150,9 @@ func (o *localObjects) PutOnce(ctx context.Context, key string, data []byte) (ve
 	return version, nil
 }
 
-func (o *localObjects) Open(ctx context.Context, key, version string) (out io.ReadCloser, err error) {
-	defer completed(o.logger, "object_open", time.Now(), &err)
+// Open 只打开摘要匹配的不可变密文版本；返回文件由调用方关闭。
+func (o *Objects) Open(ctx context.Context, key, version string) (out io.ReadCloser, err error) {
+	defer completed(o.Logger, "object_open", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return
 	}
@@ -174,20 +180,23 @@ func (o *localObjects) Open(ctx context.Context, key, version string) (out io.Re
 	return file, nil
 }
 
-// unavailable 明确表示尚未配置供应商，不制造微信身份、学校规则或图片审核成功。
-type unavailable struct{ logger *zap.Logger }
+// Unavailable 明确表示尚未配置供应商，不制造微信身份、学校规则或图片审核成功。
+type Unavailable struct{ Logger *zap.Logger }
 
-func (u unavailable) Exchange(context.Context, string) (out []byte, err error) {
-	defer completed(u.logger, "wechat_unconfigured", time.Now(), &err)
+// Exchange 明确返回微信适配未配置，不制造登录身份。
+func (u Unavailable) Exchange(context.Context, string) (out []byte, err error) {
+	defer completed(u.Logger, "wechat_unconfigured", time.Now(), &err)
 	return nil, command.ErrUnavailable
 }
 
-func (u unavailable) Scan(context.Context, []byte, string) (ok bool, err error) {
-	defer completed(u.logger, "scan_unconfigured", time.Now(), &err)
+// Scan 在缺少供应商时拒绝给出图片审核通过结论。
+func (u Unavailable) Scan(context.Context, []byte, string) (ok bool, err error) {
+	defer completed(u.Logger, "scan_unconfigured", time.Now(), &err)
 	return false, command.ErrUnavailable
 }
 
-func (u unavailable) Validate(context.Context, string, string) (err error) {
-	defer completed(u.logger, "school_rules_unconfigured", time.Now(), &err)
+// Validate 在缺少权威学校规则时保持不可用。
+func (u Unavailable) Validate(context.Context, string, string) (err error) {
+	defer completed(u.Logger, "school_rules_unconfigured", time.Now(), &err)
 	return command.ErrUnavailable
 }

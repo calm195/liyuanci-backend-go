@@ -7,8 +7,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/localtest"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/securedata"
 )
@@ -18,7 +18,7 @@ func privacyConfig(cfg Settings) privacy.Config {
 }
 
 func openDeletionJournal(ctx context.Context, cfg Settings, logger *zap.Logger) (out privacy.Journal, closeAll func(), err error) {
-	codec, e := securedata.New(localtest.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
+	codec, e := securedata.New(local.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -50,7 +50,7 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg Settings, sco
 		return e
 	}
 	defer func() { e := closePool(); completed(logger, "privacy_worker_pool_close", time.Now(), &e) }()
-	codec, e := securedata.New(&localKeys{wrap: cfg.WrapKey, lookup: cfg.LookupKey, logger: logger}, logger)
+	codec, e := securedata.New(&local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}, logger)
 	if e != nil {
 		return e
 	}

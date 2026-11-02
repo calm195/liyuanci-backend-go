@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
@@ -42,12 +43,12 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 			err = command.ErrUnavailable
 		}
 	}()
-	g, ok := r.gateway.(*gateway)
+	g, ok := r.gateway.(*gateway.Client)
 	if !ok {
 		return command.ErrInvalid
 	}
-	b := &businessGateway{gateway: g, lookupRefs: c.LookupKeyRefs}
-	if e = b.readyBusiness(ctx, "bootstrap"); e != nil {
+	b := gateway.NewBusiness(g, c.LookupKeyRefs, 0)
+	if e = b.ReadyFor(ctx, "bootstrap"); e != nil {
 		return e
 	}
 	db, e := r.pool(ctx)
