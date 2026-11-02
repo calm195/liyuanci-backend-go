@@ -80,7 +80,7 @@ make integration              # 真实、一次性的原生PG/Redis与实际Go�
 
 ### 制品配置与进程
 
-生产使用同一个 `configs/production.yaml`，包含唯一一组数据库分项配置、鉴权 Redis、微信、HTTPS 网关、一个应用 `masterkey`、外部 KMS 引用及独立删除账本路径。填写真实版本化资料；默认空秘密与未核验资源不能用于上线。网关实现见 [business_gateway.go](internal/adapters/gateway/business.go) 和 [gateway.go](internal/adapters/gateway/gateway.go)，涵盖身份检索、KMS、对象、学校规则、图片/文本分析、通知、脱敏及全副本清理。
+生产使用同一个 `configs/production.yaml`，包含唯一一组数据库分项配置、鉴权 Redis、微信、HTTPS 网关、一个应用 `masterkey`、外部 KMS 引用及独立删除账本路径。填写真实版本化资料；默认空秘密与未核验资源不能用于上线。网关实现见 [business.go](internal/adapters/gateway/business.go) 和 [gateway.go](internal/adapters/gateway/gateway.go)，涵盖身份检索、KMS、对象、学校规则、图片/文本分析、通知、脱敏及全副本清理。
 
 ```sh
 make check-config CONFIG=configs/production.yaml
@@ -148,4 +148,4 @@ scripts/                   # 原生运行、配置和临时集成入口
 
 每阶段先检查相关包，完整交付执行`make fmt`、`make check`、`make build`；装配或入口变化额外运行Python测试和`make integration`。集成脚本中的Go测试包路径须随装配测试同步迁移，临时PG/Redis的清理边界保持不变。
 
-`internal/app/architecture_test.go`约束业务、HTTP、平台和适配器的导入方向，也防止业务导入迁移包、模型反向依赖服务，纳入`make check`。`make integration`顺序执行完整业务、本地组合、独立树洞三组进程测试，以及资料广场15个操作、审核核心和迁移专项。专项入口为`make integration INTEGRATION_SUITE=runtime`、`resourceplaza`、`moderation`或`migration`，共用临时原生PG/Redis清理流程。迁移专项为各上下行/升级场景创建独立空库，检查并发迁移、历史升级、表字段注释及恢复库隔离。历史权限与恢复库夹具仅验证兼容性，当前单连接配置、文件账本与岗位隔离由runtime验证；外部供应商仍为合成测试实现。
+`internal/app/architecture_test.go`约束cmd仅依赖标准库和app，以及业务、HTTP、平台和适配器的导入方向，也防止业务导入迁移包、模型反向依赖服务，纳入`make check`。`make integration`顺序执行完整业务、本地组合、独立树洞三组进程测试，以及资料广场15个操作、审核核心和迁移专项。专项入口为`make integration INTEGRATION_SUITE=runtime`、`resourceplaza`、`moderation`或`migration`，共用临时原生PG/Redis清理流程。迁移专项为各上下行/升级场景创建独立空库，检查并发迁移、历史升级、表字段注释及恢复库隔离。历史权限与恢复库夹具仅验证兼容性，当前单连接配置、文件账本与岗位隔离由runtime验证；外部供应商仍为合成测试实现。

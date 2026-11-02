@@ -19,7 +19,7 @@ type VerificationStudents interface {
 	Current(context.Context, string, string) (verification.Result, error)
 }
 
-// VerificationReviews 使用独立后台权限连接池，不与学生入口共享访问权限。
+// VerificationReviews 由领域服务复核当前后台会话与审核岗位，不授予学生入口审核权限。
 type VerificationReviews interface {
 	List(context.Context, string, string, string, int) (verification.Page, error)
 	Detail(context.Context, string, string, string) (verification.Case, error)

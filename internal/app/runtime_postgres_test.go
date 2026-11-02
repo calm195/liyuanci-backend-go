@@ -74,7 +74,7 @@ func (p *runtimeProcess) stop(t *testing.T) {
 	})
 }
 
-// TestPostgresWhisperRuntime 验证B08真实二进制、受限登录身份、TLS供应商、Redis、MQ/补偿和恢复启动门禁。
+// TestPostgresWhisperRuntime 验证B08真实二进制、受限登录身份、TLS供应商、Redis、数据库任务和恢复启动门禁。
 // TLS供应商、KMS、文本处理与全副本清理为隔离合成，不代表生产供应商及灾备验收。
 func TestPostgresWhisperRuntime(t *testing.T) {
 	dsn := testconfig.Value("whisper_text_test_dsn")

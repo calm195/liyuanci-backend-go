@@ -14,14 +14,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
-// WhisperEvidenceDeletionAPI 使用独立证据删除池并隔离旧后台回执。
+// WhisperEvidenceDeletionAPI 由领域服务复核超管会话，并将树洞证据与旧后台回执隔离。
 type WhisperEvidenceDeletionAPI interface {
 	WhisperEvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
 	DeleteWhisperEvidence(context.Context, string, string, string, string, privacy.EvidenceInput) (privacy.EvidenceAccepted, error)
 }
 
 // RegisterWhisperGovernance 显式装配独立树洞后台和举报投影；生产总装配仍须通过隐私验收。
-// 证据删除复用独立删除身份的持久框架，受理成功仅表示进入清理队列。
+// 证据删除复用独立清理域的持久框架，受理成功仅表示进入清理队列。
 func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *moderation.Service, student *moderation.Service, evidence WhisperEvidenceDeletionAPI) error {
 	if r == nil || s == nil || crisis == nil || student == nil || evidence == nil {
 		return command.ErrInvalid

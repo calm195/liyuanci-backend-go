@@ -18,7 +18,8 @@ type PrivacyAPI interface {
 	Status(context.Context, string, string) (privacy.Receipt, error)
 }
 
-// EvidenceDeletionAPI 只能使用独立证据删除池并在服务端复核超管。
+// EvidenceDeletionAPI 由领域服务复核当前超管会话，证据删除按独立清理域处理。
+// 当前装配共享应用连接池，不能用数据库连接身份代替岗位授权。
 type EvidenceDeletionAPI interface {
 	EvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
 	DeleteEvidence(context.Context, string, string, string, string, privacy.EvidenceInput) (privacy.EvidenceAccepted, error)

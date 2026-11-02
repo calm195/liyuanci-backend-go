@@ -65,7 +65,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 	return r, nil
 }
 
-// Ready 检查已启用的数据库和 Redis 连接是否可用。
+// Ready 要求数据库和Redis均已装配且连接可用；只有健康端点的进程不报告业务就绪。
 func (r *Resources) Ready(ctx context.Context) error {
 	// 缺少真实依赖时仅存活，不报告具备业务处理条件。
 	if r.DB == nil || r.Redis == nil {
@@ -87,6 +87,7 @@ func (r *Resources) Ready(ctx context.Context) error {
 }
 
 // Close 按初始化的逆序释放客户端。
+// 宿主须先等待借用这些客户端的请求和任务退出，本方法不负责排空业务。
 func (r *Resources) Close() error {
 	var errs []error
 	if r.Redis != nil {

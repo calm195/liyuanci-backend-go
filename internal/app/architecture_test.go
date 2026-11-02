@@ -72,3 +72,37 @@ func TestPackageBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestCommandBoundaries 约束所有命令只依赖标准库和app，防止配置读取、客户端或领域装配回流入口。
+// 不固定命令数量和文件名，新增命令同样受检查；参数、信号及退出状态可以直接使用标准库。
+func TestCommandBoundaries(t *testing.T) {
+	root := filepath.Join("..", "..", "cmd")
+	const assembly = "github.com/calm195/liyuanci-backend-go/internal/app"
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, spec := range file.Imports {
+			dependency, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				return err
+			}
+			// 标准库路径首段不含域名；C是cgo入口，不属于命令参数与信号处理依赖。
+			first, _, _ := strings.Cut(dependency, "/")
+			if dependency != assembly && (strings.Contains(first, ".") || dependency == "C") {
+				t.Errorf("%s 直接导入 %s；应用依赖应交由app装配", path, dependency)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
