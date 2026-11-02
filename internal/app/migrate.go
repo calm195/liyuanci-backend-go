@@ -10,9 +10,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 )
 
 // RunMigration 仅由显式迁移命令调用，拥有本次数据库连接并在返回前关闭。

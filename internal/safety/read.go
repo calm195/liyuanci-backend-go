@@ -6,9 +6,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 )
 
 // List 只接受固定列表用途。封禁本人可读警告和申诉，举报类型仍要求普通账号权限。

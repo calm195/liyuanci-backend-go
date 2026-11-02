@@ -6,8 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 )
 
 // LegacyBlocks 先校验当前会话，再报告客户端升级，不读取目标映射。

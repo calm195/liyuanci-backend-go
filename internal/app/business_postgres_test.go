@@ -29,10 +29,10 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"

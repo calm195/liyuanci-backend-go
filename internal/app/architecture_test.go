@@ -14,19 +14,19 @@ import (
 // allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
 // 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
 var allowedInternalImports = map[string][]string{
-	"adapters/gateway": {"execution/command", "moderation", "privacy", "whisper", "wish"},
-	"adapters/local":   {"execution/command", "moderation", "privacy", "platform/securedata", "whisper", "wish"},
-	"adminauth":        {"execution/command", "entity"},
-	"app":              {"adapters/gateway", "adapters/local", "adminauth", "blockpolicy", "chat", "execution/command", "config", "execution/durable", "entity", "httpapi", "identity", "migration", "moderation", "platform", "platform/whisperrate", "privacy", "resourceplaza", "safety", "platform/securedata", "studentauth", "studentcard", "verification", "whisper", "wish", "execution/workrunner", "platform/yamlconfig"},
-	"blockpolicy":      {"execution/command"},
+	"adapters/gateway":    {"execution/command", "moderation", "privacy", "whisper", "wish"},
+	"adapters/local":      {"execution/command", "moderation", "privacy", "platform/securedata", "whisper", "wish"},
+	"modules/adminauth":   {"execution/command", "entity"},
+	"app":                 {"adapters/gateway", "adapters/local", "modules/adminauth", "modules/blockpolicy", "chat", "execution/command", "config", "execution/durable", "entity", "httpapi", "modules/identity", "migration", "moderation", "platform", "platform/whisperrate", "privacy", "resourceplaza", "safety", "platform/securedata", "studentauth", "studentcard", "verification", "whisper", "wish", "execution/workrunner", "platform/yamlconfig"},
+	"modules/blockpolicy": {"execution/command"},
 	// 聊天借用心愿审核路由与结果投影，后续按实际职责收敛。
 	"chat":              {"execution/command", "execution/durable", "entity", "platform/securedata", "wish"},
 	"execution/command": {"entity"},
 	"config":            {"platform/securedata", "platform/yamlconfig"},
 	"execution/durable": {"execution/command", "entity"},
 	"entity":            {},
-	"httpapi":           {"adminauth", "chat", "execution/command", "moderation", "privacy", "resourceplaza", "safety", "studentauth", "studentcard", "verification", "whisper", "wish"},
-	"identity":          {"entity", "platform/securedata"},
+	"httpapi":           {"modules/adminauth", "chat", "execution/command", "moderation", "privacy", "resourceplaza", "safety", "studentauth", "studentcard", "verification", "whisper", "wish"},
+	"modules/identity":  {"entity", "platform/securedata"},
 	"migration":         {"entity"},
 	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
 	"moderation":           {"chat", "execution/command", "execution/durable", "entity", "safety", "platform/securedata", "whisper", "wish"},
@@ -36,17 +36,17 @@ var allowedInternalImports = map[string][]string{
 	"privacy":       {"execution/command", "entity", "platform/securedata", "wish"},
 	"resourceplaza": {"execution/command", "entity", "platform/securedata"},
 	// 安全治理在同一事务中撤销申请、限制会话和消息。
-	"safety":              {"blockpolicy", "chat", "execution/command", "entity", "platform/securedata", "wish"},
+	"safety":              {"modules/blockpolicy", "chat", "execution/command", "entity", "platform/securedata", "wish"},
 	"platform/securedata": {},
 	// 登录复用身份检索和黑名单协议策略。
-	"studentauth": {"blockpolicy", "execution/command", "entity", "identity"},
+	"studentauth": {"modules/blockpolicy", "execution/command", "entity", "modules/identity"},
 	// 学生卡工作处理复核当前学生会话。
 	"studentcard": {"execution/command", "execution/durable", "entity", "platform/securedata", "studentauth"},
 	"testconfig":  {"platform/yamlconfig"},
 	// 资格认证使用统一身份绑定与检索锁。
-	"verification": {"execution/command", "entity", "identity", "platform/securedata"},
+	"verification": {"execution/command", "entity", "modules/identity", "platform/securedata"},
 	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
-	"whisper":              {"blockpolicy", "execution/command", "execution/durable", "entity", "safety", "platform/securedata"},
+	"whisper":              {"modules/blockpolicy", "execution/command", "execution/durable", "entity", "safety", "platform/securedata"},
 	"wish":                 {"execution/command", "execution/durable", "entity", "platform/securedata"},
 	"execution/workrunner": {"execution/durable"},
 	"platform/yamlconfig":  {},

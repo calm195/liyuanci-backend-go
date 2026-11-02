@@ -17,9 +17,9 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
-	identitydata "github.com/calm195/liyuanci-backend-go/internal/identity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
+	identitydata "github.com/calm195/liyuanci-backend-go/internal/modules/identity"
 )
 
 // Exchanger 只向服务层返回微信OpenID，不返回或保留供应商会话密钥；实现必须遵守context且禁止记录code/身份。
