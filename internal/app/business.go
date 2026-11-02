@@ -25,8 +25,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // BusinessAPI 复用树洞的正式供应商和恢复边界，拥有完整业务路由；各岗位在共用连接池上由领域授权隔离。

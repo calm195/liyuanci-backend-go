@@ -18,7 +18,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // Client 拥有独立HTTP连接池；调用方在所有业务请求退出后调用Close。

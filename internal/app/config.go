@@ -5,7 +5,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperSettings 是配置边界提供的只读运行约束，所有文件加载由config负责。

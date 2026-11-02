@@ -21,8 +21,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // testWhisperCapsules 验证B06实际角色、加密、私密审核和持久解锁；时间推进用显式SQL夹具。

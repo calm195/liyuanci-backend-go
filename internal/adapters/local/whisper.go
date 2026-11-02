@@ -9,7 +9,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperProvider 在词库命中或重审分支保留原文并强制人工审核，不借本地测试模式声称已完成外部扫描、通知或副本删除。

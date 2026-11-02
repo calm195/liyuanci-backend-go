@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // analyze 只在词库命中或显式重审时调用原分析器。未命中候选保留原文和显式标签，

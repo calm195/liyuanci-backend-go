@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 type runtimeCatalog struct{ cfg WhisperSettings }

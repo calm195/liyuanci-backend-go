@@ -22,8 +22,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // testWhisperInteractions 复用独立数据库与受限身份，验证B05真实命令、审核及HTTP闭环。

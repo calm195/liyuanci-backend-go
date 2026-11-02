@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // TestLocalProvider 验证原文强制人工、不虚报通知和外部清理、空联系方式降级。

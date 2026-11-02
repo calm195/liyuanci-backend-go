@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // TestRedisWhisperAdmission 验证真实滚动窗口、原子并发、释放与依赖失败；只操作本测试随机主体的键。

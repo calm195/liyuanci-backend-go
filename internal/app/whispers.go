@@ -15,8 +15,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/whisperrate"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // WhisperAPI 持有本模块连接和供应商资源；宿主先停止HTTP及等待请求，再Close。

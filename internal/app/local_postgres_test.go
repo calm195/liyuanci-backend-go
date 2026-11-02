@@ -23,8 +23,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
 )
 
 // TestPostgresLocalBusiness 验证真实PG/Redis下单登录身份、组合API、人工树洞消费、岗位隔离及文件日志恢复。
