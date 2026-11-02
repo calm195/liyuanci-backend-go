@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
@@ -58,7 +59,7 @@ func TestPostgresAdmin(t *testing.T) {
 	defer restrictedPool.Close()
 	client := redis.NewClient(&redis.Options{Addr: address})
 	defer client.Close()
-	limiter, err := adminauth.NewRedisLimiter(client, time.Minute, 1000)
+	limiter, err := authrate.New(client, time.Minute, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +434,7 @@ func TestPostgresAdmin(t *testing.T) {
 		t.Fatal("学生令牌不能冒充后台会话", e)
 	}
 	// 共享Redis真实计数、过期和故障拒绝；用独立技术键，不依赖固定sleep。
-	small, e := adminauth.NewRedisLimiter(client, time.Minute, 1)
+	small, e := authrate.New(client, time.Minute, 1)
 	if e != nil {
 		t.Fatal(e)
 	}

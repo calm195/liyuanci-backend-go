@@ -15,6 +15,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
@@ -125,7 +126,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	if e != nil {
 		return nil, closeAll, e
 	}
-	limiter, e := adminauth.NewRedisLimiter(client, time.Minute, 30)
+	limiter, e := authrate.New(client, time.Minute, 30)
 	if e != nil {
 		return nil, closeAll, e
 	}
@@ -264,7 +265,7 @@ func InitializeDevelopment(ctx context.Context, cfg DevelopmentSettings, logger 
 	// 初始化不执行登录，不需要限流网络访问；依赖仍显式构造，不能放宽实际 HTTP 登录。
 	client := redis.NewClient(&redis.Options{Addr: "redis:6379"})
 	defer client.Close()
-	limiter, e := adminauth.NewRedisLimiter(client, time.Minute, 30)
+	limiter, e := authrate.New(client, time.Minute, 30)
 	if e != nil {
 		return e
 	}

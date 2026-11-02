@@ -42,3 +42,5 @@
 - 应用密钥仅由私有YAML顶层masterkey管理，通过HKDF-SHA256按环境/用途派生，派生字段使用json:"-"，禁止恢复旧用途密钥配置或共用原始主密钥。派生版本、环境与用途标签是持久协议，不得随重构改变。外部服务凭据与KMS引用仍独立配置。用户本次明确允许清空旧开发数据后切换；这不授权清空生产数据。主密钥和当前状态仅在Git忽略的私有环境覆盖及.local/data；初始化不覆盖已有私有文件。对旧生产库的对象所有权和历史日志转换须显式执行，不在普通启动中迁移或清空。
 
 - 用户2026-11-03授权按模块与依赖顺序完成目录归组、装配职责整理及跨模块依赖收敛并逐步提交。internal一级目录固定为app、config、httpapi、modules、execution、platform、adapters、entity、migration、testconfig；modules和execution只作分类目录。完整包路径依赖白名单由app架构测试维护，新增协作边须说明用途；配置与叶子规则不能按父目录放宽。
+
+- 普通内容审核的任务映射和结果投影归modules/contentreview，历史wish_review及wish.review_requested标识保持兼容；跨域状态变化留在所属模块的显式事务协作函数。微信身份交换位于adapters/gateway，登录限流位于adapters/redis/authrate，业务模块禁止直接引入Redis/Gin/Viper或YAML解析器。app服务构造与HTTP注册按文件分开，完整业务和树洞API组合共享运行组件，资源关闭只执行一次并保留失败结果。

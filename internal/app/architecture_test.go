@@ -14,43 +14,116 @@ import (
 // allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
 // 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
 var allowedInternalImports = map[string][]string{
-	"modules/contentreview": {"execution/durable"},
-	"adapters/gateway":      {"execution/command", "modules/moderation", "modules/privacy", "modules/whisper", "modules/wish"},
-	"adapters/local":        {"execution/command", "modules/moderation", "modules/privacy", "platform/securedata", "modules/whisper", "modules/wish"},
-	"modules/adminauth":     {"execution/command", "entity"},
-	"app":                   {"adapters/gateway", "adapters/local", "modules/adminauth", "modules/blockpolicy", "modules/chat", "execution/command", "config", "execution/durable", "entity", "httpapi", "modules/identity", "migration", "modules/moderation", "platform", "adapters/redis/whisperrate", "modules/privacy", "modules/resourceplaza", "modules/safety", "platform/securedata", "modules/studentauth", "modules/studentcard", "modules/verification", "modules/whisper", "modules/wish", "execution/workrunner", "platform/yamlconfig"},
-	"modules/blockpolicy":   {"execution/command"},
-	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
-	"modules/chat":      {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
-	"execution/command": {"entity"},
-	"config":            {"platform/securedata", "platform/yamlconfig"},
-	"execution/durable": {"execution/command", "entity"},
-	"entity":            {},
-	"httpapi":           {"modules/adminauth", "modules/chat", "execution/command", "modules/moderation", "modules/privacy", "modules/resourceplaza", "modules/safety", "modules/studentauth", "modules/studentcard", "modules/verification", "modules/whisper", "modules/wish"},
-	"modules/identity":  {"entity", "platform/securedata"},
-	"migration":         {"entity"},
-	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
-	"modules/moderation":         {"entity", "execution/command", "execution/durable", "modules/chat", "modules/contentreview", "modules/safety", "modules/whisper", "modules/wish", "platform/securedata"},
-	"platform":                   {"execution/command", "config"},
+	"adapters/gateway": {"execution/command", "modules/moderation", "modules/privacy", "modules/whisper", "modules/wish"},
+	"adapters/local": {
+		"execution/command",
+		"modules/moderation",
+		"modules/privacy",
+		"modules/whisper",
+		"modules/wish",
+		"platform/securedata",
+	},
+	"adapters/redis/authrate":    {"execution/command"},
 	"adapters/redis/whisperrate": {"execution/command", "modules/whisper"},
-	// 删除与脱敏需复核心愿故事及其隐私屏障。
-	"modules/privacy":       {"execution/command", "entity", "platform/securedata", "modules/wish"},
-	"modules/resourceplaza": {"execution/command", "entity", "platform/securedata"},
-	// 安全治理在同一事务中撤销申请、限制会话和消息。
-	"modules/safety":      {"modules/blockpolicy", "modules/chat", "execution/command", "entity", "platform/securedata", "modules/wish"},
-	"platform/securedata": {},
-	// 登录复用身份检索和黑名单协议策略。
-	"modules/studentauth": {"modules/blockpolicy", "execution/command", "entity", "modules/identity"},
-	// 学生卡工作处理复核当前学生会话。
-	"modules/studentcard": {"execution/command", "execution/durable", "entity", "platform/securedata", "modules/studentauth"},
-	"testconfig":          {"platform/yamlconfig"},
-	// 资格认证使用统一身份绑定与检索锁。
-	"modules/verification": {"execution/command", "entity", "modules/identity", "platform/securedata"},
-	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
-	"modules/whisper":      {"modules/blockpolicy", "execution/command", "execution/durable", "entity", "modules/safety", "platform/securedata"},
-	"modules/wish":         {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
+	"app": {
+		"adapters/gateway",
+		"adapters/local",
+		"adapters/redis/authrate",
+		"adapters/redis/whisperrate",
+		"config",
+		"entity",
+		"execution/command",
+		"execution/durable",
+		"execution/workrunner",
+		"httpapi",
+		"migration",
+		"modules/adminauth",
+		"modules/blockpolicy",
+		"modules/chat",
+		"modules/identity",
+		"modules/moderation",
+		"modules/privacy",
+		"modules/resourceplaza",
+		"modules/safety",
+		"modules/studentauth",
+		"modules/studentcard",
+		"modules/verification",
+		"modules/whisper",
+		"modules/wish",
+		"platform",
+		"platform/securedata",
+		"platform/yamlconfig",
+	},
+	"config":               {"platform/securedata", "platform/yamlconfig"},
+	"entity":               {},
+	"execution/command":    {"entity"},
+	"execution/durable":    {"entity", "execution/command"},
 	"execution/workrunner": {"execution/durable"},
-	"platform/yamlconfig":  {},
+	"httpapi": {
+		"execution/command",
+		"modules/adminauth",
+		"modules/chat",
+		"modules/moderation",
+		"modules/privacy",
+		"modules/resourceplaza",
+		"modules/safety",
+		"modules/studentauth",
+		"modules/studentcard",
+		"modules/verification",
+		"modules/whisper",
+		"modules/wish",
+	},
+	"migration":           {"entity"},
+	"modules/adminauth":   {"entity", "execution/command"},
+	"modules/blockpolicy": {"execution/command"},
+	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
+	"modules/chat":          {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
+	"modules/contentreview": {"execution/durable"},
+	"modules/identity":      {"entity", "platform/securedata"},
+	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
+	"modules/moderation": {
+		"entity",
+		"execution/command",
+		"execution/durable",
+		"modules/chat",
+		"modules/contentreview",
+		"modules/safety",
+		"modules/whisper",
+		"modules/wish",
+		"platform/securedata",
+	},
+	// 删除与脱敏需复核心愿故事及其隐私屏障。
+	"modules/privacy":       {"entity", "execution/command", "modules/wish", "platform/securedata"},
+	"modules/resourceplaza": {"entity", "execution/command", "platform/securedata"},
+	// 安全治理在同一事务中撤销申请、限制会话和消息。
+	"modules/safety": {
+		"entity",
+		"execution/command",
+		"modules/blockpolicy",
+		"modules/chat",
+		"modules/wish",
+		"platform/securedata",
+	},
+	// 登录复用身份检索和黑名单协议策略。
+	"modules/studentauth": {"entity", "execution/command", "modules/blockpolicy", "modules/identity"},
+	// 学生卡工作处理复核当前学生会话。
+	"modules/studentcard": {"entity", "execution/command", "execution/durable", "modules/studentauth", "platform/securedata"},
+	// 资格认证使用统一身份绑定与检索锁。
+	"modules/verification": {"entity", "execution/command", "modules/identity", "platform/securedata"},
+	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
+	"modules/whisper": {
+		"entity",
+		"execution/command",
+		"execution/durable",
+		"modules/blockpolicy",
+		"modules/safety",
+		"platform/securedata",
+	},
+	"modules/wish":        {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
+	"platform":            {"config", "execution/command"},
+	"platform/securedata": {},
+	"platform/yamlconfig": {},
+	"testconfig":          {"platform/yamlconfig"},
 }
 
 func allowedInternalImport(owner, target string) bool {
@@ -85,6 +158,9 @@ func TestPackageBoundaries(t *testing.T) {
 			dependency, err := strconv.Unquote(spec.Path.Value)
 			if err != nil {
 				return err
+			}
+			if !allowedFrameworkImport(owner, dependency) {
+				t.Errorf("%s 直接引入具体客户端或配置读取：%s", relative, dependency)
 			}
 			if !strings.HasPrefix(dependency, prefix) {
 				continue
@@ -166,5 +242,40 @@ func TestCommandBoundaries(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// allowedFrameworkImport 让领域继续依赖注入接口，Redis/Gin/Viper及直接YAML解析留在所属边界。
+func allowedFrameworkImport(owner, dependency string) bool {
+	if !strings.HasPrefix(owner, "modules/") {
+		return true
+	}
+	for _, prefix := range []string{"github.com/gin-gonic/gin", "github.com/redis/go-redis/", "github.com/spf13/viper", "go.yaml.in/yaml/", "gopkg.in/yaml.", "github.com/go-yaml/", "github.com/goccy/go-yaml"} {
+		if strings.HasPrefix(dependency, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// TestModuleClientBoundary 防止已归位的Redis适配器或HTTP/配置框架回流业务包。
+func TestModuleClientBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		owner, dependency string
+		allowed           bool
+	}{
+		{"modules/adminauth", "github.com/redis/go-redis/v9", false},
+		{"modules/studentauth", "github.com/gin-gonic/gin", false},
+		{"modules/wish", "github.com/spf13/viper", false},
+		{"modules/whisper", "go.yaml.in/yaml/v3", false},
+		{"modules/privacy", "gorm.io/gorm", true},
+		{"adapters/redis/authrate", "github.com/redis/go-redis/v9", true},
+		{"platform/yamlconfig", "github.com/spf13/viper", true},
+	} {
+		t.Run(tc.owner+"->"+tc.dependency, func(t *testing.T) {
+			if got := allowedFrameworkImport(tc.owner, tc.dependency); got != tc.allowed {
+				t.Fatalf("允许=%v，期望%v", got, tc.allowed)
+			}
+		})
 	}
 }

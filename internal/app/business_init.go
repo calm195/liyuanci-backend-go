@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
@@ -68,7 +69,7 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	limiter, e := adminauth.NewRedisLimiter(client, c.LoginWindow, c.LoginLimit)
+	limiter, e := authrate.New(client, c.LoginWindow, c.LoginLimit)
 	if e != nil {
 		return e
 	}

@@ -28,12 +28,12 @@ import (
 	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
@@ -172,7 +172,7 @@ func TestPostgresStudentCards(t *testing.T) {
 	apiDB, workerDB := open(" options='-c role=liyuanci_identity_maintenance'"), open(" options='-c role=liyuanci_domain_worker'")
 	client := redis.NewClient(&redis.Options{Addr: address})
 	defer client.Close()
-	limiter, _ := adminauth.NewRedisLimiter(client, time.Minute, 1000)
+	limiter, _ := authrate.New(client, time.Minute, 1000)
 	codec, _ := securedata.New(keys{}, logger)
 	store, _ := identity.New(apiDB, codec, keys{}, logger)
 	if e := store.Configure(ctx, "openid", "synthetic-card-lookup"); e != nil {

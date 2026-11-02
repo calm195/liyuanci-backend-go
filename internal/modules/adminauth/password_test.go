@@ -38,9 +38,6 @@ func TestPasswordAndConfiguration(t *testing.T) {
 	if _, err = New(&gorm.DB{}, nil, zap.NewNop(), Config{SessionTTL: time.Hour}); err == nil {
 		t.Fatal("缺少限流或期限不能构造")
 	}
-	if _, err = NewRedisLimiter(nil, time.Minute, 1); err == nil {
-		t.Fatal("缺共享缓存不能回退")
-	}
 	if !validKey("synthetic") || validKey("") || validKey(strings.Repeat("x", 129)) || validKey("bad\nkey") {
 		t.Fatal("幂等键边界错误")
 	}

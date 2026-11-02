@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -75,7 +76,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	limiter, e := adminauth.NewRedisLimiter(client, cfg.LoginWindow, cfg.LoginLimit)
+	limiter, e := authrate.New(client, cfg.LoginWindow, cfg.LoginLimit)
 	if e != nil {
 		return nil, e
 	}

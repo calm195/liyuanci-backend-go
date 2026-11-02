@@ -127,9 +127,9 @@ internal/execution/workrunner/ # 扫描调度、取消和排空
 internal/platform/             # 数据库/Redis客户端、日志、心跳
 internal/platform/yamlconfig/  # 独立Viper实例、YAML读取与合并
 internal/platform/securedata/  # 加密、对象读取和兼容用途派生
-internal/adapters/gateway/     # 正式HTTPS供应商
+internal/adapters/gateway/     # 正式HTTPS供应商及微信身份交换
 internal/adapters/local/       # 本地运行适配
-internal/adapters/redis/       # 业务限流接口的Redis实现
+internal/adapters/redis/       # 登录及树洞限流接口的Redis实现
 internal/entity/               # 纯ORM表模型
 internal/migration/            # 显式迁移、业务模型清单和版本SQL
 internal/testconfig/           # 隔离集成测试的YAML输入
@@ -145,9 +145,14 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 | 审核、危机、处罚、申诉 | modules/moderation、safety；跨模块效果保持同事务与锁顺序 |
 | 删除、脱敏、恢复前重删 | modules/privacy；独立文件账本保存删除意图 |
 | 资料查询、分类、维护、反馈 | modules/resourceplaza |
+| 普通内容审核工作与结果协议 | modules/contentreview；心愿、应愿、故事、聊天与审核共用 |
 | 匿名黑名单协议切换 | modules/blockpolicy；仅显式初始化切换 |
 
 配置只依赖两个指定平台叶子包，由app显式转换领域参数和资源快照，保留可选字段、nil/空数组与复制隔离。业务接口由使用方定义，具体适配器不依赖配置或app；app负责选择实现。执行包不反向依赖具体业务模块。
+
+共享审核协议集中在[contentreview](internal/modules/contentreview/protocol.go)，聊天通过该协议发布任务和返回结果，不导入心愿实现。历史任务标识`wish_review`、`wish.review_requested`保持原值；审核的[CursorPage](internal/modules/moderation/projection.go)由审核模块持有，保留空页面继续翻页和nil/空数组语义。command承载项目共享的授权、锁与幂等协议，稳定错误仍由HTTP和多模块统一识别；它不是通用工具包。
+
+微信Exchanger的HTTPS实现位于[gateway/wechat.go](internal/adapters/gateway/wechat.go)，登录Limiter的Redis实现位于[authrate](internal/adapters/redis/authrate/limiter.go)。领域只接收接口，app注入具体实现；架构检查拒绝Redis/Gin/Viper和直接YAML解析回流业务模块。删除账本保留在privacy的现有恢复边界内，锁、原子替换、fsync和历史意图协议不因目录调整改写。
 
 完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；恢复日志与探针不参与业务AutoMigrate。新增表同步模型、清单、版本SQL和中文对象注释。
 

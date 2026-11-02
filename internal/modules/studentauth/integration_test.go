@@ -26,10 +26,10 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/identity"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
@@ -125,7 +125,7 @@ func TestPostgresStudent(t *testing.T) {
 	defer rp.Close()
 	client := redis.NewClient(&redis.Options{Addr: address})
 	defer client.Close()
-	limiter, e := adminauth.NewRedisLimiter(client, time.Minute, 10000)
+	limiter, e := authrate.New(client, time.Minute, 10000)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -396,7 +396,7 @@ func TestPostgresStudent(t *testing.T) {
 	if _, e = service.Login(ctx, "deleting-fresh", "deleting-fresh", "source", "student_deleting_fresh"); e != command.ErrUnauthenticated {
 		t.Fatal("新code不能绕过删除生命周期", e)
 	}
-	limitOne, _ := adminauth.NewRedisLimiter(client, time.Minute, 1)
+	limitOne, _ := authrate.New(client, time.Minute, 1)
 	limitConfig := cfg
 	limitConfig.SessionKey = bytes.Repeat([]byte{99}, 32)
 	limited, _ := studentauth.New(restricted, logger, exchanger, store, limitOne, limitConfig)
@@ -408,7 +408,7 @@ func TestPostgresStudent(t *testing.T) {
 	}
 	closedClient := redis.NewClient(&redis.Options{Addr: address})
 	_ = closedClient.Close()
-	brokenLimiter, _ := adminauth.NewRedisLimiter(closedClient, time.Minute, 100)
+	brokenLimiter, _ := authrate.New(closedClient, time.Minute, 100)
 	broken, _ := studentauth.New(restricted, logger, exchanger, store, brokenLimiter, cfg)
 	if _, e = broken.Login(ctx, "redis-failure", "redis-failure", "source", "student_redis_failure"); e != command.ErrUnavailable {
 		t.Fatal("Redis失败不得放行", e)
