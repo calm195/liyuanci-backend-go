@@ -45,6 +45,10 @@ func CheckCardWorker(ctx context.Context, cfg DevelopmentSettings, logger *zap.L
 // 仅轮询数据库，不迁移或重置历史任务。
 // 先等当前处理返回再关闭池，取消中的租约由后续启动恢复。
 func RunCardWorker(ctx context.Context, environment string, cfg DevelopmentSettings, logger *zap.Logger) (err error) {
+	return runCardWorker(ctx, environment, cfg, logger, false)
+}
+
+func runCardWorker(ctx context.Context, environment string, cfg DevelopmentSettings, logger *zap.Logger, check bool) (err error) {
 	if logger == nil {
 		return command.ErrInvalid
 	}
@@ -87,6 +91,9 @@ func RunCardWorker(ctx context.Context, environment string, cfg DevelopmentSetti
 	})
 	if err != nil {
 		return err
+	}
+	if check {
+		return nil
 	}
 	logger.Info("开发学生卡工作进程启动完成", zap.Bool("simulated", environment == "integration" && !cfg.Tencent.Enabled), zap.String("result", "success"))
 	// 每轮结束后等待，空队列和失败都不能形成热循环；工作失败由服务边界持久化和记录。

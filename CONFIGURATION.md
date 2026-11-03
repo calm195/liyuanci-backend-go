@@ -64,10 +64,21 @@ database:
 | 入口 | 行为 |
 | --- | --- |
 | `server` | 按模式装配 API；`-check-config` 离线验证，`-check` 验证依赖 |
-| `business-worker -kind …` | 生产 `card/content/whispers/account/evidence` 五类任务；可 `-check-config`、`-check` 或隐私 `-recover` |
-| `card-worker` / `content-worker` / `privacy-worker` | 开发适配器；`content-worker -kind whispers` 为开发树洞，隐私以 `-kind account/evidence` 选择范围 |
-| `business-init` / `dev-init` | 显式初始化后台账号和检索引用；普通启动不会调用 |
+| `worker -kind …` | 统一 `card/content/whispers/account/evidence` 五类任务，按YAML模式选择适配器；`-kind` 省略时读取 `worker.kind` |
+| `init` | 显式初始化后台账号和检索引用；`-check-config` 离线检查；普通启动不会调用 |
 | `migrate … up` | 同一事务内执行版本 SQL、字段检查和应用账号权限；`permissions` 只重放权限，`opaque-blocks` 显式切换屏蔽策略 |
+
+`make build` 仅构建当前四个入口；既有构建目录中的旧 worker 和初始化二进制需手动清理，已有服务管理配置须改为 `worker -kind …` 或 `init`。
+
+所有命令默认 `-config configs/development.yaml`，接收 SIGINT/SIGTERM 并在失败时返回非零状态。`server` 与 `worker` 支持 `-check-config`（离线）和 `-check`（装配依赖，不监听/消费）；`worker -kind account/evidence -recover` 仅执行删除恢复，未完成则失败退出。这三种运行模式互斥；未知职责、额外位置参数和不支持的参数均被拒绝。`init` 仅支持离线检查，`migrate` 必须指定一个操作。迁移和初始化仍为显式动作。
+
+脚本对应参数为 `--check-config`、`--check`、`--recover`，例如：
+
+```sh
+python3 scripts/manage.py worker --kind content --check-config
+python3 scripts/manage.py worker --kind account --recover
+python3 scripts/manage.py init --check-config
+```
 
 常用命令由 Make 转交 `scripts/manage.py`，始终传入同一配置文件，不生成每个进程的副本：
 
@@ -131,8 +142,8 @@ business:
 
 COS 使用专用私有桶，必须**从未开启版本控制**。每次上传先查询桶版本状态，开启或暂停均拒绝；`x-cos-forbid-overwrite: true` 保障同键不可覆盖。应用版本为 `sha256:<完整密文摘要>`，不是 COS versionId；重复写入与精确读取均下载限长密文并核对完整摘要，不以 ETag 或可改写元数据作为版本依据。不同密文、篡改及预算超限均失败关闭。普通启动不修改桶配置。应用账号按桶限定 `cos:GetBucketVersioning`、`cos:PutObject`、`cos:GetObject` 和 `ci:CreateAuditingPictureJob`；用桶策略强制写入携带禁止覆盖头，不授予删除对象、修改版本配置、ACL或桶管理权限。管理员也须保持版本控制关闭，并核实生命周期与保留规则。
 
-CI 须提前开通、绑定桶并创建审核策略。card-worker 在事务外提交解密后的规范化 JPEG/PNG Base64，显式同步审核，不向COS写入图片明文，不发送用户身份字段。仅匹配请求标识、`State=Success` 且显式 `Result=0` 才批准；`Result=1`（违规）与 `Result=2`（疑似）均持久化为 `scan_status=rejected`，本次任务结束，提示用户重新上传；两者均不自动重试、不进入人工图片复核，不能用于提交学生认证。超时、取消、缺字段、未知状态、场景错误和HTTP失败保留现有租约、重试与耗尽转人工关注语义。未启用CI的正式装配同样失败关闭，development开发模式同样使用上述真实COS/CI，只有integration隔离测试使用本地文件和模拟扫描。
+CI 须提前开通、绑定桶并创建审核策略。worker 在事务外提交解密后的规范化 JPEG/PNG Base64，显式同步审核，不向COS写入图片明文，不发送用户身份字段。仅匹配请求标识、`State=Success` 且显式 `Result=0` 才批准；`Result=1`（违规）与 `Result=2`（疑似）均持久化为 `scan_status=rejected`，本次任务结束，提示用户重新上传；两者均不自动重试、不进入人工图片复核，不能用于提交学生认证。超时、取消、缺字段、未知状态、场景错误和HTTP失败保留现有租约、重试与耗尽转人工关注语义。未启用CI的正式装配同样失败关闭，development开发模式同样使用上述真实COS/CI，只有integration隔离测试使用本地文件和模拟扫描。
 
 所有请求使用腾讯云官方 Go SDK 签名、HTTPS、显式超时和响应长度上限，拒绝重定向。专用代理只能通过私有YAML的HTTPS源站与内联CA显式设置。云端审核数据留存、访问权限和删除规则须另行确认；当前删除回执只覆盖数据库，不承诺清除COS对象、CI留存或备份。官方接口依据：[PUT Object](https://cloud.tencent.com/document/product/436/7749)、[图片批量审核](https://cloud.tencent.com/document/product/436/119479)。
 
-`configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和card-worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。
+`configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。

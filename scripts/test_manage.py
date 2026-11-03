@@ -49,10 +49,33 @@ class ConfigurationTests(unittest.TestCase):
         with patch.object(Path, 'is_file', return_value=True):
             for kind in ('card', 'content', 'whispers', 'account', 'evidence'):
                 cmd = manage.command('worker', self.path, kind)
+                self.assertEqual(Path(cmd[0]).name, 'worker')
                 self.assertEqual(cmd[1:], ['-config', str(self.path), '-kind', kind])
             self.path.write_text('mode: business\nenvironment: production\n')
             cmd = manage.command('worker', self.path, 'evidence')
-            self.assertEqual(Path(cmd[0]).name, 'business-worker')
+            self.assertEqual(Path(cmd[0]).name, 'worker')
+
+    def test_unified_init_and_execution_modes(self):
+        self.path.write_text('environment: development\n')
+        with patch.object(Path, 'is_file', return_value=True):
+            for mode in ('development', 'business', 'whispers'):
+                self.path.write_text('mode: ' + mode + '\n')
+                cmd = manage.command('init', self.path, 'content', check_config=True)
+                self.assertEqual(Path(cmd[0]).name, 'init')
+                self.assertEqual(cmd[-1], '-check-config')
+            for key, flag in (('check_config', '-check-config'), ('check', '-check'), ('recover', '-recover')):
+                cmd = manage.command('worker', self.path, 'account', **{key: True})
+                self.assertEqual(Path(cmd[0]).name, 'worker')
+                self.assertEqual(cmd[-1], flag)
+            for action, kind, options in (
+                ('worker', 'card', {'recover': True}),
+                ('init', 'account', {'check': True}),
+                ('worker', 'account', {'check': True, 'recover': True}),
+                ('worker', 'unknown', {}),
+                ('migrate', 'account', {'check_config': True}),
+            ):
+                with self.subTest(action=action, kind=kind, options=options), self.assertRaises(ValueError):
+                    manage.command(action, self.path, kind, **options)
 
 
 if __name__ == '__main__':

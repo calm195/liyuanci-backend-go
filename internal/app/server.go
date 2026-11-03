@@ -25,6 +25,9 @@ type ServerOptions struct {
 // ctx由入口的信号控制，取消后先等待请求结束，再逆序释放业务池、供应商和共享客户端。
 // 本函数不迁移数据库、不初始化账号，也不替换历史密钥或删除意图。
 func RunServer(ctx context.Context, options ServerOptions) error {
+	if options.Check && options.CheckConfig {
+		return errors.New("检查模式不能同时指定")
+	}
 	cfg, err := config.Load(options.ConfigFile)
 	if err != nil {
 		return err

@@ -32,7 +32,7 @@ func openDevelopmentJournal(ctx context.Context, cfg DevelopmentSettings, logger
 }
 
 // RunPrivacyWorker 用于开发数据库清理；使用本机脱敏策略，不提供外部副本删除。
-func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSettings, scope string, logger *zap.Logger) (err error) {
+func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSettings, scope string, logger *zap.Logger, check, recoverOnly bool) (err error) {
 	if logger == nil {
 		return command.ErrInvalid
 	}
@@ -68,6 +68,18 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	s, e := privacy.New(db, journal, codec, logger, pcfg)
 	if e != nil {
 		return e
+	}
+	if check {
+		return nil
+	}
+	// 恢复模式先重放账本，再排空当前域；未完成任务不得报告恢复成功。
+	if recoverOnly {
+		bounded, stop := context.WithTimeout(ctx, 30*time.Second)
+		defer stop()
+		if err := replayDeletionIntents(bounded, s, scope); err != nil {
+			return err
+		}
+		return drainDeletionTasks(bounded, s, db, scope)
 	}
 	logger.Info(
 		"开发隐私工作进程启动完成",

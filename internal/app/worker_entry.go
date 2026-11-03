@@ -11,9 +11,9 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
 
-// WorkerOptions 保留各命令的职责选择；Entry由命令固定，不能由YAML切换入口权限。
+// WorkerOptions 描述任务职责与互斥运行模式；适配器由已校验的YAML选择。
 type WorkerOptions struct {
-	ConfigFile, Entry, Kind     string
+	ConfigFile, Kind            string
 	Check, CheckConfig, Recover bool
 }
 
@@ -35,7 +35,7 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		}
 		log.Info(
 			"工作进程入口结束",
-			zap.String("entry", options.Entry),
+			zap.String("entry", "worker"),
 			zap.String("kind", kind),
 			zap.String("result", result),
 			zap.Duration("duration", time.Since(start)),
@@ -45,10 +45,13 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 	if err != nil {
 		return err
 	}
-	if options.Entry == "business" {
-		if kind == "" {
-			kind = cfg.Worker.Kind
-		}
+	if kind == "" {
+		kind = cfg.Worker.Kind
+	}
+	if err = validateWorkerOptions(options, kind); err != nil {
+		return err
+	}
+	if cfg.BusinessFile != "" {
 		settings, err := config.LoadBusiness(ctx, cfg.BusinessFile, cfg.Environment, kind)
 		if err != nil {
 			return err
@@ -61,48 +64,61 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		}
 		return RunBusinessWorker(ctx, settings, cfg.Environment, kind, options.Check, options.Recover, log)
 	}
-	// 旧入口没有诊断参数，不允许内部调用者借用该组合跳过装配。
-	if options.Check || options.CheckConfig {
-		return command.ErrInvalid
-	}
-	switch options.Entry {
-	case "card":
-		if kind != "card" {
-			return command.ErrInvalid
+	// 树洞与删除职责复用相同装配，诊断必须在消费或恢复之前返回。
+	if cfg.WhispersFile != "" && (kind == "whispers" || kind == "account" || kind == "evidence") {
+		settings, err := config.LoadWhispers(ctx, cfg.WhispersFile, cfg.Environment)
+		if err != nil {
+			return err
 		}
-	case "content":
-		if kind != "content" && kind != "whispers" {
-			return command.ErrInvalid
+		if options.CheckConfig {
+			return nil
 		}
 		if kind == "whispers" {
-			if cfg.WhispersFile == "" {
-				return command.ErrInvalid
-			}
-			return RunWhisperContent(ctx, cfg.WhispersFile, cfg.Environment, log)
+			return runContentSettings(ctx, settings, cfg.Environment, log, options.Check)
 		}
-	case "privacy":
-		if cfg.WhispersFile != "" {
-			return RunWhisperPrivacy(ctx, cfg.WhispersFile, cfg.Environment, kind, options.Recover, log)
-		}
-	default:
+		return runPrivacySettings(ctx, settings, kind, options.Recover, log, options.Check)
+	}
+	if cfg.DevAppFile == "" || (cfg.Environment != "development" && cfg.Environment != "integration") || kind == "whispers" {
 		return command.ErrInvalid
 	}
 	development, err := LoadDevelopment(cfg.DevAppFile)
 	if err != nil {
 		return err
 	}
-	switch options.Entry {
-	case "card":
-		return RunCardWorker(ctx, cfg.Environment, development, log)
-	case "content":
-		return RunContentWorker(
-			ctx,
-			cfg.Environment,
-			development,
-			ContentWorkerConfig{Analyzer: cfg.Worker.ContentAnalyzer},
-			log,
-		)
-	default:
-		return RunPrivacyWorker(ctx, cfg.Environment, development, kind, log)
+	content := ContentWorkerConfig{Analyzer: cfg.Worker.ContentAnalyzer, Check: options.Check}
+	if kind == "content" {
+		if err := ValidateContentWorker(cfg.Environment, development, content); err != nil {
+			return err
+		}
 	}
+	if options.CheckConfig {
+		return nil
+	}
+	switch kind {
+	case "card":
+		return runCardWorker(ctx, cfg.Environment, development, log, options.Check)
+	case "content":
+		return RunContentWorker(ctx, cfg.Environment, development, content, log)
+	default:
+		return RunPrivacyWorker(ctx, cfg.Environment, development, kind, log, options.Check, options.Recover)
+	}
+}
+
+// validateWorkerOptions 先拒绝歧义组合，防止检查请求意外触发恢复或消费。
+func validateWorkerOptions(options WorkerOptions, kind string) error {
+	switch kind {
+	case "card", "content", "whispers", "account", "evidence":
+	default:
+		return command.ErrInvalid
+	}
+	modes := 0
+	for _, enabled := range []bool{options.Check, options.CheckConfig, options.Recover} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 || (options.Recover && kind != "account" && kind != "evidence") {
+		return command.ErrInvalid
+	}
+	return nil
 }

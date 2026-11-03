@@ -18,6 +18,8 @@ import (
 // 工作持久化在数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
+	// Check 只装配依赖，不启动任务消费者。
+	Check bool
 }
 
 // ValidateContentWorker 在数据库启动前拒绝生产环境与未知分析模式。
@@ -73,6 +75,9 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	})
 	if err != nil {
 		return err
+	}
+	if options.Check {
+		return nil
 	}
 	runner, err := workrunner.OpenDatabase(ctx, scanner, logger, time.Second, 20*time.Second)
 	if err != nil {

@@ -30,29 +30,39 @@ def initialize(path, environment):
     print('私有配置已创建；请填写database下的主机、库名、账号口令、Redis及所需供应商配置后运行check。')
 
 
-def command(action, config, kind):
+def command(action, config, kind, check_config=False, check=False, recover=False):
     """只把进程动作作为命令行参数，数据库及业务配置全部留在YAML。"""
-    values = settings.layers(config)
-    development = values.get('mode') == 'development'
+    settings.layers(config)
+    if sum((check_config, check, recover)) > 1:
+        raise ValueError('检查与恢复模式不能同时指定')
+    if check_config and action not in ('run', 'worker', 'init'):
+        raise ValueError('该操作不支持离线检查')
+    if check and action not in ('run', 'worker'):
+        raise ValueError('该操作不支持依赖检查')
+    if recover and (action != 'worker' or kind not in ('account', 'evidence')):
+        raise ValueError('恢复仅适用于账号或证据工作进程')
+    if action in ('check', 'doctor') and any((check_config, check, recover)):
+        raise ValueError('检查动作不能重复指定运行模式')
     if action in ('run', 'check', 'doctor'):
         args = ['server', '-config', str(config)]
         if action != 'run':
             args += ['-check-config' if action == 'check' else '-check']
     elif action == 'init':
-        args = ['dev-init' if development else 'business-init', '-config', str(config)]
+        args = ['init', '-config', str(config)]
     elif action == 'worker':
-        if development:
-            names = {'card': 'card-worker', 'content': 'content-worker', 'whispers': 'content-worker',
-                    'account': 'privacy-worker', 'evidence': 'privacy-worker'}
-            if kind not in names:
-                raise ValueError('工作职责无效')
-            args = [names[kind], '-config', str(config), '-kind', kind]
-        else:
-            args = ['business-worker', '-config', str(config), '-kind', kind]
+        if kind not in ('card', 'content', 'whispers', 'account', 'evidence'):
+            raise ValueError('工作职责无效')
+        args = ['worker', '-config', str(config), '-kind', kind]
     elif action in ('migrate', 'permissions', 'opaque-blocks'):
         args = ['migrate', '-config', str(config), 'up' if action == 'migrate' else action]
     else:
         raise ValueError('操作无效')
+    if check_config:
+        args.append('-check-config')
+    elif check:
+        args.append('-check')
+    elif recover:
+        args.append('-recover')
     binary = ROOT / 'bin' / args[0]
     if not binary.is_file():
         raise ValueError('请先执行make build')
@@ -68,15 +78,22 @@ def main():
     parser.add_argument('--config', default='configs/development.yaml')
     parser.add_argument('--environment', choices=['development', 'production'], default='development')
     parser.add_argument('--kind', choices=['card', 'content', 'whispers', 'account', 'evidence'], default='content')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--check-config', action='store_true', help='只离线检查配置')
+    modes.add_argument('--check', action='store_true', help='装配依赖，不监听或消费任务')
+    modes.add_argument('--recover', action='store_true', help='仅恢复账号或证据删除')
     args = parser.parse_args()
+    if args.action == 'configure' and any((args.check_config, args.check, args.recover)):
+        parser.error('configure不接受检查或恢复参数')
     path = Path(args.config).resolve()
     if args.action == 'configure':
         initialize(path, args.environment)
         return
     # 目录仅创建结构，不清空状态、不生成新密钥；普通启动不执行DDL或初始化账号。
+    argv = command(args.action, path, args.kind, args.check_config, args.check, args.recover)
     values = settings.layers(path)
     local = values.get('development', {}) if values.get('mode') == 'development' else values.get('business', {}).get('runtime', {})
-    for key in (('journalfile', 'objectdirectory') if args.action in ('run', 'worker', 'init') else ()):
+    for key in (('journalfile', 'objectdirectory') if args.action in ('run', 'worker', 'init') and not (args.check_config or args.check) else ()):
         value = local.get(key)
         if value:
             directory = Path(value)
@@ -85,7 +102,6 @@ def main():
             if key == 'journalfile':
                 directory = directory.parent
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    argv = command(args.action, path, args.kind)
     os.execve(argv[0], argv, settings.process_environment())
 
 

@@ -231,15 +231,15 @@ make worker CONFIG=configs/production.yaml KIND=content
 删除意图存放在独立加密文件账本。API、相关 worker 必须使用相同账本路径与恢复密钥；目录权限 `0700`、文件 `0600`。账本使用跨进程锁、原子替换和 fsync，不清空已确认记录。恢复业务数据库时先运行：
 
 ```sh
-bin/business-worker -config configs/production.yaml -kind account -recover
-bin/business-worker -config configs/production.yaml -kind evidence -recover
+bin/worker -config configs/production.yaml -kind account -recover
+bin/worker -config configs/production.yaml -kind evidence -recover
 ```
 
 恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和外部对象保留/删除规则仍待存储服务确定。本分支没有执行部署、服务管理器安装或生产迁移。
 
 ## 7. 代码组织与重构边界
 
-工程使用单个Go module，`cmd/`的8个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
+工程使用单个Go module，`cmd/`的4个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
 
 ```text
 internal/app/                  # 服务构造、入口装配、资源生命周期

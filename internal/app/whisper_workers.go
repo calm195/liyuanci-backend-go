@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
@@ -154,16 +153,8 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		defer stop()
 		ctx = bounded
 	}
-	after := ""
-	for {
-		next, e := service.Recover(ctx, after, 100, scope)
-		if e != nil {
-			return e
-		}
-		if next == "" {
-			break
-		}
-		after = next
+	if err := replayDeletionIntents(ctx, service, scope); err != nil {
+		return err
 	}
 	log.Info(
 		"树洞隐私进程启动完成",
@@ -174,20 +165,8 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 	if !recoverOnly {
 		return service.Run(ctx, scope, cfg.Interval)
 	}
-	for {
-		if e = ctx.Err(); e != nil {
-			return e
-		}
-		processed, e := service.ProcessNext(ctx, scope)
-		if e != nil {
-			return e
-		}
-		if !processed {
-			var n int64
-			if e = db.WithContext(ctx).Model(&entity.DeletionJob{}).Where("scope=? AND phase<>'completed'", scope).Count(&n).Error; e != nil || n != 0 {
-				return command.ErrUnavailable
-			}
-			return r.recoveryGate(ctx, db, scope)
-		}
+	if err := drainDeletionTasks(ctx, service, db, scope); err != nil {
+		return err
 	}
+	return r.recoveryGate(ctx, db, scope)
 }

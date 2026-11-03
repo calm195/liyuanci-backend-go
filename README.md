@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```text
-cmd/                          # 8个命令入口：参数、信号与退出状态
+cmd/                          # 4个命令入口：参数、信号与退出状态
 configs/                      # 公共YAML、环境覆盖模板、词库与公开资料
 internal/
   app/                        # API/worker/初始化/迁移装配与资源生命周期
@@ -59,6 +59,8 @@ API 启动后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 | `make worker KIND=whispers` | 树洞、昵称、暖评审核及胶囊任务 |
 | `make worker KIND=account` | 账号注销清理 |
 | `make worker KIND=evidence` | 独立证据清理 |
+
+构建只生成 `server`、`worker`、`init`、`migrate` 四个命令。`worker -kind …` 与 `init` 在开发和生产共用入口，适配器由 YAML 模式决定；检查及恢复参数见 [进程与动作](CONFIGURATION.md#进程与动作)。
 
 所有进程读取同一环境 YAML，使用同一组数据库分项字段及 `masterkey`。配置为 `configs/common.yaml` 合并私有环境覆盖，不读取环境变量或独立秘密文件；已有数据时不能直接更换主密钥或环境名。普通启动不迁移、不初始化、不重置数据，也不自动启停 PostgreSQL/Redis。
 

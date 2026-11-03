@@ -227,6 +227,11 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}
 		t.Fatal("等待超时", name)
 	}
+	oneShot(workerBin, false, "-config", appPath, "-kind", "card", "-recover")
+	oneShot(workerBin, false, "-config", appPath, "-kind", "account", "-check", "-recover")
+	oneShot(workerBin, false, "-config", appPath, "-kind", "content", "-check", "-check-config")
+	oneShot(serverBin, false, "-config", appPath, "-check", "-check-config")
+	oneShot(initBin, false, "-config", appPath, "unexpected")
 	oneShot(initBin, true, "-config", appPath, "-check-config")
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	oneShot(initBin, true, "-config", appPath)
