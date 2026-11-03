@@ -28,7 +28,7 @@ func RunWhisperContent(ctx context.Context, path, environment string, log *zap.L
 	return runContentSettings(ctx, cfg, environment, log, false)
 }
 
-func runContentSettings(ctx context.Context, cfg WhisperSettings, environment string, log *zap.Logger, check bool) (err error) {
+func runContentSettings(ctx context.Context, cfg RuntimeSettings, environment string, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openRuntimeResources(startup, cfg, log)
@@ -69,15 +69,15 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 		r.gateway,
 		r.gateway,
 		moderation.WorkerConfig{
-			Consumer:        durable.ConsumerConfig(cfg.Worker.Consumer),
-			AnalysisTimeout: cfg.Worker.AnalysisTimeout,
+			Consumer:        durable.ConsumerConfig(cfg.Tasks.Consumer),
+			AnalysisTimeout: cfg.Tasks.AnalysisTimeout,
 			Care:            resources.Care,
 		},
 	)
 	if e != nil {
 		return e
 	}
-	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, durable.ConsumerConfig(cfg.Worker.Consumer))
+	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, durable.ConsumerConfig(cfg.Tasks.Consumer))
 	if e != nil {
 		return e
 	}
@@ -93,7 +93,7 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 		}
 	}()
 	for _, scanner := range []workrunner.Scanner{scanner, unlock} {
-		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Interval, cfg.OperationTimeout)
+		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Tasks.ScanInterval, cfg.Tasks.OperationTimeout)
 		if e != nil {
 			return e
 		}
@@ -121,7 +121,7 @@ func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, rec
 	return runPrivacySettings(ctx, cfg, scope, recoverOnly, log, false)
 }
 
-func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
+func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openRuntimeResources(startup, cfg, log)
@@ -149,7 +149,7 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		return nil
 	}
 	if recoverOnly {
-		bounded, stop := context.WithTimeout(ctx, cfg.OperationTimeout)
+		bounded, stop := context.WithTimeout(ctx, cfg.Tasks.OperationTimeout)
 		defer stop()
 		ctx = bounded
 	}
@@ -163,7 +163,7 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		zap.String("result", "success"),
 	)
 	if !recoverOnly {
-		return service.Run(ctx, scope, cfg.Interval)
+		return service.Run(ctx, scope, cfg.Tasks.ScanInterval)
 	}
 	if err := drainDeletionTasks(ctx, service, db, scope); err != nil {
 		return err

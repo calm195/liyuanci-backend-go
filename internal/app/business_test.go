@@ -59,7 +59,9 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		{"池预算扩张", func(c *config.Business) { c.Runtime.DatabaseMaxOpen = 101 }, false},
 		{"本地适配", func(c *config.Business) { c.Runtime.LocalTest = true }, false},
 		{"未配置对象供应商允许启动", func(c *config.Business) {}, true},
-		{"对象端点必须HTTPS", func(c *config.Business) { c.Runtime.GatewayURL = "http://objects.invalid" }, false},
+		{"对象端点必须HTTPS", func(c *config.Business) {
+			c.Runtime.Tencent = config.Tencent{Enabled: true, ObjectURL: "http://objects.invalid"}
+		}, false},
 		{"缺微信凭据", func(c *config.Business) { c.WeChatSecret = "" }, false},
 		{"缺身份池", func(c *config.Business) { c.Runtime.DatabaseDSN = "" }, false},
 		{"空上传预算", func(c *config.Business) { c.Card.MaxBytes = 0 }, false},

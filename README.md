@@ -66,7 +66,7 @@ API 启动后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 
 ### 健康入口与生产运行
 
-只检查程序启动时，构建后执行 `bin/server -config configs/common.yaml`；该模式仅提供 `/healthz`、`/readyz`，没有业务路由。`/healthz` 表示进程存活，`/readyz` 检查已装配依赖。
+只检查程序启动时，构建后执行 `bin/server -config configs/common.yaml`，前提是公共文件使用 `mode: foundation`，并将 `database.driver` 留空以关闭数据库（若设为 `postgres`，必须补齐连接字段）；该模式仅提供 `/healthz`、`/readyz`，没有业务路由。`/healthz` 表示进程存活，`/readyz` 检查已装配依赖。
 
 生产使用私有 `configs/production.yaml`，为上述 Make 命令指定 `CONFIG=configs/production.yaml`，并配置真实服务。当前只采用原生二进制，由宿主服务管理器管理 API 及五类 worker。首次装配、词库与屏蔽策略初始化、删除账本及恢复前两域重删步骤见 [生产流程](DEVELOPER_GUIDE.md#5-完整生产装配与上线流程)和[原生运行与恢复](DEVELOPER_GUIDE.md#6-无mq原生生产装配)。
 

@@ -14,19 +14,17 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
-// ContentWorkerConfig 选择开发原文复核模式；空值与manual均在词库命中或重审时交人工。
+// ContentWorkerConfig 控制开发内容进程的检查行为；原文复核策略固定由词库与人工审核决定。
 // 工作持久化在数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
-	Analyzer string
 	// Check 只装配依赖，不启动任务消费者。
 	Check bool
 }
 
-// ValidateContentWorker 在数据库启动前拒绝生产环境与未知分析模式。
-func ValidateContentWorker(environment string, cfg DevelopmentSettings, options ContentWorkerConfig) error {
+// ValidateContentWorker 在数据库启动前拒绝生产环境与缺失的身份依赖。
+func ValidateContentWorker(environment string, cfg DevelopmentSettings) error {
 	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" || len(cfg.WrapKey) != 32 ||
-		len(cfg.LookupKey) != 32 ||
-		(options.Analyzer != "" && options.Analyzer != "manual") {
+		len(cfg.LookupKey) != 32 {
 		return command.ErrInvalid
 	}
 	return nil
@@ -40,7 +38,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 		return command.ErrInvalid
 	}
 	defer finishDevelopment(logger, "content_worker", time.Now(), &err)
-	if err = ValidateContentWorker(environment, cfg, options); err != nil {
+	if err = ValidateContentWorker(environment, cfg); err != nil {
 		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -61,9 +59,14 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if err != nil {
 		return err
 	}
+	// 字典和关怀资料统一从版本化资源文件读取，不再接受内联或单个联系方式。
+	resources, err := loadResources(ctx, RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile})
+	if err != nil {
+		return err
+	}
 	analyzer := local.Analyzer{Logger: logger}
 	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
-		Care: careResources(cfg.Care),
+		Care: resources.Care,
 		Consumer: durable.ConsumerConfig{
 			Timeout:     5 * time.Second,
 			LockTimeout: time.Second,

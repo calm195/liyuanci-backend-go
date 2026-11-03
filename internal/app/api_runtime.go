@@ -19,7 +19,7 @@ type apiRuntime struct {
 }
 
 // openAPIRuntime 在构造服务前检查结构、资料、两域恢复门禁及共享限流依赖。
-func openAPIRuntime(ctx context.Context, cfg WhisperSettings, client redis.UniversalClient, log *zap.Logger) (out *apiRuntime, err error) {
+func openAPIRuntime(ctx context.Context, cfg RuntimeSettings, client redis.UniversalClient, log *zap.Logger) (out *apiRuntime, err error) {
 	if log == nil || client == nil {
 		return nil, command.ErrInvalid
 	}
@@ -87,7 +87,7 @@ func (a *apiRuntime) close() error { return a.r.close() }
 
 // openAPIComponents 组合共享运行资源和树洞服务；失败仅释放本次创建的资源。
 // 完整业务和独立树洞入口都使用这个构造边界，彼此不嵌入对方的API宿主。
-func openAPIComponents(ctx context.Context, cfg WhisperSettings, client redis.UniversalClient, log *zap.Logger) (runtime *apiRuntime, services *whisperServices, err error) {
+func openAPIComponents(ctx context.Context, cfg RuntimeSettings, client redis.UniversalClient, log *zap.Logger) (runtime *apiRuntime, services *whisperServices, err error) {
 	if log == nil {
 		return nil, nil, command.ErrInvalid
 	}

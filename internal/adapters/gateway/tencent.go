@@ -1,3 +1,4 @@
+// Package gateway 实现正式微信及腾讯云HTTPS协议；不读取应用配置，不装配业务服务。
 package gateway
 
 import (

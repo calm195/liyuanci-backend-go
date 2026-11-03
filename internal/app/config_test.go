@@ -14,25 +14,24 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
-func testSettings() WhisperSettings {
-	cfg := WhisperSettings{
-		Enabled:          true,
-		DatabaseDSN:      "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable",
-		CatalogFile:      "catalog",
-		JournalFile:      "/tmp/test-journal.json",
-		Command:          config.Command{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2},
-		Interval:         10 * time.Millisecond,
-		OperationTimeout: time.Second,
-		ProviderTimeout:  time.Second,
+func testSettings() RuntimeSettings {
+	cfg := RuntimeSettings{
+		Enabled:         true,
+		DatabaseDSN:     "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable",
+		ResourcesFile:   "catalog",
+		JournalFile:     "/tmp/test-journal.json",
+		Command:         config.Command{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2},
+		ProviderTimeout: time.Second,
 	}
+	cfg.Tasks.ScanInterval, cfg.Tasks.OperationTimeout = 10*time.Millisecond, time.Second
 	cfg.DatabaseMaxOpen, cfg.DatabaseMaxIdle = 10, 2
-	cfg.Worker.Consumer = config.Consumer{
+	cfg.Tasks.Consumer = config.Consumer{
 		Timeout:     100 * time.Millisecond,
 		LockTimeout: time.Millisecond,
 		RetryDelay:  time.Second,
 		MaxAttempts: 2,
 	}
-	cfg.Worker.AnalysisTimeout = 100 * time.Millisecond
+	cfg.Tasks.AnalysisTimeout = 100 * time.Millisecond
 	keys := []*[]byte{
 		&cfg.WrapKey,
 		&cfg.RecoveryWrapKey,
@@ -50,7 +49,7 @@ func testSettings() WhisperSettings {
 	return cfg
 }
 
-func writeSettings(t *testing.T, cfg WhisperSettings) string {
+func writeSettings(t *testing.T, cfg RuntimeSettings) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runtime.yaml")
 	_ = os.WriteFile(filepath.Join(filepath.Dir(path), "common.yaml"), []byte("mode: foundation\n"), 0600)
@@ -72,16 +71,18 @@ func writeSettings(t *testing.T, cfg WhisperSettings) string {
 func TestRuntimeConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		name, env string
-		change    func(*WhisperSettings)
+		change    func(*RuntimeSettings)
 		valid     bool
 	}{
-		{"显式集成", "integration", func(*WhisperSettings) {}, true},
-		{"生产关闭", "production", func(c *WhisperSettings) { c.Enabled = false }, true},
-		{"生产开启拒绝", "production", func(*WhisperSettings) {}, false},
-		{"基础模式不装配", "foundation", func(*WhisperSettings) {}, false},
-		{"无总时限", "integration", func(c *WhisperSettings) { c.OperationTimeout = 0 }, false},
-		{"预算无法覆盖扫描", "integration", func(c *WhisperSettings) { c.OperationTimeout = time.Millisecond }, false},
-		{"无日志库", "integration", func(c *WhisperSettings) { c.DatabaseDSN = "" }, false},
+		{"显式集成", "integration", func(*RuntimeSettings) {}, true},
+		{"生产关闭", "production", func(c *RuntimeSettings) { c.Enabled = false }, true},
+		{"生产开启拒绝", "production", func(*RuntimeSettings) {}, false},
+		{"基础模式不装配", "foundation", func(*RuntimeSettings) {}, false},
+		{"无总时限", "integration", func(c *RuntimeSettings) { c.Tasks.OperationTimeout = 0 }, false},
+		{"预算无法覆盖扫描", "integration", func(c *RuntimeSettings) { c.Tasks.OperationTimeout = time.Millisecond }, false},
+		{"锁等待超过事务", "integration", func(c *RuntimeSettings) { c.Tasks.Consumer.LockTimeout = time.Second }, false},
+		{"重试次数超限", "integration", func(c *RuntimeSettings) { c.Tasks.Consumer.MaxAttempts = 1001 }, false},
+		{"无日志库", "integration", func(c *RuntimeSettings) { c.DatabaseDSN = "" }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testSettings()

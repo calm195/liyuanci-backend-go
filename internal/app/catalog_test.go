@@ -16,10 +16,7 @@ func TestLocalConfiguration(t *testing.T) {
 	cfg.JournalFile = filepath.Join(t.TempDir(), "journal.json")
 	cfg.WrapKey = bytes.Repeat([]byte{31}, 32)
 	cfg.RecoveryWrapKey = bytes.Repeat([]byte{32}, 32)
-	cfg.GatewayURL = ""
-	cfg.GatewayToken = ""
-	cfg.ProviderVersion = ""
-	cfg.CatalogFile = ""
+	cfg.ResourcesFile = ""
 	loaded, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), "integration")
 	if e != nil {
 		t.Fatal(e)
@@ -33,15 +30,12 @@ func TestLocalConfiguration(t *testing.T) {
 	}
 }
 
-// TestLocalResources 验证空联系方式降级，不生成未经核验的默认联系资料。
+// TestLocalResources 验证本地空资料降级，不生成未经核验的默认联系资料。
 func TestLocalResources(t *testing.T) {
 	ctx := context.Background()
-	r, e := loadResources(ctx, WhisperSettings{LocalTest: true})
+	r, e := loadResources(ctx, RuntimeSettings{LocalTest: true})
 	if e != nil || r.Care != nil || r.Catalog.Help.Status != "unavailable" {
 		t.Fatal("空联系方式被伪造成可用", e)
 	}
-	r, e = loadResources(ctx, WhisperSettings{LocalTest: true, Contact: "测试联系信息"})
-	if e != nil || r.Care == nil || r.Care.Hotline24Hours != "测试联系信息" {
-		t.Fatal("简单联系方式未装配", e)
-	}
+
 }

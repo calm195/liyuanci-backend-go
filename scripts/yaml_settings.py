@@ -119,4 +119,13 @@ def layers(path):
     result = normalize(read(common))
     if path != common:
         merge(result, normalize(read(path)))
+    if 'development' in result:
+        raise ValueError('development配置块已删除，请统一填写business及business.runtime')
+    if 'contentanalyzer' in result.get('worker', {}):
+        raise ValueError('内容审核策略不再提供配置切换')
+    retired = {'gatewayurl', 'gatewaytoken', 'gatewayca', 'providerversion',
+               'catalogfile', 'worker', 'interval', 'operationtimeout', 'contact', 'care'}
+    for block in (result.get('business', {}).get('runtime', {}), result.get('whispers', {})):
+        if retired.intersection(block):
+            raise ValueError('存在已退役运行字段，请按配置说明调整resourcesfile及tasks层级')
     return result

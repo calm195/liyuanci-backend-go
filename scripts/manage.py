@@ -20,7 +20,7 @@ def initialize(path, environment):
     values = settings.read(source)
     if environment == 'development':
         values['masterkey'] = base64.b64encode(secrets.token_bytes(32)).decode()
-        values['development']['adminpassword'] = secrets.token_urlsafe(24)
+        values['business']['adminpassword'] = secrets.token_urlsafe(24)
     if not (path.parent / 'common.yaml').is_file():
         raise ValueError('环境覆盖旁必须存在common.yaml')
     # 独占创建，防止并发初始化覆盖历史文件。
@@ -92,7 +92,7 @@ def main():
     # 目录仅创建结构，不清空状态、不生成新密钥；普通启动不执行DDL或初始化账号。
     argv = command(args.action, path, args.kind, args.check_config, args.check, args.recover)
     values = settings.layers(path)
-    local = values.get('development', {}) if values.get('mode') == 'development' else values.get('business', {}).get('runtime', {})
+    local = values.get('business', {}).get('runtime', {})
     for key in (('journalfile', 'objectdirectory') if args.action in ('run', 'worker', 'init') and not (args.check_config or args.check) else ()):
         value = local.get(key)
         if value:

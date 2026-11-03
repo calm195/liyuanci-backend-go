@@ -65,15 +65,15 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1
 	c.Runtime.Command.Timeout = 5 * time.Second
 	c.Runtime.Command.LockTimeout = time.Second
-	c.Runtime.Worker.Consumer.Timeout = 3 * time.Second
-	c.Runtime.Worker.Consumer.LockTimeout = time.Second
-	c.Runtime.Worker.Consumer.RetryDelay = 50 * time.Millisecond
-	c.Runtime.Worker.AnalysisTimeout = 3 * time.Second
+	c.Runtime.Tasks.Consumer.Timeout = 3 * time.Second
+	c.Runtime.Tasks.Consumer.LockTimeout = time.Second
+	c.Runtime.Tasks.Consumer.RetryDelay = 50 * time.Millisecond
+	c.Runtime.Tasks.AnalysisTimeout = 3 * time.Second
 	c.Runtime.ProviderTimeout = 3 * time.Second
-	c.Runtime.OperationTimeout = 60 * time.Second
-	c.Runtime.Interval = 50 * time.Millisecond
+	c.Runtime.Tasks.OperationTimeout = 60 * time.Second
+	c.Runtime.Tasks.ScanInterval = 50 * time.Millisecond
 	if databaseTasks {
-		c.Runtime.Worker.Consumer.RetryDelay = time.Second
+		c.Runtime.Tasks.Consumer.RetryDelay = time.Second
 		c.Card.RetryDelay = time.Second
 	}
 	dir := t.TempDir()
@@ -139,7 +139,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw})),
 	}
 	version, verified := int64(1), "2026-10-31T00:00:00Z"
-	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{
+	c.Runtime.ResourcesFile = write("catalog.yaml", ResourcesFile{
 		Version: "synthetic-release-v1",
 		Care:    &moderationCareFixture,
 		Catalog: whisper.CatalogSnapshot{

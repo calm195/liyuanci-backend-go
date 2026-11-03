@@ -112,8 +112,8 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			r.codec,
 			local.Analyzer{Logger: log},
 			moderation.WorkerConfig{
-				Consumer:        durable.ConsumerConfig(c.Runtime.Worker.Consumer),
-				AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout,
+				Consumer:        durable.ConsumerConfig(c.Runtime.Tasks.Consumer),
+				AnalysisTimeout: c.Runtime.Tasks.AnalysisTimeout,
 				Care:            catalog.Care,
 				MessageAnalyzer: local.Analyzer{Logger: log},
 			},
@@ -125,7 +125,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 	if check {
 		return nil
 	}
-	runner, e := workrunner.OpenDatabase(startup, scanner, log, c.Runtime.Interval, c.Runtime.OperationTimeout)
+	runner, e := workrunner.OpenDatabase(startup, scanner, log, c.Runtime.Tasks.ScanInterval, c.Runtime.Tasks.OperationTimeout)
 	if e != nil {
 		return e
 	}

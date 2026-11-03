@@ -29,6 +29,32 @@ class ConfigurationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 settings.layers(self.path)
 
+    def test_reject_removed_development_block(self):
+        self.path.write_text('development:\n  adminpassword: obsolete\n')
+        with self.assertRaises(ValueError):
+            settings.layers(self.path)
+
+    def test_reject_retired_runtime_fields(self):
+        for block in ('business:\n  runtime:\n', 'whispers:\n'):
+            indent = '    ' if block.startswith('business:') else '  '
+            for field in ('gatewayurl', 'gatewaytoken', 'gatewayca', 'providerversion',
+                          'catalogfile', 'worker', 'interval', 'operationtimeout', 'contact', 'care'):
+                with self.subTest(block=block, field=field):
+                    self.path.write_text(block + indent + field + ": ''\n")
+                    with self.assertRaises(ValueError):
+                        settings.layers(self.path)
+        self.path.write_text('worker:\n  contentanalyzer: manual\n')
+        with self.assertRaises(ValueError):
+            settings.layers(self.path)
+
+    def test_tasks_merge_preserves_common_budget(self):
+        with (self.root / 'common.yaml').open('a') as output:
+            output.write('business:\n  runtime:\n    resourcesfile: resources.yaml\n    tasks:\n      scaninterval: 1s\n      operationtimeout: 1m\n')
+        self.path.write_text('business:\n  runtime:\n    tasks:\n      scaninterval: 2s\n')
+        runtime = settings.layers(self.path)['business']['runtime']
+        self.assertEqual(runtime['resourcesfile'], 'resources.yaml')
+        self.assertEqual(runtime['tasks'], {'scaninterval': '2s', 'operationtimeout': '1m'})
+
     def test_initialize_never_replaces_existing_keys(self):
         manage.initialize(self.path, 'development')
         original = self.path.read_bytes()
@@ -38,7 +64,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
         values = settings.read(self.path)
         self.assertEqual(len(base64.b64decode(values['masterkey'], validate=True)), 32)
-        self.assertFalse(any(key.endswith('key') for key in values['development']))
+        self.assertNotIn('development', values)
+        self.assertFalse(any(key.endswith('key') for key in values['business']))
         self.assertIn('唯一应用主密钥', original.decode())
         self.assertEqual(values['database']['password'], '')
         self.assertNotIn('dsn', values['database'])

@@ -83,3 +83,16 @@ func (t *Tencent) open(ctx context.Context, key, version string) (io.ReadCloser,
 func validObjectKey(key string) bool {
 	return key != "" && len(key) <= 1024 && key != "." && key != ".." && !strings.ContainsAny(key, "\r\n\x00")
 }
+
+// privateObject 持有已校验的对象响应，关闭时清除缓冲并阻止继续读取。
+type privateObject struct {
+	*bytes.Reader
+	data []byte
+}
+
+// Close 清除当前对象的响应缓冲，调用后不能继续读取该版本。
+func (o *privateObject) Close() error {
+	clear(o.data)
+	o.Reader.Reset(nil)
+	return nil
+}

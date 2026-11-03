@@ -25,11 +25,11 @@ func RunInitialization(ctx context.Context, path string, check bool) (err error)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if cfg.BusinessFile == "" {
-		if cfg.DevAppFile == "" || (cfg.Environment != "development" && cfg.Environment != "integration") {
+	if cfg.Mode != "business" {
+		if cfg.Mode != "development" || (cfg.Environment != "development" && cfg.Environment != "integration") {
 			return command.ErrInvalid
 		}
-		development, err := LoadDevelopment(cfg.DevAppFile)
+		development, err := developmentSettings(cfg)
 		if err != nil {
 			return err
 		}
@@ -38,7 +38,8 @@ func RunInitialization(ctx context.Context, path string, check bool) (err error)
 		}
 		return InitializeDevelopment(ctx, development, log, cfg.Bootstrap.Login)
 	}
-	business, err := config.LoadBusiness(ctx, cfg.BusinessFile, cfg.Environment, "bootstrap")
+	business := cfg.Business
+	err = config.ValidateBusiness(business, cfg.Environment, "bootstrap")
 	if err != nil {
 		return err
 	}

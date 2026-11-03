@@ -9,10 +9,11 @@ import (
 )
 
 // Business 是完整业务宿主的显式配置；使用本机密钥与词库审核，按进程校验所需身份与凭据。
-// Runtime 复用树洞的密钥、对象服务、恢复日志和角色边界。
+// Runtime 保存所有业务共用的事务、任务、外部服务和恢复约束。
 type Business struct {
-	Runtime                                                            Whispers
+	Runtime                                                            Runtime
 	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte `json:"-"`
+	ModerationKey                                                      []byte `json:"-"`
 	LookupKey                                                          []byte `json:"-"`
 	WeChatAppID, WeChatSecret, AdminPassword                           string
 	SessionTTL, ExchangeTTL, AdminSessionTTL, LoginWindow              time.Duration
@@ -24,7 +25,7 @@ type Business struct {
 	}
 }
 
-// LoadBusiness 严格解析私有配置，拒绝未知字段、开发模式和缺失依赖；不连接网络或改写文件。
+// LoadBusiness 经统一入口加载并按进程校验业务配置；不连接网络或改写文件。
 func LoadBusiness(ctx context.Context, path, environment, process string) (cfg Business, err error) {
 	if err = ctx.Err(); err != nil {
 		return cfg, err
@@ -41,11 +42,10 @@ func LoadBusiness(ctx context.Context, path, environment, process string) (cfg B
 // ValidateBusiness 按用途校验配置，业务密钥与微信凭据仍须显式提供。
 func ValidateBusiness(c Business, environment, process string) error {
 	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) ||
-		c.Runtime.LocalTest ||
-		c.Runtime.Contact != "" {
+		c.Runtime.LocalTest {
 		return ErrInvalid
 	}
-	if _, e := validateWhispers(c.Runtime, environment, true); e != nil {
+	if _, e := validateRuntime(c.Runtime, environment, true); e != nil {
 		return e
 	}
 	keys := [][]byte{

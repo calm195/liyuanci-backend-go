@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
@@ -29,14 +30,19 @@ func TestSettingsRejectKeyReuse(t *testing.T) {
 				"user":     "application",
 				"password": "synthetic",
 			},
-			"development": cfg,
+			"business": map[string]any{
+				"adminpassword": cfg.AdminPassword,
+				"wechatappid":   cfg.WeChatAppID,
+				"wechatsecret":  cfg.WeChatSecret,
+				"runtime":       map[string]any{"journalfile": cfg.JournalFile, "objectdirectory": cfg.ObjectDirectory},
+			},
 		})
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	save()
-	loaded, err := LoadDevelopment(path)
+	loaded, err := loadDevelopmentFixture(t, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +54,17 @@ func TestSettingsRejectKeyReuse(t *testing.T) {
 	cfg.CardKey = bytes.Repeat([]byte{4}, 32)
 	cfg.WeChatAppID = "app"
 	save()
-	if _, err := LoadDevelopment(path); err == nil {
+	if _, err := loadDevelopmentFixture(t, path); err == nil {
 		t.Fatal("半套微信配置未拒绝")
 	}
+}
+
+// loadDevelopmentFixture 让隔离用例同样经过唯一的文件加载入口。
+func loadDevelopmentFixture(t *testing.T, path string) (DevelopmentSettings, error) {
+	t.Helper()
+	cfg, err := config.Load(path)
+	if err != nil {
+		return DevelopmentSettings{}, err
+	}
+	return developmentSettings(cfg)
 }

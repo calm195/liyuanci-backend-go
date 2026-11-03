@@ -53,9 +53,9 @@ func developmentCommandDocument(t *testing.T) (config.Config, string) {
 	cfg.MasterKey = bytes.Repeat([]byte{87}, 32)
 	cfg.Database = databaseSettings("host=127.0.0.1 port=1 user=application password=synthetic dbname=synthetic sslmode=disable")
 	cfg.Redis.Enabled, cfg.Redis.Address = true, "127.0.0.1:1"
-	cfg.Development.AdminPassword = "synthetic-long-password"
-	cfg.Development.ObjectDirectory = filepath.Join(dir, "objects")
-	cfg.Development.JournalFile = filepath.Join(dir, "journal", "deletions.json")
+	cfg.Business.AdminPassword = "synthetic-long-password"
+	cfg.Business.Runtime.ObjectDirectory = filepath.Join(dir, "objects")
+	cfg.Business.Runtime.JournalFile = filepath.Join(dir, "journal", "deletions.json")
 	cfg.Bootstrap.Login = "synthetic-admin"
 	return cfg, filepath.Join(dir, "common.yaml")
 }
@@ -68,6 +68,9 @@ func TestDevelopmentOfflineCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	if err := RunServer(ctx, ServerOptions{ConfigFile: path, CheckConfig: true}); err != nil {
+		t.Fatal(err)
+	}
 	for _, kind := range []string{"", "card", "content", "account", "evidence"} {
 		if err := RunWorker(ctx, WorkerOptions{ConfigFile: path, Kind: kind, CheckConfig: true}); err != nil {
 			t.Fatalf("%s：%v", kind, err)
@@ -79,7 +82,7 @@ func TestDevelopmentOfflineCommands(t *testing.T) {
 	if err := RunInitialization(ctx, path, true); err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{cfg.Development.ObjectDirectory, filepath.Dir(cfg.Development.JournalFile)} {
+	for _, target := range []string{cfg.Business.Runtime.ObjectDirectory, filepath.Dir(cfg.Business.Runtime.JournalFile)} {
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			t.Fatalf("离线检查创建了状态目录：%s", target)
 		}
@@ -105,7 +108,7 @@ func TestPostgresDevelopmentCommands(t *testing.T) {
 	db, shared, _ := applicationDatabase(t, dsn)
 	cfg, path := developmentCommandDocument(t)
 	cfg.Database = databaseSettings(shared)
-	for _, directory := range []string{cfg.Development.ObjectDirectory, filepath.Dir(cfg.Development.JournalFile)} {
+	for _, directory := range []string{cfg.Business.Runtime.ObjectDirectory, filepath.Dir(cfg.Business.Runtime.JournalFile)} {
 		if err := os.MkdirAll(directory, 0700); err != nil {
 			t.Fatal(err)
 		}

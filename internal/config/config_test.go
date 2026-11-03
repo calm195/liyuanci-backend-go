@@ -24,7 +24,7 @@ func fixture(t *testing.T, base, overlay string) string {
 func TestConfigurationLayers(t *testing.T) {
 	path := fixture(
 		t,
-		"mode: development\ndatabase:\n  driver: postgres\n  maxopen: 6\nredis:\n  enabled: true\nserver:\n  readtimeout: 8s\ndevelopment:\n  journalfile: ../state/deletions.json\n",
+		"mode: development\ndatabase:\n  driver: postgres\n  maxopen: 6\nredis:\n  enabled: true\nserver:\n  readtimeout: 8s\nbusiness:\n  runtime:\n    journalfile: ../state/deletions.json\n",
 		"masterkey: "+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{19}, 32))+"\nenvironment: development\ndatabase:\n  host: 127.0.0.1\n  name: shared\n  user: application\n  password: synthetic\nserver:\n  address: 127.0.0.1:9000\n",
 	)
 	t.Setenv("APP_DATABASE_DSN", "ignored")
@@ -33,12 +33,11 @@ func TestConfigurationLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Database.DSN == "" || c.Business.Runtime.DatabaseDSN != c.Database.DSN || c.Whispers.DatabaseDSN != c.Database.DSN ||
-		c.Development.DatabaseDSN != c.Database.DSN ||
 		c.Database.MaxOpen != 6 ||
 		c.Server.ReadTimeout != 8*time.Second {
 		t.Fatal("覆盖或单DSN失效")
 	}
-	if c.Development.JournalFile != filepath.Clean(filepath.Join(filepath.Dir(path), "../state/deletions.json")) {
+	if c.Business.Runtime.JournalFile != filepath.Clean(filepath.Join(filepath.Dir(path), "../state/deletions.json")) {
 		t.Fatal("相对路径不以配置目录解析")
 	}
 }
@@ -47,6 +46,8 @@ func TestConfigurationLayers(t *testing.T) {
 func TestConfigurationRejectsLegacyAndInvalid(t *testing.T) {
 	for _, overlay := range []string{
 
+		"development: {}\n",
+		"development:\n  adminpassword: obsolete\n",
 		"rocketmq:\n  enabled: true\n",
 		"businessfile: old.yaml\n",
 		"business:\n  studentdsn: second\n",

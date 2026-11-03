@@ -102,13 +102,13 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	cfg.DatabaseDSN = shared
 	cfg.Command.Timeout = 5 * time.Second
 	cfg.Command.LockTimeout = time.Second
-	cfg.Worker.Consumer.Timeout = 3 * time.Second
-	cfg.Worker.Consumer.LockTimeout = time.Second
-	cfg.Worker.AnalysisTimeout = 3 * time.Second
-	cfg.Worker.Consumer.RetryDelay = 50 * time.Millisecond
+	cfg.Tasks.Consumer.Timeout = 3 * time.Second
+	cfg.Tasks.Consumer.LockTimeout = time.Second
+	cfg.Tasks.AnalysisTimeout = 3 * time.Second
+	cfg.Tasks.Consumer.RetryDelay = 50 * time.Millisecond
 	cfg.ProviderTimeout = 3 * time.Second
-	cfg.OperationTimeout = 20 * time.Second
-	cfg.Interval = 50 * time.Millisecond
+	cfg.Tasks.OperationTimeout = 20 * time.Second
+	cfg.Tasks.ScanInterval = 50 * time.Millisecond
 	dir := t.TempDir()
 	must(os.Chmod(dir, 0700))
 	cfg.JournalFile = filepath.Join(dir, "deletions.json")
@@ -120,7 +120,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		must(os.WriteFile(path, raw, 0600))
 		return path
 	}
-	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{
+	cfg.ResourcesFile = write("catalog.yaml", ResourcesFile{
 		Version: "synthetic-runtime-resources-v1",
 		Catalog: whisper.CatalogSnapshot{
 			Grades: whisper.Dictionary{Items: []whisper.Item{}},

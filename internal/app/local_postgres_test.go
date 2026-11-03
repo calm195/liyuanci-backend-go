@@ -69,19 +69,21 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	devDoc.Database = databaseSettings(shared)
 	devDoc.Database.TimeZone = "Asia/Shanghai"
 	devDoc.Redis.Enabled, devDoc.Redis.Address = true, redisAddress
-	devDoc.Development = config.Development(dc)
+	devDoc.Business.AdminPassword = dc.AdminPassword
+	devDoc.Business.Runtime.JournalFile = dc.JournalFile
+	devDoc.Business.Runtime.ObjectDirectory = dc.ObjectDirectory
 	common := filepath.Join(dir, "common.yaml")
 	must(os.WriteFile(common, mustYAML(t, devDoc), 0600))
 	devPath := filepath.Join(dir, "development.yaml")
 	must(os.WriteFile(devPath, []byte("environment: development\n"), 0600))
-	dc, e := LoadDevelopment(devPath)
+	dc, e := loadDevelopmentFixture(t, devPath)
 	must(e)
 	must(InitializeDevelopment(ctx, dc, log, "local-root"))
 	cfg := testSettings()
 	cfg.LocalTest = true
 	cfg.DatabaseDSN = shared
 	cfg.JournalFile = dc.JournalFile
-	cfg.CatalogFile = ""
+	cfg.ResourcesFile = ""
 	path := filepath.Join(dir, "whispers.yaml")
 	devDoc.Whispers = cfg
 	must(os.WriteFile(common, mustYAML(t, devDoc), 0600))

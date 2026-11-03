@@ -38,7 +38,7 @@ type recoveryJournal interface {
 type runtimeResources struct {
 	closeOnce sync.Once
 	closeErr  error
-	cfg       WhisperSettings
+	cfg       RuntimeSettings
 	log       *zap.Logger
 	gateway   provider
 	codec     *securedata.Codec
@@ -98,7 +98,7 @@ func (r *runtimeResources) pool(ctx context.Context) (*gorm.DB, error) {
 	return db, nil
 }
 
-func openRuntimeResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (out *runtimeResources, err error) {
+func openRuntimeResources(ctx context.Context, cfg RuntimeSettings, log *zap.Logger) (out *runtimeResources, err error) {
 	if log == nil || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
 		return nil, command.ErrInvalid
 	}
@@ -191,7 +191,7 @@ func (r *runtimeResources) privacyConfig() privacy.Config {
 		Command:    command.Config(r.cfg.Command),
 		Key:        r.cfg.PrivacyKey,
 		ReceiptTTL: r.cfg.Command.ReceiptTTL,
-		RetryDelay: r.cfg.Interval,
+		RetryDelay: r.cfg.Tasks.ScanInterval,
 		Redactor:   r.gateway,
 	}
 }

@@ -51,8 +51,9 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 	if err = validateWorkerOptions(options, kind); err != nil {
 		return err
 	}
-	if cfg.BusinessFile != "" {
-		settings, err := config.LoadBusiness(ctx, cfg.BusinessFile, cfg.Environment, kind)
+	if cfg.Mode == "business" {
+		settings := cfg.Business
+		err := config.ValidateBusiness(settings, cfg.Environment, kind)
 		if err != nil {
 			return err
 		}
@@ -65,8 +66,8 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		return RunBusinessWorker(ctx, settings, cfg.Environment, kind, options.Check, options.Recover, log)
 	}
 	// 树洞与删除职责复用相同装配，诊断必须在消费或恢复之前返回。
-	if cfg.WhispersFile != "" && (kind == "whispers" || kind == "account" || kind == "evidence") {
-		settings, err := config.LoadWhispers(ctx, cfg.WhispersFile, cfg.Environment)
+	if (cfg.Mode == "whispers" || cfg.Mode == "development" && cfg.Whispers.Enabled) && (kind == "whispers" || kind == "account" || kind == "evidence") {
+		settings, err := config.ValidateWhispers(cfg.Whispers, cfg.Environment)
 		if err != nil {
 			return err
 		}
@@ -78,16 +79,16 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		}
 		return runPrivacySettings(ctx, settings, kind, options.Recover, log, options.Check)
 	}
-	if cfg.DevAppFile == "" || (cfg.Environment != "development" && cfg.Environment != "integration") || kind == "whispers" {
+	if cfg.Mode != "development" || (cfg.Environment != "development" && cfg.Environment != "integration") || kind == "whispers" {
 		return command.ErrInvalid
 	}
-	development, err := LoadDevelopment(cfg.DevAppFile)
+	development, err := developmentSettings(cfg)
 	if err != nil {
 		return err
 	}
-	content := ContentWorkerConfig{Analyzer: cfg.Worker.ContentAnalyzer, Check: options.Check}
+	content := ContentWorkerConfig{Check: options.Check}
 	if kind == "content" {
-		if err := ValidateContentWorker(cfg.Environment, development, content); err != nil {
+		if err := ValidateContentWorker(cfg.Environment, development); err != nil {
 			return err
 		}
 	}
