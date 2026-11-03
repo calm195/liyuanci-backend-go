@@ -13,6 +13,8 @@ import (
 
 // Whispers 来自外部只读私有文件，API和worker使用同一显式业务约束，凭据不进入日志。
 type Whispers struct {
+	// Tencent 显式配置腾讯云COS与CI，业务和适配器之间由app转换。
+	Tencent Tencent
 	// LocalTest 仅用于integration业务联调，使用单一业务连接和本机测试适配。
 	LocalTest                bool
 	DatabaseDSN              string `json:"-"`
@@ -86,7 +88,13 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 	if !cfg.LocalTest && strings.TrimSpace(cfg.CatalogFile) == "" {
 		return cfg, ErrInvalid
 	}
-	// 对象服务可暂未选定；只要配置其中一项就必须交付完整HTTPS参数。
+	if err := validateTencent(cfg.Tencent); err != nil {
+		return cfg, err
+	}
+	if cfg.Tencent.Enabled && (cfg.GatewayURL != "" || cfg.GatewayToken != "" || cfg.GatewayCA != "" || cfg.ProviderVersion != "") {
+		return cfg, ErrInvalid
+	}
+	// 旧网关仅用于显式协议接入，不能与原生腾讯云配置混用。
 	if cfg.GatewayURL != "" || cfg.GatewayToken != "" || cfg.GatewayCA != "" || cfg.ProviderVersion != "" {
 		u, e := url.Parse(cfg.GatewayURL)
 		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimSpace(cfg.ProviderVersion) == "" {

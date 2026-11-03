@@ -93,7 +93,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 	}
 	var scanner workrunner.Scanner
 	if kind == "card" {
-		s, e := studentcard.New(db, log, workerSessions{}, r.codec, objectStore(b), local.Scanner{Logger: log}, businessCardConfig(c))
+		s, e := studentcard.New(db, log, workerSessions{}, r.codec, objectStore(b), imageScanner(b), businessCardConfig(c))
 		if e != nil {
 			return e
 		}

@@ -1,7 +1,17 @@
 """当前公共配置与私有覆盖的中文字段说明。"""
 import re
 
-COMMENTS = {'masterkey': '唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。',
+COMMENTS = {'tencent': '腾讯云原生COS与CI配置；凭据只写私有YAML。',
+'bucket': '专用私有桶完整名称（含APPID）；必须从未开启版本控制。',
+'region': '腾讯云桶地域，例如ap-shanghai。',
+'secretid': '腾讯云最小权限子账号SecretId，仅私有YAML。',
+'secretkey': '腾讯云SecretKey，仅私有YAML。',
+'sessiontoken': '可选临时凭据Token，到期前更新并重启。',
+'biztype': 'CI已绑定桶的审核策略标识。',
+'objecturl': '可选COS专用HTTPS代理源站；通常留空使用官方地址。',
+'imageurl': '可选CI专用HTTPS代理源站；通常留空使用官方地址。',
+'ca': '可选专用代理CA完整PEM，内联私有YAML。',
+'masterkey': '唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。',
 'environment': '环境：development开发、production生产；不从环境变量推断。',
 'bootstrap': '仅显式初始化使用；普通API/worker启动不迁移、不建账号。',
 'login': '首次初始化的后台登录名；修改此值不会自动重置已有账号。',
@@ -30,7 +40,7 @@ COMMENTS = {'masterkey': '唯一应用主密钥：32字节密码学随机值的B
 'localtest': '仅开发允许本地供应商适配；正式环境必须false。',
 'databasemaxopen': '每个领域连接池上限；原生小规模为2，总连接数还需计入进程数。',
 'databasemaxidle': '每个领域连接池最大空闲连接数；原生小规模为1。',
-'gatewayurl': '可选外部对象网关HTTPS地址（供应商待确定）；不得含账号、查询参数或片段。',
+'gatewayurl': '旧自定义对象协议HTTPS地址（启用腾讯云时必须留空）；不得含账号、查询参数或片段。',
 'gatewaytoken': '网关Bearer令牌，内联单行字符串；至少16字符，不记录到日志。',
 'gatewayca': '可选私有CA的完整PEM；多行用 | 块。空值使用系统信任根。',
 'providerversion': '对象服务协议版本；仅在配置对象服务时填写。',

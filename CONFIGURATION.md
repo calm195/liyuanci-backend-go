@@ -105,6 +105,34 @@ make wordlists                              # API运行时显式发布词库
 
 ## 当前外部能力策略
 
-密钥包裹和OpenID/学号摘要使用本机派生密钥；业务与恢复用途隔离。图片扫描和学校权威校验无服务直接通过，仍保留图片解码、上传上限、归属、学号占用及人工认证。公开/私密内容使用已发布词库：未命中原文通过，命中或显式重审原文人工复核；危机命中继续隔离并进入站内案件。旧synthetic/unavailable分析模式不再接受。
+密钥包裹和OpenID/学号摘要使用本机派生密钥；业务与恢复用途隔离。正式图片扫描使用腾讯云CI，未配置或故障失败关闭；学校权威校验直接通过，仍保留图片解码、上传上限、归属、学号占用及人工认证。公开/私密内容使用已发布词库：未命中原文通过，命中或显式重审原文人工复核；危机命中继续隔离并进入站内案件。旧synthetic/unavailable分析模式不再接受。
 
-`gatewayurl/gatewaytoken/gatewayca/providerversion`只用于待选型的外部对象存储；可全部留空，部分填写必须提供合法HTTPS端点、令牌与版本。未配置时对象读写不可用。对象服务不承担审核、身份、通知或全副本清理。外部危机通知和重试动作已删除，站内关怀保留。账号及证据删除保留数据库清理、屏障及独立恢复账本，完成回执不涵盖外部对象和备份；对象保留/删除策略待供应商确定。脱敏使用移除原文、要求重新编辑的本机策略。
+`gatewayurl/gatewaytoken/gatewayca/providerversion`保留旧自定义对象协议，不能填写COS地址，也不能与腾讯云配置混用；可全部留空，部分填写必须提供合法HTTPS端点、令牌与版本。未配置时对象读写不可用。对象服务不承担审核、身份、通知或全副本清理。外部危机通知和重试动作已删除，站内关怀保留。账号及证据删除保留数据库清理、屏障及独立恢复账本，完成回执不涵盖外部对象和备份；COS对象及CI审核数据的保留/删除策略仍待云资源准备时确认。脱敏使用移除原文、要求重新编辑的本机策略。
+
+## 腾讯云 COS 与数据万象 CI
+
+在 Git 忽略的 `configs/development.yaml` 或 `configs/production.yaml` 中填写 `business.runtime.tencent`。字段位置和中文说明见公共配置及生产示例；不要将实际凭据填写到公共文件。
+
+```yaml
+business:
+  runtime:
+    tencent:
+      enabled: false # 填写完整并准备好云资源后改为true
+      bucket: '' # 完整桶名，含APPID
+      region: '' # 例如ap-shanghai
+      secretid: '' # 最小权限子账号
+      secretkey: '' # 原密钥，仅私有文件保存
+      sessiontoken: '' # 使用临时凭据时填写，过期前更新并重启
+      biztype: '' # 已绑定该桶的CI审核策略
+      objecturl: '' # 通常留空，使用官方COS桶域名
+      imageurl: '' # 通常留空，使用官方CI桶域名
+      ca: '' # 专用HTTPS代理CA完整PEM，通常留空
+```
+
+COS 使用专用私有桶，必须**从未开启版本控制**。每次上传先查询桶版本状态，开启或暂停均拒绝；`x-cos-forbid-overwrite: true` 保障同键不可覆盖。应用版本为 `sha256:<完整密文摘要>`，不是 COS versionId；重复写入与精确读取均下载限长密文并核对完整摘要，不以 ETag 或可改写元数据作为版本依据。不同密文、篡改及预算超限均失败关闭。普通启动不修改桶配置。应用账号按桶限定 `cos:GetBucketVersioning`、`cos:PutObject`、`cos:GetObject` 和 `ci:CreateAuditingPictureJob`；用桶策略强制写入携带禁止覆盖头，不授予删除对象、修改版本配置、ACL或桶管理权限。管理员也须保持版本控制关闭，并核实生命周期与保留规则。
+
+CI 须提前开通、绑定桶并创建审核策略。card-worker 在事务外提交解密后的规范化 JPEG/PNG Base64，显式同步审核，不向COS写入图片明文，不发送用户身份字段。仅匹配请求标识、`State=Success` 且显式 `Result=0` 才批准；`Result=1`（违规）与 `Result=2`（疑似）均持久化为 `scan_status=rejected`，本次任务结束，提示用户重新上传；两者均不自动重试、不进入人工图片复核，不能用于提交学生认证。超时、取消、缺字段、未知状态、场景错误和HTTP失败保留现有租约、重试与耗尽转人工关注语义。未启用CI的正式装配同样失败关闭，development开发模式同样使用上述真实COS/CI，只有integration隔离测试使用本地文件和模拟扫描。
+
+所有请求使用腾讯云官方 Go SDK 签名、HTTPS、显式超时和响应长度上限，拒绝重定向。专用代理只能通过私有YAML的HTTPS源站与内联CA显式设置。云端审核数据留存、访问权限和删除规则须另行确认；当前删除回执只覆盖数据库，不承诺清除COS对象、CI留存或备份。官方接口依据：[PUT Object](https://cloud.tencent.com/document/product/436/7749)、[图片批量审核](https://cloud.tencent.com/document/product/436/119479)。
+
+`configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和card-worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。

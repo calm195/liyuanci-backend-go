@@ -96,6 +96,11 @@ func Load(path string) (Config, error) {
 	c.Development.JournalFile = resolve(c.Development.JournalFile)
 	c.Development.ObjectDirectory = resolve(c.Development.ObjectDirectory)
 	c.Development.LocalTest = true
+	if err := validateTencent(c.Business.Runtime.Tencent); err != nil {
+		return c, err
+	}
+	c.Development.Tencent = c.Business.Runtime.Tencent
+	c.Development.ProviderTimeout = c.Business.Runtime.ProviderTimeout
 	for _, r := range []*Whispers{&c.Business.Runtime, &c.Whispers} {
 		r.DatabaseDSN = c.Database.DSN
 		r.DatabaseMaxOpen, r.DatabaseMaxIdle = c.Database.MaxOpen, c.Database.MaxIdle

@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/pem"
+	"encoding/xml"
+	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -85,44 +88,56 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	var outage atomic.Bool
 	var objectsMu sync.Mutex
 	objects := map[string][]byte{}
-	c.Runtime.ProviderVersion = "object-test-v1"
 	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if outage.Load() {
 			w.WriteHeader(503)
 			return
 		}
-		var req struct {
-			Operation, Version string
-			Input              json.RawMessage
+		if !strings.Contains(r.Header.Get("Authorization"), "q-sign-algorithm=sha1") {
+			w.WriteHeader(403)
+			return
 		}
-		if r.Header.Get("Authorization") != "Bearer synthetic-object-token" || json.NewDecoder(r.Body).Decode(&req) != nil {
-			w.WriteHeader(400)
+		if r.URL.Path == "/image/auditing" {
+			var input struct {
+				Input struct {
+					DataID  string `xml:"DataId"`
+					Content string
+				}
+			}
+			if xml.NewDecoder(r.Body).Decode(&input) != nil || input.Input.Content == "" {
+				w.WriteHeader(400)
+				return
+			}
+			fmt.Fprintf(w, "<Response><JobsDetail><DataId>%s</DataId><State>Success</State><Result>0</Result></JobsDetail></Response>", input.Input.DataID)
+			return
+		}
+		if r.URL.Query().Has("versioning") {
+			fmt.Fprint(w, "<VersioningConfiguration/>")
 			return
 		}
 		objectsMu.Lock()
 		defer objectsMu.Unlock()
-		switch req.Operation {
-		case "object_put":
-			var in struct {
-				Key, SHA256 string
-				Data        []byte
+		if r.Method == http.MethodPut {
+			if r.Header.Get("x-cos-forbid-overwrite") != "true" {
+				w.WriteHeader(400)
+				return
 			}
-			_ = json.Unmarshal(req.Input, &in)
-			objects[in.Key] = in.Data
-			_ = json.NewEncoder(w).Encode(map[string]any{"Version": "immutable-v1", "SHA256": in.SHA256})
-		case "object_open":
-			var in struct{ Key, Version string }
-			_ = json.Unmarshal(req.Input, &in)
-			_ = json.NewEncoder(w).Encode(map[string]any{"Version": in.Version, "Data": objects[in.Key]})
-		default:
-			t.Errorf("不应调用已退役的外部能力: %s", req.Operation)
-			w.WriteHeader(400)
+			if _, ok := objects[r.URL.Path]; ok {
+				w.WriteHeader(409)
+				return
+			}
+			objects[r.URL.Path], _ = io.ReadAll(r.Body)
+			return
 		}
+		_, _ = w.Write(objects[r.URL.Path])
 	}))
 	t.Cleanup(tlsServer.Close)
-	c.Runtime.GatewayURL = tlsServer.URL
-	c.Runtime.GatewayToken = "synthetic-object-token"
-	c.Runtime.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw}))
+	c.Runtime.Tencent = config.Tencent{
+		Enabled: true, Bucket: "synthetic-1234567890", Region: "ap-shanghai",
+		SecretID: "synthetic-id", SecretKey: "synthetic-secret", BizType: "synthetic-biz",
+		ObjectURL: tlsServer.URL, ImageURL: tlsServer.URL,
+		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw})),
+	}
 	version, verified := int64(1), "2026-10-31T00:00:00Z"
 	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{
 		Version: "synthetic-release-v1",
@@ -313,7 +328,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		t.Fatal("学生卡上传", response.StatusCode)
 	}
 	asset := assetEnvelope.Data
-	wait("图片按无服务策略通过", func() bool {
+	wait("图片按CI原生协议合成响应通过", func() bool {
 		request("GET", "/me/student-card-assets/"+asset.AssetID, token, nil, 200, &asset)
 		return asset.ScanStatus == "approved"
 	}, card)
@@ -565,5 +580,5 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if latest != 9 {
 		t.Fatal("运行入口改变迁移版本", latest)
 	}
-	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/学校按策略直接通过，对象存储为隔离TLS夹具", workerEnv)
+	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/COS使用原生协议隔离TLS夹具，学校按策略直接通过", workerEnv)
 }

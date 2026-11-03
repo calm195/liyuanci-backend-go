@@ -41,7 +41,29 @@ business:
   adminpassword: ''
   # 业务任务、外部对象存储与删除恢复的共用设置。
   runtime:
-    # 可选外部对象网关HTTPS地址（具体供应商待确定）；不得含账号、查询参数或片段。
+    # 腾讯云原生COS与数据万象CI；启用前填写私有覆盖，普通启动不创建云资源。
+    tencent:
+      # 完整填写后显式启用；未配置时正式图片扫描失败关闭。
+      enabled: false
+      # 专用私有桶完整名称（含APPID）；必须从未开启版本控制，禁止开启或暂停。
+      bucket: ''
+      # 桶所在地域，例如ap-shanghai。
+      region: ''
+      # 最小权限子账号SecretId；只写私有YAML。
+      secretid: ''
+      # 子账号SecretKey；只写私有YAML，不提交。
+      secretkey: ''
+      # 可选临时凭据Token；到期前须更新私有配置并重启。
+      sessiontoken: ''
+      # CI已开通并绑定该桶的审核策略标识，必须显式填写。
+      biztype: ''
+      # 可选COS专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      objecturl: ''
+      # 可选CI专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      imageurl: ''
+      # 可选代理CA完整PEM，直接内联私有YAML；空值使用系统信任根。
+      ca: ''
+    # 旧自定义对象协议HTTPS地址（启用腾讯云时必须留空）；不得含账号、查询参数或片段。
     gatewayurl: ''
     # 网关Bearer令牌，内联单行字符串；至少16字符，不记录到日志。
     gatewaytoken: ''

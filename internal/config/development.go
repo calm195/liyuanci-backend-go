@@ -4,6 +4,9 @@ import "time"
 
 // Development 保存仅开发环境使用的本地适配器配置。
 type Development struct {
+	// 腾讯云参数由business.runtime投影，开发入口不另设凭据来源。
+	Tencent         Tencent       `json:"-"`
+	ProviderTimeout time.Duration `json:"-"`
 	// LocalTest 明确允许本地业务使用同一受限登录，授权继续按服务端会话执行。
 	LocalTest                        bool          `json:"-"`
 	DatabaseDSN                      string        `json:"-"`

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -34,9 +33,11 @@ func CheckCardWorker(ctx context.Context, cfg DevelopmentSettings, logger *zap.L
 			err = command.ErrUnavailable
 		}
 	}()
-	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
-		return command.ErrUnavailable
+	_, _, closeMedia, e := developmentMedia("integration", cfg, logger)
+	if e != nil {
+		return e
 	}
+	closeMedia()
 	return nil
 }
 
@@ -65,14 +66,16 @@ func RunCardWorker(ctx context.Context, environment string, cfg DevelopmentSetti
 			err = command.ErrUnavailable
 		}
 	}()
-	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
-		return command.ErrUnavailable
+	objects, scanner, closeMedia, e := developmentMedia(environment, cfg, logger)
+	if e != nil {
+		return e
 	}
+	defer closeMedia()
 	codec, err := securedata.New(&local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}, logger)
 	if err != nil {
 		return err
 	}
-	service, err := studentcard.New(db, logger, developmentWorkerSessions{}, codec, &local.Objects{Root: cfg.ObjectDirectory, Logger: logger}, local.Scanner{Logger: logger}, studentcard.Config{
+	service, err := studentcard.New(db, logger, developmentWorkerSessions{}, codec, objects, scanner, studentcard.Config{
 		DecodeSlots: 1,
 		MaxBytes:    1 << 20,
 		MaxPixels:   4_000_000,
@@ -85,7 +88,7 @@ func RunCardWorker(ctx context.Context, environment string, cfg DevelopmentSetti
 	if err != nil {
 		return err
 	}
-	logger.Info("开发学生卡工作进程启动完成", zap.Bool("simulated", true), zap.String("result", "success"))
+	logger.Info("开发学生卡工作进程启动完成", zap.Bool("simulated", environment == "integration" && !cfg.Tencent.Enabled), zap.String("result", "success"))
 	// 每轮结束后等待，空队列和失败都不能形成热循环；工作失败由服务边界持久化和记录。
 	for ctx.Err() == nil {
 		_, _ = service.ProcessNext(ctx, "")

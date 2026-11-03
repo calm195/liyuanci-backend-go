@@ -37,7 +37,7 @@ type BusinessAPI struct {
 	whispers   *whisperServices
 	Router     *gin.Engine
 	cfg        config.Business
-	gateway    *gateway.Business
+	gateway    objectGateway
 	keys       *local.IdentityKeys
 	identityDB *gorm.DB
 }
@@ -67,7 +67,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 			Logger:    log,
 		},
 	}
-	// 对象供应商尚未选定时允许启动；外部对象读写返回不可用，不制造存储成功。
+	// 腾讯云按私有YAML显式装配；未配置时对象读写和图片审核均不可用。
 	b.gateway, e = openObjectGateway(cfg.Runtime, cfg.Card.MaxBytes*2+65536, log)
 	if e != nil {
 		return nil, e
@@ -136,7 +136,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		Limiter:         limiter,
 		Codec:           a.r.codec,
 		Objects:         objectStore(b.gateway),
-		Scanner:         local.Scanner{Logger: log},
+		Scanner:         imageScanner(b.gateway),
 		Rules:           local.SchoolRules{Logger: log},
 		Grades:          businessGrades{cfg.Runtime},
 	}, ServiceConfig{

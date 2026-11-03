@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -95,7 +94,7 @@ func developmentCommandConfig() command.Config {
 }
 
 // OpenDevelopment 在监听前完整装配业务，失败逆序释放已开的池；成功后关闭责任转给 HTTP 宿主。
-// 开发期限和资源预算只在本入口生效，扫描和学校规则仅在开发环境模拟通过，生产拒绝此入口。
+// 开发期限和资源预算只在本入口生效；对象与扫描使用腾讯云，隔离集成才使用本地夹具，生产拒绝此入口。
 func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSettings, client redis.UniversalClient, logger *zap.Logger, ready httpapi.Readiness) (router *gin.Engine, closeAll func() error, err error) {
 	if logger == nil {
 		return nil, nil, command.ErrInvalid
@@ -146,9 +145,11 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 			return nil, closeAll, e
 		}
 	}
-	if info, e := os.Stat(cfg.ObjectDirectory); e != nil || !info.IsDir() {
-		return nil, closeAll, command.ErrUnavailable
+	objects, scanner, closeMedia, e := developmentMedia(environment, cfg, logger)
+	if e != nil {
+		return nil, closeAll, e
 	}
+	closes = append(closes, func() error { closeMedia(); return nil })
 	// 原开发模式缺外部能力时保持未就绪；显式本地模式只检查已装配测试依赖。
 	businessReady := func(ctx context.Context) error {
 		if err := ready(ctx); err != nil {
@@ -204,8 +205,8 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		Identity:  store,
 		Limiter:   limiter,
 		Codec:     codec,
-		Objects:   &local.Objects{Root: cfg.ObjectDirectory, Logger: logger},
-		Scanner:   local.Scanner{Logger: logger},
+		Objects:   objects,
+		Scanner:   scanner,
 		Rules:     local.SchoolRules{Logger: logger},
 	}, ServiceConfig{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
