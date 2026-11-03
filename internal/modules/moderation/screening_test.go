@@ -25,6 +25,7 @@ func (p *screeningProvider) Analyze(_ context.Context, input wish.Content) (Asse
 	}
 	return Assessment{}, errScreeningProvider
 }
+
 func (p *screeningProvider) AnalyzeMessage(context.Context, string) (MessageAssessment, error) {
 	p.calls++
 	if p.allow {
@@ -32,6 +33,7 @@ func (p *screeningProvider) AnalyzeMessage(context.Context, string) (MessageAsse
 	}
 	return MessageAssessment{}, errScreeningProvider
 }
+
 func (p *screeningProvider) AnalyzeWhisper(_ context.Context, _ string, body string, identity whisper.IdentityInput) (WhisperAssessment, error) {
 	p.calls++
 	if p.allow {
@@ -39,6 +41,7 @@ func (p *screeningProvider) AnalyzeWhisper(_ context.Context, _ string, body str
 	}
 	return WhisperAssessment{}, errScreeningProvider
 }
+
 func (p *screeningProvider) ClassifyWhisperCapsule(context.Context, string) (MessageAssessment, error) {
 	p.calls++
 	if p.allow {
@@ -50,7 +53,16 @@ func (p *screeningProvider) ClassifyWhisperCapsule(context.Context, string) (Mes
 // TestWordlistFirstAllContentKinds 验证两个worker所有文字种类的筛选和故障边界。
 func TestWordlistFirstAllContentKinds(t *testing.T) {
 	snapshot := rules{crisisEntries: []string{"我不想活了"}, schoolEntries: []string{"学校"}, ordinaryEntries: []string{"傻逼"}}
-	for _, kind := range []string{"wish", "application", "message", "story", "whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"} {
+	for _, kind := range []string{
+		"wish",
+		"application",
+		"message",
+		"story",
+		"whisper_post",
+		"whisper_comment",
+		"whisper_nickname",
+		"whisper_capsule",
+	} {
 		for _, tc := range []struct {
 			name, body      string
 			privacy, crisis bool
@@ -67,10 +79,16 @@ func TestWordlistFirstAllContentKinds(t *testing.T) {
 				var err error
 				if whisperKind(kind) {
 					w := WhisperWorker{public: p, private: p}
-					r := whisperSource{registry: entity.ContentRegistry{Kind: kind}, task: entity.ModerationTask{PrivacyRecheck: tc.privacy, CrisisRecheck: tc.crisis}}
+					r := whisperSource{
+						registry: entity.ContentRegistry{Kind: kind},
+						task:     entity.ModerationTask{PrivacyRecheck: tc.privacy, CrisisRecheck: tc.crisis},
+					}
 					a, e := w.analyze(context.Background(), r, snapshot, tc.body, whisper.IdentityInput{Mode: "anonymous"})
 					err = e
-					if p.calls == 0 && (a.DetectorVersion != wordlistDetectorVersion || a.CrisisHit || a.OrdinaryHit || a.SchoolRelated || kind == "whisper_capsule" && a.Body != "" || kind != "whisper_capsule" && (a.Body != tc.body || a.Identity.Mode != "anonymous")) {
+					if p.calls == 0 &&
+						(a.DetectorVersion != wordlistDetectorVersion || a.CrisisHit || a.OrdinaryHit || a.SchoolRelated ||
+							kind == "whisper_capsule" && a.Body != "" ||
+							kind != "whisper_capsule" && (a.Body != tc.body || a.Identity.Mode != "anonymous")) {
 						t.Fatal("未命中投影错误或私密胶囊生成了公开正文")
 					}
 				} else {
@@ -83,7 +101,9 @@ func TestWordlistFirstAllContentKinds(t *testing.T) {
 					input := wish.Content{Body: tc.body, IdentityTags: wish.IdentityTags{Campus: &campus}}
 					a, e := w.analyze(context.Background(), r, snapshot, input)
 					err = e
-					if p.calls == 0 && (a.Body != tc.body || a.Tags.Campus != &campus || a.DetectorVersion != wordlistDetectorVersion || a.CrisisHit || a.OrdinaryHit || a.SchoolRelated) {
+					if p.calls == 0 &&
+						(a.Body != tc.body || a.Tags.Campus != &campus || a.DetectorVersion != wordlistDetectorVersion || a.CrisisHit || a.OrdinaryHit ||
+							a.SchoolRelated) {
 						t.Fatal("未命中未保留原文或用户显式标签")
 					}
 				}
@@ -116,14 +136,29 @@ func TestWordlistFirstCancelledContext(t *testing.T) {
 // TestDictionaryHitsCannotBeClearedByProvider 验证供应商返回全无命中也不能清除词库分流。
 func TestDictionaryHitsCannotBeClearedByProvider(t *testing.T) {
 	snapshot := rules{crisisEntries: []string{"危机词"}, schoolEntries: []string{"涉校词"}, ordinaryEntries: []string{"违规词"}}
-	for _, kind := range []string{"wish", "application", "message", "story", "whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"} {
+	for _, kind := range []string{
+		"wish",
+		"application",
+		"message",
+		"story",
+		"whisper_post",
+		"whisper_comment",
+		"whisper_nickname",
+		"whisper_capsule",
+	} {
 		for _, body := range []string{"危机词", "涉校词", "违规词"} {
 			t.Run(kind+"/"+body, func(t *testing.T) {
 				p := &screeningProvider{allow: true}
 				var school, ordinary, crisis bool
 				if whisperKind(kind) {
 					w := WhisperWorker{public: p, private: p}
-					a, e := w.analyze(context.Background(), whisperSource{registry: entity.ContentRegistry{Kind: kind}}, snapshot, body, whisper.IdentityInput{Mode: "anonymous"})
+					a, e := w.analyze(
+						context.Background(),
+						whisperSource{registry: entity.ContentRegistry{Kind: kind}},
+						snapshot,
+						body,
+						whisper.IdentityInput{Mode: "anonymous"},
+					)
 					if e != nil {
 						t.Fatal(e)
 					}

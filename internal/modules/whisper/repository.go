@@ -28,7 +28,13 @@ func reader(ctx context.Context, db *gorm.DB, token string, now time.Time, optio
 	}
 	hash := sha256.Sum256([]byte(token))
 	var rows []audience
-	e := db.WithContext(ctx).Raw(`SELECT a.id,a.verification,EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?)) AS restricted FROM public.sessions s JOIN public.accounts a ON a.id=s.account_id WHERE s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'`, now, now, hash[:], now).Scan(&rows).Error
+	e := db.WithContext(ctx).Raw(
+		`SELECT a.id,a.verification,EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?)) AS restricted FROM public.sessions s JOIN public.accounts a ON a.id=s.account_id WHERE s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'`,
+		now,
+		now,
+		hash[:],
+		now,
+	).Scan(&rows).Error
 	if e != nil {
 		return a, e
 	}
@@ -130,7 +136,11 @@ func nicknameSafe(ctx context.Context, db *gorm.DB, n entity.WhisperNicknameVers
 
 func nicknameUnblocked(ctx context.Context, db *gorm.DB, n entity.WhisperNicknameVersion) (bool, error) {
 	var blocked bool
-	e := db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM public.content_restrictions WHERE content_id=? AND active) OR EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_nickname' AND target_id=? AND status='active')`, n.ContentRegistryID, n.ContentRegistryID).Scan(&blocked).Error
+	e := db.WithContext(ctx).Raw(
+		`SELECT EXISTS(SELECT 1 FROM public.content_restrictions WHERE content_id=? AND active) OR EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_nickname' AND target_id=? AND status='active')`,
+		n.ContentRegistryID,
+		n.ContentRegistryID,
+	).Scan(&blocked).Error
 	return !blocked, e
 }
 
@@ -144,59 +154,115 @@ func preferences(ctx context.Context, db *gorm.DB, owner string) (p entity.Whisp
 }
 
 func registry(ctx context.Context, db *gorm.DB, id, kind, entityID, owner string, version int64) error {
-	return db.WithContext(ctx).Create(&entity.ContentRegistry{ID: id, Kind: kind, EntityID: entityID, AuthorID: owner, ContentVersion: version, Status: "pending", SchoolDetectionState: "pending", SchoolDetectionVersion: "pending"}).Error
+	return db.WithContext(ctx).Create(&entity.ContentRegistry{
+		ID:                     id,
+		Kind:                   kind,
+		EntityID:               entityID,
+		AuthorID:               owner,
+		ContentVersion:         version,
+		Status:                 "pending",
+		SchoolDetectionState:   "pending",
+		SchoolDetectionVersion: "pending",
+	}).Error
 }
 
 func cancelReviews(ctx context.Context, db *gorm.DB, postID string) error {
 	// 账号 guard 与父帖锁串行化业务写入；消费者必须重验父帖版本与评论代次。
-	return db.WithContext(ctx).Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT id FROM public.content_registry WHERE (kind='whisper_post' AND entity_id=?) OR (kind='whisper_comment' AND entity_id IN (SELECT id FROM public.whisper_comments WHERE post_id=?)))`, postID, postID).Error
+	return db.WithContext(ctx).Exec(
+		`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT id FROM public.content_registry WHERE (kind='whisper_post' AND entity_id=?) OR (kind='whisper_comment' AND entity_id IN (SELECT id FROM public.whisper_comments WHERE post_id=?)))`,
+		postID,
+		postID,
+	).Error
 }
 
 func restrictedAccount(ctx context.Context, db *gorm.DB, id string, now time.Time) (bool, error) {
 	var n int64
-	e := db.WithContext(ctx).Model(&entity.Penalty{}).Where("account_id=? AND revoked_at IS NULL AND action_kind IN ? AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", id, []string{"mute", "ban"}, now, now).Count(&n).Error
+	e := db.WithContext(ctx).Model(&entity.Penalty{}).Where(
+		"account_id=? AND revoked_at IS NULL AND action_kind IN ? AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		id,
+		[]string{"mute", "ban"},
+		now,
+		now,
+	).Count(&n).Error
 	return n > 0, e
 }
 
 func insertRow(ctx context.Context, db *gorm.DB, row any) error {
 	return db.WithContext(ctx).Create(row).Error
 }
+
 func postOwner(ctx context.Context, db *gorm.DB, id string, out *entity.WhisperPost) error {
 	return db.WithContext(ctx).Select("owner_id").Where("id=?", id).Take(out).Error
 }
+
 func updatePost(ctx context.Context, db *gorm.DB, id string, updates map[string]any) error {
 	return db.WithContext(ctx).Model(&entity.WhisperPost{}).Where("id=?", id).Updates(updates).Error
 }
+
 func startVersionReview(ctx context.Context, db *gorm.DB, id string, version int64, taskID string) error {
-	return db.WithContext(ctx).Model(&entity.WhisperPostVersion{}).Where("post_id=? AND content_version=?", id, version).Updates(map[string]any{"review_state": "scanning", "review_task_id": taskID, "public_body": nil, "public_identity": nil}).Error
+	return db.WithContext(ctx).Model(&entity.WhisperPostVersion{}).Where("post_id=? AND content_version=?", id, version).Updates(map[string]any{
+		"review_state":    "scanning",
+		"review_task_id":  taskID,
+		"public_body":     nil,
+		"public_identity": nil,
+	}).Error
 }
+
 func resetRegistry(ctx context.Context, db *gorm.DB, id string) error {
-	return db.WithContext(ctx).Model(&entity.ContentRegistry{}).Where("id=?", id).Updates(map[string]any{"status": "pending", "school_related": nil, "school_detection_state": "pending", "school_detection_version": "pending"}).Error
+	return db.WithContext(ctx).Model(&entity.ContentRegistry{}).Where("id=?", id).Updates(map[string]any{
+		"status":                   "pending",
+		"school_related":           nil,
+		"school_detection_state":   "pending",
+		"school_detection_version": "pending",
+	}).Error
 }
+
 func ensurePreference(ctx context.Context, db *gorm.DB, owner string) error {
-	return db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&entity.WhisperPreference{AccountID: owner, Version: 1, NextNicknameVersion: 1}).Error
+	return db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&entity.WhisperPreference{AccountID: owner, Version: 1, NextNicknameVersion: 1}).
+		Error
 }
+
 func cancelNickname(ctx context.Context, db *gorm.DB, id string) error {
 	return db.WithContext(ctx).Model(&entity.WhisperNicknameVersion{}).Where("content_registry_id=?", id).Update("review_state", "cancelled").Error
 }
+
 func cancelTask(ctx context.Context, db *gorm.DB, id string) error {
-	return db.WithContext(ctx).Model(&entity.ModerationTask{}).Where("id=? AND status IN ?", id, []string{"pending", "machine_passed", "human_required"}).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error
+	return db.WithContext(ctx).Model(&entity.ModerationTask{}).Where(
+		"id=? AND status IN ?",
+		id,
+		[]string{"pending", "machine_passed", "human_required"},
+	).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error
 }
+
 func replaceCandidate(ctx context.Context, db *gorm.DB, owner string, preferenceVersion, nicknameVersion int64) error {
-	return db.WithContext(ctx).Model(&entity.WhisperPreference{}).Where("account_id=?", owner).Updates(map[string]any{"version": preferenceVersion, "candidate_nickname_version": nicknameVersion, "next_nickname_version": nicknameVersion + 1}).Error
+	return db.WithContext(ctx).Model(&entity.WhisperPreference{}).Where("account_id=?", owner).Updates(map[string]any{
+		"version":                    preferenceVersion,
+		"candidate_nickname_version": nicknameVersion,
+		"next_nickname_version":      nicknameVersion + 1,
+	}).Error
 }
+
 func nicknameByRef(ctx context.Context, db *gorm.DB, ref, owner string, out *entity.WhisperNicknameVersion) error {
 	return db.WithContext(ctx).Where("content_registry_id=? AND account_id=?", ref, owner).Take(out).Error
 }
+
 func reviewTask(ctx context.Context, db *gorm.DB, id, contentID string, version int64, out *entity.ModerationTask) error {
 	return db.WithContext(ctx).Where("id=? AND content_id=? AND content_version=?", id, contentID, version).Take(out).Error
 }
+
 func countHugs(ctx context.Context, db *gorm.DB, id string, out *int64) error {
-	return db.WithContext(ctx).Table("public.whisper_hugs AS h").Joins("JOIN public.accounts a ON a.id=h.actor_id").Where("h.post_id=? AND h.active AND a.lifecycle='active' AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=clock_timestamp() AND (p.ends_at IS NULL OR p.ends_at>clock_timestamp()))", id).Count(out).Error
+	return db.WithContext(ctx).Table("public.whisper_hugs AS h").
+		Joins("JOIN public.accounts a ON a.id=h.actor_id").
+		Where("h.post_id=? AND h.active AND a.lifecycle='active' AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=clock_timestamp() AND (p.ends_at IS NULL OR p.ends_at>clock_timestamp()))", id).
+		Count(out).
+		Error
 }
+
 func viewerHugs(ctx context.Context, db *gorm.DB, id, viewer string, out *[]entity.WhisperHug) error {
 	return db.WithContext(ctx).Where("post_id=? AND actor_id=?", id, viewer).Find(out).Error
 }
+
 func postCandidates(ctx context.Context, db *gorm.DB, own bool, actor string, position cursor, limit int) (out []entity.WhisperPost, err error) {
 	column := "published_at"
 	if own {

@@ -13,7 +13,17 @@ import (
 
 func testBusinessSettings(t *testing.T) config.Business {
 	t.Helper()
-	c := config.Business{Runtime: testSettings(), LookupKeyRefs: []string{"lookup-v1"}, WeChatAppID: "synthetic-app", SessionTTL: time.Hour, ExchangeTTL: time.Minute, AdminSessionTTL: time.Hour, LoginWindow: time.Minute, LoginLimit: 30, MaxTextBytes: 65536}
+	c := config.Business{
+		Runtime:         testSettings(),
+		LookupKeyRefs:   []string{"lookup-v1"},
+		WeChatAppID:     "synthetic-app",
+		SessionTTL:      time.Hour,
+		ExchangeTTL:     time.Minute,
+		AdminSessionTTL: time.Hour,
+		LoginWindow:     time.Minute,
+		LoginLimit:      30,
+		MaxTextBytes:    65536,
+	}
 	for i, k := range []*[]byte{&c.SessionKey, &c.CardKey, &c.VerificationKey, &c.WishKey, &c.AdminKey, &c.CrisisKey} {
 		*k = bytes.Repeat([]byte{byte(30 + i)}, 32)
 	}
@@ -31,9 +41,21 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		ok     bool
 	}{
 		{"完整生产含悄悄鲤", func(c *config.Business) {}, true},
-		{"收紧连接池", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1 }, true},
-		{"池配置不完整", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 0, 1 }, false},
-		{"池空闲超过总额", func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 1, 2 }, false},
+		{
+			"收紧连接池",
+			func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1 },
+			true,
+		},
+		{
+			"池配置不完整",
+			func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 0, 1 },
+			false,
+		},
+		{
+			"池空闲超过总额",
+			func(c *config.Business) { c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 1, 2 },
+			false,
+		},
 		{"池预算扩张", func(c *config.Business) { c.Runtime.DatabaseMaxOpen = 101 }, false},
 		{"本地适配", func(c *config.Business) { c.Runtime.LocalTest = true }, false},
 		{"明文供应商", func(c *config.Business) { c.Runtime.GatewayURL = "http://gateway.invalid" }, false},

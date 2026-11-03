@@ -52,7 +52,12 @@ func (w *WeChat) Exchange(ctx context.Context, code string) (openid []byte, err 
 		return nil, command.ErrInvalid
 	}
 	query := url.Values{"appid": {w.appID}, "secret": {w.secret}, "js_code": {code}, "grant_type": {"authorization_code"}}
-	request, e := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.weixin.qq.com/sns/jscode2session?"+query.Encode(), nil)
+	request, e := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"https://api.weixin.qq.com/sns/jscode2session?"+query.Encode(),
+		nil,
+	)
 	if e != nil {
 		return nil, command.ErrUnavailable
 	}

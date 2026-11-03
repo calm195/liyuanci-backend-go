@@ -251,7 +251,15 @@ func allowedFrameworkImport(owner, dependency string) bool {
 	if !strings.HasPrefix(owner, "modules/") {
 		return true
 	}
-	for _, prefix := range []string{"github.com/gin-gonic/gin", "github.com/redis/go-redis/", "github.com/spf13/viper", "go.yaml.in/yaml/", "gopkg.in/yaml.", "github.com/go-yaml/", "github.com/goccy/go-yaml"} {
+	for _, prefix := range []string{
+		"github.com/gin-gonic/gin",
+		"github.com/redis/go-redis/",
+		"github.com/spf13/viper",
+		"go.yaml.in/yaml/",
+		"gopkg.in/yaml.",
+		"github.com/go-yaml/",
+		"github.com/goccy/go-yaml",
+	} {
 		if strings.HasPrefix(dependency, prefix) {
 			return false
 		}

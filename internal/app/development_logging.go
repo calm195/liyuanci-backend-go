@@ -11,5 +11,10 @@ func finishDevelopment(log *zap.Logger, operation string, start time.Time, err *
 	if *err != nil {
 		result = "failure"
 	}
-	log.Info("开发资源操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	log.Info(
+		"开发资源操作完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }

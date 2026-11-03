@@ -59,7 +59,7 @@ class IntegrationResultTests(unittest.TestCase):
 
     def test_every_required_test_must_pass(self):
         events = [dict(event(action, test), Package='github.com/calm195/liyuanci-backend-go/internal/app')
-                  for action, test in [('run', 'TestPostgresLocalBusiness'), ('pass', 'TestPostgresLocalBusiness'), ('pass', '')]]
+                for action, test in [('run', 'TestPostgresLocalBusiness'), ('pass', 'TestPostgresLocalBusiness'), ('pass', '')]]
         with self.assertRaisesRegex(ValueError, 'TestPostgresWhisperRuntime'):
             self.run_result(events, suite='runtime')
 
@@ -76,7 +76,7 @@ class IntegrationResultTests(unittest.TestCase):
 
     def test_missing_package_completion_is_not_success(self):
         with self.assertRaisesRegex(ValueError, '缺少测试包完成'):
-            self.run_result(self.complete()[:-1])
+            self.run_result(self.complete()[: - 1])
 
 
 if __name__ == '__main__':

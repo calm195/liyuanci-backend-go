@@ -47,5 +47,10 @@ func (s *Service) clearHeldComment(ctx context.Context, db *gorm.DB, token, id s
 	}
 	defer clear(payload)
 	hash := sha256.Sum256([]byte(token))
-	return db.WithContext(ctx).Exec("SELECT public.clear_held_whisper_comment(decode(?,'hex'),?,?::jsonb)", hex.EncodeToString(hash[:]), id, string(payload)).Error
+	return db.WithContext(ctx).Exec(
+		"SELECT public.clear_held_whisper_comment(decode(?,'hex'),?,?::jsonb)",
+		hex.EncodeToString(hash[:]),
+		id,
+		string(payload),
+	).Error
 }

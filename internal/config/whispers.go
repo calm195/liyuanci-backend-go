@@ -66,7 +66,9 @@ func LoadWhispers(ctx context.Context, path, environment string) (cfg Whispers, 
 
 // validateWhispers 只有完整业务宿主可申请生产启用；独立树洞入口继续保留原门禁。
 func validateWhispers(cfg Whispers, environment string, business bool) (Whispers, error) {
-	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 100 || cfg.DatabaseMaxIdle < 0 || cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
+	if cfg.DatabaseMaxOpen == 0 && cfg.DatabaseMaxIdle != 0 || cfg.DatabaseMaxOpen < 0 || cfg.DatabaseMaxOpen > 100 ||
+		cfg.DatabaseMaxIdle < 0 ||
+		cfg.DatabaseMaxIdle > cfg.DatabaseMaxOpen {
 		return cfg, ErrInvalid
 	}
 	if (environment != "integration" && environment != "development") && environment != "production" {
@@ -79,7 +81,8 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 		return cfg, ErrInvalid
 	}
 	if cfg.LocalTest {
-		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
+		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 ||
+			len(cfg.RecoveryWrapKey) != 32 {
 			return cfg, ErrInvalid
 		}
 	}
@@ -88,7 +91,15 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 			return cfg, ErrInvalid
 		}
 	}
-	keys := [][]byte{cfg.ReceiptKey, cfg.CursorKey, cfg.RateKey, cfg.GovernanceKey, cfg.PrivacyKey, cfg.EvidenceKey, cfg.SafetyKey}
+	keys := [][]byte{
+		cfg.ReceiptKey,
+		cfg.CursorKey,
+		cfg.RateKey,
+		cfg.GovernanceKey,
+		cfg.PrivacyKey,
+		cfg.EvidenceKey,
+		cfg.SafetyKey,
+	}
 	for i, key := range keys {
 		if len(key) != 32 {
 			return cfg, ErrInvalid
@@ -112,10 +123,20 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 			}
 		}
 	}
-	if cfg.Command.Timeout <= 0 || cfg.Command.LockTimeout < time.Millisecond || cfg.Command.LockTimeout > cfg.Command.Timeout || cfg.Command.ReceiptTTL <= 0 || cfg.Command.MaxAttempts < 1 || cfg.Command.MaxAttempts > 10 || cfg.Interval < time.Millisecond || cfg.OperationTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ProviderTimeout > 30*time.Second {
+	if cfg.Command.Timeout <= 0 || cfg.Command.LockTimeout < time.Millisecond || cfg.Command.LockTimeout > cfg.Command.Timeout ||
+		cfg.Command.ReceiptTTL <= 0 ||
+		cfg.Command.MaxAttempts < 1 ||
+		cfg.Command.MaxAttempts > 10 ||
+		cfg.Interval < time.Millisecond ||
+		cfg.OperationTimeout <= 0 ||
+		cfg.ProviderTimeout <= 0 ||
+		cfg.ProviderTimeout > 30*time.Second {
 		return cfg, ErrInvalid
 	}
-	if cfg.Worker.AnalysisTimeout <= 0 || cfg.Worker.Consumer.Timeout <= 0 || cfg.Worker.Consumer.LockTimeout < time.Millisecond || cfg.Worker.Consumer.RetryDelay < time.Millisecond || cfg.Worker.Consumer.MaxAttempts < 1 || cfg.OperationTimeout < 2*cfg.Worker.Consumer.Timeout+cfg.Worker.AnalysisTimeout {
+	if cfg.Worker.AnalysisTimeout <= 0 || cfg.Worker.Consumer.Timeout <= 0 || cfg.Worker.Consumer.LockTimeout < time.Millisecond ||
+		cfg.Worker.Consumer.RetryDelay < time.Millisecond ||
+		cfg.Worker.Consumer.MaxAttempts < 1 ||
+		cfg.OperationTimeout < 2*cfg.Worker.Consumer.Timeout+cfg.Worker.AnalysisTimeout {
 		return cfg, ErrInvalid
 	}
 	return cfg, nil

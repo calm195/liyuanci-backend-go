@@ -52,7 +52,11 @@ func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Co
 		if json.Unmarshal(secrets[0].Envelope, &env) != nil {
 			return "", command.ErrUnavailable
 		}
-		b, e := codec.Decrypt(ctx, securedata.Binding{Purpose: "student_number", ObjectID: r.OwnerID, Version: uint64(secrets[0].ContentVersion)}, env)
+		b, e := codec.Decrypt(
+			ctx,
+			securedata.Binding{Purpose: "student_number", ObjectID: r.OwnerID, Version: uint64(secrets[0].ContentVersion)},
+			env,
+		)
 		if e != nil {
 			return "", e
 		}
@@ -73,7 +77,40 @@ func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Co
 		return "", e
 	}
 	handoff := HandoffAt(now)
-	for _, v := range []any{&entity.EvidenceCase{ID: scopeID, Kind: "crisis", SourceRef: r.registry.ID, Status: "open", CreatedAt: now}, &entity.EvidenceCrisisCase{ID: caseID, EvidenceCaseID: scopeID, ContentType: r.registry.Kind, Status: "pending_handling", DetectedAt: now, Version: 1, SourceTaskID: &r.task.ID, HandoffAt: &handoff, IdentityStatus: &identityStatus, SourceEntityID: &r.ID, SourceContentVersion: &r.ContentVersion}, &entity.EvidenceItem{ID: itemID, CaseID: scopeID, SubjectCipher: identity, BodyCipher: cipher, KeyRef: key, CreatedAt: now}, &entity.ContentRestriction{ID: uuid.NewString(), ContentID: r.registry.ID, Kind: "crisis", SourceRef: caseID, Active: true, Version: 1}, &entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "care", Status: "pending", NextAt: now}, &entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "operator", Status: "pending", NextAt: now}} {
+	for _, v := range []any{
+		&entity.EvidenceCase{ID: scopeID, Kind: "crisis", SourceRef: r.registry.ID, Status: "open", CreatedAt: now},
+		&entity.EvidenceCrisisCase{
+			ID:                   caseID,
+			EvidenceCaseID:       scopeID,
+			ContentType:          r.registry.Kind,
+			Status:               "pending_handling",
+			DetectedAt:           now,
+			Version:              1,
+			SourceTaskID:         &r.task.ID,
+			HandoffAt:            &handoff,
+			IdentityStatus:       &identityStatus,
+			SourceEntityID:       &r.ID,
+			SourceContentVersion: &r.ContentVersion,
+		},
+		&entity.EvidenceItem{
+			ID:            itemID,
+			CaseID:        scopeID,
+			SubjectCipher: identity,
+			BodyCipher:    cipher,
+			KeyRef:        key,
+			CreatedAt:     now,
+		},
+		&entity.ContentRestriction{
+			ID:        uuid.NewString(),
+			ContentID: r.registry.ID,
+			Kind:      "crisis",
+			SourceRef: caseID,
+			Active:    true,
+			Version:   1,
+		},
+		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "care", Status: "pending", NextAt: now},
+		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "operator", Status: "pending", NextAt: now},
+	} {
 		if e = db.Create(v).Error; e != nil {
 			return "", e
 		}
@@ -94,18 +131,26 @@ func hideWhisper(db *gorm.DB, r whisperSource, advance bool, now time.Time) erro
 		u["published_at"] = nil
 		u["published_content_version"] = nil
 		u["comments_epoch"] = gorm.Expr("comments_epoch+1")
-		if e := db.Model(&entity.WhisperPostVersion{}).Where("post_id=?", r.ID).Updates(map[string]any{"public_body": nil, "public_identity": nil}).Error; e != nil {
+		if e := db.Model(&entity.WhisperPostVersion{}).Where("post_id=?", r.ID).
+			Updates(map[string]any{"public_body": nil, "public_identity": nil}).
+			Error; e != nil {
 			return e
 		}
 		return db.Model(&entity.WhisperPost{}).Where("id=?", r.ID).Updates(u).Error
 	case "whisper_comment":
 		u["published_at"] = nil
-		if e := db.Model(&entity.WhisperCommentVersion{}).Where("comment_id=?", r.ID).Updates(map[string]any{"public_body": nil, "public_identity": nil}).Error; e != nil {
+		if e := db.Model(&entity.WhisperCommentVersion{}).
+			Where("comment_id=?", r.ID).
+			Updates(map[string]any{"public_body": nil, "public_identity": nil}).
+			Error; e != nil {
 			return e
 		}
 		return db.Model(&entity.WhisperComment{}).Where("id=?", r.ID).Updates(u).Error
 	case "whisper_nickname":
-		return db.Model(&entity.WhisperNicknameVersion{}).Where("content_registry_id=?", r.ID).Updates(map[string]any{"public_label": nil, "revoked_at": now, "control_version": gorm.Expr("control_version+1")}).Error
+		return db.Model(&entity.WhisperNicknameVersion{}).
+			Where("content_registry_id=?", r.ID).
+			Updates(map[string]any{"public_label": nil, "revoked_at": now, "control_version": gorm.Expr("control_version+1")}).
+			Error
 	case "whisper_capsule":
 		return db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(u).Error
 	}

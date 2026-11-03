@@ -36,14 +36,16 @@ def command(action, config, kind):
     development = values.get('mode') == 'development'
     if action in ('run', 'check', 'doctor'):
         args = ['server', '-config', str(config)]
-        if action != 'run': args += ['-check-config' if action == 'check' else '-check']
+        if action != 'run':
+            args += ['-check-config' if action == 'check' else '-check']
     elif action == 'init':
         args = ['dev-init' if development else 'business-init', '-config', str(config)]
     elif action == 'worker':
         if development:
             names = {'card': 'card-worker', 'content': 'content-worker', 'whispers': 'content-worker',
-                     'account': 'privacy-worker', 'evidence': 'privacy-worker'}
-            if kind not in names: raise ValueError('工作职责无效')
+                    'account': 'privacy-worker', 'evidence': 'privacy-worker'}
+            if kind not in names:
+                raise ValueError('工作职责无效')
             args = [names[kind], '-config', str(config), '-kind', kind]
         else:
             args = ['business-worker', '-config', str(config), '-kind', kind]
@@ -52,13 +54,17 @@ def command(action, config, kind):
     else:
         raise ValueError('操作无效')
     binary = ROOT / 'bin' / args[0]
-    if not binary.is_file(): raise ValueError('请先执行make build')
+    if not binary.is_file():
+        raise ValueError('请先执行make build')
     return [str(binary), *args[1:]]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['configure', 'run', 'check', 'doctor', 'init', 'worker', 'migrate', 'permissions', 'opaque-blocks'])
+    parser.add_argument(
+        'action',
+        choices=['configure', 'run', 'check', 'doctor', 'init', 'worker', 'migrate', 'permissions', 'opaque-blocks']
+    )
     parser.add_argument('--config', default='configs/development.yaml')
     parser.add_argument('--environment', choices=['development', 'production'], default='development')
     parser.add_argument('--kind', choices=['card', 'content', 'whispers', 'account', 'evidence'], default='content')
@@ -74,8 +80,10 @@ def main():
         value = local.get(key)
         if value:
             directory = Path(value)
-            if not directory.is_absolute(): directory = path.parent / directory
-            if key == 'journalfile': directory = directory.parent
+            if not directory.is_absolute():
+                directory = path.parent / directory
+            if key == 'journalfile':
+                directory = directory.parent
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     argv = command(args.action, path, args.kind)
     os.execve(argv[0], argv, settings.process_environment())

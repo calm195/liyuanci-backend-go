@@ -25,6 +25,7 @@ func (k *testKeys) Wrap(_ context.Context, key []byte) (string, []byte, error) {
 	k.keys[k.current] = append([]byte(nil), key...)
 	return k.current, []byte(k.current), nil
 }
+
 func (k *testKeys) Unwrap(_ context.Context, ref string, wrapped []byte) ([]byte, error) {
 	if k.fail || string(wrapped) != ref || k.keys[ref] == nil {
 		return nil, errors.New("secret-provider-token")
@@ -60,13 +61,21 @@ func TestEnvelopeBindingAndFailures(t *testing.T) {
 			t.Fatalf("历史/当前密钥读取失败：%v", e)
 		}
 	}
-	for _, altered := range []Binding{{Purpose: "other", ObjectID: binding.ObjectID, Version: 1}, {Purpose: binding.Purpose, ObjectID: "other", Version: 1}, {Purpose: binding.Purpose, ObjectID: binding.ObjectID, Version: 2}} {
+	for _, altered := range []Binding{
+		{Purpose: "other", ObjectID: binding.ObjectID, Version: 1},
+		{Purpose: binding.Purpose, ObjectID: "other", Version: 1},
+		{Purpose: binding.Purpose, ObjectID: binding.ObjectID, Version: 2},
+	} {
 		if got, e := codec.Decrypt(ctx, altered, old); e == nil || got != nil {
 			t.Fatal("绑定替换应拒绝")
 		}
 	}
 	for _, mutate := range []func(*Envelope){
-		func(e *Envelope) { e.Ciphertext = append([]byte(nil), e.Ciphertext...); e.Ciphertext[0] ^= 1 },
+		func(e *Envelope) {
+
+			e.Ciphertext = append([]byte(nil), e.Ciphertext...)
+			e.Ciphertext[0] ^= 1
+		},
 		func(e *Envelope) { e.Nonce = nil },
 		func(e *Envelope) { e.Algorithm = "unknown" },
 		func(e *Envelope) { e.WrappedKey = []byte("other") },

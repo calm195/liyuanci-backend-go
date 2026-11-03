@@ -33,7 +33,13 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		if err != nil {
 			result = "failure"
 		}
-		log.Info("工作进程入口结束", zap.String("entry", options.Entry), zap.String("kind", kind), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		log.Info(
+			"工作进程入口结束",
+			zap.String("entry", options.Entry),
+			zap.String("kind", kind),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	cfg, err := config.Load(options.ConfigFile)
 	if err != nil {
@@ -89,7 +95,13 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 	case "card":
 		return RunCardWorker(ctx, cfg.Environment, development, log)
 	case "content":
-		return RunContentWorker(ctx, cfg.Environment, development, ContentWorkerConfig{Analyzer: cfg.Worker.ContentAnalyzer}, log)
+		return RunContentWorker(
+			ctx,
+			cfg.Environment,
+			development,
+			ContentWorkerConfig{Analyzer: cfg.Worker.ContentAnalyzer},
+			log,
+		)
 	default:
 		return RunPrivacyWorker(ctx, cfg.Environment, development, kind, log)
 	}

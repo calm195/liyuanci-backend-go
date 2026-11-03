@@ -26,7 +26,12 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
 		return command.ErrInvalid
 	}
 	group := r.Group("/api/v1/me/student-card-assets")
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.POST("", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {

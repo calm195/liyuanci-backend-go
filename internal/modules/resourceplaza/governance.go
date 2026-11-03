@@ -32,7 +32,15 @@ func (s *Service) SetBarrier(ctx context.Context, token, rid, key, id string, pr
 			return e
 		}
 		oldCategory := r.CategoryID
-		if _, e := command.LockPlan(ctx, db, command.Discovery{Resources: []command.Resource{{Kind: command.ResourceCategory, ID: r.CategoryID}, {Kind: command.ResourceMaterial, ID: id}}}, s.cfg.Command.LockTimeout); e != nil {
+		if _, e := command.LockPlan(
+			ctx,
+			db,
+			command.Discovery{Resources: []command.Resource{
+				{Kind: command.ResourceCategory, ID: r.CategoryID},
+				{Kind: command.ResourceMaterial, ID: id},
+			}},
+			s.cfg.Command.LockTimeout,
+		); e != nil {
 			return e
 		}
 		if e := db.Where("id=?", id).Take(&r).Error; e != nil {

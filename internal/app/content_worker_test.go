@@ -33,14 +33,21 @@ func TestRuntimeSharedDatabase(t *testing.T) {
 	}
 	defer closePool()
 	var allowed bool
-	if db.WithContext(ctx).Raw("SELECT has_table_privilege(current_user,'public.accounts','SELECT') AND has_table_privilege(current_user,'evidence.crisis_cases','SELECT') AND NOT r.rolsuper AND NOT r.rolbypassrls FROM pg_roles r WHERE rolname=current_user").Scan(&allowed).Error != nil || !allowed {
+	if db.WithContext(ctx).Raw("SELECT has_table_privilege(current_user,'public.accounts','SELECT') AND has_table_privilege(current_user,'evidence.crisis_cases','SELECT') AND NOT r.rolsuper AND NOT r.rolbypassrls FROM pg_roles r WHERE rolname=current_user").
+		Scan(&allowed).
+		Error != nil ||
+		!allowed {
 		t.Fatal("应用账号权限不符合单账号配置")
 	}
 }
 
 // TestContentWorkerBoundary 覆盖 T016/REQ-015/018 的生产隔离、显式合成与默认失败关闭。
 func TestContentWorkerBoundary(t *testing.T) {
-	cfg := DevelopmentSettings{DatabaseDSN: "unused", WrapKey: bytes.Repeat([]byte{1}, 32), LookupKey: bytes.Repeat([]byte{2}, 32)}
+	cfg := DevelopmentSettings{
+		DatabaseDSN: "unused",
+		WrapKey:     bytes.Repeat([]byte{1}, 32),
+		LookupKey:   bytes.Repeat([]byte{2}, 32),
+	}
 	for _, tc := range []struct {
 		name, environment, mode string
 		valid                   bool
@@ -89,7 +96,8 @@ func TestManualContentReview(t *testing.T) {
 	input := wish.Content{Body: "保留待人工检查的原始正文", IdentityTags: wish.IdentityTags{Campus: &campus}}
 	a := local.Analyzer{Logger: zap.NewNop(), Manual: true}
 	out, err := a.Analyze(context.Background(), input)
-	if err != nil || out.Body != input.Body || out.Tags.Campus == nil || *out.Tags.Campus != campus || !out.OrdinaryHit || out.CrisisHit || out.DetectorVersion != "development-manual-v1" {
+	if err != nil || out.Body != input.Body || out.Tags.Campus == nil || *out.Tags.Campus != campus || !out.OrdinaryHit || out.CrisisHit ||
+		out.DetectorVersion != "development-manual-v1" {
 		t.Fatal("人工候选未保留原文标签或没有强制复核")
 	}
 	message, err := a.AnalyzeMessage(context.Background(), input.Body)

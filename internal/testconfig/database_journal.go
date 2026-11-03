@@ -28,7 +28,12 @@ func RunJournal(ctx context.Context, db *gorm.DB, logger *zap.Logger, action str
 		if err != nil {
 			result = "failure"
 		}
-		logger.Info("恢复日志结构操作完成", zap.String("operation", action), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		logger.Info(
+			"恢复日志结构操作完成",
+			zap.String("operation", action),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	if action != "up" && action != "down" && action != "permissions" {
 		return errors.New("恢复日志操作无效")
@@ -53,7 +58,10 @@ func RunJournal(ctx context.Context, db *gorm.DB, logger *zap.Logger, action str
 			return errors.New("恢复日志结构锁失败")
 		}
 		var business bool
-		if tx.Raw("SELECT to_regclass('public.accounts') IS NOT NULL OR to_regclass('public.schema_migrations') IS NOT NULL").Scan(&business).Error != nil || business {
+		if tx.Raw("SELECT to_regclass('public.accounts') IS NOT NULL OR to_regclass('public.schema_migrations') IS NOT NULL").
+			Scan(&business).
+			Error != nil ||
+			business {
 			return errors.New("恢复日志必须使用独立数据库")
 		}
 		if tx.Exec(`CREATE TABLE IF NOT EXISTS public.recovery_schema_migrations (version bigint PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP);

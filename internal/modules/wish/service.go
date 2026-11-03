@@ -58,7 +58,14 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades
 	if err != nil {
 		return nil, err
 	}
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), config: cfg, engine: engine, policy: policy, codec: codec, receiptKey: append([]byte(nil), cfg.ReceiptKey...)}, nil
+	return &Service{
+		db:         db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		config:     cfg,
+		engine:     engine,
+		policy:     policy,
+		codec:      codec,
+		receiptKey: append([]byte(nil), cfg.ReceiptKey...),
+	}, nil
 }
 
 func (s *Service) requestDigest(input ContentInput) (string, error) {
@@ -155,6 +162,10 @@ func (s *Service) Create(ctx context.Context, token, key, requestID string, inpu
 		out, failure = resolveCreated(ctx, tx.DB(), ref, tx.Actor().ID)
 		return failure
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: digest})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: digest},
+	)
 	return out, err
 }

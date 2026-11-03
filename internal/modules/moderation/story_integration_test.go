@@ -69,19 +69,51 @@ func TestStorySharing(t *testing.T) {
 	codec, e := securedata.New(testKeys{}, logger)
 	must(e)
 	cfg := command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 5}
-	wishes, e := wish.NewService(api, logger, codec, nil, wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))})
+	wishes, e := wish.NewService(
+		api,
+		logger,
+		codec,
+		nil,
+		wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))},
+	)
 	must(e)
-	reviews, e := moderation.New(adminDB, logger, codec, moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100})
+	reviews, e := moderation.New(
+		adminDB,
+		logger,
+		codec,
+		moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100},
+	)
 	must(e)
 	provider := &analyzer{}
-	worker, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{MessageAnalyzer: privateAnalyzer{}, AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+	worker, e := moderation.NewWorker(
+		workerDB,
+		logger,
+		codec,
+		provider,
+		moderation.WorkerConfig{
+			MessageAnalyzer: privateAnalyzer{},
+			AnalysisTimeout: 5 * time.Second,
+			Consumer: durable.ConsumerConfig{
+				Timeout:     10 * time.Second,
+				LockTimeout: time.Second,
+				RetryDelay:  time.Millisecond,
+				MaxAttempts: 3,
+			},
+		},
+	)
 	must(e)
 	admin, adminToken := uuid.NewString(), uuid.NewString()
 	credential := "synthetic-application-reviewer"
 	must(root.Create(&entity.AdminAccount{ID: admin, CredentialRef: &credential}).Error)
 	must(root.Create(&entity.AdminRoleBinding{AdminID: admin, Role: "review_operator"}).Error)
 	hash := sha256.Sum256([]byte(adminToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &admin, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &admin,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	for _, item := range []struct{ kind, word string }{{"ordinary_violation", "普通命中"}, {"school", "学校命中"}, {"crisis", "危机命中"}} {
 		heads, e := reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -91,7 +123,13 @@ func TestStorySharing(t *testing.T) {
 				v = h.Version
 			}
 		}
-		draft, e := reviews.CreateWordlist(ctx, adminToken, uuid.NewString(), "rules", moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v})
+		draft, e := reviews.CreateWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v},
+		)
 		must(e)
 		heads, e = reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -100,7 +138,14 @@ func TestStorySharing(t *testing.T) {
 				v = h.Version
 			}
 		}
-		_, e = reviews.PublishWordlist(ctx, adminToken, uuid.NewString(), "rules", draft.ID, moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v})
+		_, e = reviews.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			draft.ID,
+			moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v},
+		)
 		must(e)
 	}
 	student := func() (string, string) {
@@ -108,13 +153,23 @@ func TestStorySharing(t *testing.T) {
 		id, token := uuid.NewString(), uuid.NewString()
 		must(root.Create(&entity.Account{ID: id, Nickname: "合成参与人", Verification: "verified"}).Error)
 		h := sha256.Sum256([]byte(token))
-		must(root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: h[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+		must(root.Create(&entity.Session{
+			ID:        uuid.NewString(),
+			AccountID: &id,
+			TokenHash: h[:],
+			AuthEpoch: 1,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}).Error)
 		return id, token
 	}
 	event := func(kind, id string) durable.Event {
 		t.Helper()
 		var out durable.Event
-		must(root.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`, kind, id).Scan(&out).Error)
+		must(root.Raw(
+			`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`,
+			kind,
+			id,
+		).Scan(&out).Error)
 		if out.EventID == "" {
 			t.Fatal("未原子创建审核工作")
 		}
@@ -130,7 +185,13 @@ func TestStorySharing(t *testing.T) {
 	}
 	published := func(token string) wish.CreatedDraft {
 		t.Helper()
-		out, e := wishes.Create(ctx, token, uuid.NewString(), "create", wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"})
+		out, e := wishes.Create(
+			ctx,
+			token,
+			uuid.NewString(),
+			"create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"},
+		)
 		must(e)
 		out, e = wishes.Submit(ctx, token, uuid.NewString(), "submit", out.ID, out.Version, out.ContentVersion)
 		must(e)
@@ -164,18 +225,37 @@ func TestStorySharing(t *testing.T) {
 	}
 	apply := func(token string, w wish.CreatedDraft, message string) wish.ApplicationResult {
 		t.Helper()
-		out, e := wishes.Apply(ctx, token, uuid.NewString(), "apply", w.ID, wish.ApplicationInput{Message: message, WishContentVersion: w.ContentVersion})
+		out, e := wishes.Apply(
+			ctx,
+			token,
+			uuid.NewString(),
+			"apply",
+			w.ID,
+			wish.ApplicationInput{Message: message, WishContentVersion: w.ContentVersion},
+		)
 		must(e)
 		return out
 	}
 	accept := func(owner string, w wish.CreatedDraft, app string) wish.MatchResult {
 		t.Helper()
 		a := appRow(app)
-		out, e := wishes.AcceptApplication(ctx, owner, uuid.NewString(), "accept", app, wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: wishRow(w.ID).Version})
+		out, e := wishes.AcceptApplication(
+			ctx,
+			owner,
+			uuid.NewString(),
+			"accept",
+			app,
+			wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: wishRow(w.ID).Version},
+		)
 		must(e)
 		return out
 	}
-	chats, e := chat.New(api, logger, codec, chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 64 << 10})
+	chats, e := chat.New(
+		api,
+		logger,
+		codec,
+		chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 64 << 10},
+	)
 	must(e)
 	type fixture struct {
 		ownerID, helperID, owner, helper string
@@ -194,7 +274,14 @@ func TestStorySharing(t *testing.T) {
 	}
 	send := func(f fixture, body string) chat.Accepted {
 		t.Helper()
-		out, e := chats.Send(ctx, f.owner, uuid.NewString(), "send", f.m.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: body, ExpectedWriteEpoch: 1})
+		out, e := chats.Send(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"send",
+			f.m.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: body, ExpectedWriteEpoch: 1},
+		)
 		must(e)
 		if out.Status != "pending_scan" || out.DeliverySeq != nil {
 			t.Fatal("提交提前送达")
@@ -231,7 +318,14 @@ func TestStorySharing(t *testing.T) {
 	}
 	submit := func(f fixture, body string) wish.StoryAccepted {
 		t.Helper()
-		out, e := wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "story", f.w.ID, wish.StoryInput{Body: body, WishExpectedVersion: wishRow(f.w.ID).Version})
+		out, e := wishes.SubmitStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"story",
+			f.w.ID,
+			wish.StoryInput{Body: body, WishExpectedVersion: wishRow(f.w.ID).Version},
+		)
 		must(e)
 		if out.Status != "pending_review" || out.WishState != wish.Fulfilled {
 			t.Fatal("还愿未先持久化fulfilled")
@@ -240,7 +334,14 @@ func TestStorySharing(t *testing.T) {
 	}
 	update := func(f fixture, body string) wish.StoryAccepted {
 		t.Helper()
-		out, e := wishes.UpdateStory(ctx, f.owner, uuid.NewString(), "edit-story", f.w.ID, wish.StoryUpdate{Body: body, ExpectedVersion: wishRow(f.w.ID).Version})
+		out, e := wishes.UpdateStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"edit-story",
+			f.w.ID,
+			wish.StoryUpdate{Body: body, ExpectedVersion: wishRow(f.w.ID).Version},
+		)
 		must(e)
 		return out
 	}
@@ -253,7 +354,14 @@ func TestStorySharing(t *testing.T) {
 	approve := func(id string) {
 		t.Helper()
 		tr := storyTask(id)
-		out, e := reviews.Decide(ctx, adminToken, uuid.NewString(), "approve-story", tr.ID, moderation.Decision{Decision: "approved", ExpectedVersion: tr.Version})
+		out, e := reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"approve-story",
+			tr.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: tr.Version},
+		)
 		must(e)
 		if out.BusinessOutcome != "published" {
 			t.Fatal("故事批准未公开", out)
@@ -281,7 +389,14 @@ func TestStorySharing(t *testing.T) {
 		if _, e = wishes.Complete(ctx, f.helper, uuid.NewString(), "foreign", f.w.ID, done.Version); e != command.ErrNotFound {
 			t.Fatal("应愿人可完成", e)
 		}
-		_, e = wishes.Rollback(ctx, f.owner, uuid.NewString(), "restore", f.w.ID, wish.RollbackInput{ExpectedVersion: done.Version, Target: wish.Matching})
+		_, e = wishes.Rollback(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"restore",
+			f.w.ID,
+			wish.RollbackInput{ExpectedVersion: done.Version, Target: wish.Matching},
+		)
 		must(e)
 		var c entity.Conversation
 		must(root.Where("id=?", f.m.ConversationID).Take(&c).Error)
@@ -293,11 +408,30 @@ func TestStorySharing(t *testing.T) {
 		f := matched()
 		a := send(f, "普通命中 延迟私聊")
 		entered, release := make(chan struct{}), make(chan struct{})
-		blocked, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}, MessageAnalyzer: privateAnalyzer{entered: entered, release: release}})
+		blocked, e := moderation.NewWorker(
+			workerDB,
+			logger,
+			codec,
+			provider,
+			moderation.WorkerConfig{
+				AnalysisTimeout: 5 * time.Second,
+				Consumer: durable.ConsumerConfig{
+					Timeout:     10 * time.Second,
+					LockTimeout: time.Second,
+					RetryDelay:  time.Millisecond,
+					MaxAttempts: 3,
+				},
+				MessageAnalyzer: privateAnalyzer{entered: entered, release: release},
+			},
+		)
 		must(e)
 		ev := event("message", a.MessageID)
 		result := make(chan error, 1)
-		go func() { _, e := blocked.Consume(ctx, ev); result <- e }()
+		go func() {
+
+			_, e := blocked.Consume(ctx, ev)
+			result <- e
+		}()
 		<-entered
 		complete(f)
 		close(release)
@@ -318,7 +452,14 @@ func TestStorySharing(t *testing.T) {
 			published(f.owner)
 		}
 		version := wishRow(f.w.ID).Version
-		if _, e = wishes.Rollback(ctx, f.owner, uuid.NewString(), "B01", f.w.ID, wish.RollbackInput{ExpectedVersion: version, Target: wish.Matching}); e != command.ErrActiveWishLimit {
+		if _, e = wishes.Rollback(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"B01",
+			f.w.ID,
+			wish.RollbackInput{ExpectedVersion: version, Target: wish.Matching},
+		); e != command.ErrActiveWishLimit {
 			t.Fatal("B01满额回退未拒绝", e)
 		}
 		own, e := wishes.Detail(ctx, f.owner, "actions", f.w.ID)
@@ -366,7 +507,9 @@ func TestStorySharing(t *testing.T) {
 			Data wish.ProfileContents `json:"data"`
 		}
 		must(json.Unmarshal(profileHTTP.Body.Bytes(), &profileEnvelope))
-		if profileEnvelope.Data.Profile.ID != f.ownerID || len(profileEnvelope.Data.Items) != 1 || profileEnvelope.Data.Items[0].Kind != "story" || profileEnvelope.Data.Items[0].Content.Body != public.Body {
+		if profileEnvelope.Data.Profile.ID != f.ownerID || len(profileEnvelope.Data.Items) != 1 ||
+			profileEnvelope.Data.Items[0].Kind != "story" ||
+			profileEnvelope.Data.Items[0].Content.Body != public.Body {
 			t.Fatal("主页未返回当前公开故事", profileEnvelope)
 		}
 		link, e := wishes.CreateShare(ctx, f.owner, "story-share-key", "share", wish.ShareInput{TargetKind: "story", ID: f.w.ID})
@@ -400,7 +543,8 @@ func TestStorySharing(t *testing.T) {
 		must(e)
 		resolved, e = wishes.ResolveShare(ctx, "", "school-share", link.Ref)
 		must(e)
-		if !public.SchoolRelated || public.NoticeText != "未经证实" || len(public.NoticeCodes) != 1 || resolved.Target.ContentVersion != 2 || resolved.Target.NoticeText != public.NoticeText {
+		if !public.SchoolRelated || public.NoticeText != "未经证实" || len(public.NoticeCodes) != 1 || resolved.Target.ContentVersion != 2 ||
+			resolved.Target.NoticeText != public.NoticeText {
 			t.Fatal("公开与分享涉校提示不一致")
 		}
 		out, e := wishes.WithdrawStory(ctx, f.owner, uuid.NewString(), "withdraw", f.w.ID, wishRow(f.w.ID).Version)
@@ -412,7 +556,14 @@ func TestStorySharing(t *testing.T) {
 		if _, e = wishes.ResolveShare(ctx, "", "withdrawn", link.Ref); e != command.ErrNotFound {
 			t.Fatal("撤回后分享可读", e)
 		}
-		if _, e = wishes.Rollback(ctx, f.owner, uuid.NewString(), "forbidden", f.w.ID, wish.RollbackInput{ExpectedVersion: out.Version, Target: wish.Matching}); e != command.ErrConflict {
+		if _, e = wishes.Rollback(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"forbidden",
+			f.w.ID,
+			wish.RollbackInput{ExpectedVersion: out.Version, Target: wish.Matching},
+		); e != command.ErrConflict {
 			t.Fatal("已还愿可回退", e)
 		}
 		update(f, "重新公开新稿")
@@ -427,11 +578,25 @@ func TestStorySharing(t *testing.T) {
 		submit(f, "普通命中")
 		scan("story", f.w.ID)
 		tr := storyTask(f.w.ID)
-		_, e := reviews.Decide(ctx, adminToken, uuid.NewString(), "reject", tr.ID, moderation.Decision{Decision: "rejected", ExpectedVersion: tr.Version, Reason: "合成原因", RevisionSuggestion: "合成建议"})
+		_, e := reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"reject",
+			tr.ID,
+			moderation.Decision{
+				Decision:           "rejected",
+				ExpectedVersion:    tr.Version,
+				Reason:             "合成原因",
+				RevisionSuggestion: "合成建议",
+			},
+		)
 		must(e)
 		own, e := wishes.Detail(ctx, f.owner, "own", f.w.ID)
 		must(e)
-		if own.State != wish.Fulfilled || own.StoryReviewResult == nil || own.StoryReviewResult.Decision != "rejected" || own.StoryReviewResult.Reason == nil || own.StoryReviewResult.RevisionSuggestion == nil {
+		if own.State != wish.Fulfilled || own.StoryReviewResult == nil || own.StoryReviewResult.Decision != "rejected" ||
+			own.StoryReviewResult.Reason == nil ||
+			own.StoryReviewResult.RevisionSuggestion == nil {
 			t.Fatal("本人故事审核状态不完整")
 		}
 		invisible(f.w.ID)
@@ -447,22 +612,57 @@ func TestStorySharing(t *testing.T) {
 	t.Run("空故事越权版本与非法状态", func(t *testing.T) {
 		f := matched()
 		for _, body := range []string{"", " \n\u3000", strings.Repeat("a", 65537)} {
-			if _, e = wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "empty", f.w.ID, wish.StoryInput{Body: body, WishExpectedVersion: wishRow(f.w.ID).Version}); e != command.ErrInvalid {
+			if _, e = wishes.SubmitStory(
+				ctx,
+				f.owner,
+				uuid.NewString(),
+				"empty",
+				f.w.ID,
+				wish.StoryInput{Body: body, WishExpectedVersion: wishRow(f.w.ID).Version},
+			); e != command.ErrInvalid {
 				t.Fatal("无效故事通过", e)
 			}
 		}
-		if _, e = wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "matching", f.w.ID, wish.StoryInput{Body: "故事", WishExpectedVersion: wishRow(f.w.ID).Version}); e != command.ErrConflict {
+		if _, e = wishes.SubmitStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"matching",
+			f.w.ID,
+			wish.StoryInput{Body: "故事", WishExpectedVersion: wishRow(f.w.ID).Version},
+		); e != command.ErrConflict {
 			t.Fatal("未实现可还愿", e)
 		}
 		complete(f)
-		if _, e = wishes.SubmitStory(ctx, f.helper, uuid.NewString(), "foreign", f.w.ID, wish.StoryInput{Body: "故事", WishExpectedVersion: wishRow(f.w.ID).Version}); e != command.ErrNotFound {
+		if _, e = wishes.SubmitStory(
+			ctx,
+			f.helper,
+			uuid.NewString(),
+			"foreign",
+			f.w.ID,
+			wish.StoryInput{Body: "故事", WishExpectedVersion: wishRow(f.w.ID).Version},
+		); e != command.ErrNotFound {
 			t.Fatal("非作者还愿", e)
 		}
-		if _, e = wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "stale", f.w.ID, wish.StoryInput{Body: "故事", WishExpectedVersion: 1}); e != command.ErrVersionConflict {
+		if _, e = wishes.SubmitStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"stale",
+			f.w.ID,
+			wish.StoryInput{Body: "故事", WishExpectedVersion: 1},
+		); e != command.ErrVersionConflict {
 			t.Fatal("旧版本通过", e)
 		}
 		submit(f, "正常")
-		if _, e = wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "duplicate", f.w.ID, wish.StoryInput{Body: "重复", WishExpectedVersion: wishRow(f.w.ID).Version}); e != command.ErrConflict {
+		if _, e = wishes.SubmitStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"duplicate",
+			f.w.ID,
+			wish.StoryInput{Body: "重复", WishExpectedVersion: wishRow(f.w.ID).Version},
+		); e != command.ErrConflict {
 			t.Fatal("重复首次还愿", e)
 		}
 	})
@@ -476,7 +676,14 @@ func TestStorySharing(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, e := wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "concurrent", f.w.ID, wish.StoryInput{Body: "并发故事", WishExpectedVersion: version})
+				_, e := wishes.SubmitStory(
+					ctx,
+					f.owner,
+					uuid.NewString(),
+					"concurrent",
+					f.w.ID,
+					wish.StoryInput{Body: "并发故事", WishExpectedVersion: version},
+				)
 				errs <- e
 			}()
 		}
@@ -497,7 +704,14 @@ func TestStorySharing(t *testing.T) {
 		version = wishRow(f.w.ID).Version
 		_, e := wishes.UpdateStory(ctx, f.owner, key, "same", f.w.ID, wish.StoryUpdate{Body: "幂等", ExpectedVersion: version})
 		must(e)
-		if _, e = wishes.UpdateStory(ctx, f.owner, key, "different", f.w.ID, wish.StoryUpdate{Body: "不同", ExpectedVersion: version}); e != command.ErrIdempotencyConflict {
+		if _, e = wishes.UpdateStory(
+			ctx,
+			f.owner,
+			key,
+			"different",
+			f.w.ID,
+			wish.StoryUpdate{Body: "不同", ExpectedVersion: version},
+		); e != command.ErrIdempotencyConflict {
 			t.Fatal("同键不同正文通过", e)
 		}
 	})
@@ -506,7 +720,14 @@ func TestStorySharing(t *testing.T) {
 		complete(f)
 		version := wishRow(f.w.ID).Version
 		must(root.Exec("REVOKE INSERT ON public.outbox_events FROM liyuanci_api").Error)
-		_, failure := wishes.SubmitStory(ctx, f.owner, uuid.NewString(), "rollback", f.w.ID, wish.StoryInput{Body: "失败故事", WishExpectedVersion: version})
+		_, failure := wishes.SubmitStory(
+			ctx,
+			f.owner,
+			uuid.NewString(),
+			"rollback",
+			f.w.ID,
+			wish.StoryInput{Body: "失败故事", WishExpectedVersion: version},
+		)
 		must(root.Exec("GRANT INSERT ON public.outbox_events TO liyuanci_api").Error)
 		if failure == nil || wishRow(f.w.ID).State != "realized" || wishRow(f.w.ID).CurrentStoryVersion != 0 {
 			t.Fatal("失败还愿未回滚")
@@ -580,10 +801,18 @@ func TestStorySharing(t *testing.T) {
 			if e != nil {
 				return e
 			}
-			if e = db.Model(&entity.Account{}).Where("id=?", f.helperID).Updates(map[string]any{"lifecycle": "deleting", "auth_epoch": gorm.Expr("auth_epoch+1")}).Error; e != nil {
+			if e = db.Model(&entity.Account{}).Where("id=?", f.helperID).
+				Updates(map[string]any{"lifecycle": "deleting", "auth_epoch": gorm.Expr("auth_epoch+1")}).
+				Error; e != nil {
 				return e
 			}
-			return db.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: "story", TargetID: f.w.ID, HoldEpoch: epoch, RequiredContentVersion: required}).Error
+			return db.Create(&entity.PrivacyHold{
+				ID:                     uuid.NewString(),
+				TargetKind:             "story",
+				TargetID:               f.w.ID,
+				HoldEpoch:              epoch,
+				RequiredContentVersion: required,
+			}).Error
 		}))
 	}
 	t.Run("隐私屏障暂停清理隐藏新脱敏版本才恢复", func(t *testing.T) {
@@ -624,7 +853,14 @@ func TestStorySharing(t *testing.T) {
 		if tr.Status != "human_required" {
 			t.Fatal("隐私新稿未强制人工复核")
 		}
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "privacy-review", tr.ID, moderation.Decision{Decision: "approved", ExpectedVersion: tr.Version})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"privacy-review",
+			tr.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: tr.Version},
+		)
 		must(e)
 		if _, e = wishes.ResolveShare(ctx, "", "new-public", link.Ref); e != nil {
 			t.Fatal("新脱敏审核不能恢复分享", e)
@@ -642,11 +878,33 @@ func TestStorySharing(t *testing.T) {
 		ev := event("story", f.w.ID)
 		entered, release := make(chan struct{}), make(chan struct{})
 		blocking := &analyzer{}
-		blocking.set(false, func() { close(entered); <-release })
-		other, e := moderation.NewWorker(workerDB, logger, codec, blocking, moderation.WorkerConfig{AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+		blocking.set(false, func() {
+
+			close(entered)
+			<-release
+		})
+		other, e := moderation.NewWorker(
+			workerDB,
+			logger,
+			codec,
+			blocking,
+			moderation.WorkerConfig{
+				AnalysisTimeout: 5 * time.Second,
+				Consumer: durable.ConsumerConfig{
+					Timeout:     10 * time.Second,
+					LockTimeout: time.Second,
+					RetryDelay:  time.Millisecond,
+					MaxAttempts: 3,
+				},
+			},
+		)
 		must(e)
 		result := make(chan error, 1)
-		go func() { _, e := other.Consume(ctx, ev); result <- e }()
+		go func() {
+
+			_, e := other.Consume(ctx, ev)
+			result <- e
+		}()
 		<-entered
 		deletion(f, 1, 2)
 		close(release)
@@ -670,7 +928,13 @@ func TestStorySharing(t *testing.T) {
 		f = matched()
 		complete(f)
 		submit(f, "待审")
-		must(root.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: "wish", TargetID: f.w.ID, HoldEpoch: 1, RequiredContentVersion: 2}).Error)
+		must(root.Create(&entity.PrivacyHold{
+			ID:                     uuid.NewString(),
+			TargetKind:             "wish",
+			TargetID:               f.w.ID,
+			HoldEpoch:              1,
+			RequiredContentVersion: 2,
+		}).Error)
 		cancelled, e := worker.Consume(ctx, event("story", f.w.ID))
 		must(e)
 		if !cancelled.Cancelled || cancelled.Applied {
@@ -732,7 +996,13 @@ func TestStorySharing(t *testing.T) {
 		if out := request("POST", base+"/complete", f.owner, string(body)); out.Code != 200 {
 			t.Fatal("完成HTTP失败", out.Code)
 		}
-		for _, bad := range []string{`{"body":"x"}`, `{"body":null,"wish_expected_version":1}`, `{"body":"x","body":"y","wish_expected_version":1}`, `{"Body":"x","wish_expected_version":1}`, `{"body":"x","wish_expected_version":1,"state":"fulfilled"}`} {
+		for _, bad := range []string{
+			`{"body":"x"}`,
+			`{"body":null,"wish_expected_version":1}`,
+			`{"body":"x","body":"y","wish_expected_version":1}`,
+			`{"Body":"x","wish_expected_version":1}`,
+			`{"body":"x","wish_expected_version":1,"state":"fulfilled"}`,
+		} {
 			if out := request("POST", base+"/stories", f.owner, bad); out.Code != 400 {
 				t.Fatal("非法故事字段未拒绝", out.Code)
 			}
@@ -772,7 +1042,9 @@ func TestStorySharing(t *testing.T) {
 	})
 
 	var missing int64
-	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
+	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).
+		Scan(&missing).
+		Error)
 	if missing != 0 {
 		t.Fatal("数据库对象注释缺失")
 	}

@@ -39,6 +39,7 @@ func (s *Service) decrypt(ctx context.Context, purpose, id string, version int64
 	}
 	return nil
 }
+
 func (s *Service) encrypt(ctx context.Context, purpose, id string, version int64, v any) (json.RawMessage, error) {
 	b, e := json.Marshal(v)
 	if e != nil {
@@ -51,6 +52,7 @@ func (s *Service) encrypt(ctx context.Context, purpose, id string, version int64
 	}
 	return json.Marshal(env)
 }
+
 func (s *Service) redact(ctx context.Context, kind, body string) (out string, err error) {
 	defer func() {
 		if recover() != nil {
@@ -71,6 +73,7 @@ func (s *Service) redact(ctx context.Context, kind, body string) (out string, er
 	}
 	return
 }
+
 func (s *Service) prepareRedactions(ctx context.Context, in Intent) (out []redaction, err error) {
 	if in.Scope != "account" {
 		return nil, nil
@@ -78,7 +81,11 @@ func (s *Service) prepareRedactions(ctx context.Context, in Intent) (out []redac
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
 	var rows []entity.Wish
-	if err = s.db.WithContext(ctx).Where("owner_id<>? AND id IN (SELECT wish_id FROM public.matches WHERE helper_id=?)", in.Target, in.Target).Find(&rows).Error; err != nil {
+	if err = s.db.WithContext(ctx).Where(
+		"owner_id<>? AND id IN (SELECT wish_id FROM public.matches WHERE helper_id=?)",
+		in.Target,
+		in.Target,
+	).Find(&rows).Error; err != nil {
 		return
 	}
 	for _, w := range rows {
@@ -139,7 +146,9 @@ func (s *Service) applyRedactions(ctx context.Context, db *gorm.DB, rows []redac
 			if e != nil {
 				return e
 			}
-			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", w.ID, v.ContentVersion).Update("body_cipher", raw).Error; e != nil {
+			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", w.ID, v.ContentVersion).
+				Update("body_cipher", raw).
+				Error; e != nil {
 				return e
 			}
 		}
@@ -155,7 +164,9 @@ func (s *Service) applyRedactions(ctx context.Context, db *gorm.DB, rows []redac
 			if e != nil {
 				return e
 			}
-			if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", w.ID, v.StoryVersion).Updates(map[string]any{"body_cipher": raw, "source_match_id": nil, "peer_epoch": nil}).Error; e != nil {
+			if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", w.ID, v.StoryVersion).
+				Updates(map[string]any{"body_cipher": raw, "source_match_id": nil, "peer_epoch": nil}).
+				Error; e != nil {
 				return e
 			}
 		}
@@ -163,7 +174,8 @@ func (s *Service) applyRedactions(ctx context.Context, db *gorm.DB, rows []redac
 		if e := db.Exec("DELETE FROM public.moderation_scans WHERE task_id IN ("+taskSub+")", w.ID).Error; e != nil {
 			return e
 		}
-		if e := db.Exec("UPDATE public.moderation_tasks SET reason=NULL,revision_suggestion=NULL,decision=NULL WHERE id IN ("+taskSub+")", w.ID).Error; e != nil {
+		if e := db.Exec("UPDATE public.moderation_tasks SET reason=NULL,revision_suggestion=NULL,decision=NULL WHERE id IN ("+taskSub+")", w.ID).
+			Error; e != nil {
 			return e
 		}
 		next := w.CurrentContentVersion + 1
@@ -175,10 +187,24 @@ func (s *Service) applyRedactions(ctx context.Context, db *gorm.DB, rows []redac
 		if e != nil {
 			return e
 		}
-		if e = db.Create(&entity.ContentRegistry{ID: uuid.NewString(), Kind: "wish", EntityID: w.ID, ContentVersion: next, AuthorID: w.OwnerID, SchoolDetectionVersion: "pending"}).Error; e != nil {
+		if e = db.Create(&entity.ContentRegistry{
+			ID:                     uuid.NewString(),
+			Kind:                   "wish",
+			EntityID:               w.ID,
+			ContentVersion:         next,
+			AuthorID:               w.OwnerID,
+			SchoolDetectionVersion: "pending",
+		}).Error; e != nil {
 			return e
 		}
-		if e = db.Create(&entity.WishVersion{WishID: w.ID, ContentVersion: next, BodyCipher: raw, IdentityTags: emptyJSON(), RewardMethod: r.content.RewardMethod, SchoolDetectionVersion: "pending"}).Error; e != nil {
+		if e = db.Create(&entity.WishVersion{
+			WishID:                 w.ID,
+			ContentVersion:         next,
+			BodyCipher:             raw,
+			IdentityTags:           emptyJSON(),
+			RewardMethod:           r.content.RewardMethod,
+			SchoolDetectionVersion: "pending",
+		}).Error; e != nil {
 			return e
 		}
 		state := "withdrawn"
@@ -192,10 +218,25 @@ func (s *Service) applyRedactions(ctx context.Context, db *gorm.DB, rows []redac
 			if e != nil {
 				return e
 			}
-			if e = db.Create(&entity.ContentRegistry{ID: uuid.NewString(), Kind: "story", EntityID: w.ID, ContentVersion: snext, AuthorID: w.OwnerID, SchoolDetectionVersion: "pending"}).Error; e != nil {
+			if e = db.Create(&entity.ContentRegistry{
+				ID:                     uuid.NewString(),
+				Kind:                   "story",
+				EntityID:               w.ID,
+				ContentVersion:         snext,
+				AuthorID:               w.OwnerID,
+				SchoolDetectionVersion: "pending",
+			}).Error; e != nil {
 				return e
 			}
-			if e = db.Create(&entity.StoryVersion{WishID: w.ID, StoryVersion: snext, AuthorID: w.OwnerID, BodyCipher: body, IdentityTags: emptyJSON(), SchoolDetectionVersion: "pending", ParentHoldEpoch: holds.ParentEpoch}).Error; e != nil {
+			if e = db.Create(&entity.StoryVersion{
+				WishID:                 w.ID,
+				StoryVersion:           snext,
+				AuthorID:               w.OwnerID,
+				BodyCipher:             body,
+				IdentityTags:           emptyJSON(),
+				SchoolDetectionVersion: "pending",
+				ParentHoldEpoch:        holds.ParentEpoch,
+			}).Error; e != nil {
 				return e
 			}
 			updates["current_story_version"] = snext

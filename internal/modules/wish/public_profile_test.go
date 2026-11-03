@@ -32,20 +32,60 @@ func TestPostgresPublicProfile(t *testing.T) {
 	f.create() // 本人草稿也不得进入主页。
 	position := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	f.exec("UPDATE public.wishes SET published_at=? WHERE id IN (?,?)", position, first.ID, second.ID)
-	f.exec(`UPDATE public.wish_versions SET identity_tags='{"gender":"female"}' WHERE wish_id IN (?,?)`, first.ID, second.ID)
+	f.exec(
+		`UPDATE public.wish_versions SET identity_tags='{"gender":"female"}' WHERE wish_id IN (?,?)`,
+		first.ID,
+		second.ID,
+	)
 	f.exec("UPDATE public.wishes SET state='fulfilled',current_story_version=1 WHERE id=?", story.ID)
 	registry, task := uuid.NewString(), uuid.NewString()
 	no, approved, epoch := false, "approved", int64(1)
-	if e := f.root.Create(&entity.ContentRegistry{ID: registry, Kind: "story", EntityID: story.ID, AuthorID: f.owner, ContentVersion: 1, Status: approved, SchoolRelated: &no, SchoolDetectionState: "completed", SchoolDetectionVersion: "synthetic"}).Error; e != nil {
+	if e := f.root.Create(&entity.ContentRegistry{
+		ID:                     registry,
+		Kind:                   "story",
+		EntityID:               story.ID,
+		AuthorID:               f.owner,
+		ContentVersion:         1,
+		Status:                 approved,
+		SchoolRelated:          &no,
+		SchoolDetectionState:   "completed",
+		SchoolDetectionVersion: "synthetic",
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
-	if e := f.root.Create(&entity.ModerationTask{ID: task, ContentID: registry, ContentVersion: 1, SubjectEpoch: 1, HoldEpoch: 1, RestrictionEpoch: &epoch, Status: approved, Decision: &approved}).Error; e != nil {
+	if e := f.root.Create(&entity.ModerationTask{
+		ID:               task,
+		ContentID:        registry,
+		ContentVersion:   1,
+		SubjectEpoch:     1,
+		HoldEpoch:        1,
+		RestrictionEpoch: &epoch,
+		Status:           approved,
+		Decision:         &approved,
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
-	if e := f.root.Create(&entity.StoryVersion{WishID: story.ID, StoryVersion: 1, AuthorID: f.owner, BodyCipher: json.RawMessage(`{}`), PublicBody: pointer("合成已审故事"), ModerationStatus: approved, SchoolRelated: &no, SchoolDetectionState: "completed", SchoolDetectionVersion: "synthetic", ReviewTaskID: &task, IdentityTags: json.RawMessage(`{"gender":"female"}`), PublishedAt: &position}).Error; e != nil {
+	if e := f.root.Create(&entity.StoryVersion{
+		WishID:                 story.ID,
+		StoryVersion:           1,
+		AuthorID:               f.owner,
+		BodyCipher:             json.RawMessage(`{}`),
+		PublicBody:             pointer("合成已审故事"),
+		ModerationStatus:       approved,
+		SchoolRelated:          &no,
+		SchoolDetectionState:   "completed",
+		SchoolDetectionVersion: "synthetic",
+		ReviewTaskID:           &task,
+		IdentityTags:           json.RawMessage(`{"gender":"female"}`),
+		PublishedAt:            &position,
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
-	f.exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version,status,released_at) VALUES (?,'story',?,1,1,'released',clock_timestamp())", uuid.NewString(), story.ID)
+	f.exec(
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version,status,released_at) VALUES (?,'story',?,1,1,'released',clock_timestamp())",
+		uuid.NewString(),
+		story.ID,
+	)
 	read := func(token, target, cursor string, limit int) ProfileContents {
 		t.Helper()
 		out, e := s.PublicProfile(ctx, token, "profile-test", target, cursor, limit)
@@ -114,7 +154,11 @@ func TestPostgresPublicProfile(t *testing.T) {
 			t.Fatal("隐藏标签泄漏")
 		}
 	}
-	f.exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'wish',?,1,1)", uuid.NewString(), first.ID)
+	f.exec(
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'wish',?,1,1)",
+		uuid.NewString(),
+		first.ID,
+	)
 	f.exec("UPDATE public.wishes SET expires_at=clock_timestamp()-interval '1 second' WHERE id=?", second.ID)
 	f.exec("UPDATE public.story_versions SET withdrawn_at=clock_timestamp() WHERE wish_id=?", story.ID)
 	empty := read(f.token, f.owner, "", 50)

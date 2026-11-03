@@ -27,7 +27,12 @@ func (a Analyzer) Analyze(ctx context.Context, input wish.Content) (out moderati
 	// 调用本适配器前已完成词库筛选；人工模式对命中或重审保留原文/标签，生成必须复核候选。
 	if a.Manual {
 		a.Logger.Info("开发内容提交人工复核", zap.Bool("manual_review", true), zap.String("result", "success"))
-		return moderation.Assessment{Body: input.Body, Tags: input.IdentityTags, OrdinaryHit: true, DetectorVersion: "development-manual-v1"}, nil
+		return moderation.Assessment{
+			Body:            input.Body,
+			Tags:            input.IdentityTags,
+			OrdinaryHit:     true,
+			DetectorVersion: "development-manual-v1",
+		}, nil
 	}
 	if !a.Synthetic {
 		return out, command.ErrUnavailable

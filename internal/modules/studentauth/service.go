@@ -92,7 +92,10 @@ type Service struct {
 
 // New 仅构造显式服务，不初始化检索密钥、执行迁移或创建默认账号。
 func New(db *gorm.DB, logger *zap.Logger, exchange Exchanger, identity Resolver, limiter Limiter, cfg Config) (*Service, error) {
-	if logger == nil || exchange == nil || identity == nil || limiter == nil || len(cfg.SessionKey) < 32 || cfg.SessionTTL < time.Millisecond || cfg.ExchangeTTL < time.Millisecond || cfg.ExchangeTTL > cfg.SessionTTL {
+	if logger == nil || exchange == nil || identity == nil || limiter == nil || len(cfg.SessionKey) < 32 ||
+		cfg.SessionTTL < time.Millisecond ||
+		cfg.ExchangeTTL < time.Millisecond ||
+		cfg.ExchangeTTL > cfg.SessionTTL {
 		return nil, command.ErrInvalid
 	}
 	engine, err := command.New(db, logger, cfg.Command)
@@ -100,7 +103,15 @@ func New(db *gorm.DB, logger *zap.Logger, exchange Exchanger, identity Resolver,
 		return nil, err
 	}
 	cfg.SessionKey = slices.Clone(cfg.SessionKey)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: engine, logger: logger, exchange: exchange, identity: identity, limiter: limiter, config: cfg}, nil
+	return &Service{
+		db:       db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine:   engine,
+		logger:   logger,
+		exchange: exchange,
+		identity: identity,
+		limiter:  limiter,
+		config:   cfg,
+	}, nil
 }
 
 func (s *Service) digest(scope string, value []byte) []byte {
@@ -120,14 +131,30 @@ func (s *Service) complete(operation, requestID string, start time.Time, err err
 	}) {
 		requestID = ""
 	}
-	s.logger.Info("学生身份操作完成", zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.logger.Info(
+		"学生身份操作完成",
+		zap.String("operation", operation),
+		zap.String("request_id", requestID),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 func safe(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrConflict, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrInternal, ErrRateLimited} {
+	for _, known := range []error{
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrNotFound,
+		command.ErrConflict,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrInternal,
+		ErrRateLimited,
+	} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -322,11 +349,19 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 		return out, command.ErrInvalid
 	}
 	definition := command.Definition{
-		Kind: "student.profile", Method: "PUT", ResourcePath: "/api/v1/me/profile", ActorKind: "student", Access: command.Ordinary,
+
+		Kind:         "student.profile",
+		Method:       "PUT",
+		ResourcePath: "/api/v1/me/profile",
+		ActorKind:    "student",
+		Access:       command.Ordinary,
+
 		Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 			return command.Discovery{}, nil
 		},
+
 		Authorize: func(context.Context, *command.Tx) error { return nil },
+
 		Apply: func(ctx context.Context, tx *command.Tx) (string, error) {
 			guard, ok := tx.Guard(tx.Actor().ID)
 			if !ok {
@@ -337,13 +372,18 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 			}
 			return guard.ID, replaceProfile(ctx, tx.DB(), guard.ID, input)
 		},
+
 		Resolve: func(ctx context.Context, tx *command.Tx, id string) error {
 			var e error
 			out, e = s.project(ctx, tx.DB(), id, tx.Now())
 			return e
 		},
 	}
-	_, err = s.engine.Execute(ctx, definition, command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input})
+	_, err = s.engine.Execute(
+		ctx,
+		definition,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input},
+	)
 	return out, err
 }
 
@@ -384,14 +424,22 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 	if e == nil && s.config.StudentCardAssets && slices.Contains(out.AllowedActions, "putMeProfile") {
 		out.AllowedActions = append(out.AllowedActions, "postMeStudentCardAssets")
 	}
-	if e == nil && s.config.VerificationRequests && slices.Contains(out.AllowedActions, "putMeProfile") && (out.Verification == "unverified" || out.Verification == "rejected") {
+	if e == nil && s.config.VerificationRequests && slices.Contains(out.AllowedActions, "putMeProfile") &&
+		(out.Verification == "unverified" || out.Verification == "rejected") {
 		out.AllowedActions = append(out.AllowedActions, "postMeVerificationRequests")
 	}
 	if e == nil && s.config.Wishes && out.Verification == "verified" && slices.Contains(out.AllowedActions, "putMeProfile") {
 		out.AllowedActions = append(out.AllowedActions, "postWishes")
 	}
 	if e == nil && s.config.Safety {
-		out.AllowedActions = append(out.AllowedActions, "postMeAppeals", "getMeAppeals", "getMeWarnings", "postMeWarningsIdDisplay", "postMeWarningsIdAck")
+		out.AllowedActions = append(
+			out.AllowedActions,
+			"postMeAppeals",
+			"getMeAppeals",
+			"getMeWarnings",
+			"postMeWarningsIdDisplay",
+			"postMeWarningsIdAck",
+		)
 		if slices.Contains(out.AllowedActions, "putMeProfile") {
 			// 解除提示归属当前Me，具体目标和版本仍取本人黑名单条目，不发送历史别名。
 			enabled, failure := blockpolicy.Enabled(ctx, db)

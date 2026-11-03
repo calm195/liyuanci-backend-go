@@ -26,7 +26,18 @@ func (g *Business) ReadyFor(ctx context.Context, process string) error {
 	ops := []string{"wrap", "unwrap", "redact", "erase"}
 	switch process {
 	case "api":
-		ops = append(ops, "identity_digest", "object_put", "object_open", "image_scan", "school_validate", "public_analysis", "private_classify", "content_analysis", "notify")
+		ops = append(
+			ops,
+			"identity_digest",
+			"object_put",
+			"object_open",
+			"image_scan",
+			"school_validate",
+			"public_analysis",
+			"private_classify",
+			"content_analysis",
+			"notify",
+		)
 	case "bootstrap":
 		ops = append(ops, "identity_digest")
 	case "card":
@@ -95,7 +106,12 @@ type privateObject struct {
 }
 
 // Close 清除当前对象的响应缓冲，调用后不能继续读取该版本。
-func (o *privateObject) Close() error { clear(o.data); o.Reader.Reset(nil); return nil }
+func (o *privateObject) Close() error {
+
+	clear(o.data)
+	o.Reader.Reset(nil)
+	return nil
+}
 
 // Scan 要求供应商返回明确结论与检测版本，缺字段不能视作通过。
 func (g *Business) Scan(ctx context.Context, data []byte, mediaType string) (bool, error) {

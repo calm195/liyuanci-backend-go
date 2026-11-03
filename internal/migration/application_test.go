@@ -150,7 +150,9 @@ func TestPostgresApplicationMigrations(t *testing.T) {
 		t.Fatal("非空资料回退应被拒绝", err)
 	}
 	var forced bool
-	if err := db.Raw("SELECT relforcerowsecurity FROM pg_class WHERE oid='public.resource_categories'::regclass").Scan(&forced).Error; err != nil || !forced {
+	if err := db.Raw("SELECT relforcerowsecurity FROM pg_class WHERE oid='public.resource_categories'::regclass").
+		Scan(&forced).
+		Error; err != nil || !forced {
 		t.Fatal("失败回退未恢复RLS", err)
 	}
 	if err := ApplyApplicationPermissions(ctx, db, log); err != nil {
@@ -178,7 +180,9 @@ func TestPostgresApplicationMigrations(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		var waiting int64
-		if err := admin.Raw("SELECT count(*) FROM pg_locks WHERE relation='public.resource_categories'::regclass AND mode='AccessExclusiveLock' AND NOT granted").Scan(&waiting).Error; err != nil {
+		if err := admin.Raw("SELECT count(*) FROM pg_locks WHERE relation='public.resource_categories'::regclass AND mode='AccessExclusiveLock' AND NOT granted").
+			Scan(&waiting).
+			Error; err != nil {
 			t.Fatal(err)
 		}
 		if waiting > 0 {

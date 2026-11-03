@@ -58,6 +58,7 @@ func validID(s string) bool {
 	ok, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, s)
 	return ok
 }
+
 func validRoute(r Route) bool {
 	for _, value := range []string{r.Kind, r.TargetKind, r.EventType} {
 		ok, _ := regexp.MatchString(`^[a-z][a-z0-9_.]{0,63}$`, value)
@@ -82,7 +83,10 @@ func Append(ctx context.Context, tx *gorm.DB, logger *zap.Logger, route Route, d
 		}
 		logger.Info("持久工作暂存完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
 	}()
-	if tx == nil || tx.Statement == nil || !validRoute(route) || !validID(draft.WorkID) || !validID(draft.OperationID) || !validID(draft.EventID) || !validID(draft.AggregateID) || draft.AggregateVersion <= 0 {
+	if tx == nil || tx.Statement == nil || !validRoute(route) || !validID(draft.WorkID) || !validID(draft.OperationID) ||
+		!validID(draft.EventID) ||
+		!validID(draft.AggregateID) ||
+		draft.AggregateVersion <= 0 {
 		return ErrInvalid
 	}
 	if _, ok := tx.Statement.ConnPool.(gorm.TxCommitter); !ok {
@@ -124,13 +128,25 @@ type Relay struct {
 
 // NewRelay 拒绝外部事务，外部发送只能发生在领取事务提交之后。
 func NewRelay(db *gorm.DB, logger *zap.Logger, sender Sender, route Route, config Config) (*Relay, error) {
-	if db == nil || db.Statement == nil || logger == nil || sender == nil || !validRoute(route) || config.DatabaseTimeout <= 0 || config.SendTimeout <= 0 || config.LeaseDuration < time.Millisecond || config.LeaseDuration <= config.SendTimeout || config.RetryDelay < time.Millisecond || config.MaxAttempts < 1 || config.MaxAttempts > 1000 {
+	if db == nil || db.Statement == nil || logger == nil || sender == nil || !validRoute(route) || config.DatabaseTimeout <= 0 ||
+		config.SendTimeout <= 0 ||
+		config.LeaseDuration < time.Millisecond ||
+		config.LeaseDuration <= config.SendTimeout ||
+		config.RetryDelay < time.Millisecond ||
+		config.MaxAttempts < 1 ||
+		config.MaxAttempts > 1000 {
 		return nil, ErrInvalid
 	}
 	if _, ok := db.Statement.ConnPool.(gorm.TxCommitter); ok {
 		return nil, ErrInvalid
 	}
-	return &Relay{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), logger: logger, sender: sender, config: config, route: route}, nil
+	return &Relay{
+		db:     db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		logger: logger,
+		sender: sender,
+		config: config,
+		route:  route,
+	}, nil
 }
 
 type lease struct {
@@ -150,7 +166,12 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		if err != nil {
 			result = "failure"
 		}
-		r.logger.Info("发件箱转发完成", zap.String("result", result), zap.Bool("claimed", claimed), zap.Duration("duration", time.Since(start)))
+		r.logger.Info(
+			"发件箱转发完成",
+			zap.String("result", result),
+			zap.Bool("claimed", claimed),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	var item lease
 	err = r.transaction(ctx, func(tx *gorm.DB) error {
@@ -159,7 +180,9 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		if failure := tx.Raw(`SELECT w.id AS work_id,e.event_id FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id
  WHERE w.kind=? AND w.target_kind=? AND e.event_type=? AND w.status IN ('pending','retry_wait','leased')
  AND e.superseded_at IS NULL AND e.sent_at IS NULL AND e.next_at<=clock_timestamp() AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
- ORDER BY e.next_at,e.event_id LIMIT 1 FOR UPDATE OF w SKIP LOCKED`, r.route.Kind, r.route.TargetKind, r.route.EventType).Scan(&candidates).Error; failure != nil {
+ ORDER BY e.next_at,e.event_id LIMIT 1 FOR UPDATE OF w SKIP LOCKED`, r.route.Kind, r.route.TargetKind, r.route.EventType).
+			Scan(&candidates).
+			Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(candidates) == 0 {
@@ -169,7 +192,9 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		var rows []lease
 		if failure := tx.Raw(`UPDATE public.outbox_events SET lease_until=clock_timestamp()+(? * interval '1 millisecond'),attempts=attempts+1
  WHERE event_id=? AND superseded_at IS NULL AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<=clock_timestamp())
- RETURNING event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at,attempts`, r.config.LeaseDuration.Milliseconds(), candidates[0].EventID).Scan(&rows).Error; failure != nil {
+ RETURNING event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at,attempts`, r.config.LeaseDuration.Milliseconds(), candidates[0].EventID).
+			Scan(&rows).
+			Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(rows) != 1 {
@@ -179,10 +204,14 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 		}
 		// 上次发送在确认前中断也占一次尝试；重领时先耗尽检查，防止持续崩溃无限发送。
 		if rows[0].Attempts > r.config.MaxAttempts {
-			if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", rows[0].CorrelationID).Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).Error; failure != nil {
+			if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", rows[0].CorrelationID).
+				Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).
+				Error; failure != nil {
 				return ErrUnavailable
 			}
-			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", rows[0].EventID).Updates(map[string]any{"lease_until": nil}).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", rows[0].EventID).
+				Updates(map[string]any{"lease_until": nil}).
+				Error; failure != nil {
 				return ErrUnavailable
 			}
 			result = "attention"
@@ -228,16 +257,23 @@ func (r *Relay) Once(ctx context.Context) (claimed bool, err error) {
 			return ErrLeaseLost
 		}
 		if sendErr == nil {
-			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).Updates(map[string]any{"sent_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).
+				Updates(map[string]any{"sent_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).
+				Error; failure != nil {
 				return ErrUnavailable
 			}
 		} else {
-			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).Updates(map[string]any{"lease_until": nil, "next_at": gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", r.config.RetryDelay.Milliseconds())}).Error; failure != nil {
+			if failure := tx.Model(&entity.OutboxEvent{}).Where("event_id=?", item.EventID).Updates(map[string]any{
+				"lease_until": nil,
+				"next_at":     gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", r.config.RetryDelay.Milliseconds()),
+			}).Error; failure != nil {
 				return ErrUnavailable
 			}
 			// 异常待办不得把 cancelled/completed 工作恢复；解除待办须由后续领域命令重新授权。
 			if attention {
-				if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", item.CorrelationID).Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).Error; failure != nil {
+				if failure := tx.Model(&entity.WorkItem{}).Where("id=? AND status NOT IN ('cancelled','completed','attention')", item.CorrelationID).
+					Updates(map[string]any{"status": "attention", "version": gorm.Expr("version+1")}).
+					Error; failure != nil {
 					return ErrUnavailable
 				}
 			}

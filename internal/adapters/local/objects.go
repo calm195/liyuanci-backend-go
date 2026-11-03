@@ -33,7 +33,12 @@ func completed(log *zap.Logger, operation string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	log.Info("开发资源操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	log.Info(
+		"开发资源操作完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // Wrap 使用固定开发用途封装数据密钥，随机nonce不改变持久引用。

@@ -16,7 +16,19 @@ func TestTextContract(t *testing.T) {
 	for _, v := range []struct {
 		kind, value, want string
 		valid             bool
-	}{{"title", "\u3000ABC\u00a0", "ABC", true}, {"description", "a\r\nb\rc", "a\nb\nc", true}, {"title", "a\nb", "", false}, {"download_url", " HTTPS://example.test/a?x=%2F#z ", "HTTPS://example.test/a?x=%2F#z", true}, {"download_url", "https://example.test/a?x=%zz", "", false}, {"download_url", "https://example.test/%xx", "", false}, {"download_url", "https://example.test/#%g0", "", false}, {"download_url", "https://a.test:", "", false}, {"download_url", "https://a.test:65536", "", false}, {"download_url", "https://user@a.test/a", "", false}, {"extraction_code", "\u2001Ab C\u2001", "Ab C", true}} {
+	}{
+		{"title", "\u3000ABC\u00a0", "ABC", true},
+		{"description", "a\r\nb\rc", "a\nb\nc", true},
+		{"title", "a\nb", "", false},
+		{"download_url", " HTTPS://example.test/a?x=%2F#z ", "HTTPS://example.test/a?x=%2F#z", true},
+		{"download_url", "https://example.test/a?x=%zz", "", false},
+		{"download_url", "https://example.test/%xx", "", false},
+		{"download_url", "https://example.test/#%g0", "", false},
+		{"download_url", "https://a.test:", "", false},
+		{"download_url", "https://a.test:65536", "", false},
+		{"download_url", "https://user@a.test/a", "", false},
+		{"extraction_code", "\u2001Ab C\u2001", "Ab C", true},
+	} {
 		got, e := Text(v.kind, v.value)
 		if (e == nil) != v.valid || v.valid && got != v.want {
 			t.Errorf("%s: %q %v", v.kind, got, e)
@@ -26,7 +38,17 @@ func TestTextContract(t *testing.T) {
 
 // TestStrictInputs 确保JSON重复键、整数token、UTF-16代理及完整PUT字段被服务前拒绝。
 func TestStrictInputs(t *testing.T) {
-	for _, raw := range []string{`{"expected_version":1,"expected_version":2}`, `{"expected_version":1.0}`, `{"expected_version":1e0}`, `{"expected_version":true}`, `{"expected_version":null}`, `{"expected_version":9007199254740992}`, `{"expected_version":1,"extra":0}`, `{"expected_version":1} {}`, `null`} {
+	for _, raw := range []string{
+		`{"expected_version":1,"expected_version":2}`,
+		`{"expected_version":1.0}`,
+		`{"expected_version":1e0}`,
+		`{"expected_version":true}`,
+		`{"expected_version":null}`,
+		`{"expected_version":9007199254740992}`,
+		`{"expected_version":1,"extra":0}`,
+		`{"expected_version":1} {}`,
+		`null`,
+	} {
 		if _, e := ParseInput("publish", []byte(raw)); e == nil {
 			t.Error("非法请求放行", raw)
 		}

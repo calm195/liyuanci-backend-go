@@ -15,16 +15,44 @@ import (
 )
 
 func testSettings() WhisperSettings {
-	cfg := WhisperSettings{Enabled: true, DatabaseDSN: "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable", GatewayURL: "https://gateway.invalid/rpc", GatewayToken: "token", ProviderVersion: "test-v1", KeyRefs: []string{"business-v1"}, RecoveryKeyRefs: []string{"journal-v1"}, CatalogFile: "catalog", JournalFile: "/tmp/test-journal.json", Command: config.Command{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2}, Interval: 10 * time.Millisecond, OperationTimeout: time.Second, ProviderTimeout: time.Second}
+	cfg := WhisperSettings{
+		Enabled:          true,
+		DatabaseDSN:      "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable",
+		GatewayURL:       "https://gateway.invalid/rpc",
+		GatewayToken:     "token",
+		ProviderVersion:  "test-v1",
+		KeyRefs:          []string{"business-v1"},
+		RecoveryKeyRefs:  []string{"journal-v1"},
+		CatalogFile:      "catalog",
+		JournalFile:      "/tmp/test-journal.json",
+		Command:          config.Command{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2},
+		Interval:         10 * time.Millisecond,
+		OperationTimeout: time.Second,
+		ProviderTimeout:  time.Second,
+	}
 	cfg.DatabaseMaxOpen, cfg.DatabaseMaxIdle = 10, 2
-	cfg.Worker.Consumer = config.Consumer{Timeout: 100 * time.Millisecond, LockTimeout: time.Millisecond, RetryDelay: time.Second, MaxAttempts: 2}
+	cfg.Worker.Consumer = config.Consumer{
+		Timeout:     100 * time.Millisecond,
+		LockTimeout: time.Millisecond,
+		RetryDelay:  time.Second,
+		MaxAttempts: 2,
+	}
 	cfg.Worker.AnalysisTimeout = 100 * time.Millisecond
-	keys := []*[]byte{&cfg.ReceiptKey, &cfg.CursorKey, &cfg.RateKey, &cfg.GovernanceKey, &cfg.PrivacyKey, &cfg.EvidenceKey, &cfg.SafetyKey}
+	keys := []*[]byte{
+		&cfg.ReceiptKey,
+		&cfg.CursorKey,
+		&cfg.RateKey,
+		&cfg.GovernanceKey,
+		&cfg.PrivacyKey,
+		&cfg.EvidenceKey,
+		&cfg.SafetyKey,
+	}
 	for i, k := range keys {
 		*k = bytes.Repeat([]byte{byte(i + 1)}, 32)
 	}
 	return cfg
 }
+
 func writeSettings(t *testing.T, cfg WhisperSettings) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runtime.yaml")

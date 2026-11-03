@@ -15,7 +15,12 @@ import (
 
 // TestEntityCatalog 验证 T005/T008、REQ-020 的每张实体表和字段均有唯一结构体映射。
 func TestEntityCatalog(t *testing.T) {
-	models := append(businessModels(), &entity.RecoveryDeleteJournal{}, &entity.RecoverySchemaMigration{}, &entity.FoundationProbeReceipt{})
+	models := append(
+		businessModels(),
+		&entity.RecoveryDeleteJournal{},
+		&entity.RecoverySchemaMigration{},
+		&entity.FoundationProbeReceipt{},
+	)
 	catalog := map[string]*schema.Schema{}
 	for _, model := range models {
 		parsed, err := schema.Parse(model, &sync.Map{}, schema.NamingStrategy{})

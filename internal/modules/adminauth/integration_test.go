@@ -149,7 +149,13 @@ func TestPostgresAdmin(t *testing.T) {
 	if repeated.Code != 201 || replay.Data.ID != review.ID {
 		t.Fatal("同键重放不能新建账号")
 	}
-	if got := request("POST", "/api/v1/admin/accounts", session.Token, "create-key", strings.Replace(body, "synthetic-review", "different-name", 1)).Code; got != 409 {
+	if got := request(
+		"POST",
+		"/api/v1/admin/accounts",
+		session.Token,
+		"create-key",
+		strings.Replace(body, "synthetic-review", "different-name", 1),
+	).Code; got != 409 {
 		t.Fatal("异摘要应409", got)
 	}
 	if got := request("POST", "/api/v1/admin/accounts", session.Token, "duplicate-name", body).Code; got != 409 {
@@ -176,7 +182,13 @@ func TestPostgresAdmin(t *testing.T) {
 		if _, e = service.ListAccounts(ctx, operator.Token, "", "accounts_forbidden", 20); e != adminauth.ErrForbidden {
 			t.Fatal("普通运营不可列账号", e)
 		}
-		local, e := service.Create(ctx, session.Token, "roles_fixture", "roles_create", adminauth.CreateInput{LoginName: "roles-fixture", Roles: []string{}, Reason: "合成角色测试"})
+		local, e := service.Create(
+			ctx,
+			session.Token,
+			"roles_fixture",
+			"roles_create",
+			adminauth.CreateInput{LoginName: "roles-fixture", Roles: []string{}, Reason: "合成角色测试"},
+		)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -245,7 +257,13 @@ func TestPostgresAdmin(t *testing.T) {
 			t.Fatal("并发版本保护失败", success, conflict)
 		}
 		// 一个单独超管撤掉自身权限后，同键成功回执也不能恢复原授权。
-		super, e := service.Create(ctx, session.Token, "roles_super", "roles_super", adminauth.CreateInput{LoginName: "roles-super", Roles: []string{"super_admin"}, Reason: "合成超管"})
+		super, e := service.Create(
+			ctx,
+			session.Token,
+			"roles_super",
+			"roles_super",
+			adminauth.CreateInput{LoginName: "roles-super", Roles: []string{"super_admin"}, Reason: "合成超管"},
+		)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -264,7 +282,13 @@ func TestPostgresAdmin(t *testing.T) {
 			t.Fatal("撤权后回执不可越权", e)
 		}
 	})
-	if got := request("POST", "/api/v1/admin/accounts", operator.Token, "forbidden", strings.Replace(body, "synthetic-review", "forbidden-name", 1)).Code; got != 403 {
+	if got := request(
+		"POST",
+		"/api/v1/admin/accounts",
+		operator.Token,
+		"forbidden",
+		strings.Replace(body, "synthetic-review", "forbidden-name", 1),
+	).Code; got != 403 {
 		t.Fatal("普通角色不得创建", got)
 	}
 	if got := request("POST", "/api/v1/admin/accounts", "bad-token", "bad", body).Code; got != 401 {
@@ -284,7 +308,13 @@ func TestPostgresAdmin(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			account, e := service.Create(ctx, session.Token, "concurrent_key", "concurrent", adminauth.CreateInput{LoginName: "concurrent-name", Roles: []string{"review_operator"}, Reason: "合成并发"})
+			account, e := service.Create(
+				ctx,
+				session.Token,
+				"concurrent_key",
+				"concurrent",
+				adminauth.CreateInput{LoginName: "concurrent-name", Roles: []string{"review_operator"}, Reason: "合成并发"},
+			)
 			results <- account
 			failures <- e
 		}()
@@ -312,21 +342,34 @@ func TestPostgresAdmin(t *testing.T) {
 	if restricted.Exec("UPDATE public.admin_account_actions SET reason='unexpected'").Error == nil {
 		t.Fatal("运行组不能篡改留迹")
 	}
-	if restricted.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES ('90000000-0000-4000-8000-000000000001','90000000-0000-4000-8000-000000000002',decode(repeat('ab',32),'hex'),1,clock_timestamp()+interval '1 hour')").Error == nil {
+	if restricted.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES ('90000000-0000-4000-8000-000000000001','90000000-0000-4000-8000-000000000002',decode(repeat('ab',32),'hex'),1,clock_timestamp()+interval '1 hour')").
+		Error == nil {
 		t.Fatal("后台组不能建立学生会话")
 	}
 	second, err := service.Login(ctx, "synthetic-review", "123456", "source-review", "login_second")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrong := request("POST", "/api/v1/admin/password", operator.Token, "wrong-password", `{"current_password":"wrong","new_password":"SYNTHETIC_NEW"}`)
+	wrong := request(
+		"POST",
+		"/api/v1/admin/password",
+		operator.Token,
+		"wrong-password",
+		`{"current_password":"wrong","new_password":"SYNTHETIC_NEW"}`,
+	)
 	if wrong.Code != 403 {
 		t.Fatal("旧口令错误应403", wrong.Code)
 	}
 	// 注入留迹故障，验证口令/权限代次/会话撤销和回执全部回滚。
 	exec("CREATE FUNCTION public.reject_admin_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'SYNTHETIC_FAULT'; END $$")
 	exec("CREATE TRIGGER reject_password_audit BEFORE INSERT ON public.admin_account_actions FOR EACH ROW WHEN (NEW.action_kind='password_change') EXECUTE FUNCTION public.reject_admin_audit()")
-	if e := service.ChangePassword(ctx, operator.Token, "rollback", "rollback", adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ABORT"}); e != adminauth.ErrUnavailable {
+	if e := service.ChangePassword(
+		ctx,
+		operator.Token,
+		"rollback",
+		"rollback",
+		adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ABORT"},
+	); e != adminauth.ErrUnavailable {
 		t.Fatal("留迹失败应回滚", e)
 	}
 	exec("DROP TRIGGER reject_password_audit ON public.admin_account_actions")
@@ -334,12 +377,24 @@ func TestPostgresAdmin(t *testing.T) {
 	if _, e := service.Login(ctx, "synthetic-review", "123456", "source-review", "after_rollback"); e != nil {
 		t.Fatal("回滚不能改变口令", e)
 	}
-	good := request("POST", "/api/v1/admin/password", operator.Token, "change-password", `{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`)
+	good := request(
+		"POST",
+		"/api/v1/admin/password",
+		operator.Token,
+		"change-password",
+		`{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`,
+	)
 	if good.Code != 204 || good.Body.Len() != 0 {
 		t.Fatal("改密必须204空体", good.Code, good.Body.String())
 	}
 	for _, token := range []string{operator.Token, second.Token} {
-		if got := request("POST", "/api/v1/admin/password", token, "old-session", `{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`).Code; got != 401 {
+		if got := request(
+			"POST",
+			"/api/v1/admin/password",
+			token,
+			"old-session",
+			`{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`,
+		).Code; got != 401 {
 			t.Fatal("所有旧会话必须撤销", got)
 		}
 	}
@@ -379,7 +434,13 @@ func TestPostgresAdmin(t *testing.T) {
 	if e = service.Logout(ctx, epochSession.Token, "epoch", "epoch"); e != adminauth.ErrUnauthenticated {
 		t.Fatal("代次变化必须失效", e)
 	}
-	empty, e := service.Create(ctx, session.Token, "empty_roles", "empty_roles", adminauth.CreateInput{LoginName: "no-role", Roles: []string{}, Reason: "合成无角色账号"})
+	empty, e := service.Create(
+		ctx,
+		session.Token,
+		"empty_roles",
+		"empty_roles",
+		adminauth.CreateInput{LoginName: "no-role", Roles: []string{}, Reason: "合成无角色账号"},
+	)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -387,7 +448,13 @@ func TestPostgresAdmin(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = service.ChangePassword(ctx, roleless.Token, "roleless_change", "roleless_change", adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ROLELESS"}); e != nil {
+	if e = service.ChangePassword(
+		ctx,
+		roleless.Token,
+		"roleless_change",
+		"roleless_change",
+		adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ROLELESS"},
+	); e != nil {
 		t.Fatal("无角色仍可改本人密码", e)
 	}
 	// 两个旧会话并发改密，只能提交一次，后来持锁者不得覆盖已变更的代次。
@@ -404,7 +471,13 @@ func TestPostgresAdmin(t *testing.T) {
 		group.Add(1)
 		go func(token string) {
 			defer group.Done()
-			races <- service.ChangePassword(ctx, token, "same_race_key", "change_race", adminauth.PasswordInput{CurrentPassword: "SYNTHETIC_ROLELESS", NewPassword: "SYNTHETIC_AFTER_RACE"})
+			races <- service.ChangePassword(
+				ctx,
+				token,
+				"same_race_key",
+				"change_race",
+				adminauth.PasswordInput{CurrentPassword: "SYNTHETIC_ROLELESS", NewPassword: "SYNTHETIC_AFTER_RACE"},
+			)
 		}(token)
 	}
 	group.Wait()
@@ -423,7 +496,9 @@ func TestPostgresAdmin(t *testing.T) {
 		t.Fatal("并发改密必须一成一拒")
 	}
 	var localHash string
-	if e = db.Raw("SELECT password_hash FROM public.admin_accounts WHERE id=?", empty.ID).Scan(&localHash).Error; e != nil || strings.Contains(localHash, "SYNTHETIC_AFTER_RACE") {
+	if e = db.Raw("SELECT password_hash FROM public.admin_accounts WHERE id=?", empty.ID).
+		Scan(&localHash).
+		Error; e != nil || strings.Contains(localHash, "SYNTHETIC_AFTER_RACE") {
 		t.Fatal("数据库不得存口令原文")
 	}
 
@@ -461,7 +536,8 @@ func TestPostgresAdmin(t *testing.T) {
 	}
 	// 本地协议失败和存储故障都不回显输入，完成日志在失败/恢复路径保留。
 	for _, entry := range observed.All() {
-		if strings.Contains(entry.Message+fmt.Sprint(entry.ContextMap()), "SYNTHETIC_") || strings.Contains(fmt.Sprint(entry.ContextMap()), session.Token) {
+		if strings.Contains(entry.Message+fmt.Sprint(entry.ContextMap()), "SYNTHETIC_") ||
+			strings.Contains(fmt.Sprint(entry.ContextMap()), session.Token) {
 			t.Fatal("日志泄漏凭据或故障原文")
 		}
 	}

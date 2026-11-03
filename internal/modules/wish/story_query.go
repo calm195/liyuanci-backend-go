@@ -35,7 +35,11 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 	if e != nil {
 		return out, e
 	}
-	if v.ReviewTaskID == nil || v.PublicBody == nil || !utf8.ValidString(*v.PublicBody) || strings.TrimSpace(*v.PublicBody) == "" || v.ModerationStatus != "approved" || v.SchoolRelated == nil || v.SchoolDetectionState != "completed" || v.SchoolDetectionVersion == "pending" {
+	if v.ReviewTaskID == nil || v.PublicBody == nil || !utf8.ValidString(*v.PublicBody) || strings.TrimSpace(*v.PublicBody) == "" ||
+		v.ModerationStatus != "approved" ||
+		v.SchoolRelated == nil ||
+		v.SchoolDetectionState != "completed" ||
+		v.SchoolDetectionVersion == "pending" {
 		return out, command.ErrNotFound
 	}
 	var t entity.ModerationTask
@@ -57,10 +61,16 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 		return out, command.ErrNotFound
 	}
 	var c entity.ContentRegistry
-	if e = db.WithContext(ctx).Where("id=? AND kind='story' AND entity_id=? AND content_version=?", t.ContentID, id, v.StoryVersion).Take(&c).Error; e != nil {
+	if e = db.WithContext(ctx).Where(
+		"id=? AND kind='story' AND entity_id=? AND content_version=?",
+		t.ContentID,
+		id,
+		v.StoryVersion,
+	).Take(&c).Error; e != nil {
 		return out, e
 	}
-	if c.Status != "approved" || c.SchoolRelated == nil || *c.SchoolRelated != *v.SchoolRelated || c.SchoolDetectionState != "completed" || c.SchoolDetectionVersion != v.SchoolDetectionVersion {
+	if c.Status != "approved" || c.SchoolRelated == nil || *c.SchoolRelated != *v.SchoolRelated || c.SchoolDetectionState != "completed" ||
+		c.SchoolDetectionVersion != v.SchoolDetectionVersion {
 		return out, command.ErrNotFound
 	}
 	var tags IdentityTags
@@ -69,7 +79,17 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 			return out, command.ErrUnavailable
 		}
 	}
-	out = PublicContent{ID: id, Body: *v.PublicBody, ContentVersion: v.StoryVersion, SchoolRelated: *v.SchoolRelated, NoticeCodes: []string{}, Author: PublicAuthor{ID: a.account.ID, Nickname: a.account.Nickname, IdentityTags: tags}, Category: a.row.Category, Campus: a.row.Campus, RewardMethod: a.content.RewardMethod}
+	out = PublicContent{
+		ID:             id,
+		Body:           *v.PublicBody,
+		ContentVersion: v.StoryVersion,
+		SchoolRelated:  *v.SchoolRelated,
+		NoticeCodes:    []string{},
+		Author:         PublicAuthor{ID: a.account.ID, Nickname: a.account.Nickname, IdentityTags: tags},
+		Category:       a.row.Category,
+		Campus:         a.row.Campus,
+		RewardMethod:   a.content.RewardMethod,
+	}
 	if out.SchoolRelated {
 		out.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
 		out.NoticeText = "未经证实"
@@ -123,7 +143,9 @@ func (s *Service) Stories(ctx context.Context, rid, cursor string, limit int) (o
 		out.Items = []PublicContent{}
 		positions := []pageCursor{}
 		for len(out.Items) <= limit {
-			q := db.Table("public.wishes AS w").Select("w.id,v.created_at AS position").Joins("JOIN public.story_versions v ON v.wish_id=w.id AND v.story_version=w.current_story_version").Where("w.state='fulfilled' AND w.current_story_version>0 AND w.draft_deleted_at IS NULL")
+			q := db.Table("public.wishes AS w").Select("w.id,v.created_at AS position").
+				Joins("JOIN public.story_versions v ON v.wish_id=w.id AND v.story_version=w.current_story_version").
+				Where("w.state='fulfilled' AND w.current_story_version>0 AND w.draft_deleted_at IS NULL")
 			if after.ID != "" {
 				q = q.Where("v.created_at<? OR (v.created_at=? AND w.id<?)", after.PublishedAt, after.PublishedAt, after.ID)
 			}
@@ -207,12 +229,19 @@ func (s *Service) CreateShare(ctx context.Context, token, key, rid string, in Sh
 		return out, command.ErrInvalid
 	}
 	id := uuid.NewString()
-	d := command.Definition{Kind: "share.create", Method: "POST", ResourcePath: "/api/v1/share-links", ActorKind: "student", Access: command.Ordinary, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		if in.TargetKind == "story" {
-			return DiscoverStory(ctx, db, in.ID)
-		}
-		return discoverWish(ctx, db, in.ID)
-	}}
+	d := command.Definition{
+		Kind:         "share.create",
+		Method:       "POST",
+		ResourcePath: "/api/v1/share-links",
+		ActorKind:    "student",
+		Access:       command.Ordinary,
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			if in.TargetKind == "story" {
+				return DiscoverStory(ctx, db, in.ID)
+			}
+			return discoverWish(ctx, db, in.ID)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		_, e := s.shareTarget(ctx, tx.DB(), in.TargetKind, in.ID, rid, tx.Now())
 		return e

@@ -23,6 +23,7 @@ type FileJournal struct {
 	codec *securedata.Codec
 	log   *zap.Logger
 }
+
 type journalRecord struct {
 	ID        string
 	Envelope  securedata.Envelope
@@ -43,6 +44,7 @@ func NewFileJournal(path string, codec *securedata.Codec, log *zap.Logger) (*Fil
 
 func (j *FileJournal) access(ctx context.Context, write bool, fn func(map[string]journalRecord) error) (err error) {
 	defer j.fileDone(time.Now(), &err)
+	// 锁文件独立于可原子替换的账本文件，保证不同进程始终竞争同一个锁对象。
 	lock, e := os.OpenFile(j.path+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if e != nil {
 		return command.ErrUnavailable
@@ -83,6 +85,7 @@ func (j *FileJournal) access(ctx context.Context, write bool, fn func(map[string
 	if !write {
 		return nil
 	}
+	// 同目录临时写入并同步后再替换；中断时保留完整旧账本，不能留下半份意图数据。
 	file, e = os.CreateTemp(filepath.Dir(j.path), "journal-pending-")
 	if e != nil {
 		return command.ErrUnavailable
@@ -141,8 +144,13 @@ func (j *FileJournal) Append(ctx context.Context, in Intent) error {
 		return nil
 	})
 }
+
 func (j *FileJournal) decode(ctx context.Context, row journalRecord) (out Intent, err error) {
-	raw, e := j.codec.Decrypt(ctx, securedata.Binding{Purpose: "local_deletion_intent", ObjectID: row.ID, Version: 1}, row.Envelope)
+	raw, e := j.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "local_deletion_intent", ObjectID: row.ID, Version: 1},
+		row.Envelope,
+	)
 	if e != nil {
 		return out, command.ErrUnavailable
 	}
@@ -152,6 +160,7 @@ func (j *FileJournal) decode(ctx context.Context, row journalRecord) (out Intent
 	}
 	return out, nil
 }
+
 func (j *FileJournal) list(ctx context.Context, after string, limit int, all bool) (out []Intent, err error) {
 	if limit < 1 || limit > 1000 {
 		return nil, command.ErrInvalid

@@ -39,7 +39,8 @@ func utcTime(v *time.Time) *time.Time {
 func usersRows(ctx context.Context, db *gorm.DB, q UsersQuery, after usersCursor, now time.Time) (rows []userRow, err error) {
 	limits := db.WithContext(ctx).Table("public.penalties AS p").
 		Select("p.account_id,bool_or(p.action_kind='ban') AS banned,max(p.ends_at) FILTER (WHERE p.action_kind='mute') AS muted_until").
-		Where("p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?)", now, now).Group("p.account_id")
+		Where("p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?)", now, now).
+		Group("p.account_id")
 	base := db.WithContext(ctx).Table("public.accounts AS a").
 		Select("a.id,a.nickname,a.verification,a.created_at,a.version,CASE WHEN coalesce(p.banned,false) THEN 'banned' WHEN p.muted_until IS NOT NULL THEN 'muted' ELSE 'normal' END AS restriction,CASE WHEN coalesce(p.banned,false) THEN NULL ELSE p.muted_until END AS muted_until").
 		Joins("LEFT JOIN (?) AS p ON p.account_id=a.id", limits).Where("a.lifecycle='active'")
@@ -82,7 +83,11 @@ func usersPenaltyQuery(ctx context.Context, db *gorm.DB, id string, roles []stri
 
 func usersActivePenalties(ctx context.Context, db *gorm.DB, id string, roles []string, now time.Time) ([]ActivePenalty, error) {
 	rows := []ActivePenalty{}
-	e := usersPenaltyQuery(ctx, db, id, roles, now).Select("p.id,p.action_kind AS kind,p.starts_at,p.ends_at").Where("p.action_kind IN ('mute','ban') AND p.revoked_at IS NULL AND (p.ends_at IS NULL OR p.ends_at>?)", now).Order("p.starts_at DESC,p.id DESC").Scan(&rows).Error
+	e := usersPenaltyQuery(ctx, db, id, roles, now).Select("p.id,p.action_kind AS kind,p.starts_at,p.ends_at").
+		Where("p.action_kind IN ('mute','ban') AND p.revoked_at IS NULL AND (p.ends_at IS NULL OR p.ends_at>?)", now).
+		Order("p.starts_at DESC,p.id DESC").
+		Scan(&rows).
+		Error
 	for i := range rows {
 		rows[i].StartsAt = rows[i].StartsAt.UTC()
 		rows[i].EndsAt = utcTime(rows[i].EndsAt)
@@ -105,7 +110,17 @@ func (r userPenaltyRow) projection(now time.Time) UserPenalty {
 		status = "expired"
 	}
 	reason := map[string]string{"minor": "轻微违规处置", "general": "一般违规处置", "severe": "严重违规处置"}[r.Level]
-	out := UserPenalty{ID: r.ID, Level: r.Level, Kind: r.Kind, Status: status, StartsAt: r.StartsAt.UTC(), EndsAt: utcTime(r.EndsAt), RevokedAt: utcTime(r.RevokedAt), Reason: &reason, AppealID: r.AppealID}
+	out := UserPenalty{
+		ID:        r.ID,
+		Level:     r.Level,
+		Kind:      r.Kind,
+		Status:    status,
+		StartsAt:  r.StartsAt.UTC(),
+		EndsAt:    utcTime(r.EndsAt),
+		RevokedAt: utcTime(r.RevokedAt),
+		Reason:    &reason,
+		AppealID:  r.AppealID,
+	}
 	if r.CaseID != nil && r.CaseKind != nil {
 		out.CaseLink = &UserCaseLink{*r.CaseKind, *r.CaseID}
 	}
@@ -140,6 +155,8 @@ func usersNavigation(ctx context.Context, db *gorm.DB, id string) (cases, appeal
  SELECT 1 FROM public.content_registry c WHERE c.author_id=? AND `+ordinaryUserContent+` AND (
  EXISTS (SELECT 1 FROM public.reports r WHERE r.content_id=c.id AND r.target_kind IN ('wish','application','message','story') AND r.status='resolved') OR
  EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND t.content_version=c.content_version AND t.status='rejected' AND t.decision='rejected' AND s.ordinary_hit AND NOT s.crisis_hit))) AS cases,
- EXISTS (SELECT 1 FROM public.appeals a JOIN public.penalties p ON p.id=a.penalty_id JOIN public.content_registry c ON c.id=p.content_id WHERE a.account_id=? AND p.account_id=a.account_id AND c.author_id=a.account_id AND a.status='pending' AND `+ordinaryUserContent+`) AS appeals`, id, id).Scan(&row).Error
+ EXISTS (SELECT 1 FROM public.appeals a JOIN public.penalties p ON p.id=a.penalty_id JOIN public.content_registry c ON c.id=p.content_id WHERE a.account_id=? AND p.account_id=a.account_id AND c.author_id=a.account_id AND a.status='pending' AND `+ordinaryUserContent+`) AS appeals`, id, id).
+		Scan(&row).
+		Error
 	return row.Cases, row.Appeals, err
 }

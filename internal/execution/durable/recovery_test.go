@@ -66,7 +66,12 @@ func TestPostgresRecovery(t *testing.T) {
 	exec("INSERT INTO public.admin_accounts(id,credential_ref) VALUES (?,'synthetic-redrive-provider')", admin)
 	exec("INSERT INTO public.admin_role_bindings(admin_id,role) VALUES (?,'super_admin')", admin)
 	hash := sha256.Sum256([]byte("SYNTHETIC_REDRIVE_TOKEN"))
-	exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uid(9903), admin, hash[:])
+	exec(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		uid(9903),
+		admin,
+		hash[:],
+	)
 	defer exec("DELETE FROM public.admin_accounts WHERE id=?", admin)
 	defer exec("DELETE FROM public.accounts WHERE id=?", owner)
 	clear := func() {
@@ -86,10 +91,16 @@ func TestPostgresRecovery(t *testing.T) {
 			t.Fatal(failure)
 		}
 		if status != "pending" {
-			exec("UPDATE public.work_items SET status=?,version=5,attempts=3,lease_until=clock_timestamp()-interval '1 second' WHERE id=?", status, d.WorkID)
+			exec(
+				"UPDATE public.work_items SET status=?,version=5,attempts=3,lease_until=clock_timestamp()-interval '1 second' WHERE id=?",
+				status,
+				d.WorkID,
+			)
 		}
 		var event Event
-		if failure := db.Raw("SELECT event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at FROM public.outbox_events WHERE event_id=?", d.EventID).Scan(&event).Error; failure != nil {
+		if failure := db.Raw("SELECT event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at FROM public.outbox_events WHERE event_id=?", d.EventID).
+			Scan(&event).
+			Error; failure != nil {
 			t.Fatal(failure)
 		}
 		return event
@@ -112,7 +123,17 @@ func TestPostgresRecovery(t *testing.T) {
 			return Complete, tx.DB().WithContext(ctx).Exec("UPDATE public.accounts SET version=version+1 WHERE id=?", owner).Error
 		},
 	}
-	c, err := NewConsumer(db, log, definition, ConsumerConfig{Timeout: 3 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 5})
+	c, err := NewConsumer(
+		db,
+		log,
+		definition,
+		ConsumerConfig{
+			Timeout:     3 * time.Second,
+			LockTimeout: time.Second,
+			RetryDelay:  time.Millisecond,
+			MaxAttempts: 5,
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +169,11 @@ func TestPostgresRecovery(t *testing.T) {
 	}
 	run := func(n int, key string, p RedrivePolicy, expected int64, afterError bool) (command.Outcome, error) {
 		input := RedriveRequest{WorkID: draft(n).WorkID, ExpectedVersion: expected}
-		return engine.Execute(ctx, commandDefinition(input, p, afterError), command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: key, RequestID: "redrive-1", Request: input})
+		return engine.Execute(
+			ctx,
+			commandDefinition(input, p, afterError),
+			command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: key, RequestID: "redrive-1", Request: input},
+		)
 	}
 	status := func(id string) string {
 		var s string
@@ -206,10 +231,20 @@ func TestPostgresRecovery(t *testing.T) {
 		event := makeWork(1009, "pending")
 		exec("DELETE FROM public.outbox_events")
 		out, failure := c.Compensate(ctx, 10)
-		if failure != nil || out.Attention != 1 || status(event.CorrelationID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events") != 0 {
+		if failure != nil || out.Attention != 1 || status(event.CorrelationID) != "attention" ||
+			scalar("SELECT count(*) FROM public.outbox_events") != 0 {
 			t.Fatal("缺失关联应待办且不造事件", out, failure)
 		}
-		if _, failure = run(1009, "no-source", RedrivePolicy{AllowedRoles: policy.AllowedRoles, Recheck: func(context.Context, *command.Tx, Work) (RedriveDecision, error) { return Resume, nil }}, 2, false); failure != command.ErrConflict {
+		if _, failure = run(
+			1009,
+			"no-source",
+			RedrivePolicy{
+				AllowedRoles: policy.AllowedRoles,
+				Recheck:      func(context.Context, *command.Tx, Work) (RedriveDecision, error) { return Resume, nil },
+			},
+			2,
+			false,
+		); failure != command.ErrConflict {
 			t.Fatal("缺目标版本不能恢复", failure)
 		}
 	})
@@ -221,7 +256,12 @@ func TestPostgresRecovery(t *testing.T) {
 		failures := make(chan error, 6)
 		for i := 0; i < 6; i++ {
 			wg.Add(1)
-			go func() { defer wg.Done(); _, failure := c.Compensate(ctx, 10); failures <- failure }()
+			go func() {
+
+				defer wg.Done()
+				_, failure := c.Compensate(ctx, 10)
+				failures <- failure
+			}()
 		}
 		wg.Wait()
 		close(failures)
@@ -246,7 +286,9 @@ func TestPostgresRecovery(t *testing.T) {
 		if failure != nil || !out.Replayed {
 			t.Fatal("命令重放不得再次复位预算", failure)
 		}
-		if scalar("SELECT count(*) FROM public.work_items WHERE operation_id=?", operation) != 1 || scalar("SELECT count(*) FROM public.outbox_events") != 2 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 1 {
+		if scalar("SELECT count(*) FROM public.work_items WHERE operation_id=?", operation) != 1 ||
+			scalar("SELECT count(*) FROM public.outbox_events") != 2 ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 1 {
 			t.Fatal("只能替代唤醒，不能重建工作或操作")
 		}
 		got, failure := c.Consume(ctx, event)
@@ -277,10 +319,12 @@ func TestPostgresRecovery(t *testing.T) {
 				t.Fatal(failure)
 			}
 		}
-		if scalar("SELECT count(*) FROM public.work_items") != 1 || scalar("SELECT count(*) FROM public.outbox_events") != 2 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 1 {
+		if scalar("SELECT count(*) FROM public.work_items") != 1 || scalar("SELECT count(*) FROM public.outbox_events") != 2 ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 1 {
 			t.Fatal("并发命令必须复用回执且只创建新唤醒一次")
 		}
-		if scalar("SELECT count(*) FROM public.access_audits WHERE purpose='work.redrive.resumed' AND outcome='allowed' AND subject_ref=?", draft(1021).WorkID) != 1 {
+		if scalar("SELECT count(*) FROM public.access_audits WHERE purpose='work.redrive.resumed' AND outcome='allowed' AND subject_ref=?", draft(1021).
+			WorkID) != 1 {
 			t.Fatal("并发重放应只提交一份重驱动审计")
 		}
 	})
@@ -324,7 +368,8 @@ func TestPostgresRecovery(t *testing.T) {
 		if _, failure := run(1013, "obsolete", policy, 5, false); failure != nil || status(event.CorrelationID) != "cancelled" {
 			t.Fatal("目标过时应无操作终结", failure)
 		}
-		if scalar("SELECT count(*) FROM public.consumer_receipts") != 1 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 0 {
+		if scalar("SELECT count(*) FROM public.consumer_receipts") != 1 ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NULL") != 0 {
 			t.Fatal("无操作终结应持久化")
 		}
 		if scalar("SELECT count(*) FROM public.access_audits WHERE purpose='work.redrive.cancelled' AND outcome='allowed' AND subject_ref=?", event.CorrelationID) != 1 {
@@ -332,7 +377,11 @@ func TestPostgresRecovery(t *testing.T) {
 		}
 		clear()
 		makeWork(1014, "attention")
-		exec("INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES (?,?)", definition.ConsumerKind, draft(1014).OperationID)
+		exec(
+			"INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES (?,?)",
+			definition.ConsumerKind,
+			draft(1014).OperationID,
+		)
 		if _, failure := run(1014, "has-receipt", policy, 5, false); failure != command.ErrConflict {
 			t.Fatal("已消费操作不得重驱动", failure)
 		}
@@ -353,7 +402,9 @@ func TestPostgresRecovery(t *testing.T) {
 		if _, failure := run(1015, "rollback", policy, 5, true); failure != command.ErrConflict {
 			t.Fatal(failure)
 		}
-		if status(draft(1015).WorkID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 || scalar("SELECT count(*) FROM public.outbox_events") != 1 {
+		if status(draft(1015).WorkID) != "attention" ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 ||
+			scalar("SELECT count(*) FROM public.outbox_events") != 1 {
 			t.Fatal("后续命令失败必须回滚全部重驱动变更")
 		}
 		if scalar("SELECT count(*) FROM public.access_audits WHERE actor_id=?", admin) != 0 {
@@ -370,7 +421,9 @@ func TestPostgresRecovery(t *testing.T) {
 		if _, failure := run(1023, "audit-failure", policy, 5, false); failure != command.ErrUnavailable {
 			t.Fatal("审计失败必须拒绝重驱动", failure)
 		}
-		if status(draft(1023).WorkID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events") != 1 || scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 || scalar("SELECT count(*) FROM public.command_receipts WHERE actor_id=?", admin) != 0 {
+		if status(draft(1023).WorkID) != "attention" || scalar("SELECT count(*) FROM public.outbox_events") != 1 ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE superseded_at IS NOT NULL") != 0 ||
+			scalar("SELECT count(*) FROM public.command_receipts WHERE actor_id=?", admin) != 0 {
 			t.Fatal("审计失败留下部分重驱动结果")
 		}
 	})
@@ -391,7 +444,8 @@ func TestPostgresRecovery(t *testing.T) {
 		if _, failure := older.Once(ctx); failure != ErrLeaseLost {
 			t.Fatal("旧租约应失效", failure)
 		}
-		if status(event.CorrelationID) != "pending" || scalar("SELECT count(*) FROM public.outbox_events WHERE sent_at IS NOT NULL AND superseded_at IS NULL") != 1 {
+		if status(event.CorrelationID) != "pending" ||
+			scalar("SELECT count(*) FROM public.outbox_events WHERE sent_at IS NOT NULL AND superseded_at IS NULL") != 1 {
 			t.Fatal("旧持有者不能覆盖新周期")
 		}
 	})
@@ -408,7 +462,11 @@ func TestPostgresRecovery(t *testing.T) {
 				return failure
 			}
 			input := RedriveRequest{WorkID: event.CorrelationID, ExpectedVersion: 5}
-			_, failure = engine.Execute(ctx, commandDefinition(input, policy, false), command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: "actual-role", Request: input})
+			_, failure = engine.Execute(
+				ctx,
+				commandDefinition(input, policy, false),
+				command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: "actual-role", Request: input},
+			)
 			return failure
 		})
 		if failure != nil {
@@ -447,7 +505,11 @@ func TestPostgresRecovery(t *testing.T) {
 				return failure
 			}
 			input := RedriveRequest{WorkID: event.CorrelationID, ExpectedVersion: 5}
-			if _, failure = engine.Execute(ctx, commandDefinition(input, policy, false), command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: "actual-obsolete", Request: input}); failure != nil {
+			if _, failure = engine.Execute(
+				ctx,
+				commandDefinition(input, policy, false),
+				command.Input{Token: "SYNTHETIC_REDRIVE_TOKEN", IdempotencyKey: "actual-obsolete", Request: input},
+			); failure != nil {
 				return failure
 			}
 			if conn.Exec("SELECT completed_at FROM public.consumer_receipts").Error == nil {
@@ -510,7 +572,8 @@ func TestPostgresRecovery(t *testing.T) {
 			}
 		}
 	}
-	if _, failure := c.Redrive(ctx, nil, policy, RedriveRequest{WorkID: draft(1017).WorkID, ExpectedVersion: 5}); !errors.Is(failure, command.ErrInvalid) {
+	if _, failure := c.Redrive(ctx, nil, policy, RedriveRequest{WorkID: draft(1017).
+		WorkID, ExpectedVersion: 5}); !errors.Is(failure, command.ErrInvalid) {
 		t.Fatal("无命令事务应拒绝")
 	}
 }
@@ -526,7 +589,10 @@ func TestRecoveryContracts(t *testing.T) {
 		t.Fatal("调度必须显式指定间隔")
 	}
 	input := RedriveRequest{WorkID: uid(1), ExpectedVersion: 1}
-	policy := RedrivePolicy{AllowedRoles: []string{"super_admin"}, Recheck: func(context.Context, *command.Tx, Work) (RedriveDecision, error) { return Resume, nil }}
+	policy := RedrivePolicy{
+		AllowedRoles: []string{"super_admin"},
+		Recheck:      func(context.Context, *command.Tx, Work) (RedriveDecision, error) { return Resume, nil },
+	}
 	if _, err := c.Redrive(ctx, &command.Tx{}, policy, input); err != command.ErrForbidden {
 		t.Fatal("后台工作事务不能冒充管理员命令")
 	}

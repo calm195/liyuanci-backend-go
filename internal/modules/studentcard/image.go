@@ -22,7 +22,8 @@ func normalizeImage(source io.Reader, mime string, maxBytes, maxPixels int64) (o
 		return nil, command.ErrInvalid
 	}
 	config, format, e := image.DecodeConfig(bytes.NewReader(raw))
-	if e != nil || config.Width <= 0 || config.Height <= 0 || int64(config.Width) > maxPixels/int64(config.Height) || "image/"+format != mime {
+	if e != nil || config.Width <= 0 || config.Height <= 0 || int64(config.Width) > maxPixels/int64(config.Height) ||
+		"image/"+format != mime {
 		return nil, command.ErrInvalid
 	}
 	decoded, actual, e := image.Decode(bytes.NewReader(raw))

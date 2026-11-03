@@ -21,11 +21,16 @@ func ApplyPenaltyEffects(ctx context.Context, tx *command.Tx, id string) error {
 	if e := cancelRelationships(ctx, tx, id, ""); e != nil {
 		return e
 	}
-	if e := db.Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND state='published'", id).Updates(map[string]any{"state": "withdrawn", "version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}).Error; e != nil {
+	if e := db.Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND state='published'", id).Updates(map[string]any{
+		"state":             "withdrawn",
+		"version":           gorm.Expr("version+1"),
+		"restriction_epoch": gorm.Expr("restriction_epoch+1"),
+	}).Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.Account{}).Where("id=?", id).Update("version", gorm.Expr("version+1")).Error; e != nil {
 		return e
 	}
-	return db.Exec(`UPDATE public.moderation_tasks t SET status='cancelled',version=t.version+1 FROM public.content_registry c WHERE c.id=t.content_id AND c.author_id=? AND c.kind<>'whisper_capsule' AND t.status IN ('pending','human_required')`, id).Error
+	return db.Exec(`UPDATE public.moderation_tasks t SET status='cancelled',version=t.version+1 FROM public.content_registry c WHERE c.id=t.content_id AND c.author_id=? AND c.kind<>'whisper_capsule' AND t.status IN ('pending','human_required')`, id).
+		Error
 }

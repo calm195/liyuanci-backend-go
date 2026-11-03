@@ -23,6 +23,7 @@ func (p *resourceProbe) Read(context.Context, string, string, string, string, re
 	p.calls++
 	return map[string]any{}, nil
 }
+
 func (p *resourceProbe) Write(context.Context, string, string, string, string, string, resourceplaza.Input) (any, error) {
 	p.calls++
 	return map[string]any{}, nil

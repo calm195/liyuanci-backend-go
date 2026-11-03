@@ -36,7 +36,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-var moderationCareFixture = moderation.CareResources{Version: "synthetic-v1", Source: "隔离合成资料", VerifiedAt: "2026-10-28", Hotline24Hours: "隔离合成联系占位", Appointment: "隔离合成预约", Notice: "仅用于测试，不是真实援助资料"}
+var moderationCareFixture = moderation.CareResources{
+	Version:        "synthetic-v1",
+	Source:         "隔离合成资料",
+	VerifiedAt:     "2026-10-28",
+	Hotline24Hours: "隔离合成联系占位",
+	Appointment:    "隔离合成预约",
+	Notice:         "仅用于测试，不是真实援助资料",
+}
 
 type processLog struct {
 	mu   sync.Mutex
@@ -48,7 +55,13 @@ func (l *processLog) Write(b []byte) (int, error) {
 	defer l.mu.Unlock()
 	return l.data.Write(b)
 }
-func (l *processLog) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.data.String() }
+
+func (l *processLog) String() string {
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.data.String()
+}
 
 type runtimeProcess struct {
 	cmd  *exec.Cmd
@@ -131,10 +144,17 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
-		respond := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
+		respond := func(v any) {
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(v)
+		}
 		switch req.Operation {
 		case "health":
-			respond(map[string]any{"Version": cfg.ProviderVersion, "Capabilities": []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"}})
+			respond(map[string]any{
+				"Version":      cfg.ProviderVersion,
+				"Capabilities": []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"},
+			})
 		case "wrap", "unwrap":
 			var in struct {
 				Scope, KeyRef string
@@ -174,7 +194,14 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 				Identity   whisper.IdentityInput
 			}
 			_ = json.Unmarshal(req.Input, &in)
-			respond(map[string]any{"Body": strings.ReplaceAll(in.Body, "合成人名", "[已脱敏]"), "Identity": in.Identity, "SchoolRelated": false, "OrdinaryHit": false, "CrisisHit": false, "DetectorVersion": "synthetic-runtime-public"})
+			respond(map[string]any{
+				"Body":            strings.ReplaceAll(in.Body, "合成人名", "[已脱敏]"),
+				"Identity":        in.Identity,
+				"SchoolRelated":   false,
+				"OrdinaryHit":     false,
+				"CrisisHit":       false,
+				"DetectorVersion": "synthetic-runtime-public",
+			})
 		case "private_classify":
 			respond(map[string]any{"OrdinaryHit": false, "CrisisHit": false, "DetectorVersion": "synthetic-runtime-private"})
 		case "redact":
@@ -191,12 +218,23 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	cfg.GatewayURL = gatewayServer.URL
 	cfg.GatewayToken = "synthetic-runtime-gateway-token"
 	cfg.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayServer.Certificate().Raw}))
-	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{Version: "synthetic-runtime-resources-v1", Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Items: []whisper.Item{}}, Help: whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}}}, Care: &moderationCareFixture})
+	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{
+		Version: "synthetic-runtime-resources-v1",
+		Catalog: whisper.CatalogSnapshot{
+			Grades: whisper.Dictionary{Items: []whisper.Item{}},
+			Help:   whisper.HelpDirectory{Status: "unavailable", Items: []whisper.HelpItem{}},
+		},
+		Care: &moderationCareFixture,
+	})
 	for _, kind := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
 		// 首次创建、发布推进head至3，快照由草案1推进至已发布2，模拟正式发布语义。
 		must(root.Create(&entity.WordlistVersion{ID: id, Type: kind, Version: 2, Status: "published"}).Error)
-		must(root.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,3,?) ON CONFLICT(kind) DO UPDATE SET version=EXCLUDED.version,effective_id=EXCLUDED.effective_id", kind, id).Error)
+		must(root.Exec(
+			"INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,3,?) ON CONFLICT(kind) DO UPDATE SET version=EXCLUDED.version,effective_id=EXCLUDED.effective_id",
+			kind,
+			id,
+		).Error)
 	}
 	must((&runtimeResources{}).rules(ctx, root))
 	// 生效指针仍在也不能接受归档快照；回滚保持后续真实进程的已发布环境。
@@ -273,7 +311,12 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	for _, row := range [][2]string{{actor, token}, {peer, peerToken}} {
 		must(root.Create(&entity.Account{ID: row[0], Nickname: "隔离合成账号", Verification: "verified"}).Error)
 		hash := sha256.Sum256([]byte(row[1]))
-		must(root.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), row[0], hash[:]).Error)
+		must(root.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	request := func(method, path, tok string, body any, status int, out any) {
@@ -329,8 +372,22 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	wait("内容调度启动", func() bool { return strings.Contains(content.log.String(), "树洞内容进程启动完成") })
 	createPost := func(body string) whisper.OwnerPost {
 		var post whisper.OwnerPost
-		request("POST", "/me/whispers/posts", token, whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}}, 201, &post)
-		request("POST", "/me/whispers/posts/"+post.ID+"/submit", token, map[string]any{"expected_version": post.Version}, 202, &post)
+		request(
+			"POST",
+			"/me/whispers/posts",
+			token,
+			whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			201,
+			&post,
+		)
+		request(
+			"POST",
+			"/me/whispers/posts/"+post.ID+"/submit",
+			token,
+			map[string]any{"expected_version": post.Version},
+			202,
+			&post,
+		)
 		return post
 	}
 	published := func(id string) {
@@ -347,20 +404,44 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		t.Fatal("未命中词库的正文未按当前策略原样通过")
 	}
 	var comment whisper.OwnerComment
-	request("POST", "/whispers/posts/"+p.ID+"/comments", peerToken, whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "作者自有的合成暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: public.Version, ExpectedCommentsEpoch: public.CommentsEpoch}, 202, &comment)
+	request(
+		"POST",
+		"/whispers/posts/"+p.ID+"/comments",
+		peerToken,
+		whisper.CommentInput{
+			ContentInput:          whisper.ContentInput{Body: "作者自有的合成暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			ExpectedPostVersion:   public.Version,
+			ExpectedCommentsEpoch: public.CommentsEpoch,
+		},
+		202,
+		&comment,
+	)
 	wait("暖评最终公开", func() bool {
 		var n int64
 		return root.Model(&entity.WhisperComment{}).Where("id=? AND review_state='approved'", comment.ID).Count(&n).Error == nil && n == 1
 	})
 	var capsule whisper.Capsule
-	request("POST", "/me/whispers/capsules", token, whisper.CapsuleInput{Body: "私密原文保持不变", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true}, 202, &capsule)
+	request(
+		"POST",
+		"/me/whispers/capsules",
+		token,
+		whisper.CapsuleInput{
+			Body:                 "私密原文保持不变",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+		202,
+		&capsule,
+	)
 	wait("胶囊私密分类", func() bool {
 		var n int64
 		return root.Model(&entity.WhisperCapsule{}).Where("id=? AND review_state='approved'", capsule.ID).Count(&n).Error == nil && n == 1
 	})
-	must(root.Exec("UPDATE public.whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).Error)
+	must(root.Exec("UPDATE public.whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).
+		Error)
 	must(root.Exec("UPDATE public.work_items SET next_at=clock_timestamp() WHERE target_id=? AND kind='whisper_capsule_unlock'", capsule.ID).Error)
-	must(root.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp() WHERE aggregate_id=? AND event_type='whisper.capsule.unlock.requested'", capsule.ID).Error)
+	must(root.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp() WHERE aggregate_id=? AND event_type='whisper.capsule.unlock.requested'", capsule.ID).
+		Error)
 	wait("正式解锁调度通知", func() bool {
 		var n int64
 		return root.Model(&entity.WhisperNotificationRef{}).Where("source_id=?", capsule.ID).Count(&n).Error == nil && n == 1
@@ -403,7 +484,14 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	var a entity.Account
 	must(root.Where("id=?", actor).Take(&a).Error)
 	var accepted privacy.Accepted
-	request("POST", "/me/deletion-requests", token, privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: a.Version}, 202, &accepted)
+	request(
+		"POST",
+		"/me/deletion-requests",
+		token,
+		privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: a.Version},
+		202,
+		&accepted,
+	)
 	server.stop(t)
 	content.stop(t)
 	oneShot(serverBin, false, "-config", appPath, "-check")

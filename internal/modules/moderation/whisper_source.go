@@ -41,8 +41,16 @@ func whisperPlan(ctx context.Context, db *gorm.DB, id string) (command.Discovery
 	if e != nil {
 		return command.Discovery{}, e
 	}
-	kind := map[string]command.ResourceKind{"whisper_post": command.WhisperPost, "whisper_comment": command.WhisperComment, "whisper_nickname": command.WhisperNickname, "whisper_capsule": command.WhisperCapsule}[r.registry.Kind]
-	p := command.Discovery{Accounts: []string{r.OwnerID}, Resources: []command.Resource{{Kind: kind, ID: r.ID}, {Kind: command.ModerationTask, ID: id}}}
+	kind := map[string]command.ResourceKind{
+		"whisper_post":     command.WhisperPost,
+		"whisper_comment":  command.WhisperComment,
+		"whisper_nickname": command.WhisperNickname,
+		"whisper_capsule":  command.WhisperCapsule,
+	}[r.registry.Kind]
+	p := command.Discovery{
+		Accounts:  []string{r.OwnerID},
+		Resources: []command.Resource{{Kind: kind, ID: r.ID}, {Kind: command.ModerationTask, ID: id}},
+	}
 	if r.ParentID != nil {
 		var parent entity.WhisperPost
 		if e = db.WithContext(ctx).Select("id,owner_id").Where("id=?", *r.ParentID).Take(&parent).Error; e != nil {
@@ -54,18 +62,27 @@ func whisperPlan(ctx context.Context, db *gorm.DB, id string) (command.Discovery
 	// 昵称的撤销与公开决定共享同一资源锁，避免批准后立即泄漏旧快照。
 	if r.NicknameVersion != nil {
 		var n entity.WhisperNicknameVersion
-		if e = db.WithContext(ctx).Select("content_registry_id").Where("account_id=? AND nickname_version=?", r.OwnerID, *r.NicknameVersion).Take(&n).Error; e != nil {
+		if e = db.WithContext(ctx).Select("content_registry_id").Where(
+			"account_id=? AND nickname_version=?",
+			r.OwnerID,
+			*r.NicknameVersion,
+		).Take(&n).Error; e != nil {
 			return p, e
 		}
 		p.Resources = append(p.Resources, command.Resource{Kind: command.WhisperNickname, ID: n.ContentRegistryID})
 	}
 	return p, nil
 }
+
 func whisperCurrent(r whisperSource) bool {
-	return r.TaskID != nil && *r.TaskID == r.task.ID && r.ContentVersion == r.task.ContentVersion && r.Lifecycle == "active" && r.account.Lifecycle == "active" && r.account.AuthEpoch == r.task.SubjectEpoch
+	return r.TaskID != nil && *r.TaskID == r.task.ID && r.ContentVersion == r.task.ContentVersion && r.Lifecycle == "active" &&
+		r.account.Lifecycle == "active" &&
+		r.account.AuthEpoch == r.task.SubjectEpoch
 }
+
 func whisperEligible(ctx context.Context, db *gorm.DB, r whisperSource) (bool, error) {
-	if !whisperCurrent(r) || r.task.HoldEpoch != r.PrivacyEpoch || r.task.RestrictionEpoch == nil || *r.task.RestrictionEpoch != r.RestrictionEpoch {
+	if !whisperCurrent(r) || r.task.HoldEpoch != r.PrivacyEpoch || r.task.RestrictionEpoch == nil ||
+		*r.task.RestrictionEpoch != r.RestrictionEpoch {
 		return false, nil
 	}
 	if r.registry.Kind == "whisper_post" && r.account.Verification != "verified" {
@@ -135,6 +152,7 @@ func whisperDecrypt(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r
 	}
 	return
 }
+
 func whisperPlain(ctx context.Context, codec *securedata.Codec, purpose, id string, v int64, raw json.RawMessage, out any) error {
 	var env securedata.Envelope
 	if json.Unmarshal(raw, &env) != nil {

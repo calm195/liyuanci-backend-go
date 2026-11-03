@@ -17,9 +17,11 @@ import (
 
 // MaxInteger 是各客户端均可精确表达的版本上限。
 const MaxInteger int64 = 9007199254740991
+
 const whitespace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 var integerPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
 
 // ID 校验完整UUID文本并规范为小写。
@@ -70,7 +72,8 @@ func Text(kind, v string) (string, error) {
 			}
 		}
 		u, e := url.Parse(v)
-		if e != nil || u.Hostname() == "" || u.User != nil || !slices.Contains([]string{"http", "https"}, Fold(u.Scheme)) || strings.HasSuffix(u.Host, ":") {
+		if e != nil || u.Hostname() == "" || u.User != nil || !slices.Contains([]string{"http", "https"}, Fold(u.Scheme)) ||
+			strings.HasSuffix(u.Host, ":") {
 			return "", command.ErrInvalid
 		}
 		// 整串百分号已检查，url.Parse检查端口语法；显式数字端口另限范围。
@@ -82,12 +85,20 @@ func Text(kind, v string) (string, error) {
 		}
 		return v, nil
 	}
-	lim, ok := map[string][2]int{"title": {1, 100}, "name": {1, 30}, "description": {0, 2000}, "extraction_code": {0, 64}, "q": {0, 100}, "reason": {1, 500}}[kind]
+	lim, ok := map[string][2]int{
+		"title":           {1, 100},
+		"name":            {1, 30},
+		"description":     {0, 2000},
+		"extraction_code": {0, 64},
+		"q":               {0, 100},
+		"reason":          {1, 500},
+	}[kind]
 	if !ok || utf8.RuneCountInString(v) < lim[0] || utf8.RuneCountInString(v) > lim[1] {
 		return "", command.ErrInvalid
 	}
 	for _, r := range v {
-		if (r < 32 || (r >= 127 && r <= 159) || r == 0x2028 || r == 0x2029) && !((kind == "description" || kind == "reason") && (r == '\n' || r == '\t')) {
+		if (r < 32 || (r >= 127 && r <= 159) || r == 0x2028 || r == 0x2029) &&
+			!((kind == "description" || kind == "reason") && (r == '\n' || r == '\t')) {
 			return "", command.ErrInvalid
 		}
 	}
@@ -118,7 +129,15 @@ type Query struct {
 	ExpectedVersion                        int64
 }
 
-var requestFields = map[string][]string{"create": {"title", "category_id", "download_url", "description", "extraction_code"}, "update": {"title", "category_id", "download_url", "description", "extraction_code", "expected_version"}, "publish": {"expected_version"}, "offline": {"expected_version", "reason"}, "category_create": {"name", "sort_order"}, "category_update": {"name", "sort_order", "enabled", "expected_version"}, "feedback": {"kind", "expected_content_version", "expected_feedback_version"}}
+var requestFields = map[string][]string{
+	"create":          {"title", "category_id", "download_url", "description", "extraction_code"},
+	"update":          {"title", "category_id", "download_url", "description", "extraction_code", "expected_version"},
+	"publish":         {"expected_version"},
+	"offline":         {"expected_version", "reason"},
+	"category_create": {"name", "sort_order"},
+	"category_update": {"name", "sort_order", "enabled", "expected_version"},
+	"feedback":        {"kind", "expected_content_version", "expected_feedback_version"},
+}
 
 // ParseInput 拒绝重复键、未知字段、非整数token及孤立UTF-16代理转义。
 func ParseInput(op string, raw []byte) (out Input, err error) {
@@ -249,6 +268,7 @@ func Integer(v string, zero bool) (int64, error) {
 	}
 	return n, nil
 }
+
 func validSurrogates(raw []byte) bool {
 	for i := 0; i < len(raw); i++ {
 		if raw[i] != '\\' {

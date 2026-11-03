@@ -32,7 +32,19 @@ func (s WhisperReviewSink) Append(ctx context.Context, db *gorm.DB, in whisper.R
 	if !whisperKind(in.Kind) || in.Round < 1 {
 		return command.ErrInvalid
 	}
-	return durable.Append(ctx, db, s.Logger, WhisperReviewRoute(), durable.Draft{WorkID: uuid.NewString(), OperationID: in.TaskID, EventID: uuid.NewString(), AggregateID: in.TaskID, AggregateVersion: in.ContentVersion})
+	return durable.Append(
+		ctx,
+		db,
+		s.Logger,
+		WhisperReviewRoute(),
+		durable.Draft{
+			WorkID:           uuid.NewString(),
+			OperationID:      in.TaskID,
+			EventID:          uuid.NewString(),
+			AggregateID:      in.TaskID,
+			AggregateVersion: in.ContentVersion,
+		},
+	)
 }
 
 // WhisperAssessment 的 Body/Identity 仅用于公开内容；私密胶囊分类不得返回替换正文。
@@ -65,7 +77,8 @@ type WhisperWorker struct {
 
 // NewWhisperWorker 要求两个不同的分析边界均显式注入；未配置审核时不能启动真实消费者。
 func NewWhisperWorker(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, public WhisperPublicAnalyzer, private WhisperPrivateAnalyzer, cfg WorkerConfig) (*WhisperWorker, error) {
-	if db == nil || logger == nil || codec == nil || public == nil || private == nil || cfg.AnalysisTimeout <= 0 || !validateCare(cfg.Care) {
+	if db == nil || logger == nil || codec == nil || public == nil || private == nil || cfg.AnalysisTimeout <= 0 ||
+		!validateCare(cfg.Care) {
 		return nil, durable.ErrInvalid
 	}
 	if cfg.Care != nil {
@@ -84,7 +97,13 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		if recover() != nil {
 			err = durable.ErrConfiguration
 		}
-		w.logger.Info("树洞审核消费完成", zap.Bool("applied", out.Applied), zap.Bool("replayed", out.Replayed), zap.Bool("success", err == nil), zap.Duration("duration", time.Since(start)))
+		w.logger.Info(
+			"树洞审核消费完成",
+			zap.Bool("applied", out.Applied),
+			zap.Bool("replayed", out.Replayed),
+			zap.Bool("success", err == nil),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, 2*w.cfg.Consumer.Timeout+w.cfg.AnalysisTimeout)
 	defer cancel()
@@ -95,7 +114,16 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 	valid, input := false, false
 	prep := w.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		var n int64
-		e := db.Raw(`SELECT count(*) FROM public.outbox_events e JOIN public.work_items w ON w.id=e.work_id WHERE e.event_id=? AND e.event_type=? AND e.aggregate_id=? AND e.aggregate_version=? AND e.work_id=? AND e.created_at=? AND e.superseded_at IS NULL AND w.kind=? AND w.target_id=e.aggregate_id`, event.EventID, event.EventType, event.AggregateID, event.AggregateVersion, event.CorrelationID, event.CreatedAt, WhisperReviewRoute().Kind).Scan(&n).Error
+		e := db.Raw(
+			`SELECT count(*) FROM public.outbox_events e JOIN public.work_items w ON w.id=e.work_id WHERE e.event_id=? AND e.event_type=? AND e.aggregate_id=? AND e.aggregate_version=? AND e.work_id=? AND e.created_at=? AND e.superseded_at IS NULL AND w.kind=? AND w.target_id=e.aggregate_id`,
+			event.EventID,
+			event.EventType,
+			event.AggregateID,
+			event.AggregateVersion,
+			event.CorrelationID,
+			event.CreatedAt,
+			WhisperReviewRoute().Kind,
+		).Scan(&n).Error
 		if e != nil || n != 1 || event.EventType != WhisperReviewRoute().EventType {
 			return e
 		}
@@ -108,7 +136,8 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		if e = db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 			return e
 		}
-		if work.Status == "completed" || work.Status == "cancelled" || work.Status == "attention" || work.NextAt.After(now) || work.Status == "leased" && work.LeaseUntil != nil && work.LeaseUntil.After(now) {
+		if work.Status == "completed" || work.Status == "cancelled" || work.Status == "attention" || work.NextAt.After(now) ||
+			work.Status == "leased" && work.LeaseUntil != nil && work.LeaseUntil.After(now) {
 			return nil
 		}
 		r, e = loadWhisper(ctx, db, event.AggregateID)
@@ -154,7 +183,10 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		stop()
 		if e != nil {
 			prep = durable.ErrTemporary
-		} else if !text(result.DetectorVersion, 80) || r.registry.Kind != "whisper_capsule" && (!text(result.Body, 500) || !whisperIdentitySubset(result.Identity, identity) || r.registry.Kind == "whisper_nickname" && (!text(result.Body, 20) || utf8.RuneCountInString(result.Body) < 2)) {
+		} else if !text(result.DetectorVersion, 80) ||
+			r.registry.Kind != "whisper_capsule" &&
+				(!text(result.Body, 500) || !whisperIdentitySubset(result.Identity, identity) ||
+					r.registry.Kind == "whisper_nickname" && (!text(result.Body, 20) || utf8.RuneCountInString(result.Body) < 2)) {
 			prep = durable.ErrConfiguration
 		} else {
 
@@ -163,7 +195,17 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 				prep = durable.ErrTemporary
 			} else {
 				a = &result
-				scan = &entity.ModerationScan{TaskID: r.task.ID, CrisisVersion: rules.crisis.ID, SchoolVersion: rules.school.ID, OrdinaryVersion: rules.ordinary.ID, DetectorVersion: result.DetectorVersion, SchoolRelated: result.SchoolRelated, OrdinaryHit: result.OrdinaryHit, CrisisHit: result.CrisisHit, ProjectionCipher: raw}
+				scan = &entity.ModerationScan{
+					TaskID:           r.task.ID,
+					CrisisVersion:    rules.crisis.ID,
+					SchoolVersion:    rules.school.ID,
+					OrdinaryVersion:  rules.ordinary.ID,
+					DetectorVersion:  result.DetectorVersion,
+					SchoolRelated:    result.SchoolRelated,
+					OrdinaryHit:      result.OrdinaryHit,
+					CrisisHit:        result.CrisisHit,
+					ProjectionCipher: raw,
+				}
 			}
 		}
 	}
@@ -173,6 +215,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 	}
 	return c.Consume(ctx, event)
 }
+
 func whisperIdentitySubset(candidate, input whisper.IdentityInput) bool {
 	if candidate.Mode != input.Mode {
 		return false
@@ -186,6 +229,7 @@ func whisperIdentitySubset(candidate, input whisper.IdentityInput) bool {
 	}
 	return candidate.NicknameVersion == nil || *candidate.NicknameVersion == *input.NicknameVersion
 }
+
 func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessment, prepare error) (*durable.Consumer, error) {
 	return durable.NewConsumer(w.db, w.logger, durable.ConsumerDefinition{ConsumerKind: "whisper_review.scan", Route: WhisperReviewRoute(), Discover: func(ctx context.Context, db *gorm.DB, work durable.Work) (command.Discovery, error) {
 		return whisperPlan(ctx, db, work.TargetID)
@@ -204,7 +248,9 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 		}
 		if !ok || r.task.Status != "pending" || r.ContentVersion != work.TargetVersion {
 			if r.task.Status == "pending" {
-				if e = db.Model(&entity.ModerationTask{}).Where("id=?", r.task.ID).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+				if e = db.Model(&entity.ModerationTask{}).Where("id=?", r.task.ID).
+					Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).
+					Error; e != nil {
 					return "", e
 				}
 			}
@@ -219,7 +265,11 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 		if e = db.Create(scan).Error; e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.ContentRegistry{}).Where("id=?", r.registry.ID).Updates(map[string]any{"school_related": a.SchoolRelated, "school_detection_state": "completed", "school_detection_version": a.DetectorVersion + "/" + scan.SchoolVersion}).Error; e != nil {
+		if e = db.Model(&entity.ContentRegistry{}).Where("id=?", r.registry.ID).Updates(map[string]any{
+			"school_related":           a.SchoolRelated,
+			"school_detection_state":   "completed",
+			"school_detection_version": a.DetectorVersion + "/" + scan.SchoolVersion,
+		}).Error; e != nil {
 			return "", e
 		}
 		state := "pending"
@@ -237,7 +287,9 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 		if e = applyWhisperReview(ctx, db, w.codec, r, *a, state, tx.Now()); e != nil {
 			return "", e
 		}
-		e = db.Model(&entity.ModerationTask{}).Where("id=?", r.task.ID).Updates(map[string]any{"status": taskState, "decision": decision, "version": gorm.Expr("version+1")}).Error
+		e = db.Model(&entity.ModerationTask{}).Where("id=?", r.task.ID).
+			Updates(map[string]any{"status": taskState, "decision": decision, "version": gorm.Expr("version+1")}).
+			Error
 		return durable.Complete, e
 	}}, w.cfg.Consumer)
 }
@@ -247,7 +299,10 @@ func (w *WhisperWorker) ProcessNext(ctx context.Context) (out durable.Consumptio
 	ctx, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
 	var events []durable.Event
-	err = w.db.WithContext(ctx).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) ORDER BY w.next_at,w.id LIMIT 1`, WhisperReviewRoute().Kind).Scan(&events).Error
+	err = w.db.WithContext(ctx).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL WHERE w.kind=? AND w.status IN ('pending','retry_wait','leased') AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp()) ORDER BY w.next_at,w.id LIMIT 1`, WhisperReviewRoute().
+		Kind).
+		Scan(&events).
+		Error
 	if err != nil {
 		return out, durable.ErrUnavailable
 	}
@@ -264,7 +319,9 @@ func (w *WhisperWorker) ProcessCrisisDelivery(ctx context.Context) (bool, error)
 
 // applyWhisperReview 仅消费已审核候选；胶囊只改变审核状态，不改写原文或提前解锁。
 func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource, a WhisperAssessment, state string, now time.Time) error {
-	if e := db.Model(&entity.ContentRegistry{}).Where("id=?", r.registry.ID).Update("status", map[string]string{"pending": "human_required", "approved": "approved", "rejected": "rejected"}[state]).Error; e != nil {
+	if e := db.Model(&entity.ContentRegistry{}).Where("id=?", r.registry.ID).
+		Update("status", map[string]string{"pending": "human_required", "approved": "approved", "rejected": "rejected"}[state]).
+		Error; e != nil {
 		return e
 	}
 	switch r.registry.Kind {
@@ -280,11 +337,21 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 			return e
 		}
 		if state == "approved" {
-			return db.Model(&entity.WhisperPreference{}).Where("account_id=? AND candidate_nickname_version=?", r.OwnerID, r.ContentVersion).Updates(map[string]any{"active_nickname_version": r.ContentVersion, "candidate_nickname_version": nil, "version": gorm.Expr("version+1")}).Error
+			return db.Model(&entity.WhisperPreference{}).Where(
+				"account_id=? AND candidate_nickname_version=?",
+				r.OwnerID,
+				r.ContentVersion,
+			).Updates(map[string]any{
+				"active_nickname_version":    r.ContentVersion,
+				"candidate_nickname_version": nil,
+				"version":                    gorm.Expr("version+1"),
+			}).Error
 		}
 		return nil
 	case "whisper_capsule":
-		if e := db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": state, "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e := db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).
+			Updates(map[string]any{"review_state": state, "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return e
 		}
 		if state == "approved" {
@@ -292,7 +359,12 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 		}
 		return nil
 	}
-	identity := whisper.PublicIdentity{Mode: r.IdentityMode, Label: "", Tags: a.Identity.Tags, IsAuthor: r.registry.Kind == "whisper_post"}
+	identity := whisper.PublicIdentity{
+		Mode:     r.IdentityMode,
+		Label:    "",
+		Tags:     a.Identity.Tags,
+		IsAuthor: r.registry.Kind == "whisper_post",
+	}
 	if identity.Mode == "named" {
 		var n entity.WhisperNicknameVersion
 		if e := db.Select("public_label").Where("account_id=? AND nickname_version=?", r.OwnerID, *r.NicknameVersion).Take(&n).Error; e != nil {
@@ -309,7 +381,13 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 		codes = append(codes, "UNVERIFIED_SCHOOL")
 	}
 	notice, _ := json.Marshal(codes)
-	u := map[string]any{"review_state": state, "school_related": a.SchoolRelated, "public_body": nil, "public_identity": nil, "notice_codes": json.RawMessage(notice)}
+	u := map[string]any{
+		"review_state":    state,
+		"school_related":  a.SchoolRelated,
+		"public_body":     nil,
+		"public_identity": nil,
+		"notice_codes":    json.RawMessage(notice),
+	}
 	if state == "approved" {
 		u["public_body"] = a.Body
 		u["public_identity"] = json.RawMessage(raw)

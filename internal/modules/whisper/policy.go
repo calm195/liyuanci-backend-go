@@ -42,7 +42,11 @@ func ValidKey(value string) bool {
 }
 
 // ValidID 只接受规范小写 UUID，避免同一资源出现多个回执域。
-func ValidID(value string) bool { id, e := uuid.Parse(value); return e == nil && id.String() == value }
+func ValidID(value string) bool {
+
+	id, e := uuid.Parse(value)
+	return e == nil && id.String() == value
+}
 
 func validText(value string, min, max int) bool {
 	n := utf8.RuneCountInString(value)
@@ -50,7 +54,8 @@ func validText(value string, min, max int) bool {
 }
 
 func tagsValid(tags *Tags, dict Dictionary) bool {
-	if tags == nil || !slices.Contains([]string{"wushan", "university_town", "international"}, tags.Campus) || !slices.Contains([]string{"male", "female", "undisclosed"}, tags.Gender) {
+	if tags == nil || !slices.Contains([]string{"wushan", "university_town", "international"}, tags.Campus) ||
+		!slices.Contains([]string{"male", "female", "undisclosed"}, tags.Gender) {
 		return false
 	}
 	return slices.ContainsFunc(dict.Items, func(i Item) bool { return i.Code == tags.Grade })
@@ -107,7 +112,11 @@ func normalizeCatalog(c CatalogSnapshot) (CatalogSnapshot, error) {
 	}
 	for _, i := range c.Help.Items {
 		u, e := url.Parse(i.SourceURL)
-		if !slices.Contains([]string{"school_appointment", "hotline"}, i.Kind) || !validText(i.Label, 1, 500) || !validText(i.Contact, 1, 500) || e != nil || u.Scheme != "https" || u.Host == "" {
+		if !slices.Contains([]string{"school_appointment", "hotline"}, i.Kind) || !validText(i.Label, 1, 500) ||
+			!validText(i.Contact, 1, 500) ||
+			e != nil ||
+			u.Scheme != "https" ||
+			u.Host == "" {
 			return c, command.ErrUnavailable
 		}
 	}

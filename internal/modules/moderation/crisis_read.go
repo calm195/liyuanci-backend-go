@@ -64,7 +64,13 @@ func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, li
 	}
 	out.Items = []CrisisView{}
 	err = s.transaction(ctx, func(db *gorm.DB) error {
-		actor, e := s.authorizeRoles(db.Statement.Context, db, token, command.Discovery{}, []string{"crisis_operator", "super_admin"})
+		actor, e := s.authorizeRoles(
+			db.Statement.Context,
+			db,
+			token,
+			command.Discovery{},
+			[]string{"crisis_operator", "super_admin"},
+		)
 		if e != nil {
 			return e
 		}
@@ -72,7 +78,10 @@ func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, li
 		if e != nil {
 			return e
 		}
-		q := db.Model(&entity.EvidenceCrisisCase{}).Table("evidence.crisis_cases AS c").Select("c.*").Where("c.content_type IN ('wish','application','message','story')").Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id AND ec.status<>'deletion_pending'")
+		q := db.Model(&entity.EvidenceCrisisCase{}).Table("evidence.crisis_cases AS c").
+			Select("c.*").
+			Where("c.content_type IN ('wish','application','message','story')").
+			Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id AND ec.status<>'deletion_pending'")
 		if after != "" {
 			q = q.Where("c.id>?", after)
 		}
@@ -195,7 +204,14 @@ func (s *Service) CrisisEvidence(ctx context.Context, token, rid, id string) (ou
 		if e = decryptEvidence(ctx, s.codec, "crisis_body", item.ID, item.BodyCipher, &body); e != nil {
 			return e
 		}
-		out = EvidenceView{ID: item.ID, Version: ec.Version, CaseID: c.ID, Body: body, StudentNumber: subject.StudentNumber, Status: c.Status}
+		out = EvidenceView{
+			ID:            item.ID,
+			Version:       ec.Version,
+			CaseID:        c.ID,
+			Body:          body,
+			StudentNumber: subject.StudentNumber,
+			Status:        c.Status,
+		}
 		return crisisAction(ctx, db, s.codec, c, actor, "evidence_view", "限定证据授权查看", time.Now().UTC())
 	})
 	return
@@ -240,7 +256,13 @@ func (s *Service) CrisisWork(ctx context.Context, token, rid, id string) (out Cr
 		return out, command.ErrInvalid
 	}
 	err = s.transaction(ctx, func(db *gorm.DB) error {
-		_, e := s.authorizeRoles(db.Statement.Context, db, token, command.Discovery{}, []string{"crisis_operator", "super_admin"})
+		_, e := s.authorizeRoles(
+			db.Statement.Context,
+			db,
+			token,
+			command.Discovery{},
+			[]string{"crisis_operator", "super_admin"},
+		)
 		if e != nil {
 			return e
 		}

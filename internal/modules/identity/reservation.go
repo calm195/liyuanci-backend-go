@@ -29,7 +29,9 @@ func (s *Store) ReserveStudentNumber(ctx context.Context, tx *gorm.DB, account s
 	}
 	tx = tx.WithContext(ctx)
 	var owner entity.Account
-	if e := tx.Select("lifecycle,verification").Where("id=?", account).Take(&owner).Error; e != nil || owner.Lifecycle != "active" || owner.Verification == "verified" || len(value) == 0 {
+	if e := tx.Select("lifecycle,verification").Where("id=?", account).
+		Take(&owner).
+		Error; e != nil || owner.Lifecycle != "active" || owner.Verification == "verified" || len(value) == 0 {
 		return ErrUnavailable
 	}
 	// 原绑定入口负责首次写入及同值重放；仅明确冲突才进入受控更正分支。
@@ -63,11 +65,17 @@ func (s *Store) ReserveStudentNumber(ctx context.Context, tx *gorm.DB, account s
 		}
 	}
 	var secret entity.IdentitySecret
-	if e = tx.Select("content_version").Where("account_id=? AND purpose=?", account, "student_number").Take(&secret).Error; e != nil || secret.ContentVersion < 1 {
+	if e = tx.Select("content_version").Where("account_id=? AND purpose=?", account, "student_number").
+		Take(&secret).
+		Error; e != nil || secret.ContentVersion < 1 {
 		return ErrUnavailable
 	}
 	version := secret.ContentVersion + 1
-	envelope, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "student_number", ObjectID: account, Version: uint64(version)}, value)
+	envelope, e := s.codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_number", ObjectID: account, Version: uint64(version)},
+		value,
+	)
 	if e != nil {
 		return ErrUnavailable
 	}
@@ -78,7 +86,9 @@ func (s *Store) ReserveStudentNumber(ctx context.Context, tx *gorm.DB, account s
 	if e = tx.Where("account_id=? AND purpose=?", account, "student_number").Delete(&entity.IdentityLookupClaim{}).Error; e != nil {
 		return ErrUnavailable
 	}
-	if e = tx.Model(&entity.IdentitySecret{}).Where("account_id=? AND purpose=?", account, "student_number").Updates(map[string]any{"content_version": version, "envelope": json.RawMessage(encoded)}).Error; e != nil {
+	if e = tx.Model(&entity.IdentitySecret{}).Where("account_id=? AND purpose=?", account, "student_number").
+		Updates(map[string]any{"content_version": version, "envelope": json.RawMessage(encoded)}).
+		Error; e != nil {
 		return ErrUnavailable
 	}
 	for i, ref := range refs {
@@ -98,7 +108,10 @@ func bindingTransaction(ctx context.Context, tx *gorm.DB) error {
 		return ErrUnavailable
 	}
 	var held bool
-	if tx.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND classid=0 AND objid=624109174 AND granted)").Scan(&held).Error != nil || !held {
+	if tx.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND classid=0 AND objid=624109174 AND granted)").
+		Scan(&held).
+		Error != nil ||
+		!held {
 		return ErrUnavailable
 	}
 	return nil

@@ -18,6 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	path := flag.String("config", "configs/development.yaml", "应用YAML配置路径")
 	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")

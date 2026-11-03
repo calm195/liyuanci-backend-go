@@ -242,7 +242,15 @@ func (t *Tx) Actor() Actor {
 func (t *Tx) Now() time.Time { return t.now }
 
 // Guard 返回已锁账号快照。
-func (t *Tx) Guard(id string) (Guard, bool) { got, ok := t.guards[id]; return got, ok }
+func (t *Tx) Guard(id string) (Guard, bool) {
+
+	got, ok := t.guards[id]
+	return got, ok
+}
 
 // Resource 返回已锁资源版本。
-func (t *Tx) Resource(ref Resource) (Snapshot, bool) { got, ok := t.resources[ref]; return got, ok }
+func (t *Tx) Resource(ref Resource) (Snapshot, bool) {
+
+	got, ok := t.resources[ref]
+	return got, ok
+}

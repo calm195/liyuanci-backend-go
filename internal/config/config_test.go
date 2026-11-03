@@ -22,13 +22,20 @@ func fixture(t *testing.T, base, overlay string) string {
 
 // TestConfigurationLayers 验证公共默认、环境覆盖、嵌套保留、单DSN注入和相对路径。
 func TestConfigurationLayers(t *testing.T) {
-	path := fixture(t, "mode: development\ndatabase:\n  driver: postgres\n  maxopen: 6\nredis:\n  enabled: true\nserver:\n  readtimeout: 8s\ndevelopment:\n  journalfile: ../state/deletions.json\n", "masterkey: "+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{19}, 32))+"\nenvironment: development\ndatabase:\n  host: 127.0.0.1\n  name: shared\n  user: application\n  password: synthetic\nserver:\n  address: 127.0.0.1:9000\n")
+	path := fixture(
+		t,
+		"mode: development\ndatabase:\n  driver: postgres\n  maxopen: 6\nredis:\n  enabled: true\nserver:\n  readtimeout: 8s\ndevelopment:\n  journalfile: ../state/deletions.json\n",
+		"masterkey: "+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{19}, 32))+"\nenvironment: development\ndatabase:\n  host: 127.0.0.1\n  name: shared\n  user: application\n  password: synthetic\nserver:\n  address: 127.0.0.1:9000\n",
+	)
 	t.Setenv("APP_DATABASE_DSN", "ignored")
 	c, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Database.DSN == "" || c.Business.Runtime.DatabaseDSN != c.Database.DSN || c.Whispers.DatabaseDSN != c.Database.DSN || c.Development.DatabaseDSN != c.Database.DSN || c.Database.MaxOpen != 6 || c.Server.ReadTimeout != 8*time.Second {
+	if c.Database.DSN == "" || c.Business.Runtime.DatabaseDSN != c.Database.DSN || c.Whispers.DatabaseDSN != c.Database.DSN ||
+		c.Development.DatabaseDSN != c.Database.DSN ||
+		c.Database.MaxOpen != 6 ||
+		c.Server.ReadTimeout != 8*time.Second {
 		t.Fatal("覆盖或单DSN失效")
 	}
 	if c.Development.JournalFile != filepath.Clean(filepath.Join(filepath.Dir(path), "../state/deletions.json")) {
@@ -39,7 +46,20 @@ func TestConfigurationLayers(t *testing.T) {
 // TestConfigurationRejectsLegacyAndInvalid 拒绝已移除通道、第二DSN、重复键和生产开发混用。
 func TestConfigurationRejectsLegacyAndInvalid(t *testing.T) {
 	for _, overlay := range []string{
-		"rocketmq:\n  enabled: true\n", "businessfile: old.yaml\n", "business:\n  studentdsn: second\n", "business:\n  runtime:\n    databasedsn: second\n", "database:\n  dsn: first\n  DSN: second\n", "database:\n  dsn: null\n", "database:\n  dsn: old\n", "database:\n  dsn: ''\n", "unknown: true\n", "server:\n  readtimeout: 10\n", "environment: production\nmode: development\n", "mode: development\n", "server:\n  address: first\n  address: second\n",
+
+		"rocketmq:\n  enabled: true\n",
+		"businessfile: old.yaml\n",
+		"business:\n  studentdsn: second\n",
+		"business:\n  runtime:\n    databasedsn: second\n",
+		"database:\n  dsn: first\n  DSN: second\n",
+		"database:\n  dsn: null\n",
+		"database:\n  dsn: old\n",
+		"database:\n  dsn: ''\n",
+		"unknown: true\n",
+		"server:\n  readtimeout: 10\n",
+		"environment: production\nmode: development\n",
+		"mode: development\n",
+		"server:\n  address: first\n  address: second\n",
 	} {
 		t.Run(overlay, func(t *testing.T) {
 			if _, e := Load(fixture(t, "mode: foundation\n", overlay)); e == nil {

@@ -61,7 +61,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if err != nil {
 			result = "failure"
 		}
-		w.logger.Info("危机待办投递完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("processed", processed))
+		w.logger.Info(
+			"危机待办投递完成",
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+			zap.Bool("processed", processed),
+		)
 	}()
 	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer cancel()
@@ -77,7 +82,11 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if w.whispersOnly {
 			predicate = "content_type LIKE 'whisper_%'"
 		}
-		e := query.Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE " + predicate + ")").Order("next_at,id").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&job).Error
+		e := query.Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE " + predicate + ")").
+			Order("next_at,id").
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Take(&job).
+			Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return nil
 		}
@@ -87,7 +96,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if job.Attempts == math.MaxInt64 {
 			return command.ErrConflict
 		}
-		return db.Model(&entity.CrisisDelivery{}).Where("id=?", job.ID).Updates(map[string]any{"status": "leased", "lease_id": lease, "lease_until": now.Add(w.cfg.AnalysisTimeout + 2*w.cfg.Consumer.Timeout), "attempts": gorm.Expr("attempts+1")}).Error
+		return db.Model(&entity.CrisisDelivery{}).Where("id=?", job.ID).Updates(map[string]any{
+			"status":      "leased",
+			"lease_id":    lease,
+			"lease_until": now.Add(w.cfg.AnalysisTimeout + 2*w.cfg.Consumer.Timeout),
+			"attempts":    gorm.Expr("attempts+1"),
+		}).Error
 	})
 	if err != nil || job.ID == "" {
 		return false, safe(err)
@@ -170,7 +184,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 					if e = db.Create(&entity.CareCard{ID: job.ID, RecipientID: subject.AccountID, Resources: resources}).Error; e != nil {
 						return e
 					}
-					if e = db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: subject.AccountID, Type: "crisis_care", TargetRef: job.ID}).Error; e != nil {
+					if e = db.Create(&entity.Notification{
+						ID:          uuid.NewString(),
+						RecipientID: subject.AccountID,
+						Type:        "crisis_care",
+						TargetRef:   job.ID,
+					}).Error; e != nil {
 						return e
 					}
 				}
@@ -183,7 +202,12 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if sendErr != nil && status != "cancelled" {
 			status = "pending"
 		}
-		return db.Model(&entity.CrisisDelivery{}).Where("id=? AND lease_id=?", job.ID, lease).Updates(map[string]any{"status": status, "next_at": now.Add(w.cfg.Consumer.RetryDelay), "lease_id": nil, "lease_until": nil}).Error
+		return db.Model(&entity.CrisisDelivery{}).Where("id=? AND lease_id=?", job.ID, lease).Updates(map[string]any{
+			"status":      status,
+			"next_at":     now.Add(w.cfg.Consumer.RetryDelay),
+			"lease_id":    nil,
+			"lease_until": nil,
+		}).Error
 	})
 	if err != nil {
 		return processed, safe(err)
@@ -193,7 +217,11 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 }
 
 // Maintain 由宿主调度独立补偿危机投递，不挤占正文扫描的外部分析预算。
-func (w *Worker) Maintain(ctx context.Context) error { _, e := w.ProcessCrisisDelivery(ctx); return e }
+func (w *Worker) Maintain(ctx context.Context) error {
+
+	_, e := w.ProcessCrisisDelivery(ctx)
+	return e
+}
 
 // deliveryCrisisRow 仅供内部投递；跨域公开读取仍走各自的来源筛选。
 func deliveryCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {

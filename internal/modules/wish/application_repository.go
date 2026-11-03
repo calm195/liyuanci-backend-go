@@ -77,19 +77,34 @@ func applicationPlan(ctx context.Context, db *gorm.DB, id string) (plan command.
 
 func participantAllowed(ctx context.Context, db *gorm.DB, id string, now time.Time) (bool, error) {
 	var n int64
-	if err := db.WithContext(ctx).Model(&entity.Account{}).Where("id=? AND lifecycle='active' AND verification='verified'", id).Count(&n).Error; err != nil {
+	if err := db.WithContext(ctx).Model(&entity.Account{}).
+		Where("id=? AND lifecycle='active' AND verification='verified'", id).
+		Count(&n).
+		Error; err != nil {
 		return false, err
 	}
 	if n != 1 {
 		return false, nil
 	}
-	err := db.WithContext(ctx).Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", id, []string{"mute", "ban"}, now, now).Count(&n).Error
+	err := db.WithContext(ctx).Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		id,
+		[]string{"mute", "ban"},
+		now,
+		now,
+	).Count(&n).Error
 	return n == 0, err
 }
 
 func blocked(ctx context.Context, db *gorm.DB, a, b string) (bool, error) {
 	var n int64
-	err := db.WithContext(ctx).Model(&entity.Block{}).Where("(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)", a, b, b, a).Count(&n).Error
+	err := db.WithContext(ctx).Model(&entity.Block{}).Where(
+		"(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)",
+		a,
+		b,
+		b,
+		a,
+	).Count(&n).Error
 	return n > 0, err
 }
 
@@ -155,7 +170,12 @@ func ApplicationEligible(ctx context.Context, db *gorm.DB, row entity.Applicatio
 		return false, err
 	}
 	var restrictions int64
-	if err = db.WithContext(ctx).Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='application' AND c.entity_id=? AND r.active", row.ID).Count(&restrictions).Error; err != nil {
+	if err = db.WithContext(ctx).Model(&entity.ContentRestriction{}).
+		Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='application' AND c.entity_id=? AND r.active", row.ID).
+		Count(&restrictions).
+		Error; err != nil {
 		return false, err
 	}
 	if restrictions > 0 {
@@ -174,24 +194,41 @@ func ApplicationEligible(ctx context.Context, db *gorm.DB, row entity.Applicatio
 			return false, nil
 		}
 		var registry entity.ContentRegistry
-		if err = db.WithContext(ctx).Where("id=? AND kind='application' AND entity_id=? AND content_version=?", task.ContentID, row.ID, row.ContentVersion).Take(&registry).Error; err != nil {
+		if err = db.WithContext(ctx).Where(
+			"id=? AND kind='application' AND entity_id=? AND content_version=?",
+			task.ContentID,
+			row.ID,
+			row.ContentVersion,
+		).Take(&registry).Error; err != nil {
 			return false, err
 		}
 		if registry.Status != "approved" {
 			return false, nil
 		}
 	}
-	return task.SubjectEpoch == actor.AuthEpoch && task.ContentVersion == row.ContentVersion && task.RestrictionEpoch != nil && *task.RestrictionEpoch == a.row.RestrictionEpoch && task.HoldEpoch == a.snapshot.HoldEpoch && task.Status != "obsolete" && task.Status != "cancelled", nil
+	return task.SubjectEpoch == actor.AuthEpoch && task.ContentVersion == row.ContentVersion && task.RestrictionEpoch != nil &&
+		*task.RestrictionEpoch == a.row.RestrictionEpoch &&
+		task.HoldEpoch == a.snapshot.HoldEpoch &&
+		task.Status != "obsolete" &&
+		task.Status != "cancelled", nil
 }
 
 // CancelApplication 在已锁申请及案件上终结旧交互；不会撤销已建立匹配，调用方另行处理匹配状态。
 // 工作源由持久消费者自己终结，不能在其事务中倒序取得其他工作锁。
 func CancelApplication(ctx context.Context, db *gorm.DB, row entity.Application, status, reason string) error {
-	if err := db.WithContext(ctx).Model(&entity.Application{}).Where("id=?", row.ID).Updates(map[string]any{"status": status, "cancel_reason": reason, "public_message_cipher": nil, "version": gorm.Expr("version+1")}).Error; err != nil {
+	if err := db.WithContext(ctx).Model(&entity.Application{}).Where("id=?", row.ID).Updates(map[string]any{
+		"status":                status,
+		"cancel_reason":         reason,
+		"public_message_cipher": nil,
+		"version":               gorm.Expr("version+1"),
+	}).Error; err != nil {
 		return err
 	}
 	if row.ReviewTaskID != nil {
-		if err := db.WithContext(ctx).Model(&entity.ModerationTask{}).Where("id=?", *row.ReviewTaskID).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; err != nil {
+		if err := db.WithContext(ctx).Model(&entity.ModerationTask{}).
+			Where("id=?", *row.ReviewTaskID).
+			Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).
+			Error; err != nil {
 			return err
 		}
 	}
@@ -216,7 +253,11 @@ func applicationMessage(ctx context.Context, codec *securedata.Codec, row entity
 	if json.Unmarshal(row.PublicMessageCipher, &envelope) != nil {
 		return "", command.ErrUnavailable
 	}
-	data, err := codec.Decrypt(ctx, securedata.Binding{Purpose: "application_approved", ObjectID: row.ID, Version: uint64(row.ContentVersion)}, envelope)
+	data, err := codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "application_approved", ObjectID: row.ID, Version: uint64(row.ContentVersion)},
+		envelope,
+	)
 	if err != nil {
 		return "", command.ErrUnavailable
 	}

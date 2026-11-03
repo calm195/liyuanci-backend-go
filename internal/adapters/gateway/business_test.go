@@ -13,12 +13,52 @@ func TestBusinessGatewayRejectsAmbiguousResults(t *testing.T) {
 		name, body string
 		call       func(*Business) error
 	}{
-		{"扫描无结论", `{"DetectorVersion":"v1"}`, func(g *Business) error { _, e := g.Scan(context.Background(), []byte{1}, "image/png"); return e }},
-		{"学校无结论", `{"RulesVersion":"v1"}`, func(g *Business) error { return g.Validate(context.Background(), "synthetic", "合成") }},
-		{"对象版本错误", `{"Version":"wrong","Data":"AQ=="}`, func(g *Business) error { _, e := g.Open(context.Background(), "object", "expected"); return e }},
-		{"对象摘要不一致", `{"Version":"v1","SHA256":"wrong"}`, func(g *Business) error { _, e := g.PutOnce(context.Background(), "object", []byte{1}); return e }},
-		{"内容返回私密字段", `{"Body":"合成","DetectorVersion":"v1","Secret":"禁止"}`, func(g *Business) error { _, e := g.AnalyzeMessage(context.Background(), "合成"); return e }},
-		{"缺业务能力", `{"Version":"test-v1","Capabilities":["wrap","unwrap","redact","erase"]}`, func(g *Business) error { return g.ReadyFor(context.Background(), "api") }},
+		{
+			"扫描无结论",
+			`{"DetectorVersion":"v1"}`,
+			func(g *Business) error {
+
+				_, e := g.Scan(context.Background(), []byte{1}, "image/png")
+				return e
+			},
+		},
+		{
+			"学校无结论",
+			`{"RulesVersion":"v1"}`,
+			func(g *Business) error { return g.Validate(context.Background(), "synthetic", "合成") },
+		},
+		{
+			"对象版本错误",
+			`{"Version":"wrong","Data":"AQ=="}`,
+			func(g *Business) error {
+
+				_, e := g.Open(context.Background(), "object", "expected")
+				return e
+			},
+		},
+		{
+			"对象摘要不一致",
+			`{"Version":"v1","SHA256":"wrong"}`,
+			func(g *Business) error {
+
+				_, e := g.PutOnce(context.Background(), "object", []byte{1})
+				return e
+			},
+		},
+		{
+			"内容返回私密字段",
+			`{"Body":"合成","DetectorVersion":"v1","Secret":"禁止"}`,
+			func(g *Business) error {
+
+				_, e := g.AnalyzeMessage(context.Background(), "合成")
+				return e
+			},
+		},
+		{
+			"缺业务能力",
+			`{"Version":"test-v1","Capabilities":["wrap","unwrap","redact","erase"]}`,
+			func(g *Business) error { return g.ReadyFor(context.Background(), "api") },
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g, _ := testGateway(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tc.body)) })

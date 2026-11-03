@@ -11,11 +11,20 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
-func at() time.Time         { return time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC) }
+func at() time.Time { return time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC) }
+
 func eligible() Eligibility { return Eligibility{Active: true, Verified: true} }
+
 func snapshot(state State) Snapshot {
 	s := Snapshot{State: state, Version: 3, ContentVersion: 2, DurationDays: 7, RestrictionEpoch: 1,
-		Review: Review{ContentVersion: 2, RestrictionEpoch: 1, Approved: true, DetectionCompleted: true, SchoolRelated: pointer(false), PublicBody: "合成已审投影"}}
+		Review: Review{
+			ContentVersion:     2,
+			RestrictionEpoch:   1,
+			Approved:           true,
+			DetectionCompleted: true,
+			SchoolRelated:      pointer(false),
+			PublicBody:         "合成已审投影",
+		}}
 	if state == Published || state == Matching {
 		s.PublishedAt = pointer(at().Add(-time.Hour))
 		s.ExpiresAt = pointer(at().Add(time.Hour))
@@ -39,7 +48,14 @@ func TestPublishDeadlinesAndQuota(t *testing.T) {
 		{"slot_available", nil, false, 2, Published, pointer(at().Add(7 * 24 * time.Hour))},
 		{"preserve", pointer(at().Add(time.Hour)), false, 0, Published, pointer(at().Add(time.Hour))},
 		{"deadline_equal", pointer(at()), false, 0, Expired, pointer(at())},
-		{"deadline_past_limit", pointer(at().Add(-time.Hour)), false, 3, Expired, pointer(at().Add(-time.Hour))},
+		{
+			"deadline_past_limit",
+			pointer(at().Add(-time.Hour)),
+			false,
+			3,
+			Expired,
+			pointer(at().Add(-time.Hour)),
+		},
 		{"refresh", pointer(at().Add(-time.Hour)), true, 0, Published, pointer(at().Add(7 * 24 * time.Hour))},
 		{"refresh_limit", pointer(at().Add(-time.Hour)), true, 3, Ready, pointer(at().Add(-time.Hour))},
 	} {
@@ -77,7 +93,11 @@ func TestTransitionMatrix(t *testing.T) {
 			t.Run(string(state)+"/"+string(action), func(t *testing.T) {
 				change := Change{Action: action, ExpectedVersion: 3, ExpectedContentVersion: 2, DurationDays: 30, RefreshExpiry: true}
 				out, err := p.Plan("", at(), eligible(), snapshot(state), 0, change)
-				allowed := action == Edit && state != Matching && state != Realized && state != Fulfilled || action == SubmitReview && (state == Draft || state == Rejected) || action == Publish && state == Ready || action == Withdraw && state == Published || action == DeleteDraft && state == Draft
+				allowed := action == Edit && state != Matching && state != Realized && state != Fulfilled ||
+					action == SubmitReview && (state == Draft || state == Rejected) ||
+					action == Publish && state == Ready ||
+					action == Withdraw && state == Published ||
+					action == DeleteDraft && state == Draft
 				if !allowed {
 					if err != command.ErrConflict || out.Next.Version != 0 {
 						t.Fatal("非法流转未清空结果", err)
@@ -89,7 +109,10 @@ func TestTransitionMatrix(t *testing.T) {
 				}
 				switch action {
 				case Edit:
-					if out.Next.State != Draft || out.Next.ContentVersion != 3 || out.Next.Review.Approved || !out.InvalidateReview || out.Next.DurationDays != 30 || !out.Next.RefreshOnPublish || out.InvalidateApplications != (state == Published) {
+					if out.Next.State != Draft || out.Next.ContentVersion != 3 || out.Next.Review.Approved || !out.InvalidateReview ||
+						out.Next.DurationDays != 30 ||
+						!out.Next.RefreshOnPublish ||
+						out.InvalidateApplications != (state == Published) {
 						t.Fatal("编辑没有使旧批准失效")
 					}
 				case SubmitReview:
@@ -193,7 +216,20 @@ func TestActiveCount(t *testing.T) {
 }
 
 func TestVersionAndInvalidInputs(t *testing.T) {
-	for _, mode := range []string{"version", "content_version", "missing_content_version", "missing_version", "invalid_duration", "version_overflow", "content_overflow", "unknown_action", "negative_count", "invalid_snapshot", "zero_time", "expired_withdraw"} {
+	for _, mode := range []string{
+		"version",
+		"content_version",
+		"missing_content_version",
+		"missing_version",
+		"invalid_duration",
+		"version_overflow",
+		"content_overflow",
+		"unknown_action",
+		"negative_count",
+		"invalid_snapshot",
+		"zero_time",
+		"expired_withdraw",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			core, logs := observer.New(zap.InfoLevel)
 			p, _ := NewPolicy(zap.New(core), nil)

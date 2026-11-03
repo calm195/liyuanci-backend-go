@@ -28,7 +28,17 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 		}
 		return old[0].ID, nil
 	}
-	p := entity.Penalty{ID: uuid.NewString(), AccountID: id, Level: in.Level, ActionKind: action, ViolationRef: in.ViolationRef, ContentVersion: in.ContentVersion, ContentID: &in.ContentRef, StartsAt: tx.Now(), ReasonRef: uuid.NewString()}
+	p := entity.Penalty{
+		ID:             uuid.NewString(),
+		AccountID:      id,
+		Level:          in.Level,
+		ActionKind:     action,
+		ViolationRef:   in.ViolationRef,
+		ContentVersion: in.ContentVersion,
+		ContentID:      &in.ContentRef,
+		StartsAt:       tx.Now(),
+		ReasonRef:      uuid.NewString(),
+	}
 	if action == "mute" {
 		end := tx.Now().Add(168 * time.Hour)
 		p.EndsAt = &end
@@ -45,17 +55,33 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 	if e != nil {
 		return "", e
 	}
-	if e = db.Clauses(clause.OnConflict{DoNothing: true}).Create(&entity.ContentRestriction{ID: uuid.NewString(), ContentID: c.ID, Kind: "violation", SourceRef: p.ViolationRef, Active: true}).Error; e != nil {
+	if e = db.Clauses(clause.OnConflict{DoNothing: true}).Create(&entity.ContentRestriction{
+		ID:        uuid.NewString(),
+		ContentID: c.ID,
+		Kind:      "violation",
+		SourceRef: p.ViolationRef,
+		Active:    true,
+	}).Error; e != nil {
 		return "", e
 	}
 	// 违规内容永久离开当前公开/送达视图；解罚只撤账号处罚，内容限制由独立审核入口处理。
 	switch c.Kind {
 	case "wish":
-		if e = db.Model(&entity.Wish{}).Where("id=? AND current_content_version=? AND state IN ('published','ready')", c.EntityID, c.ContentVersion).Updates(map[string]any{"state": "withdrawn", "version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}).Error; e != nil {
+		if e = db.Model(&entity.Wish{}).Where(
+			"id=? AND current_content_version=? AND state IN ('published','ready')",
+			c.EntityID,
+			c.ContentVersion,
+		).Updates(map[string]any{
+			"state":             "withdrawn",
+			"version":           gorm.Expr("version+1"),
+			"restriction_epoch": gorm.Expr("restriction_epoch+1"),
+		}).Error; e != nil {
 			return "", e
 		}
 	case "story":
-		if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", c.EntityID, c.ContentVersion).Update("public_body", nil).Error; e != nil {
+		if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", c.EntityID, c.ContentVersion).
+			Update("public_body", nil).
+			Error; e != nil {
 			return "", e
 		}
 	case "application":
@@ -84,7 +110,11 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 		if e = cancelRelationships(ctx, tx, id, ""); e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND state='published'", id).Updates(map[string]any{"state": "withdrawn", "version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}).Error; e != nil {
+		if e = db.Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND state='published'", id).Updates(map[string]any{
+			"state":             "withdrawn",
+			"version":           gorm.Expr("version+1"),
+			"restriction_epoch": gorm.Expr("restriction_epoch+1"),
+		}).Error; e != nil {
 			return "", e
 		}
 		// 不递增auth_epoch：原本人会话仍可进入申诉/警告限定入口。旧审核通过状态取消保障不重放。
@@ -92,11 +122,18 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 			return "", e
 		}
 		var tasks []entity.ModerationTask
-		if e = db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.author_id=? AND c.kind<>'whisper_capsule' AND t.status IN ('pending','human_required')", id).Find(&tasks).Error; e != nil {
+		if e = db.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.author_id=? AND c.kind<>'whisper_capsule' AND t.status IN ('pending','human_required')", id).
+			Find(&tasks).
+			Error; e != nil {
 			return "", e
 		}
 		for _, t := range tasks {
-			if e = db.Model(&entity.ModerationTask{}).Where("id=?", t.ID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e = db.Model(&entity.ModerationTask{}).Where("id=?", t.ID).
+				Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
 		}

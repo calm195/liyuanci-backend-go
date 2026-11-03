@@ -105,6 +105,7 @@ type databaseScanner struct {
 func (s databaseScanner) Consume(context.Context, durable.Event) (durable.Consumption, error) {
 	return durable.Consumption{}, nil
 }
+
 func (s databaseScanner) ProcessNext(ctx context.Context) (durable.Consumption, error) {
 	close(s.started)
 	<-ctx.Done()
@@ -157,7 +158,11 @@ func (s maintainedScanner) Maintain(ctx context.Context) error {
 
 // TestMaintenanceLifecycle 验证危机通知可独立阻塞而不阻止扫描，关闭同时取消并等待两种在途操作。
 func TestMaintenanceLifecycle(t *testing.T) {
-	s := maintainedScanner{databaseScanner{make(chan struct{}), make(chan struct{})}, make(chan struct{}), make(chan struct{})}
+	s := maintainedScanner{
+		databaseScanner{make(chan struct{}), make(chan struct{})},
+		make(chan struct{}),
+		make(chan struct{}),
+	}
 	w, e := OpenDatabase(context.Background(), s, zap.NewNop(), time.Hour, time.Minute)
 	if e != nil {
 		t.Fatal(e)

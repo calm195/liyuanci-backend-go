@@ -63,7 +63,19 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 	if resources.Version == "" || !cfg.LocalTest && resources.Care == nil {
 		return command.ErrUnavailable
 	}
-	scanner, e := moderation.NewWhisperWorker(db, log, r.codec, r.gateway, r.gateway, moderation.WorkerConfig{Consumer: durable.ConsumerConfig(cfg.Worker.Consumer), AnalysisTimeout: cfg.Worker.AnalysisTimeout, Care: resources.Care, CrisisNotifier: r.gateway})
+	scanner, e := moderation.NewWhisperWorker(
+		db,
+		log,
+		r.codec,
+		r.gateway,
+		r.gateway,
+		moderation.WorkerConfig{
+			Consumer:        durable.ConsumerConfig(cfg.Worker.Consumer),
+			AnalysisTimeout: cfg.Worker.AnalysisTimeout,
+			Care:            resources.Care,
+			CrisisNotifier:  r.gateway,
+		},
+	)
 	if e != nil {
 		return e
 	}
@@ -154,7 +166,12 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		}
 		after = next
 	}
-	log.Info("树洞隐私进程启动完成", zap.String("scope", scope), zap.Bool("recovery_only", recoverOnly), zap.String("result", "success"))
+	log.Info(
+		"树洞隐私进程启动完成",
+		zap.String("scope", scope),
+		zap.Bool("recovery_only", recoverOnly),
+		zap.String("result", "success"),
+	)
 	if !recoverOnly {
 		return service.Run(ctx, scope, cfg.Interval)
 	}

@@ -71,7 +71,10 @@ func resourceSnapshot(value config.WhisperResources) ResourcesFile {
 		Version: value.Version,
 		Care:    careResources(value.Care),
 		Catalog: whisper.CatalogSnapshot{
-			Grades:  whisper.Dictionary{Version: copyVersion(value.Catalog.Grades.Version), Items: items(value.Catalog.Grades.Items)},
+			Grades: whisper.Dictionary{
+				Version: copyVersion(value.Catalog.Grades.Version),
+				Items:   items(value.Catalog.Grades.Items),
+			},
 			Reports: items(value.Catalog.Reports),
 			Help:    help,
 		},

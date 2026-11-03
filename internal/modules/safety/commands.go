@@ -49,6 +49,7 @@ func spec(op, id string) (operation, bool) {
 	}
 	return operation{}, false
 }
+
 func (s *Service) validate(op, id string, in Input) error {
 	if _, ok := spec(op, id); !ok {
 		return command.ErrInvalid
@@ -59,7 +60,9 @@ func (s *Service) validate(op, id string, in Input) error {
 			return command.ErrInvalid
 		}
 	case "report":
-		if !validID(in.ID) || !slices.Contains([]string{"wish", "story", "application", "message"}, in.TargetKind) || !s.text(in.TypeCode, true) || !s.text(in.Description, false) {
+		if !validID(in.ID) || !slices.Contains([]string{"wish", "story", "application", "message"}, in.TargetKind) ||
+			!s.text(in.TypeCode, true) ||
+			!s.text(in.Description, false) {
 			return command.ErrInvalid
 		}
 	case "appeal":
@@ -81,7 +84,9 @@ func (s *Service) validate(op, id string, in Input) error {
 				return command.ErrInvalid
 			}
 		case "penalty":
-			if !validID(in.ViolationRef) || !validID(in.ContentRef) || in.ContentVersion < 1 || !slices.Contains([]string{"minor", "general", "severe"}, in.Level) || !s.text(in.Reason, true) {
+			if !validID(in.ViolationRef) || !validID(in.ContentRef) || in.ContentVersion < 1 ||
+				!slices.Contains([]string{"minor", "general", "severe"}, in.Level) ||
+				!s.text(in.Reason, true) {
 				return command.ErrInvalid
 			}
 		case "report_decision":
@@ -127,7 +132,12 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 	if e := s.read(ctx, token, o.actor == "admin", func(db *gorm.DB, actor string, now time.Time) error {
 		if o.actor == "student" && o.access != command.Restricted {
 			var n int64
-			if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
+			if e := db.Model(&entity.Penalty{}).Where(
+				"account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+				actor,
+				now,
+				now,
+			).Count(&n).Error; e != nil {
 				return e
 			}
 			if n > 0 {
@@ -144,9 +154,20 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 			suffix = "release-restriction"
 		}
 		o.path = "/api/v1/admin/contents/" + in.TargetKind + "/" + id + "/" + suffix
-		o.resource = map[string]command.ResourceKind{"wish": command.Wish, "story": command.Wish, "application": command.Application, "message": command.Message}[in.TargetKind]
+		o.resource = map[string]command.ResourceKind{
+			"wish":        command.Wish,
+			"story":       command.Wish,
+			"application": command.Application,
+			"message":     command.Message,
+		}[in.TargetKind]
 	}
-	d := command.Definition{Kind: "safety." + op, Method: o.method, ResourcePath: o.path, ActorKind: o.actor, Access: o.access}
+	d := command.Definition{
+		Kind:         "safety." + op,
+		Method:       o.method,
+		ResourcePath: o.path,
+		ActorKind:    o.actor,
+		Access:       o.access,
+	}
 	if o.actor == "admin" {
 		d.AllowedRoles = []string{"review_operator", "crisis_operator", "super_admin"}
 	}
@@ -156,7 +177,11 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 	var checks []command.Expectation
 	if o.resource != "" {
 		d.RequiredExpectations = []string{"expected_version"}
-		checks = []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: o.resource, ID: id}, Value: in.ExpectedVersion}}
+		checks = []command.Expectation{{
+			Name:   "expected_version",
+			Target: command.Resource{Kind: o.resource, ID: id},
+			Value:  in.ExpectedVersion,
+		}}
 	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, actor command.Subject) (command.Discovery, error) {
 		return s.discover(ctx, db.WithContext(ctx), actor, op, id, in)
@@ -180,9 +205,14 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 		}
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: checks})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: checks},
+	)
 	return
 }
+
 func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, op, id string, in Input) (p command.Discovery, err error) {
 	switch op {
 	case "user_ban", "user_unban", "user_mute", "user_unmute":
@@ -212,7 +242,10 @@ func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, 
 		if e != nil {
 			return p, e
 		}
-		return command.Discovery{Accounts: []string{v.AccountID}, Resources: []command.Resource{{Kind: command.Penalty, ID: pid}}}, nil
+		return command.Discovery{
+			Accounts:  []string{v.AccountID},
+			Resources: []command.Resource{{Kind: command.Penalty, ID: pid}},
+		}, nil
 	case "report_decision":
 		r, e := report(db, id)
 		if e != nil {
@@ -262,13 +295,18 @@ func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, 
 			return p, e
 		}
 		p, err = accountPlan(ctx, db, v.AccountID)
-		p.Resources = append(p.Resources, command.Resource{Kind: command.Penalty, ID: v.PenaltyID}, command.Resource{Kind: command.Appeal, ID: id})
+		p.Resources = append(
+			p.Resources,
+			command.Resource{Kind: command.Penalty, ID: v.PenaltyID},
+			command.Resource{Kind: command.Appeal, ID: id},
+		)
 		return
 	case "exception_exit":
 		return wish.DiscoverInteraction(ctx, db, id)
 	}
 	return p, command.ErrInvalid
 }
+
 func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, in Input) error {
 	db := tx.DB().WithContext(ctx)
 	actor := tx.Actor().ID
@@ -352,7 +390,12 @@ func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, 
 			return e
 		}
 		var t entity.ModerationTask
-		return found(db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Where("t.id=? AND t.content_id=? AND t.content_version=? AND t.status='rejected' AND t.decision='rejected' AND s.ordinary_hit AND NOT s.crisis_hit", in.ViolationRef, c.ID, in.ContentVersion).Take(&t).Error)
+		return found(db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Where(
+			"t.id=? AND t.content_id=? AND t.content_version=? AND t.status='rejected' AND t.decision='rejected' AND s.ordinary_hit AND NOT s.crisis_hit",
+			in.ViolationRef,
+			c.ID,
+			in.ContentVersion,
+		).Take(&t).Error)
 	case "appeal_decision":
 		a, e := appeal(db, id)
 		if e != nil {
@@ -390,153 +433,37 @@ func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, 
 	}
 	return nil
 }
+
 func (s *Service) apply(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
 	if isUserRestriction(op) {
 		return s.applyUserRestriction(ctx, tx, op, id, in)
 	}
-	db := tx.DB().WithContext(ctx)
-	actor := tx.Actor().ID
+	// 这里仅做操作分派，具体状态变更仍在命令引擎持有的事务和锁内执行。
 	switch op {
 	case "block":
-		var n int64
-		if e := db.Model(&entity.Block{}).Where("owner_id=? AND target_id=?", actor, in.TargetUserID).Count(&n).Error; e != nil {
-			return "", e
-		}
-		if n == 0 {
-			// 使用账号单调版本为每次新建分配不同代次，删除后重拉黑不能被旧DELETE版本解除。
-			guard, _ := tx.Guard(actor)
-			if e := db.Model(&entity.Account{}).Where("id=?", actor).Update("version", gorm.Expr("version+1")).Error; e != nil {
-				return "", e
-			}
-			if e := db.Create(&entity.Block{OwnerID: actor, TargetID: in.TargetUserID, Version: guard.Version + 1}).Error; e != nil {
-				return "", e
-			}
-			if e := cancelRelationships(ctx, tx, actor, in.TargetUserID); e != nil {
-				return "", e
-			}
-		}
-		return in.TargetUserID, nil
+		return s.applyBlock(ctx, tx, op, id, in)
 	case "unblock":
-		var b entity.Block
-		if e := db.Where("owner_id=? AND target_id=?", actor, id).Take(&b).Error; e != nil {
-			return "", found(e)
-		}
-		if b.Version != in.ExpectedVersion {
-			return "", command.ErrVersionConflict
-		}
-		return id, db.Where("owner_id=? AND target_id=?", actor, id).Delete(&entity.Block{}).Error
+		return s.applyUnblock(ctx, tx, op, id, in)
 	case "report":
-		var n int64
-		if e := db.Model(&entity.ReportType{}).Where("code=? AND published", in.TypeCode).Count(&n).Error; e != nil {
-			return "", e
-		}
-		if n != 1 {
-			return "", command.ErrInvalid
-		}
-		c, e := targetRegistry(db, in.TargetKind, in.ID)
-		if e != nil {
-			return "", e
-		}
-		r := entity.Report{ID: uuid.NewString(), ReporterID: actor, TargetKind: c.Kind, TargetID: c.EntityID, TypeCode: in.TypeCode, ContentID: &c.ID, CreatedAt: tx.Now()}
-		if in.Description != "" {
-			r.DescriptionCipher, e = s.encrypt(ctx, "report_description", r.ID, in.Description)
-			if e != nil {
-				return "", e
-			}
-		}
-		return r.ID, db.Create(&r).Error
+		return s.applyReport(ctx, tx, op, id, in)
 	case "appeal":
-		p, e := penalty(db, in.PenaltyID)
-		if e != nil {
-			return "", e
-		}
-		if p.RevokedAt != nil {
-			return "", command.ErrConflict
-		}
-		a := entity.Appeal{ID: uuid.NewString(), AccountID: actor, PenaltyID: p.ID, CreatedAt: tx.Now()}
-		a.BodyCipher, e = s.encrypt(ctx, "appeal_body", a.ID, in.Body)
-		if e != nil {
-			return "", e
-		}
-		return a.ID, db.Create(&a).Error
+		return s.applyAppeal(ctx, tx, op, id, in)
 	case "display", "ack":
-		p, e := penalty(db, id)
-		if e != nil {
-			return "", e
-		}
-		if p.RevokedAt != nil {
-			return "", command.ErrConflict
-		}
-		updates := map[string]any{}
-		if op == "display" && p.FirstDisplayedAt == nil {
-			updates["first_displayed_at"] = tx.Now()
-			updates["confirmable_at"] = tx.Now().Add(30 * time.Second)
-		}
-		if op == "ack" && p.AcknowledgedAt == nil {
-			if !confirmable(p, tx.Now()) {
-				return "", command.ErrWarningWait
-			}
-			updates["acknowledged_at"] = tx.Now()
-		}
-		if len(updates) > 0 {
-			updates["version"] = gorm.Expr("version+1")
-			if e = db.Model(&entity.Penalty{}).Where("id=?", id).Updates(updates).Error; e != nil {
-				return "", e
-			}
-		}
-		return id, nil
+		return s.applyWarning(ctx, tx, op, id, in)
 	case "report_decision":
-		r, e := report(db, id)
-		if e != nil {
-			return "", e
-		}
-		if r.Status != "pending" && r.Status != "processing" {
-			return "", command.ErrConflict
-		}
-		status := "rejected"
-		if in.Decision == "confirmed" {
-			status = "resolved"
-		}
-		if e = db.Model(&entity.Report{}).Where("id=?", id).Updates(map[string]any{"status": status, "handler_id": actor, "decision_reason": in.Reason, "version": gorm.Expr("version+1")}).Error; e != nil {
-			return "", e
-		}
-		return id, audit(db, actor, id, "report.decision")
+		return s.applyReportDecision(ctx, tx, op, id, in)
 	case "offline", "release":
 		return s.restrict(ctx, tx, op, id, in)
 	case "penalty":
 		return s.impose(ctx, tx, id, in)
 	case "appeal_decision":
-		a, e := appeal(db, id)
-		if e != nil {
-			return "", e
-		}
-		if a.Status != "pending" {
-			return "", command.ErrConflict
-		}
-		status := "rejected"
-		if in.Decision == "revoke" {
-			status = "accepted"
-			if e = db.Model(&entity.Penalty{}).Where("id=? AND revoked_at IS NULL", a.PenaltyID).Updates(map[string]any{"revoked_at": tx.Now(), "version": gorm.Expr("version+1")}).Error; e != nil {
-				return "", e
-			}
-		}
-		if in.Decision == "revoke" {
-			if e = db.Model(&entity.Account{}).Where("id=?", a.AccountID).Update("version", gorm.Expr("version+1")).Error; e != nil {
-				return "", e
-			}
-		}
-		if e = db.Model(&entity.Appeal{}).Where("id=?", id).Updates(map[string]any{"status": status, "decision_reason": in.Reason, "handler_id": actor, "version": gorm.Expr("version+1")}).Error; e != nil {
-			return "", e
-		}
-		if e = audit(db, actor, id, "appeal.decision"); e != nil {
-			return "", e
-		}
-		return id, notify(db, a.AccountID, "appeal_result", id)
+		return s.applyAppealDecision(ctx, tx, op, id, in)
 	case "exception_exit":
 		return exceptionExit(ctx, tx, id)
 	}
 	return "", command.ErrInvalid
 }
+
 func warning(p entity.Penalty, now time.Time) Warning {
 	remaining := 30
 	if p.ConfirmableAt != nil {
@@ -548,8 +475,18 @@ func warning(p entity.Penalty, now time.Time) Warning {
 			remaining = 30
 		}
 	}
-	return Warning{p.ID, p.Version, "请遵守社区规则，违规内容已移除", p.FirstDisplayedAt, p.ConfirmableAt, now, remaining, p.AcknowledgedAt}
+	return Warning{
+		p.ID,
+		p.Version,
+		"请遵守社区规则，违规内容已移除",
+		p.FirstDisplayedAt,
+		p.ConfirmableAt,
+		now,
+		remaining,
+		p.AcknowledgedAt,
+	}
 }
+
 func (s *Service) resolve(ctx context.Context, tx *command.Tx, op, id, ref string, in Input) (any, error) {
 	if isUserRestriction(op) {
 		return userRestrictionState(ctx, tx.DB(), id, tx.Now())
@@ -638,11 +575,202 @@ func (s *Service) resolve(ctx context.Context, tx *command.Tx, op, id, ref strin
 		if e != nil {
 			return nil, found(e)
 		}
-		return map[string]any{"id": ref, "version": w.Version, "content_version": w.CurrentContentVersion, "current_state": w.State, "allowed_actions": []string{}}, nil
+		return map[string]any{
+			"id":              ref,
+			"version":         w.Version,
+			"content_version": w.CurrentContentVersion,
+			"current_state":   w.State,
+			"allowed_actions": []string{},
+		}, nil
 	}
 	return nil, command.ErrInvalid
 }
 
 func confirmable(p entity.Penalty, now time.Time) bool {
 	return p.ConfirmableAt != nil && !now.Before(*p.ConfirmableAt)
+}
+
+// applyBlock 建立拉黑并取消双方活动关系；账号单调版本区分每次拉黑代次。
+func (s *Service) applyBlock(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	var n int64
+	if e := db.Model(&entity.Block{}).Where("owner_id=? AND target_id=?", actor, in.TargetUserID).Count(&n).Error; e != nil {
+		return "", e
+	}
+	if n == 0 {
+		// 使用账号单调版本为每次新建分配不同代次，删除后重拉黑不能被旧DELETE版本解除。
+		guard, _ := tx.Guard(actor)
+		if e := db.Model(&entity.Account{}).Where("id=?", actor).Update("version", gorm.Expr("version+1")).Error; e != nil {
+			return "", e
+		}
+		if e := db.Create(&entity.Block{OwnerID: actor, TargetID: in.TargetUserID, Version: guard.Version + 1}).Error; e != nil {
+			return "", e
+		}
+		if e := cancelRelationships(ctx, tx, actor, in.TargetUserID); e != nil {
+			return "", e
+		}
+	}
+	return in.TargetUserID, nil
+}
+
+// applyUnblock 按当前拉黑版本解除关系，避免旧请求删除新建拉黑。
+func (s *Service) applyUnblock(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	var b entity.Block
+	if e := db.Where("owner_id=? AND target_id=?", actor, id).Take(&b).Error; e != nil {
+		return "", found(e)
+	}
+	if b.Version != in.ExpectedVersion {
+		return "", command.ErrVersionConflict
+	}
+	return id, db.Where("owner_id=? AND target_id=?", actor, id).Delete(&entity.Block{}).Error
+}
+
+// applyReport 验证正式举报类型并保存加密说明与内容引用。
+func (s *Service) applyReport(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	var n int64
+	if e := db.Model(&entity.ReportType{}).Where("code=? AND published", in.TypeCode).Count(&n).Error; e != nil {
+		return "", e
+	}
+	if n != 1 {
+		return "", command.ErrInvalid
+	}
+	c, e := targetRegistry(db, in.TargetKind, in.ID)
+	if e != nil {
+		return "", e
+	}
+	r := entity.Report{
+		ID:         uuid.NewString(),
+		ReporterID: actor,
+		TargetKind: c.Kind,
+		TargetID:   c.EntityID,
+		TypeCode:   in.TypeCode,
+		ContentID:  &c.ID,
+		CreatedAt:  tx.Now(),
+	}
+	if in.Description != "" {
+		r.DescriptionCipher, e = s.encrypt(ctx, "report_description", r.ID, in.Description)
+		if e != nil {
+			return "", e
+		}
+	}
+	return r.ID, db.Create(&r).Error
+}
+
+// applyAppeal 复核处罚尚未撤销后保存加密申诉。
+func (s *Service) applyAppeal(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	p, e := penalty(db, in.PenaltyID)
+	if e != nil {
+		return "", e
+	}
+	if p.RevokedAt != nil {
+		return "", command.ErrConflict
+	}
+	a := entity.Appeal{ID: uuid.NewString(), AccountID: actor, PenaltyID: p.ID, CreatedAt: tx.Now()}
+	a.BodyCipher, e = s.encrypt(ctx, "appeal_body", a.ID, in.Body)
+	if e != nil {
+		return "", e
+	}
+	return a.ID, db.Create(&a).Error
+}
+
+// applyWarning 记录首次展示与确认时刻；确认必须满足等待期。
+func (s *Service) applyWarning(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	p, e := penalty(db, id)
+	if e != nil {
+		return "", e
+	}
+	if p.RevokedAt != nil {
+		return "", command.ErrConflict
+	}
+	updates := map[string]any{}
+	if op == "display" && p.FirstDisplayedAt == nil {
+		updates["first_displayed_at"] = tx.Now()
+		updates["confirmable_at"] = tx.Now().Add(30 * time.Second)
+	}
+	if op == "ack" && p.AcknowledgedAt == nil {
+		if !confirmable(p, tx.Now()) {
+			return "", command.ErrWarningWait
+		}
+		updates["acknowledged_at"] = tx.Now()
+	}
+	if len(updates) > 0 {
+		updates["version"] = gorm.Expr("version+1")
+		if e = db.Model(&entity.Penalty{}).Where("id=?", id).Updates(updates).Error; e != nil {
+			return "", e
+		}
+	}
+	return id, nil
+}
+
+// applyReportDecision 保存举报处理结论与操作者审计。
+func (s *Service) applyReportDecision(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	r, e := report(db, id)
+	if e != nil {
+		return "", e
+	}
+	if r.Status != "pending" && r.Status != "processing" {
+		return "", command.ErrConflict
+	}
+	status := "rejected"
+	if in.Decision == "confirmed" {
+		status = "resolved"
+	}
+	if e = db.Model(&entity.Report{}).Where("id=?", id).Updates(map[string]any{
+		"status":          status,
+		"handler_id":      actor,
+		"decision_reason": in.Reason,
+		"version":         gorm.Expr("version+1"),
+	}).Error; e != nil {
+		return "", e
+	}
+	return id, audit(db, actor, id, "report.decision")
+}
+
+// applyAppealDecision 原子处理申诉、撤销处罚及结果通知。
+func (s *Service) applyAppealDecision(ctx context.Context, tx *command.Tx, op, id string, in Input) (string, error) {
+	db := tx.DB().WithContext(ctx)
+	actor := tx.Actor().ID
+	a, e := appeal(db, id)
+	if e != nil {
+		return "", e
+	}
+	if a.Status != "pending" {
+		return "", command.ErrConflict
+	}
+	status := "rejected"
+	if in.Decision == "revoke" {
+		status = "accepted"
+		if e = db.Model(&entity.Penalty{}).Where("id=? AND revoked_at IS NULL", a.PenaltyID).
+			Updates(map[string]any{"revoked_at": tx.Now(), "version": gorm.Expr("version+1")}).
+			Error; e != nil {
+			return "", e
+		}
+	}
+	if in.Decision == "revoke" {
+		if e = db.Model(&entity.Account{}).Where("id=?", a.AccountID).Update("version", gorm.Expr("version+1")).Error; e != nil {
+			return "", e
+		}
+	}
+	if e = db.Model(&entity.Appeal{}).Where("id=?", id).Updates(map[string]any{
+		"status":          status,
+		"decision_reason": in.Reason,
+		"handler_id":      actor,
+		"version":         gorm.Expr("version+1"),
+	}).Error; e != nil {
+		return "", e
+	}
+	if e = audit(db, actor, id, "appeal.decision"); e != nil {
+		return "", e
+	}
+	return id, notify(db, a.AccountID, "appeal_result", id)
 }

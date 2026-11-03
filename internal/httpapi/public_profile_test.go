@@ -26,7 +26,10 @@ func (f *profileFixture) PublicProfile(_ context.Context, token, _, target, curs
 	if f.panicRead {
 		panic("内部凭据不可暴露")
 	}
-	return wish.ProfileContents{Profile: wish.ProfileSummary{ID: target, Nickname: "合成公开昵称"}, Items: []wish.ProfileItem{}}, f.failure
+	return wish.ProfileContents{
+		Profile: wish.ProfileSummary{ID: target, Nickname: "合成公开昵称"},
+		Items:   []wish.ProfileItem{},
+	}, f.failure
 }
 
 // TestPublicProfileHTTP 覆盖REQ-008/018的公开读取、参数边界、错误映射和失败完成日志。
@@ -39,14 +42,26 @@ func TestPublicProfileHTTP(t *testing.T) {
 		called, panicRead           bool
 	}{
 		{name: "游客", status: 200, called: true},
-		{name: "会话", suffix: "?limit=50&cursor=signed", authorization: "Bearer session", status: 200, called: true},
+		{
+			name:          "会话",
+			suffix:        "?limit=50&cursor=signed",
+			authorization: "Bearer session",
+			status:        200,
+			called:        true,
+		},
 		{name: "无效认证头", authorization: "Basic invalid", status: 401},
 		{name: "过大分页", suffix: "?limit=51", status: 400},
 		{name: "零分页", suffix: "?limit=0", status: 400},
 		{name: "重复参数", suffix: "?limit=1&limit=2", status: 400},
 		{name: "空游标", suffix: "?cursor=", status: 400},
 		{name: "未知参数", suffix: "?state=draft", status: 400},
-		{name: "会话失效", authorization: "Bearer expired", failure: command.ErrUnauthenticated, status: 401, called: true},
+		{
+			name:          "会话失效",
+			authorization: "Bearer expired",
+			failure:       command.ErrUnauthenticated,
+			status:        401,
+			called:        true,
+		},
 		{name: "目标不可见", failure: command.ErrNotFound, status: 404, called: true},
 		{name: "依赖失败", failure: command.ErrUnavailable, status: 503, called: true},
 		{name: "异常恢复", status: 500, called: true, panicRead: true},
@@ -73,7 +88,9 @@ func TestPublicProfileHTTP(t *testing.T) {
 			if strings.Contains(rr.Body.String(), "内部凭据") {
 				t.Fatal("泄漏内部错误")
 			}
-			if tc.status == 200 && (f.target != id || f.limit < 1 || !strings.Contains(rr.Body.String(), `"items":[]`) || !strings.Contains(rr.Body.String(), `"next_cursor":null`)) {
+			if tc.status == 200 &&
+				(f.target != id || f.limit < 1 || !strings.Contains(rr.Body.String(), `"items":[]`) ||
+					!strings.Contains(rr.Body.String(), `"next_cursor":null`)) {
 				t.Fatal(f, rr.Body.String())
 			}
 			if tc.name == "会话" && (f.token != "session" || f.cursor != "signed" || f.limit != 50) {

@@ -40,7 +40,12 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 		switch op {
 		case "report_types":
 			var n int64
-			if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
+			if e = db.Model(&entity.Penalty{}).Where(
+				"account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+				actor,
+				now,
+				now,
+			).Count(&n).Error; e != nil {
 				return e
 			}
 			if n > 0 {
@@ -61,7 +66,12 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				return e
 			}
 			var n int64
-			if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
+			if e = db.Model(&entity.Penalty{}).Where(
+				"account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+				actor,
+				now,
+				now,
+			).Count(&n).Error; e != nil {
 				return e
 			}
 			if n > 0 {
@@ -86,7 +96,11 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 			}
 		case "warnings":
 			var rows []entity.Penalty
-			query := db.Where("account_id=? AND action_kind='warning' AND revoked_at IS NULL AND acknowledged_at IS NULL AND starts_at<=?", actor, now)
+			query := db.Where(
+				"account_id=? AND action_kind='warning' AND revoked_at IS NULL AND acknowledged_at IS NULL AND starts_at<=?",
+				actor,
+				now,
+			)
 			if id != "" {
 				query = query.Where("(starts_at,id)<(?,?::uuid)", at, id)
 			}
@@ -103,7 +117,9 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				out.Items = append(out.Items, warning(r, now))
 			}
 		case "reports":
-			query := db.Table("public.reports AS r").Select("r.*").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind IN ('wish','application','message','story') AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
+			query := db.Table("public.reports AS r").Select("r.*").
+				Joins("JOIN public.content_registry c ON c.id=r.content_id").
+				Where("c.kind IN ('wish','application','message','story') AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
 			if id != "" {
 				query = query.Where("(r.created_at,r.id)<(?,?::uuid)", at, id)
 			}
@@ -125,7 +141,8 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 			if !admin {
 				query = query.Where("a.account_id=?", actor)
 			} else {
-				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").Where("((p.source_kind='direct' AND EXISTS(SELECT 1 FROM public.admin_role_bindings WHERE admin_id=? AND role='super_admin')) OR (p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)))", actor)
+				query = query.Joins("JOIN public.penalties p ON p.id=a.penalty_id").
+					Where("((p.source_kind='direct' AND EXISTS(SELECT 1 FROM public.admin_role_bindings WHERE admin_id=? AND role='super_admin')) OR (p.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=p.content_id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=p.content_id AND s.crisis_hit)))", actor)
 			}
 			if id != "" {
 				query = query.Where("(a.created_at,a.id)<(?,?::uuid)", at, id)
@@ -188,7 +205,20 @@ func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out an
 			if e != nil {
 				return e
 			}
-			out = map[string]any{"body": body, "id": r.ID, "version": r.Version, "status": r.Status, "target_kind": r.TargetKind, "target_id": r.TargetID, "type_code": r.TypeCode, "content_ref": c.ID, "content_version": c.ContentVersion, "subject_id": c.AuthorID, "description": description, "reason": r.DecisionReason}
+			out = map[string]any{
+				"body":            body,
+				"id":              r.ID,
+				"version":         r.Version,
+				"status":          r.Status,
+				"target_kind":     r.TargetKind,
+				"target_id":       r.TargetID,
+				"type_code":       r.TypeCode,
+				"content_ref":     c.ID,
+				"content_version": c.ContentVersion,
+				"subject_id":      c.AuthorID,
+				"description":     description,
+				"reason":          r.DecisionReason,
+			}
 		} else {
 			a, e := appeal(db, id)
 			if e != nil {
@@ -225,7 +255,15 @@ func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out an
 					return e
 				}
 			}
-			out = map[string]any{"id": a.ID, "version": a.Version, "status": a.Status, "penalty_id": p.ID, "body": body, "penalty_reason": reason, "reason": a.DecisionReason}
+			out = map[string]any{
+				"id":             a.ID,
+				"version":        a.Version,
+				"status":         a.Status,
+				"penalty_id":     p.ID,
+				"body":           body,
+				"penalty_reason": reason,
+				"reason":         a.DecisionReason,
+			}
 		}
 		return audit(db, actor, id, op)
 	})

@@ -35,7 +35,20 @@ func buildWhisperServices(ctx context.Context, runtime *apiRuntime) (out *whispe
 	if e != nil {
 		return nil, e
 	}
-	a.service, err = whisper.NewService(api, log, r.codec, runtimeCatalog{cfg}, limiter, moderation.WhisperReviewSink{Logger: log}, whisper.Config{Enabled: cfg.Enabled, Command: command.Config(cfg.Command), ReceiptKey: cfg.ReceiptKey, CursorKey: cfg.CursorKey})
+	a.service, err = whisper.NewService(
+		api,
+		log,
+		r.codec,
+		runtimeCatalog{cfg},
+		limiter,
+		moderation.WhisperReviewSink{Logger: log},
+		whisper.Config{
+			Enabled:    cfg.Enabled,
+			Command:    command.Config(cfg.Command),
+			ReceiptKey: cfg.ReceiptKey,
+			CursorKey:  cfg.CursorKey,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +66,12 @@ func buildWhisperServices(ctx context.Context, runtime *apiRuntime) (out *whispe
 		db  *gorm.DB
 		out **moderation.Service
 	}{{review, &a.reviews}, {crisis, &a.crises}, {api, &a.student}} {
-		*spec.out, err = moderation.New(spec.db, log, r.codec, moderation.Config{Command: command.Config(cfg.Command), CursorKey: cfg.GovernanceKey, MaxEntries: 100})
+		*spec.out, err = moderation.New(
+			spec.db,
+			log,
+			r.codec,
+			moderation.Config{Command: command.Config(cfg.Command), CursorKey: cfg.GovernanceKey, MaxEntries: 100},
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -72,16 +90,31 @@ func buildWhisperServices(ctx context.Context, runtime *apiRuntime) (out *whispe
 		db  *gorm.DB
 		out **safety.Service
 	}{{api, &a.studentSafety}, {review, &a.adminSafety}} {
-		*spec.out, err = safety.New(spec.db, log, r.codec, safety.Config{Command: command.Config(cfg.Command), Key: cfg.SafetyKey, MaxTextBytes: 65536})
+		*spec.out, err = safety.New(
+			spec.db,
+			log,
+			r.codec,
+			safety.Config{Command: command.Config(cfg.Command), Key: cfg.SafetyKey, MaxTextBytes: 65536},
+		)
 		if err != nil {
 			return nil, err
 		}
 	}
-	a.studentResources, err = resourceplaza.New(api, log, r.codec, resourceplaza.Config{Command: command.Config(cfg.Command), Key: resourceplaza.DeriveKey(cfg.SafetyKey)})
+	a.studentResources, err = resourceplaza.New(
+		api,
+		log,
+		r.codec,
+		resourceplaza.Config{Command: command.Config(cfg.Command), Key: resourceplaza.DeriveKey(cfg.SafetyKey)},
+	)
 	if err != nil {
 		return nil, err
 	}
-	a.adminResources, err = resourceplaza.New(review, log, r.codec, resourceplaza.Config{Command: command.Config(cfg.Command), Key: resourceplaza.DeriveKey(cfg.SafetyKey)})
+	a.adminResources, err = resourceplaza.New(
+		review,
+		log,
+		r.codec,
+		resourceplaza.Config{Command: command.Config(cfg.Command), Key: resourceplaza.DeriveKey(cfg.SafetyKey)},
+	)
 	if err != nil {
 		return nil, err
 	}

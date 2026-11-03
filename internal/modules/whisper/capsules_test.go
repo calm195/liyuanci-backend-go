@@ -16,9 +16,15 @@ func TestCapsuleTimeBoundary(t *testing.T) {
 		at    time.Time
 		valid bool
 	}{
-		{"提前59秒", base.Add(59 * time.Second), false}, {"恰好60秒", base.Add(60 * time.Second), true},
-		{"恰好365天", base.Add(365 * 24 * time.Hour), true}, {"多一秒", base.Add(365*24*time.Hour + time.Second), false},
-		{"非整秒", base.Add(61*time.Second + time.Nanosecond), false}, {"非UTC", base.Add(time.Minute).In(time.FixedZone("测试时区", 8*3600)), false},
+
+		{"提前59秒", base.Add(59 * time.Second), false},
+		{"恰好60秒", base.Add(60 * time.Second), true},
+
+		{"恰好365天", base.Add(365 * 24 * time.Hour), true},
+		{"多一秒", base.Add(365*24*time.Hour + time.Second), false},
+
+		{"非整秒", base.Add(61*time.Second + time.Nanosecond), false},
+		{"非UTC", base.Add(time.Minute).In(time.FixedZone("测试时区", 8*3600)), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validCapsuleTime(now, tc.at); got != tc.valid {

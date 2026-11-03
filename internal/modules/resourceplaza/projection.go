@@ -22,7 +22,13 @@ func catProjection(c entity.ResourceCategory, admin bool) map[string]any {
 }
 
 func feedbackProjection(f entity.ResourceFeedback) map[string]any {
-	return map[string]any{"resource_id": f.ResourceID, "content_version": f.ContentVersion, "kind": f.Kind, "version": f.Version, "updated_at": f.UpdatedAt.UTC()}
+	return map[string]any{
+		"resource_id":     f.ResourceID,
+		"content_version": f.ContentVersion,
+		"kind":            f.Kind,
+		"version":         f.Version,
+		"updated_at":      f.UpdatedAt.UTC(),
+	}
 }
 
 func utc(v *time.Time) *time.Time {
@@ -35,7 +41,14 @@ func utc(v *time.Time) *time.Time {
 
 // project 按主体投影字段和可用动作，只有详情才解密下载信息；列表使用批量分类和统计。
 // 调用方须先经过transaction授权及material或等价列表可见性过滤。
-func (s *Service) project(db *gorm.DB, a actor, r entity.ResourceMaterial, detail bool, stats map[string]map[string]any, categories map[string]entity.ResourceCategory) (map[string]any, error) {
+func (s *Service) project(
+	db *gorm.DB,
+	a actor,
+	r entity.ResourceMaterial,
+	detail bool,
+	stats map[string]map[string]any,
+	categories map[string]entity.ResourceCategory,
+) (map[string]any, error) {
 	c, ok := categories[r.CategoryID]
 	var e error
 	if !ok && categories == nil {
@@ -44,7 +57,15 @@ func (s *Service) project(db *gorm.DB, a actor, r entity.ResourceMaterial, detai
 	if e != nil || !c.Enabled {
 		return nil, command.ErrUnavailable
 	}
-	p := map[string]any{"id": r.ID, "title": r.Title, "category": catProjection(c, false), "version": r.Version, "created_at": r.CreatedAt.UTC(), "updated_at": r.UpdatedAt.UTC(), "published_at": utc(r.PublishedAt)}
+	p := map[string]any{
+		"id":           r.ID,
+		"title":        r.Title,
+		"category":     catProjection(c, false),
+		"version":      r.Version,
+		"created_at":   r.CreatedAt.UTC(),
+		"updated_at":   r.UpdatedAt.UTC(),
+		"published_at": utc(r.PublishedAt),
+	}
 	if detail {
 		d, e := s.download(db.Statement.Context, r)
 		if e != nil {

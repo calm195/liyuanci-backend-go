@@ -32,7 +32,12 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 		return adminauth.ErrInvalid
 	}
 	group := r.Group("/api/v1/admin")
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.GET("/accounts", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -73,7 +78,8 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 		target := c.Param("id")
 		id, e := uuid.Parse(target)
 		var input adminauth.RolesInput
-		if e != nil || id.String() != target || strictJSON(c, &input) != nil || input.Roles == nil || input.ExpectedVersion < 1 || strings.TrimSpace(input.Reason) == "" {
+		if e != nil || id.String() != target || strictJSON(c, &input) != nil || input.Roles == nil || input.ExpectedVersion < 1 ||
+			strings.TrimSpace(input.Reason) == "" {
 			adminError(c, adminauth.ErrInvalid)
 			return
 		}

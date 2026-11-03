@@ -73,7 +73,11 @@ func (s *Service) storyOwner(ctx context.Context, db *gorm.DB, id, actor string,
 		return a, command.ErrForbidden
 	}
 	var n int64
-	if e = db.WithContext(ctx).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='story' AND c.entity_id=? AND r.active", id).Count(&n).Error; e != nil {
+	if e = db.WithContext(ctx).Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='story' AND c.entity_id=? AND r.active", id).
+		Count(&n).
+		Error; e != nil {
 		return a, e
 	}
 	if n > 0 {
@@ -123,9 +127,17 @@ func (s *Service) Complete(ctx context.Context, token, key, rid, id string, vers
 	if !validWishID(id) || version < 1 || !validCommandKey(key) {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "wish.complete", Method: "POST", ResourcePath: "/api/v1/wishes/" + id + "/complete", ActorKind: "student", Access: command.Verified, RequiredExpectations: []string{"expected_version"}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return DiscoverInteraction(ctx, db, id)
-	}}
+	d := command.Definition{
+		Kind:                 "wish.complete",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/wishes/" + id + "/complete",
+		ActorKind:            "student",
+		Access:               command.Verified,
+		RequiredExpectations: []string{"expected_version"},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			return DiscoverInteraction(ctx, db, id)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		_, e := s.storyOwner(ctx, tx.DB(), id, tx.Actor().ID, false)
 		if e != nil {
@@ -162,7 +174,17 @@ func (s *Service) Complete(ctx context.Context, token, key, rid, id string, vers
 		out, e = resolveCreated(ctx, tx.DB(), id, tx.Actor().ID)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: version, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Wish, ID: id}, Value: version}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        version,
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Wish, ID: id}, Value: version}},
+		},
+	)
 	return
 }
 
@@ -190,9 +212,17 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 	if update {
 		op, method, suffix, name = "story.update", "PUT", "/story", "expected_version"
 	}
-	d := command.Definition{Kind: op, Method: method, ResourcePath: "/api/v1/wishes/" + id + suffix, ActorKind: "student", Access: command.Verified, RequiredExpectations: []string{name}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return DiscoverStory(ctx, db, id)
-	}}
+	d := command.Definition{
+		Kind:                 op,
+		Method:               method,
+		ResourcePath:         "/api/v1/wishes/" + id + suffix,
+		ActorKind:            "student",
+		Access:               command.Verified,
+		RequiredExpectations: []string{name},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			return DiscoverStory(ctx, db, id)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		_, e := s.storyOwner(ctx, tx.DB(), id, tx.Actor().ID, update)
 		return e
@@ -239,7 +269,11 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 
 		if source != nil {
 			var peers []struct{ AuthEpoch int64 }
-			if e = db.Table("public.matches AS m").Select("p.auth_epoch").Joins("JOIN public.accounts p ON p.id=m.helper_id AND p.lifecycle='active'").Where("m.id=?", *source).Scan(&peers).Error; e != nil {
+			if e = db.Table("public.matches AS m").Select("p.auth_epoch").
+				Joins("JOIN public.accounts p ON p.id=m.helper_id AND p.lifecycle='active'").
+				Where("m.id=?", *source).
+				Scan(&peers).
+				Error; e != nil {
 				return "", e
 			}
 			if len(peers) != 1 {
@@ -257,7 +291,11 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 		}
 		plain, _ := json.Marshal(body)
 		defer clear(plain)
-		envelope, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "story_content", ObjectID: id, Version: uint64(nextVersion)}, plain)
+		envelope, e := s.codec.Encrypt(
+			ctx,
+			securedata.Binding{Purpose: "story_content", ObjectID: id, Version: uint64(nextVersion)},
+			plain,
+		)
 		if e != nil {
 			return "", e
 		}
@@ -266,20 +304,60 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 			return "", e
 		}
 		registryID, taskID := uuid.NewString(), uuid.NewString()
-		if e = db.Create(&entity.ContentRegistry{ID: registryID, Kind: "story", EntityID: id, AuthorID: a.row.OwnerID, ContentVersion: nextVersion, SchoolDetectionVersion: "pending"}).Error; e != nil {
+		if e = db.Create(&entity.ContentRegistry{
+			ID:                     registryID,
+			Kind:                   "story",
+			EntityID:               id,
+			AuthorID:               a.row.OwnerID,
+			ContentVersion:         nextVersion,
+			SchoolDetectionVersion: "pending",
+		}).Error; e != nil {
 			return "", e
 		}
 		epoch := a.row.RestrictionEpoch
-		if e = db.Create(&entity.ModerationTask{PrivacyRecheck: holds.Active || holds.ParentActive, ID: taskID, ContentID: registryID, ContentVersion: nextVersion, SubjectEpoch: tx.Actor().AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: holds.Epoch, CreatedAt: tx.Now()}).Error; e != nil {
+		if e = db.Create(&entity.ModerationTask{
+			PrivacyRecheck:   holds.Active || holds.ParentActive,
+			ID:               taskID,
+			ContentID:        registryID,
+			ContentVersion:   nextVersion,
+			SubjectEpoch:     tx.Actor().AuthEpoch,
+			RestrictionEpoch: &epoch,
+			HoldEpoch:        holds.Epoch,
+			CreatedAt:        tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
-		if e = db.Create(&entity.StoryVersion{WishID: id, StoryVersion: nextVersion, AuthorID: a.row.OwnerID, BodyCipher: raw, ReviewTaskID: &taskID, SchoolDetectionVersion: "pending", SourceMatchID: source, PeerEpoch: peerEpoch, ParentHoldEpoch: holds.ParentEpoch}).Error; e != nil {
+		if e = db.Create(&entity.StoryVersion{
+			WishID:                 id,
+			StoryVersion:           nextVersion,
+			AuthorID:               a.row.OwnerID,
+			BodyCipher:             raw,
+			ReviewTaskID:           &taskID,
+			SchoolDetectionVersion: "pending",
+			SourceMatchID:          source,
+			PeerEpoch:              peerEpoch,
+			ParentHoldEpoch:        holds.ParentEpoch,
+		}).Error; e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{"state": "fulfilled", "current_story_version": nextVersion, "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = db.Model(&entity.Wish{}).Where("id=?", id).
+			Updates(map[string]any{"state": "fulfilled", "current_story_version": nextVersion, "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return "", e
 		}
-		if e = durable.Append(ctx, db, s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: nextVersion}); e != nil {
+		if e = durable.Append(
+			ctx,
+			db,
+			s.policy.logger,
+			contentreview.Route(),
+			durable.Draft{
+				WorkID:           uuid.NewString(),
+				OperationID:      uuid.NewString(),
+				EventID:          uuid.NewString(),
+				AggregateID:      taskID,
+				AggregateVersion: nextVersion,
+			},
+		); e != nil {
 			return "", e
 		}
 		return id, nil
@@ -292,7 +370,13 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 		if e := tx.DB().WithContext(ctx).Where("id=? AND owner_id=? AND state='fulfilled'", id, tx.Actor().ID).Take(&w).Error; e != nil {
 			return e
 		}
-		out = StoryAccepted{ID: id, Version: w.Version, ContentVersion: w.CurrentStoryVersion, Status: "pending_review", WishState: Fulfilled}
+		out = StoryAccepted{
+			ID:             id,
+			Version:        w.Version,
+			ContentVersion: w.CurrentStoryVersion,
+			Status:         "pending_review",
+			WishState:      Fulfilled,
+		}
 		return nil
 	}
 	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: struct {
@@ -313,9 +397,17 @@ func (s *Service) WithdrawStory(ctx context.Context, token, key, rid, id string,
 	if !validWishID(id) || !validCommandKey(key) || version < 1 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "story.withdraw", Method: "POST", ResourcePath: "/api/v1/wishes/" + id + "/story/withdraw", ActorKind: "student", Access: command.Verified, RequiredExpectations: []string{"expected_version"}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return DiscoverStory(ctx, db, id)
-	}}
+	d := command.Definition{
+		Kind:                 "story.withdraw",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/wishes/" + id + "/story/withdraw",
+		ActorKind:            "student",
+		Access:               command.Verified,
+		RequiredExpectations: []string{"expected_version"},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			return DiscoverStory(ctx, db, id)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		_, e := s.storyOwner(ctx, tx.DB(), id, tx.Actor().ID, true)
 		return e
@@ -339,7 +431,9 @@ func (s *Service) WithdrawStory(ctx context.Context, token, key, rid, id string,
 		if e = invalidateStories(ctx, tx, id); e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", id, w.CurrentStoryVersion).Update("withdrawn_at", tx.Now()).Error; e != nil {
+		if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", id, w.CurrentStoryVersion).
+			Update("withdrawn_at", tx.Now()).
+			Error; e != nil {
 			return "", e
 		}
 		return id, db.Model(&entity.Wish{}).Where("id=?", id).Update("version", gorm.Expr("version+1")).Error
@@ -352,6 +446,16 @@ func (s *Service) WithdrawStory(ctx context.Context, token, key, rid, id string,
 		out, e = resolveCreated(ctx, tx.DB(), id, tx.Actor().ID)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: version, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Wish, ID: id}, Value: version}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        version,
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Wish, ID: id}, Value: version}},
+		},
+	)
 	return
 }

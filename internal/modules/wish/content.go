@@ -74,10 +74,19 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 	if ctx.Err() != nil {
 		return out, command.ErrUnavailable
 	}
-	if !slices.Contains([]string{"help", "team", "items", "dating", "skill_exchange", "other"}, input.Category) || !campus(input.Campus) || !utf8.ValidString(input.Body) || strings.TrimSpace(input.Body) == "" || utf8.RuneCountInString(input.Body) > 500 {
+	if !slices.Contains([]string{"help", "team", "items", "dating", "skill_exchange", "other"}, input.Category) || !campus(input.Campus) ||
+		!utf8.ValidString(input.Body) ||
+		strings.TrimSpace(input.Body) == "" ||
+		utf8.RuneCountInString(input.Body) > 500 {
 		return out, command.ErrInvalid
 	}
-	out = Content{Category: input.Category, Body: input.Body, Campus: input.Campus, RewardMethod: "sincere_thanks", DurationDays: 7}
+	out = Content{
+		Category:     input.Category,
+		Body:         input.Body,
+		Campus:       input.Campus,
+		RewardMethod: "sincere_thanks",
+		DurationDays: 7,
+	}
 	if input.RewardMethod != nil {
 		if !slices.Contains([]string{"milk_tea", "meal", "reciprocal_gift", "skill_exchange", "sincere_thanks"}, *input.RewardMethod) {
 			return out, command.ErrInvalid
@@ -148,5 +157,11 @@ func (p *Policy) finish(message, operation, requestID string, start time.Time, e
 		requestID = ""
 	}
 	// 只记录技术结果；调用方在各自拥有的计算或根事务结束后使用，不附带供应商原始错误。
-	p.logger.Info(message, zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	p.logger.Info(
+		message,
+		zap.String("operation", operation),
+		zap.String("request_id", requestID),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }

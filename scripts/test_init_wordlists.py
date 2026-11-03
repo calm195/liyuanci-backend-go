@@ -18,7 +18,7 @@ class WordlistInitializationTests(unittest.TestCase):
             if method == 'GET' and path.startswith('/wordlists?'):
                 return {'heads': [dict(x) for x in state.values()]}
             if method == 'GET':
-                return versions[path.split('/')[-1]]
+                return versions[path.split('/')[ - 1]]
             writes.append((path, data))
             if path.endswith('/versions'):
                 head = state[data['kind']]
@@ -27,7 +27,7 @@ class WordlistInitializationTests(unittest.TestCase):
                 identifier = data['kind'] + '-new'
                 versions[identifier] = dict(data)
                 return {'id': identifier, 'version': 1}
-            identifier = path.split('/')[-2]
+            identifier = path.split('/')[ - 2]
             kind = versions[identifier]['kind']
             self.assertEqual(data['expected_head_version'], state[kind]['version'])
             state[kind]['version'] += 1

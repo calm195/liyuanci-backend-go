@@ -43,17 +43,37 @@ func New(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, cfg Config) (*Se
 		return nil, err
 	}
 	cfg.CursorKey = append([]byte(nil), cfg.CursorKey...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: engine, logger: log, codec: codec, cfg: cfg}, nil
+	return &Service{
+		db:     db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine: engine,
+		logger: log,
+		codec:  codec,
+		cfg:    cfg,
+	}, nil
 }
 
-func validID(id string) bool { u, e := uuid.Parse(id); return e == nil && u.String() == id }
+func validID(id string) bool {
+
+	u, e := uuid.Parse(id)
+	return e == nil && u.String() == id
+}
 
 func kind(k string) bool {
 	return slices.Contains([]string{"crisis", "school", "ordinary_violation"}, k)
 }
 
 func safe(err error) error {
-	for _, e := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrRetry, command.ErrInternal} {
+	for _, e := range []error{
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrNotFound,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrConflict,
+		command.ErrRetry,
+		command.ErrInternal,
+	} {
 		if errors.Is(err, e) {
 			return e
 		}
@@ -74,7 +94,11 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	fields := []zap.Field{zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start))}
+	fields := []zap.Field{
+		zap.String("operation", op),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	}
 	if len(rid) <= 128 && !strings.ContainsAny(rid, "\r\n") {
 		fields = append(fields, zap.String("request_id", rid))
 	}

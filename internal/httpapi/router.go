@@ -46,7 +46,12 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 			if recovered := recover(); recovered != nil {
 				// panic 值可能包含敏感信息，因此只保留请求关联信息，不记录其内容。
 				log.Error("请求处理发生异常", zap.String("event", "http_panic"), zap.String("request_id", c.GetString("request_id")))
-				c.AbortWithStatusJSON(500, gin.H{"code": 500, "message": "服务内部错误", "error_code": "INTERNAL_ERROR", "request_id": c.GetString("request_id")})
+				c.AbortWithStatusJSON(500, gin.H{
+					"code":       500,
+					"message":    "服务内部错误",
+					"error_code": "INTERNAL_ERROR",
+					"request_id": c.GetString("request_id"),
+				})
 			}
 		}()
 		c.Next()

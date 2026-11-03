@@ -69,7 +69,9 @@ func DeriveKey(root []byte) []byte {
 
 // New 显式构造服务，缺失独立日志拒绝启用，缺失清理适配器允许受理但保持processing。
 func New(db *gorm.DB, journal Journal, codec *securedata.Codec, eraser Eraser, logger *zap.Logger, cfg Config) (*Service, error) {
-	if journal == nil || codec == nil || logger == nil || len(cfg.Key) < 32 || cfg.ReceiptTTL < time.Minute || cfg.ReceiptTTL > 90*24*time.Hour || cfg.RetryDelay < time.Millisecond {
+	if journal == nil || codec == nil || logger == nil || len(cfg.Key) < 32 || cfg.ReceiptTTL < time.Minute ||
+		cfg.ReceiptTTL > 90*24*time.Hour ||
+		cfg.RetryDelay < time.Millisecond {
 		return nil, command.ErrInvalid
 	}
 	engine, e := command.New(db, logger, cfg.Command)
@@ -77,7 +79,15 @@ func New(db *gorm.DB, journal Journal, codec *securedata.Codec, eraser Eraser, l
 		return nil, e
 	}
 	cfg.Key = append([]byte(nil), cfg.Key...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: engine, journal: journal, codec: codec, eraser: eraser, logger: logger, cfg: cfg}, nil
+	return &Service{
+		db:      db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine:  engine,
+		journal: journal,
+		codec:   codec,
+		eraser:  eraser,
+		logger:  logger,
+		cfg:     cfg,
+	}, nil
 }
 
 // DeletionInput 绑定本人确认及账号版本，不接受客户端主体。
@@ -115,7 +125,9 @@ func validID(id string) bool {
 	u, e := uuid.Parse(id)
 	return e == nil && u != uuid.Nil && u.String() == id
 }
+
 func validKey(k string) bool { return len(k) > 0 && len(k) <= 128 && !strings.ContainsAny(k, "\r\n") }
+
 func (s *Service) mac(purpose string, v any) []byte {
 	b, _ := json.Marshal(v)
 	defer clear(b)
@@ -124,21 +136,34 @@ func (s *Service) mac(purpose string, v any) []byte {
 	h.Write(b)
 	return h.Sum(nil)
 }
+
 func (s *Service) jobID(scope, target, key string) string {
 	b := s.mac("deletion.job", []string{scope, target, key})
 	u, _ := uuid.FromBytes(b[:16])
 	return u.String()
 }
+
 func (s *Service) receipt(id string) string {
 	return id + "." + base64.RawURLEncoding.EncodeToString(s.mac("deletion.receipt", id))
 }
+
 func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if recover() != nil {
 		*err = command.ErrInternal
 	}
 	if *err != nil {
 		known := false
-		for _, e := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrRetry, command.ErrInternal} {
+		for _, e := range []error{
+			command.ErrInvalid,
+			command.ErrUnauthenticated,
+			command.ErrForbidden,
+			command.ErrNotFound,
+			command.ErrVersionConflict,
+			command.ErrIdempotencyConflict,
+			command.ErrConflict,
+			command.ErrRetry,
+			command.ErrInternal,
+		} {
 			if errors.Is(*err, e) {
 				*err = e
 				known = true
@@ -153,18 +178,31 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	fields := []zap.Field{zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start))}
+	fields := []zap.Field{
+		zap.String("operation", op),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	}
 	if len(rid) <= 128 && !strings.ContainsAny(rid, "\r\n") {
 		fields = append(fields, zap.String("request_id", rid))
 	}
 	s.logger.Info("隐私删除操作完成", fields...)
 }
+
 func (s *Service) createJob(db *gorm.DB, in Intent) error {
 	var subject *string
 	if in.Scope == "account" {
 		subject = &in.Target
 	}
-	return db.Create(&entity.DeletionJob{SourceModule: in.SourceModule, JobID: in.ID, SubjectRef: subject, Scope: in.Scope, TargetRef: &in.Target, Phase: "blocked", ExpiresAt: time.Now().Add(s.cfg.ReceiptTTL)}).Error
+	return db.Create(&entity.DeletionJob{
+		SourceModule: in.SourceModule,
+		JobID:        in.ID,
+		SubjectRef:   subject,
+		Scope:        in.Scope,
+		TargetRef:    &in.Target,
+		Phase:        "blocked",
+		ExpiresAt:    time.Now().Add(s.cfg.ReceiptTTL),
+	}).Error
 }
 
 // Request 先持久独立意图，再同事务使注销、关系矩阵及公开屏障生效；返回后会话已撤销。
@@ -179,7 +217,14 @@ func (s *Service) Request(ctx context.Context, token, key, rid string, in Deleti
 		return out, command.ErrInvalid
 	}
 	var intent Intent
-	d := command.Definition{Kind: "privacy.delete_account", Method: "POST", ResourcePath: "/api/v1/me/deletion-requests", ActorKind: "student", Access: command.Restricted, IdentityLock: true}
+	d := command.Definition{
+		Kind:         "privacy.delete_account",
+		Method:       "POST",
+		ResourcePath: "/api/v1/me/deletion-requests",
+		ActorKind:    "student",
+		Access:       command.Restricted,
+		IdentityLock: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, actor command.Subject) (command.Discovery, error) {
 		return accountPlan(ctx, db, actor.ID)
 	}
@@ -264,7 +309,8 @@ func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string
 		}
 	}()
 	defer s.done("evidence.request", rid, time.Now(), &err)
-	if !validID(id) || !validKey(key) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 2000 {
+	if !validID(id) || !validKey(key) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) || strings.TrimSpace(in.Reason) == "" ||
+		len(in.Reason) > 2000 {
 		return out, command.ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
@@ -282,7 +328,10 @@ func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string
 	}
 
 	var tree int64
-	if e := s.db.WithContext(ctx).Model(&entity.EvidenceCrisisCase{}).Where("evidence_case_id=? AND content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule')", ec.ID).Count(&tree).Error; e != nil {
+	if e := s.db.WithContext(ctx).Model(&entity.EvidenceCrisisCase{}).
+		Where("evidence_case_id=? AND content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule')", ec.ID).
+		Count(&tree).
+		Error; e != nil {
 		return out, command.ErrUnavailable
 	}
 	if whispers != (tree > 0) {
@@ -291,7 +340,14 @@ func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string
 	id = ec.ID
 	var intent Intent
 	target := command.Resource{Kind: command.EvidenceCase, ID: id}
-	d := command.Definition{Kind: "privacy.delete_evidence", Method: "DELETE", ResourcePath: "/api/v1/admin/evidence/" + id, ActorKind: "admin", AllowedRoles: []string{"super_admin"}, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "privacy.delete_evidence",
+		Method:               "DELETE",
+		ResourcePath:         "/api/v1/admin/evidence/" + id,
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"super_admin"},
+		RequiredExpectations: []string{"expected_version"},
+	}
 	if whispers {
 		d.Kind = "privacy.delete_whisper_evidence"
 		d.Method = "POST"
@@ -331,7 +387,14 @@ func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string
 			return "", e
 		}
 		raw, _ := json.Marshal(env)
-		if e = db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&entity.EvidenceAction{ID: aid, CaseID: id, Actor: tx.Actor().ID, Action: "delete_requested", ReasonCipher: raw, At: tx.Now()}).Error; e != nil {
+		if e = db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&entity.EvidenceAction{
+			ID:           aid,
+			CaseID:       id,
+			Actor:        tx.Actor().ID,
+			Action:       "delete_requested",
+			ReasonCipher: raw,
+			At:           tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
 		return intent.ID, s.createJob(db, intent)
@@ -362,7 +425,9 @@ func (s *Service) superPreflight(ctx context.Context, token string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
-	e := s.db.WithContext(ctx).Raw(`SELECT a.id,EXISTS(SELECT 1 FROM public.admin_role_bindings b WHERE b.admin_id=a.id AND b.role='super_admin') AS allowed FROM public.sessions s JOIN public.admin_accounts a ON a.id=s.admin_id WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.auth_epoch=a.auth_epoch AND a.status='active'`, hash[:]).Scan(&rows).Error
+	e := s.db.WithContext(ctx).Raw(`SELECT a.id,EXISTS(SELECT 1 FROM public.admin_role_bindings b WHERE b.admin_id=a.id AND b.role='super_admin') AS allowed FROM public.sessions s JOIN public.admin_accounts a ON a.id=s.admin_id WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.auth_epoch=a.auth_epoch AND a.status='active'`, hash[:]).
+		Scan(&rows).
+		Error
 	if e != nil {
 		return e
 	}
@@ -401,7 +466,11 @@ func (s *Service) evidenceStatus(ctx context.Context, token, rid, id, module str
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
 	var row entity.DeletionJob
-	if e := s.db.WithContext(ctx).Where("job_id=? AND scope='evidence' AND source_module=? AND expires_at>clock_timestamp()", id, module).Take(&row).Error; e != nil {
+	if e := s.db.WithContext(ctx).Where(
+		"job_id=? AND scope='evidence' AND source_module=? AND expires_at>clock_timestamp()",
+		id,
+		module,
+	).Take(&row).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return out, command.ErrNotFound
 		}

@@ -41,7 +41,11 @@ func LoadBusiness(ctx context.Context, path, environment, process string) (cfg B
 
 // ValidateBusiness 按用途校验配置，生产不得借用本地密钥、对象或学校规则。
 func ValidateBusiness(c Business, environment, process string) error {
-	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) || c.Runtime.LocalTest || len(c.Runtime.WrapKey) > 0 || len(c.Runtime.RecoveryWrapKey) > 0 || c.Runtime.Contact != "" {
+	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) ||
+		c.Runtime.LocalTest ||
+		len(c.Runtime.WrapKey) > 0 ||
+		len(c.Runtime.RecoveryWrapKey) > 0 ||
+		c.Runtime.Contact != "" {
 		return ErrInvalid
 	}
 	if _, e := validateWhispers(c.Runtime, environment, true); e != nil {
@@ -60,7 +64,15 @@ func ValidateBusiness(c Business, environment, process string) error {
 			allRefs = append(allRefs, ref)
 		}
 	}
-	keys := [][]byte{c.Runtime.ReceiptKey, c.Runtime.CursorKey, c.Runtime.RateKey, c.Runtime.GovernanceKey, c.Runtime.PrivacyKey, c.Runtime.EvidenceKey, c.Runtime.SafetyKey}
+	keys := [][]byte{
+		c.Runtime.ReceiptKey,
+		c.Runtime.CursorKey,
+		c.Runtime.RateKey,
+		c.Runtime.GovernanceKey,
+		c.Runtime.PrivacyKey,
+		c.Runtime.EvidenceKey,
+		c.Runtime.SafetyKey,
+	}
 	for _, key := range [][]byte{c.SessionKey, c.CardKey, c.VerificationKey, c.WishKey, c.AdminKey, c.CrisisKey} {
 		if len(key) == 0 {
 			continue
@@ -76,7 +88,8 @@ func ValidateBusiness(c Business, environment, process string) error {
 		keys = append(keys, key)
 	}
 	if process == "api" || process == "bootstrap" {
-		if c.Runtime.DatabaseDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 || c.LoginLimit < 1 {
+		if c.Runtime.DatabaseDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 ||
+			c.LoginLimit < 1 {
 			return ErrInvalid
 		}
 		if _, e := ValidateSecret(c.AdminPassword, 12); e != nil {
@@ -97,7 +110,13 @@ func ValidateBusiness(c Business, environment, process string) error {
 		}
 	}
 	if process == "api" || process == "card" {
-		if len(c.CardKey) != 32 || c.Card.MaxBytes < 1 || c.Card.MaxBytes > 8<<20 || c.Card.MaxPixels < 1 || c.Card.MaxPixels > 32_000_000 || c.Card.DecodeSlots < 1 || c.Card.DecodeSlots > 16 || c.Card.Lease < c.Runtime.Command.Timeout || c.Card.RetryDelay < time.Millisecond || c.Card.MaxAttempts < 1 || c.Card.MaxAttempts > 1000 {
+		if len(c.CardKey) != 32 || c.Card.MaxBytes < 1 || c.Card.MaxBytes > 8<<20 || c.Card.MaxPixels < 1 || c.Card.MaxPixels > 32_000_000 ||
+			c.Card.DecodeSlots < 1 ||
+			c.Card.DecodeSlots > 16 ||
+			c.Card.Lease < c.Runtime.Command.Timeout ||
+			c.Card.RetryDelay < time.Millisecond ||
+			c.Card.MaxAttempts < 1 ||
+			c.Card.MaxAttempts > 1000 {
 			return ErrInvalid
 		}
 	}

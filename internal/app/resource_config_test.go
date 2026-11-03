@@ -69,7 +69,9 @@ care:
 		t.Fatal("业务投影修改污染了原始配置")
 	}
 	empty := resourceSnapshot(config.WhisperResources{Version: "empty"})
-	if empty.Care != nil || empty.Catalog.Grades.Version != nil || empty.Catalog.Grades.Items != nil || empty.Catalog.Reports != nil || empty.Catalog.Help.Items != nil || empty.Catalog.Help.VerifiedAt != nil {
+	if empty.Care != nil || empty.Catalog.Grades.Version != nil || empty.Catalog.Grades.Items != nil || empty.Catalog.Reports != nil ||
+		empty.Catalog.Help.Items != nil ||
+		empty.Catalog.Help.VerifiedAt != nil {
 		t.Fatal("缺省资料被补成可用内容")
 	}
 }

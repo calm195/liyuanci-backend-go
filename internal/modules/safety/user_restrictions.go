@@ -27,9 +27,17 @@ type UserRestrictionState struct {
 func isUserRestriction(op string) bool {
 	return slices.Contains([]string{"user_ban", "user_unban", "user_mute", "user_unmute"}, op)
 }
+
 func activeUserPenalties(db *gorm.DB, id, kind string, now time.Time) *gorm.DB {
-	return db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind=? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", id, kind, now, now)
+	return db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind=? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		id,
+		kind,
+		now,
+		now,
+	)
 }
+
 func userRestrictionState(ctx context.Context, db *gorm.DB, id string, now time.Time) (out UserRestrictionState, err error) {
 	db = db.WithContext(ctx)
 	var account entity.Account
@@ -40,7 +48,13 @@ func userRestrictionState(ctx context.Context, db *gorm.DB, id string, now time.
 	if err = activeUserPenalties(db, id, "ban", now).Count(&n).Error; err != nil {
 		return
 	}
-	out = UserRestrictionState{UserID: id, AccountVersion: account.Version, Banned: n > 0, AsOf: now.UTC(), AllowedActions: []string{}}
+	out = UserRestrictionState{
+		UserID:         id,
+		AccountVersion: account.Version,
+		Banned:         n > 0,
+		AsOf:           now.UTC(),
+		AllowedActions: []string{},
+	}
 	var mute struct{ Until *time.Time }
 	if err = activeUserPenalties(db, id, "mute", now).Select("max(ends_at) AS until").Scan(&mute).Error; err != nil {
 		return
@@ -85,13 +99,17 @@ func (s *Service) UserRestrictions(ctx context.Context, token, rid, id string) (
 	})
 	return
 }
+
 func discoverUserRestriction(ctx context.Context, db *gorm.DB, id string) (p command.Discovery, err error) {
 	p, err = accountPlan(ctx, db, id)
 	if err != nil {
 		return
 	}
 	var ids []string
-	if err = db.WithContext(ctx).Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('ban','mute') AND revoked_at IS NULL", id).Pluck("id", &ids).Error; err != nil {
+	if err = db.WithContext(ctx).Model(&entity.Penalty{}).
+		Where("account_id=? AND action_kind IN ('ban','mute') AND revoked_at IS NULL", id).
+		Pluck("id", &ids).
+		Error; err != nil {
 		return
 	}
 	for _, pid := range ids {
@@ -124,7 +142,19 @@ func (s *Service) applyUserRestriction(ctx context.Context, tx *command.Tx, op, 
 		if e != nil {
 			return "", e
 		}
-		p := entity.Penalty{ID: pid, AccountID: id, SourceKind: "direct", Level: level, ActionKind: action, ViolationRef: pid, ContentVersion: 1, StartsAt: tx.Now(), EndsAt: ends, ReasonRef: uuid.NewString(), ReasonCipher: cipher}
+		p := entity.Penalty{
+			ID:             pid,
+			AccountID:      id,
+			SourceKind:     "direct",
+			Level:          level,
+			ActionKind:     action,
+			ViolationRef:   pid,
+			ContentVersion: 1,
+			StartsAt:       tx.Now(),
+			EndsAt:         ends,
+			ReasonRef:      uuid.NewString(),
+			ReasonCipher:   cipher,
+		}
 		if e = db.Create(&p).Error; e != nil {
 			return "", e
 		}
@@ -148,7 +178,12 @@ func (s *Service) applyUserRestriction(ctx context.Context, tx *command.Tx, op, 
 			if e != nil {
 				return "", e
 			}
-			if e = db.Model(&entity.Penalty{}).Where("id=?", p.ID).Updates(map[string]any{"revoked_at": tx.Now(), "version": gorm.Expr("version+1"), "revoke_reason_cipher": cipher, "revoked_by": tx.Actor().ID}).Error; e != nil {
+			if e = db.Model(&entity.Penalty{}).Where("id=?", p.ID).Updates(map[string]any{
+				"revoked_at":           tx.Now(),
+				"version":              gorm.Expr("version+1"),
+				"revoke_reason_cipher": cipher,
+				"revoked_by":           tx.Actor().ID,
+			}).Error; e != nil {
 				return "", e
 			}
 			if e = audit(db, tx.Actor().ID, p.ID, "user_restriction."+action); e != nil {

@@ -55,7 +55,13 @@ func TestUsersCursorProtection(t *testing.T) {
 	if _, e := s.usersAfter(bind, *c, now.Add(30*time.Minute)); e == nil {
 		t.Fatal("到期游标通过")
 	}
-	for _, b := range []string{s.usersBinding("other", "users", "", q), s.usersBinding("actor", "penalties", id, q), s.usersBinding("actor", "users", id, q), s.usersBinding("actor", "users", "", UsersQuery{Nickname: q.Nickname, Limit: 1}), s.usersBinding("actor", "users", "", UsersQuery{Nickname: "other", Limit: 20})} {
+	for _, b := range []string{
+		s.usersBinding("other", "users", "", q),
+		s.usersBinding("actor", "penalties", id, q),
+		s.usersBinding("actor", "users", id, q),
+		s.usersBinding("actor", "users", "", UsersQuery{Nickname: q.Nickname, Limit: 1}),
+		s.usersBinding("actor", "users", "", UsersQuery{Nickname: "other", Limit: 20}),
+	} {
 		if _, e := s.usersAfter(b, *c, now); e == nil {
 			t.Fatal("错配游标通过")
 		}
@@ -83,7 +89,14 @@ func TestUserPenaltyBoundary(t *testing.T) {
 		ends, revoked *time.Time
 		status        string
 	}{{nil, nil, "active"}, {&now, nil, "expired"}, {&now, &now, "revoked"}} {
-		p := userPenaltyRow{ID: uuid.NewString(), Level: "general", Kind: "mute", StartsAt: now.Add(-7 * 24 * time.Hour), EndsAt: tc.ends, RevokedAt: tc.revoked}
+		p := userPenaltyRow{
+			ID:        uuid.NewString(),
+			Level:     "general",
+			Kind:      "mute",
+			StartsAt:  now.Add(-7 * 24 * time.Hour),
+			EndsAt:    tc.ends,
+			RevokedAt: tc.revoked,
+		}
 		out := p.projection(now)
 		if out.Status != tc.status || out.Reason == nil || *out.Reason != "一般违规处置" {
 			t.Fatal("处罚边界投影错误")

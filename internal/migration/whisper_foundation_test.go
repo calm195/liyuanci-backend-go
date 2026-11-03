@@ -78,10 +78,20 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			t.Fatal(e)
 		}
 		id, target := uuid.NewString(), uuid.NewString()
-		if e := db.Exec("INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'whisper_capsule_unlock','whisper_capsule',?,?,'waiting')", id, target, uuid.NewString()).Error; e != nil {
+		if e := db.Exec(
+			"INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'whisper_capsule_unlock','whisper_capsule',?,?,'waiting')",
+			id,
+			target,
+			uuid.NewString(),
+		).Error; e != nil {
 			t.Fatal(e)
 		}
-		if e := db.Exec("INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'other','work',?,?,'waiting')", uuid.NewString(), uuid.NewString(), uuid.NewString()).Error; e == nil {
+		if e := db.Exec(
+			"INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id,status) VALUES (?,'other','work',?,?,'waiting')",
+			uuid.NewString(),
+			uuid.NewString(),
+			uuid.NewString(),
+		).Error; e == nil {
 			t.Fatal("其他工作错误地接受挂起状态")
 		}
 		if e := Run(ctx, db, log, "down"); e == nil {
@@ -130,7 +140,9 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			BlockID string
 			Version int64
 		}
-		if err := db.Raw("SELECT block_id,version FROM public.blocks WHERE owner_id=?", owner).Scan(&block).Error; err != nil || block.Version != 7 || block.BlockID == owner || block.BlockID == peer || !validWhisperUUID(block.BlockID) {
+		if err := db.Raw("SELECT block_id,version FROM public.blocks WHERE owner_id=?", owner).
+			Scan(&block).
+			Error; err != nil || block.Version != 7 || block.BlockID == owner || block.BlockID == peer || !validWhisperUUID(block.BlockID) {
 			t.Fatal("匿名关系或版本丢失", err)
 		}
 		if err := Run(ctx, db, log, "up"); err != nil {
@@ -155,8 +167,14 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 				args []any
 			}{
 				{"INSERT INTO public.whisper_posts(id,owner_id) VALUES (?,?)", []any{post, owner}},
-				{"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'whisper_post',?,?,1,'pending')", []any{content, post, owner}},
-				{"INSERT INTO public.whisper_post_versions(post_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')", []any{post, content}},
+				{
+					"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'whisper_post',?,?,1,'pending')",
+					[]any{content, post, owner},
+				},
+				{
+					"INSERT INTO public.whisper_post_versions(post_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')",
+					[]any{post, content},
+				},
 			} {
 				if e := tx.Exec(q.sql, q.args...).Error; e != nil {
 					return e
@@ -167,9 +185,17 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			t.Fatal(e)
 		}
 		reject("缺当前正文", "INSERT INTO public.whisper_posts(id,owner_id) VALUES (?,?)", uuid.NewString(), owner)
-		reject("未审公开", "UPDATE public.whisper_post_versions SET public_body='合成正文',public_identity='{}' WHERE post_id=?", post)
+		reject(
+			"未审公开",
+			"UPDATE public.whisper_post_versions SET public_body='合成正文',public_identity='{}' WHERE post_id=?",
+			post,
+		)
 		must("UPDATE public.whisper_post_versions SET review_state='approved',school_related=false,public_body=repeat('鲤',500),public_identity='{}' WHERE post_id=?", post)
-		reject("公开正文501码点", "UPDATE public.whisper_post_versions SET public_body=repeat('鲤',501) WHERE post_id=?", post)
+		reject(
+			"公开正文501码点",
+			"UPDATE public.whisper_post_versions SET public_body=repeat('鲤',501) WHERE post_id=?",
+			post,
+		)
 		reject("正文全空白", "UPDATE public.whisper_post_versions SET public_body=E' \\n\\t' WHERE post_id=?", post)
 		reject("半匿名无字典", "UPDATE public.whisper_post_versions SET identity_mode='semi' WHERE post_id=?", post)
 		reject("密文不是对象", "UPDATE public.whisper_post_versions SET body_cipher='[]' WHERE post_id=?", post)
@@ -180,14 +206,31 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		reject("同人重复抱抱", "INSERT INTO public.whisper_hugs(post_id,actor_id) VALUES (?,?)", post, peer)
 		must("UPDATE public.whisper_hugs SET active=false,version=2 WHERE post_id=? AND actor_id=?", post, peer)
 		reject("零抱抱版本", "UPDATE public.whisper_hugs SET version=0 WHERE post_id=?", post)
-		reject("未知来源", "INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'unknown',?,?,1,'pending')", uuid.NewString(), post, owner)
+		reject(
+			"未知来源",
+			"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'unknown',?,?,1,'pending')",
+			uuid.NewString(),
+			post,
+			owner,
+		)
 		for _, kind := range []string{"whisper_comment", "whisper_nickname", "whisper_capsule"} {
-			must("INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,?,?,?,1,'pending')", uuid.NewString(), kind, uuid.NewString(), owner)
+			must(
+				"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,?,?,?,1,'pending')",
+				uuid.NewString(),
+				kind,
+				uuid.NewString(),
+				owner,
+			)
 		}
 		// 未认证危机只保存明确状态，学号仍放在受控加密证据中；历史空值不编造身份。
 		evidence, crisis := uuid.NewString(), uuid.NewString()
 		must("INSERT INTO evidence.evidence_cases(id,kind,source_ref) VALUES (?,'crisis',?)", evidence, post)
-		must("INSERT INTO evidence.crisis_cases(id,evidence_case_id,content_type,identity_status,source_entity_id,source_content_version) VALUES (?,?,'whisper_capsule','not_verified',?,1)", crisis, evidence, post)
+		must(
+			"INSERT INTO evidence.crisis_cases(id,evidence_case_id,content_type,identity_status,source_entity_id,source_content_version) VALUES (?,?,'whisper_capsule','not_verified',?,1)",
+			crisis,
+			evidence,
+			post,
+		)
 		reject("虚构身份状态", "UPDATE evidence.crisis_cases SET identity_status='assumed' WHERE id=?", crisis)
 		if e := testconfig.ApplyDatabaseRoles(ctx, db, log); e != nil {
 			t.Fatal(e)
@@ -225,4 +268,8 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 	})
 }
 
-func validWhisperUUID(value string) bool { _, err := uuid.Parse(value); return err == nil }
+func validWhisperUUID(value string) bool {
+
+	_, err := uuid.Parse(value)
+	return err == nil
+}

@@ -11,7 +11,15 @@ func TestStoryBodyBudget(t *testing.T) {
 		name, body string
 		budget     int
 		want       bool
-	}{{"超过心愿字符数", strings.Repeat("鲤", 501), 65536, true}, {"技术上界", "abcd", 4, true}, {"技术超界", "abcde", 4, false}, {"空正文", "", 65536, false}, {"Unicode空白", " \n\u3000", 65536, false}, {"非法编码", string([]byte{255}), 65536, false}, {"未显式启用", "正文", 0, false}} {
+	}{
+		{"超过心愿字符数", strings.Repeat("鲤", 501), 65536, true},
+		{"技术上界", "abcd", 4, true},
+		{"技术超界", "abcde", 4, false},
+		{"空正文", "", 65536, false},
+		{"Unicode空白", " \n\u3000", 65536, false},
+		{"非法编码", string([]byte{255}), 65536, false},
+		{"未显式启用", "正文", 0, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if validStoryBody(tc.body, tc.budget) != tc.want {
 				t.Fatal("正文校验不符")

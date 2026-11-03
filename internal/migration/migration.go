@@ -39,7 +39,14 @@ func run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string,
 		if err != nil {
 			result = "failure"
 		}
-		logger.Info("数据库迁移完成", zap.String("direction", direction), zap.String("stage", stage), zap.String("version", version), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		logger.Info(
+			"数据库迁移完成",
+			zap.String("direction", direction),
+			zap.String("stage", stage),
+			zap.String("version", version),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	if direction != "up" && direction != "down" {
 		return errors.New("迁移方向必须为 up 或 down")
@@ -59,7 +66,10 @@ func run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string,
 			return fmt.Errorf("迁移锁失败：%w", e)
 		}
 		var recovery bool
-		if tx.Raw("SELECT to_regclass('public.recovery_schema_migrations') IS NOT NULL OR to_regclass('public.recovery_delete_journal') IS NOT NULL").Scan(&recovery).Error != nil || recovery {
+		if tx.Raw("SELECT to_regclass('public.recovery_schema_migrations') IS NOT NULL OR to_regclass('public.recovery_delete_journal') IS NOT NULL").
+			Scan(&recovery).
+			Error != nil ||
+			recovery {
 			return errors.New("业务迁移不能使用恢复日志数据库")
 		}
 		// 显式限定 schema，避免连接 search_path 将账本或账号表放到错误命名空间。

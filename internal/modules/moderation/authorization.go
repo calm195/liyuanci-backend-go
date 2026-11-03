@@ -73,5 +73,11 @@ func (s *Service) authorizeRoles(ctx context.Context, db *gorm.DB, token string,
 }
 
 func audit(db *gorm.DB, actor, subject, purpose string) error {
-	return db.Create(&entity.AccessAudit{ID: uuid.NewString(), ActorID: actor, SubjectRef: subject, Purpose: purpose, Outcome: "allowed"}).Error
+	return db.Create(&entity.AccessAudit{
+		ID:         uuid.NewString(),
+		ActorID:    actor,
+		SubjectRef: subject,
+		Purpose:    purpose,
+		Outcome:    "allowed",
+	}).Error
 }

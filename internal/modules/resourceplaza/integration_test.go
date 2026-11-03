@@ -37,6 +37,7 @@ type testKeys struct{}
 func (testKeys) Wrap(_ context.Context, b []byte) (string, []byte, error) {
 	return "synthetic", append([]byte(nil), b...), nil
 }
+
 func (testKeys) Unwrap(_ context.Context, _ string, b []byte) ([]byte, error) {
 	return append([]byte(nil), b...), nil
 }
@@ -85,21 +86,33 @@ func TestPostgresHTTP(t *testing.T) {
 	must(testconfig.ApplyDatabaseRoles(ctx, root, log))
 	api, adminDB := open(dbdsn+" options='-c role=liyuanci_api'"), open(dbdsn+" options='-c role=liyuanci_admin_api'")
 	var missingComments int64
-	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relname IN ('resource_categories','resource_materials','resource_feedback','resource_audits') AND a.attnum>0 AND NOT a.attisdropped AND nullif(btrim(col_description(c.oid,a.attnum)),'') IS NULL`).Scan(&missingComments).Error)
+	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relname IN ('resource_categories','resource_materials','resource_feedback','resource_audits') AND a.attnum>0 AND NOT a.attisdropped AND nullif(btrim(col_description(c.oid,a.attnum)),'') IS NULL`).
+		Scan(&missingComments).
+		Error)
 	if missingComments != 0 {
 		t.Fatal("新表字段缺中文注释")
 	}
 	for _, v := range []struct {
 		db  *gorm.DB
 		sql string
-	}{{api, "UPDATE public.resource_materials SET title='禁止' WHERE false"}, {adminDB, "DELETE FROM public.resource_materials WHERE false"}, {open(dbdsn + " options='-c role=liyuanci_crisis_api'"), "SELECT * FROM public.resource_materials LIMIT 0"}} {
+	}{
+		{api, "UPDATE public.resource_materials SET title='禁止' WHERE false"},
+		{adminDB, "DELETE FROM public.resource_materials WHERE false"},
+		{
+			open(dbdsn + " options='-c role=liyuanci_crisis_api'"),
+			"SELECT * FROM public.resource_materials LIMIT 0",
+		},
+	} {
 		if e := v.db.Exec(v.sql).Error; e == nil {
 			t.Fatal("越权数据库操作放行")
 		}
 	}
 	codec, e := securedata.New(testKeys{}, log)
 	must(e)
-	cfg := resourceplaza.Config{Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, Key: bytes.Repeat([]byte{71}, 32)}
+	cfg := resourceplaza.Config{
+		Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+		Key:     bytes.Repeat([]byte{71}, 32),
+	}
 	student, e := resourceplaza.New(api, log, codec, cfg)
 	must(e)
 	admin, e := resourceplaza.New(adminDB, log, codec, cfg)
@@ -192,8 +205,21 @@ func TestPostgresHTTP(t *testing.T) {
 	call("GET", "/resource-categories", ut, "", nil, 200)
 	call("GET", "/admin/resource-categories", at, "", nil, 200)
 	call("GET", "/admin/resource-categories/"+cid, at, "", nil, 200)
-	cat = call("PUT", "/admin/resource-categories/"+cid, at, "cat-edit", map[string]any{"name": "数学", "sort_order": 2, "enabled": true, "expected_version": 1}, 200).Data
-	input := map[string]any{"title": " ABC资料 ", "category_id": cid, "description": "学期\r\n完整资料", "download_url": "https://example.test/a?x=%2F", "extraction_code": "aB12"}
+	cat = call(
+		"PUT",
+		"/admin/resource-categories/"+cid,
+		at,
+		"cat-edit",
+		map[string]any{"name": "数学", "sort_order": 2, "enabled": true, "expected_version": 1},
+		200,
+	).Data
+	input := map[string]any{
+		"title":           " ABC资料 ",
+		"category_id":     cid,
+		"description":     "学期\r\n完整资料",
+		"download_url":    "https://example.test/a?x=%2F",
+		"extraction_code": "aB12",
+	}
 	res := call("POST", "/admin/resources", at, "r1", input, 201).Data
 	id := res["id"].(string)
 	if res["title"] != "ABC资料" {
@@ -226,13 +252,31 @@ func TestPostgresHTTP(t *testing.T) {
 		} else {
 			level = "severe"
 		}
-		must(root.Create(&entity.Penalty{ID: pid, AccountID: uid, Level: level, ActionKind: kind, ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: starts, EndsAt: until, ReasonRef: uuid.NewString(), SourceKind: "direct"}).Error)
+		must(root.Create(&entity.Penalty{
+			ID:             pid,
+			AccountID:      uid,
+			Level:          level,
+			ActionKind:     kind,
+			ViolationRef:   uuid.NewString(),
+			ContentVersion: 1,
+			StartsAt:       starts,
+			EndsAt:         until,
+			ReasonRef:      uuid.NewString(),
+			SourceKind:     "direct",
+		}).Error)
 		return pid
 	}
 	mute := penalty("mute")
 	call("GET", "/resources/"+id, ut, "", nil, 200)
 	call("GET", "/resources/"+id+"/download-info?expected_version=2", ut, "", nil, 200)
-	call("PUT", "/resources/"+id+"/feedback", ut, "muted", map[string]any{"kind": "valid", "expected_content_version": 1, "expected_feedback_version": 0}, 403)
+	call(
+		"PUT",
+		"/resources/"+id+"/feedback",
+		ut,
+		"muted",
+		map[string]any{"kind": "valid", "expected_content_version": 1, "expected_feedback_version": 0},
+		403,
+	)
 	must(root.Delete(&entity.Penalty{}, "id=?", mute).Error)
 	ban := penalty("ban")
 	must(root.Model(&entity.Account{}).Where("id=?", uid).Update("verification", "unverified").Error)
@@ -260,9 +304,30 @@ func TestPostgresHTTP(t *testing.T) {
 	if res["version"] != float64(2) || res["feedback_summary"].(map[string]any)["outdated"] != float64(1) {
 		t.Fatal("反馈污染资源版本或汇总")
 	}
-	call("PUT", "/admin/resource-categories/"+cid, at, "disable", map[string]any{"name": "数学", "sort_order": 2, "enabled": false, "expected_version": cat["version"]}, 409)
-	call("POST", "/admin/resources/"+id+"/offline", at, "off1", map[string]any{"expected_version": 2, "reason": "更新资料"}, 200)
-	update := map[string]any{"title": "ABC资料", "category_id": cid, "description": "学期\n完整资料", "download_url": "https://example.test/a?x=%2F", "extraction_code": "aB12", "expected_version": 3}
+	call(
+		"PUT",
+		"/admin/resource-categories/"+cid,
+		at,
+		"disable",
+		map[string]any{"name": "数学", "sort_order": 2, "enabled": false, "expected_version": cat["version"]},
+		409,
+	)
+	call(
+		"POST",
+		"/admin/resources/"+id+"/offline",
+		at,
+		"off1",
+		map[string]any{"expected_version": 2, "reason": "更新资料"},
+		200,
+	)
+	update := map[string]any{
+		"title":            "ABC资料",
+		"category_id":      cid,
+		"description":      "学期\n完整资料",
+		"download_url":     "https://example.test/a?x=%2F",
+		"extraction_code":  "aB12",
+		"expected_version": 3,
+	}
 	res = call("PUT", "/admin/resources/"+id+"/content", at, "noop", update, 200).Data
 	if res["version"] != float64(3) || res["feedback_summary"].(map[string]any)["total"] != float64(1) {
 		t.Fatal("无变化保存清票")
@@ -290,8 +355,22 @@ func TestPostgresHTTP(t *testing.T) {
 	call("POST", "/admin/resources", at, "r1", input, 404)
 	// 分页和主体/筛选绑定，静态结果不重不漏；不同管理员的分类引用竞争。
 	for i := 0; i < 3; i++ {
-		v := call("POST", "/admin/resources", at, uuid.NewString(), map[string]any{"title": "分页资料", "category_id": cid, "download_url": "https://example.test/page"}, 201).Data
-		call("POST", "/admin/resources/"+v["id"].(string)+"/publish", at, uuid.NewString(), map[string]any{"expected_version": 1}, 200)
+		v := call(
+			"POST",
+			"/admin/resources",
+			at,
+			uuid.NewString(),
+			map[string]any{"title": "分页资料", "category_id": cid, "download_url": "https://example.test/page"},
+			201,
+		).Data
+		call(
+			"POST",
+			"/admin/resources/"+v["id"].(string)+"/publish",
+			at,
+			uuid.NewString(),
+			map[string]any{"expected_version": 1},
+			200,
+		)
 	}
 	page := call("GET", "/resources?q=分页&limit=1", ut, "", nil, 200).Data
 	seen := map[string]bool{}
@@ -320,7 +399,15 @@ func TestPostgresHTTP(t *testing.T) {
 	call("GET", "/resources?q=分页&limit=1&cursor="+url.QueryEscape(firstCursor), otherToken, "", nil, 400)
 	_, at2 := makeAdmin("review_operator")
 	for i := 0; i < 5; i++ {
-		v, e := admin.Write(ctx, at, "race", uuid.NewString(), "category_create", "", resourceplaza.Input{Name: uuid.NewString()[:20], Enabled: true})
+		v, e := admin.Write(
+			ctx,
+			at,
+			"race",
+			uuid.NewString(),
+			"category_create",
+			"",
+			resourceplaza.Input{Name: uuid.NewString()[:20], Enabled: true},
+		)
 		must(e)
 		cat := v.(map[string]any)
 		raceID := cat["id"].(string)
@@ -328,12 +415,28 @@ func TestPostgresHTTP(t *testing.T) {
 		failures := make(chan error, 2)
 		go func() {
 			<-start
-			_, e := admin.Write(ctx, at, "race", uuid.NewString(), "create", "", resourceplaza.Input{Title: "并发资料", CategoryID: raceID, DownloadURL: "https://example.test/race"})
+			_, e := admin.Write(
+				ctx,
+				at,
+				"race",
+				uuid.NewString(),
+				"create",
+				"",
+				resourceplaza.Input{Title: "并发资料", CategoryID: raceID, DownloadURL: "https://example.test/race"},
+			)
 			failures <- e
 		}()
 		go func() {
 			<-start
-			_, e := admin.Write(ctx, at2, "race", uuid.NewString(), "category_update", raceID, resourceplaza.Input{Name: cat["name"].(string), Enabled: false, ExpectedVersion: 1})
+			_, e := admin.Write(
+				ctx,
+				at2,
+				"race",
+				uuid.NewString(),
+				"category_update",
+				raceID,
+				resourceplaza.Input{Name: cat["name"].(string), Enabled: false, ExpectedVersion: 1},
+			)
 			failures <- e
 		}()
 		close(start)
@@ -342,7 +445,9 @@ func TestPostgresHTTP(t *testing.T) {
 			t.Fatalf("竞争应只成功一方: %v %v", a, b)
 		}
 		var invalid int64
-		must(root.Raw("SELECT count(*) FROM public.resource_materials r JOIN public.resource_categories c ON c.id=r.category_id WHERE NOT c.enabled").Scan(&invalid).Error)
+		must(root.Raw("SELECT count(*) FROM public.resource_materials r JOIN public.resource_categories c ON c.id=r.category_id WHERE NOT c.enabled").
+			Scan(&invalid).
+			Error)
 		if invalid != 0 {
 			t.Fatal("产生停用分类引用")
 		}
@@ -367,7 +472,15 @@ func TestPostgresHTTP(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, e := admin.Write(ctx, at, "parallel", "parallel-key", "category_create", "", resourceplaza.Input{Name: "并发分类", Enabled: true})
+			_, e := admin.Write(
+				ctx,
+				at,
+				"parallel",
+				"parallel-key",
+				"category_create",
+				"",
+				resourceplaza.Input{Name: "并发分类", Enabled: true},
+			)
 			errs <- e
 		}()
 	}

@@ -23,7 +23,9 @@ import (
 )
 
 const actorID = "10000000-0000-0000-0000-000000000001"
+
 const otherID = "00000000-0000-0000-0000-000000000002"
+
 const adminID = "20000000-0000-0000-0000-000000000001"
 
 func config() Config {
@@ -37,13 +39,23 @@ func config() Config {
 
 func definition() Definition {
 	return Definition{
-		Kind: "account.update", Method: "PATCH", ResourcePath: "/accounts/me", ActorKind: "student", Access: Verified,
+
+		Kind:         "account.update",
+		Method:       "PATCH",
+		ResourcePath: "/accounts/me",
+		ActorKind:    "student",
+		Access:       Verified,
+
 		RequiredExpectations: []string{"expected_version"},
-		Discover:             func(context.Context, *gorm.DB, Subject) (Discovery, error) { return Discovery{}, nil },
-		Authorize:            func(context.Context, *Tx) error { return nil },
+
+		Discover: func(context.Context, *gorm.DB, Subject) (Discovery, error) { return Discovery{}, nil },
+
+		Authorize: func(context.Context, *Tx) error { return nil },
+
 		Apply: func(ctx context.Context, tx *Tx) (string, error) {
 			return actorID, tx.DB().WithContext(ctx).Exec("UPDATE public.accounts SET version=version+1 WHERE id=?", actorID).Error
 		},
+
 		Resolve: func(_ context.Context, tx *Tx, ref string) error {
 			if ref != actorID || tx.Actor().ID == "" {
 				return ErrNotFound
@@ -52,8 +64,15 @@ func definition() Definition {
 		},
 	}
 }
+
 func input(key string) Input {
-	return Input{Token: "SYNTHETIC_TOKEN", IdempotencyKey: key, RequestID: "request-1", Request: map[string]any{"value": "SYNTHETIC_BODY"}, Expectations: []Expectation{{Name: "expected_version", Target: Resource{Kind: Account, ID: actorID}, Value: 1}}}
+	return Input{
+		Token:          "SYNTHETIC_TOKEN",
+		IdempotencyKey: key,
+		RequestID:      "request-1",
+		Request:        map[string]any{"value": "SYNTHETIC_BODY"},
+		Expectations:   []Expectation{{Name: "expected_version", Target: Resource{Kind: Account, ID: actorID}, Value: 1}},
+	}
 }
 
 // T006/REQ-004、007、018：策略和并发字段由服务端确定，摘要不依赖输入集合顺序。
@@ -104,8 +123,12 @@ func TestCommandValidation(t *testing.T) {
 	if validDefinition(d) {
 		t.Fatal("重复策略")
 	}
-	found, err := normalize(Discovery{Accounts: []string{actorID, otherID, actorID}, Resources: []Resource{{Kind: Message, ID: actorID}, {Kind: Wish, ID: actorID}, {Kind: Wish, ID: actorID}}}, Subject{Kind: "student", ID: actorID})
-	if err != nil || len(found.Accounts) != 2 || found.Accounts[0] != otherID || len(found.Resources) != 2 || found.Resources[0].Kind != Wish {
+	found, err := normalize(Discovery{
+		Accounts:  []string{actorID, otherID, actorID},
+		Resources: []Resource{{Kind: Message, ID: actorID}, {Kind: Wish, ID: actorID}, {Kind: Wish, ID: actorID}},
+	}, Subject{Kind: "student", ID: actorID})
+	if err != nil || len(found.Accounts) != 2 || found.Accounts[0] != otherID || len(found.Resources) != 2 ||
+		found.Resources[0].Kind != Wish {
 		t.Fatal("锁序未排序去重")
 	}
 	if _, err = normalize(Discovery{Resources: []Resource{{Kind: Account, ID: actorID}}}, Subject{Kind: "student", ID: actorID}); err != ErrInvalid {
@@ -121,12 +144,20 @@ func TestCommandValidation(t *testing.T) {
 
 type sqlFault string
 
-func (s sqlFault) Error() string    { return "SYNTHETIC_DATABASE_SECRET" }
+func (s sqlFault) Error() string { return "SYNTHETIC_DATABASE_SECRET" }
+
 func (s sqlFault) SQLState() string { return string(s) }
 
 // T006/REQ-018：数据库原文不越过命令错误边界；重试不扩张到未知错误。
 func TestErrorBoundary(t *testing.T) {
-	for state, want := range map[sqlFault]error{"40001": ErrRetry, "40P01": ErrRetry, "55P03": ErrRetry, "23505": ErrConflict, "25006": ErrInternal, "XX000": ErrUnavailable} {
+	for state, want := range map[sqlFault]error{
+		"40001": ErrRetry,
+		"40P01": ErrRetry,
+		"55P03": ErrRetry,
+		"23505": ErrConflict,
+		"25006": ErrInternal,
+		"XX000": ErrUnavailable,
+	} {
 		if got := normalizeError(fmt.Errorf("wrapped: %w", state)); got != want {
 			t.Fatal(state, got)
 		}
@@ -169,13 +200,27 @@ func TestPostgresCommands(t *testing.T) {
 			t.Fatal(failure)
 		}
 	}
-	exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成账号','verified'),(?,'合成参与者','verified')", actorID, otherID)
+	exec(
+		"INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成账号','verified'),(?,'合成参与者','verified')",
+		actorID,
+		otherID,
+	)
 	hash := sha256.Sum256([]byte("SYNTHETIC_TOKEN"))
 	adminHash := sha256.Sum256([]byte("SYNTHETIC_ADMIN_TOKEN"))
 	exec("INSERT INTO public.admin_accounts(id,credential_ref) VALUES (?,'synthetic-provider')", adminID)
 	exec("INSERT INTO public.admin_role_bindings(admin_id,role) VALUES (?,'review_operator')", adminID)
-	exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", "30000000-0000-0000-0000-000000000001", actorID, hash[:])
-	exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", "30000000-0000-0000-0000-000000000002", adminID, adminHash[:])
+	exec(
+		"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		"30000000-0000-0000-0000-000000000001",
+		actorID,
+		hash[:],
+	)
+	exec(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		"30000000-0000-0000-0000-000000000002",
+		adminID,
+		adminHash[:],
+	)
 	engine, err := New(db, log, config())
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +250,11 @@ func TestPostgresCommands(t *testing.T) {
 		var calls atomic.Int32
 		d := definition()
 		apply := d.Apply
-		d.Apply = func(ctx context.Context, tx *Tx) (string, error) { calls.Add(1); return apply(ctx, tx) }
+		d.Apply = func(ctx context.Context, tx *Tx) (string, error) {
+
+			calls.Add(1)
+			return apply(ctx, tx)
+		}
 		var wg sync.WaitGroup
 		failures := make(chan error, 8)
 		replays := make(chan bool, 8)
@@ -279,7 +328,11 @@ func TestPostgresCommands(t *testing.T) {
 		}{
 			{"代次", "UPDATE public.accounts SET auth_epoch=2", ErrUnauthenticated},
 			{"撤销", "UPDATE public.sessions SET revoked_at=clock_timestamp()", ErrUnauthenticated},
-			{"过期", "UPDATE public.sessions SET created_at=clock_timestamp()-interval '2 hours',expires_at=clock_timestamp()-interval '1 hour'", ErrUnauthenticated},
+			{
+				"过期",
+				"UPDATE public.sessions SET created_at=clock_timestamp()-interval '2 hours',expires_at=clock_timestamp()-interval '1 hour'",
+				ErrUnauthenticated,
+			},
 			{"注销", "UPDATE public.accounts SET lifecycle='deleting'", ErrUnauthenticated},
 			{"资格", "UPDATE public.accounts SET verification='rejected'", ErrForbidden},
 		} {
@@ -304,7 +357,15 @@ func TestPostgresCommands(t *testing.T) {
 			// 单条语句用同一时间表达式，满足精确七天约束。
 			starts := "CURRENT_TIMESTAMP"
 			ends = strings.ReplaceAll(ends, "clock_timestamp()", starts)
-			exec("INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,ends_at,reason_ref) VALUES (?,?,?, ?,?,1,"+starts+","+ends+",?)", "40000000-0000-0000-0000-000000000001", actorID, level, action, otherID, otherID)
+			exec(
+				"INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,ends_at,reason_ref) VALUES (?,?,?, ?,?,1,"+starts+","+ends+",?)",
+				"40000000-0000-0000-0000-000000000001",
+				actorID,
+				level,
+				action,
+				otherID,
+				otherID,
+			)
 			want := ErrForbidden
 			if action == "warning" {
 				want = nil
@@ -342,7 +403,9 @@ func TestPostgresCommands(t *testing.T) {
 		d := definition()
 		d.Discover = func(ctx context.Context, reader *gorm.DB, _ Subject) (Discovery, error) {
 			var participants []string
-			if failure := reader.WithContext(ctx).Raw("SELECT target_id FROM public.blocks WHERE owner_id=? ORDER BY target_id", actorID).Scan(&participants).Error; failure != nil {
+			if failure := reader.WithContext(ctx).Raw("SELECT target_id FROM public.blocks WHERE owner_id=? ORDER BY target_id", actorID).
+				Scan(&participants).
+				Error; failure != nil {
 				return Discovery{}, failure
 			}
 			if discoveries.Add(1) == 1 {
@@ -406,7 +469,11 @@ func TestPostgresCommands(t *testing.T) {
 			}
 			return Discovery{}, nil
 		}
-		d.Apply = func(context.Context, *Tx) (string, error) { applies.Add(1); return actorID, nil }
+		d.Apply = func(context.Context, *Tx) (string, error) {
+
+			applies.Add(1)
+			return actorID, nil
+		}
 		run(d, input("revocation-race"), ErrUnauthenticated)
 		var count int64
 		if failure := db.Raw("SELECT count(*) FROM public.command_receipts").Scan(&count).Error; failure != nil {
@@ -483,21 +550,45 @@ func TestPostgresCommands(t *testing.T) {
 		match := "50000000-0000-0000-0000-000000000003"
 		conversation := "50000000-0000-0000-0000-000000000004"
 		failure := db.Transaction(func(tx *gorm.DB) error {
-			if failure := tx.Exec("INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'help','any')", wish, actorID).Error; failure != nil {
+			if failure := tx.Exec(
+				"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'help','any')",
+				wish,
+				actorID,
+			).Error; failure != nil {
 				return failure
 			}
-			return tx.Exec("INSERT INTO public.wish_versions(wish_id,content_version,body_cipher,school_detection_version) VALUES (?,1,'{}','synthetic')", wish).Error
+			return tx.Exec("INSERT INTO public.wish_versions(wish_id,content_version,body_cipher,school_detection_version) VALUES (?,1,'{}','synthetic')", wish).
+				Error
 		})
 		if failure != nil {
 			t.Fatal(failure)
 		}
-		exec("INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')", application, wish, otherID)
-		exec("INSERT INTO public.matches(id,wish_id,requester_id,helper_id) VALUES (?,?,?,?)", match, wish, actorID, otherID)
+		exec(
+			"INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')",
+			application,
+			wish,
+			otherID,
+		)
+		exec(
+			"INSERT INTO public.matches(id,wish_id,requester_id,helper_id) VALUES (?,?,?,?)",
+			match,
+			wish,
+			actorID,
+			otherID,
+		)
 		exec("INSERT INTO public.conversations(id,match_id) VALUES (?,?)", conversation, match)
 		d := definition()
 		d.RequiredExpectations = []string{"expected_version", "wish_expected_version", "expected_write_epoch"}
 		d.Discover = func(context.Context, *gorm.DB, Subject) (Discovery, error) {
-			return Discovery{Accounts: []string{otherID}, Resources: []Resource{{Kind: Conversation, ID: conversation}, {Kind: Match, ID: match}, {Kind: Application, ID: application}, {Kind: Wish, ID: wish}}}, nil
+			return Discovery{
+				Accounts: []string{otherID},
+				Resources: []Resource{
+					{Kind: Conversation, ID: conversation},
+					{Kind: Match, ID: match},
+					{Kind: Application, ID: application},
+					{Kind: Wish, ID: wish},
+				},
+			}, nil
 		}
 		in := input("resources")
 		in.Expectations = []Expectation{
@@ -611,7 +702,14 @@ func TestPostgresCommands(t *testing.T) {
 		}
 		recovered = recovered || fields["recovered"] == true
 		text := fmt.Sprint(fields)
-		for _, secret := range []string{"SYNTHETIC_TOKEN", "SYNTHETIC_BODY", "SYNTHETIC_PANIC_SECRET", "SYNTHETIC_DATABASE_SECRET", "same-key", actorID} {
+		for _, secret := range []string{
+			"SYNTHETIC_TOKEN",
+			"SYNTHETIC_BODY",
+			"SYNTHETIC_PANIC_SECRET",
+			"SYNTHETIC_DATABASE_SECRET",
+			"same-key",
+			actorID,
+		} {
 			if strings.Contains(text, secret) {
 				t.Fatal("日志泄漏")
 			}

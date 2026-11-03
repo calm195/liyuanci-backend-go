@@ -24,7 +24,13 @@ func accountPlan(ctx context.Context, db *gorm.DB, accounts ...string) (p comman
 	db = db.WithContext(ctx)
 	p.Accounts = append(p.Accounts, accounts...)
 	var ids []string
-	if err = db.Model(&entity.Wish{}).Where("owner_id IN ? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id IN ? AND status IN ('pending_scan','pending_review','active','accepted')) OR id IN (SELECT wish_id FROM public.matches WHERE (requester_id IN ? OR helper_id IN ?) AND status='current')", accounts, accounts, accounts, accounts).Pluck("id", &ids).Error; err != nil {
+	if err = db.Model(&entity.Wish{}).Where(
+		"owner_id IN ? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id IN ? AND status IN ('pending_scan','pending_review','active','accepted')) OR id IN (SELECT wish_id FROM public.matches WHERE (requester_id IN ? OR helper_id IN ?) AND status='current')",
+		accounts,
+		accounts,
+		accounts,
+		accounts,
+	).Pluck("id", &ids).Error; err != nil {
 		return
 	}
 	for _, id := range ids {
@@ -34,7 +40,12 @@ func accountPlan(ctx context.Context, db *gorm.DB, accounts ...string) (p comman
 		}
 		p = merge(p, q)
 		var tasks []entity.ModerationTask
-		if err = db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.kind='story' AND c.entity_id=?", id).Find(&tasks).Error; err != nil {
+		if err = db.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.kind='story' AND c.entity_id=?", id).
+			Find(&tasks).
+			Error; err != nil {
 			return
 		}
 		for _, t := range tasks {
@@ -43,10 +54,12 @@ func accountPlan(ctx context.Context, db *gorm.DB, accounts ...string) (p comman
 	}
 	return
 }
+
 func registry(db *gorm.DB, id string) (c entity.ContentRegistry, err error) {
 	err = found(db.Where("id=?", id).Take(&c).Error)
 	return
 }
+
 func targetRegistry(db *gorm.DB, kind, id string) (c entity.ContentRegistry, err error) {
 	q := db.Where("kind=? AND entity_id=?", kind, id)
 	switch kind {
@@ -64,6 +77,7 @@ func targetRegistry(db *gorm.DB, kind, id string) (c entity.ContentRegistry, err
 	err = found(q.Take(&c).Error)
 	return
 }
+
 func contentPlan(ctx context.Context, db *gorm.DB, c entity.ContentRegistry) (command.Discovery, error) {
 	switch c.Kind {
 	case "wish", "story":
@@ -93,6 +107,7 @@ func contentPlan(ctx context.Context, db *gorm.DB, c entity.ContentRegistry) (co
 	}
 	return command.Discovery{}, command.ErrNotFound
 }
+
 func accountContentPlan(ctx context.Context, db *gorm.DB, c entity.ContentRegistry, id string) (command.Discovery, error) {
 	p, e := wish.DiscoverInteraction(ctx, db, id)
 	p.Accounts = append(p.Accounts, c.AuthorID)
@@ -135,14 +150,22 @@ func visible(ctx context.Context, db *gorm.DB, c entity.ContentRegistry, actor s
 			if w.State != "published" || w.ExpiresAt == nil || !now.Before(*w.ExpiresAt) {
 				return command.ErrNotFound
 			}
-			if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=? AND moderation_status='approved' AND public_body IS NOT NULL AND school_detection_state='completed'", w.ID, c.ContentVersion).Count(&n).Error; e != nil {
+			if e = db.Model(&entity.WishVersion{}).Where(
+				"wish_id=? AND content_version=? AND moderation_status='approved' AND public_body IS NOT NULL AND school_detection_state='completed'",
+				w.ID,
+				c.ContentVersion,
+			).Count(&n).Error; e != nil {
 				return e
 			}
 		} else {
 			if w.State != "fulfilled" {
 				return command.ErrNotFound
 			}
-			if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=? AND moderation_status='approved' AND public_body IS NOT NULL AND withdrawn_at IS NULL AND school_detection_state='completed'", w.ID, c.ContentVersion).Count(&n).Error; e != nil {
+			if e = db.Model(&entity.StoryVersion{}).Where(
+				"wish_id=? AND story_version=? AND moderation_status='approved' AND public_body IS NOT NULL AND withdrawn_at IS NULL AND school_detection_state='completed'",
+				w.ID,
+				c.ContentVersion,
+			).Count(&n).Error; e != nil {
 				return e
 			}
 		}
@@ -155,13 +178,22 @@ func visible(ctx context.Context, db *gorm.DB, c entity.ContentRegistry, actor s
 		if n > 0 {
 			return command.ErrNotFound
 		}
-		if e = db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.entity_id=? AND c.kind IN ('wish','story') AND r.active", w.ID).Count(&n).Error; e != nil {
+		if e = db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").
+			Joins("JOIN public.content_registry c ON c.id=r.content_id").
+			Where("c.entity_id=? AND c.kind IN ('wish','story') AND r.active", w.ID).
+			Count(&n).
+			Error; e != nil {
 			return e
 		}
 		if n > 0 {
 			return command.ErrNotFound
 		}
-		if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", c.AuthorID, now, now).Count(&n).Error; e != nil {
+		if e = db.Model(&entity.Penalty{}).Where(
+			"account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+			c.AuthorID,
+			now,
+			now,
+		).Count(&n).Error; e != nil {
 			return e
 		}
 		if n > 0 {
@@ -206,10 +238,12 @@ func penalty(db *gorm.DB, id string) (p entity.Penalty, err error) {
 	err = found(db.Where("id=?", id).Take(&p).Error)
 	return
 }
+
 func report(db *gorm.DB, id string) (p entity.Report, err error) {
 	err = found(db.Where("id=? AND target_kind IN ('wish','application','message','story','account')", id).Take(&p).Error)
 	return
 }
+
 func appeal(db *gorm.DB, id string) (p entity.Appeal, err error) {
 	err = found(db.Where("id=?", id).Take(&p).Error)
 	return
@@ -224,7 +258,11 @@ func ordinaryCase(db *gorm.DB, cid string) error {
 	if n > 0 {
 		return command.ErrNotFound
 	}
-	if e := db.Table("public.moderation_scans AS s").Joins("JOIN public.moderation_tasks t ON t.id=s.task_id").Where("t.content_id=? AND s.crisis_hit", cid).Count(&n).Error; e != nil {
+	if e := db.Table("public.moderation_scans AS s").
+		Joins("JOIN public.moderation_tasks t ON t.id=s.task_id").
+		Where("t.content_id=? AND s.crisis_hit", cid).
+		Count(&n).
+		Error; e != nil {
 		return e
 	}
 	if n > 0 {
@@ -241,11 +279,14 @@ func cancelRelationships(ctx context.Context, tx *command.Tx, a, b string) error
 	if b != "" {
 		predicate, args = "((c.author_id=? AND p.owner_id=?) OR (c.author_id=? AND p.owner_id=?))", []any{a, b, b, a}
 	}
-	if e := db.Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT r.id FROM public.content_registry r JOIN public.whisper_comments c ON c.id=r.entity_id JOIN public.whisper_posts p ON p.id=c.post_id WHERE r.kind='whisper_comment' AND `+predicate+`)`, args...).Error; e != nil {
+	if e := db.Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT r.id FROM public.content_registry r JOIN public.whisper_comments c ON c.id=r.entity_id JOIN public.whisper_posts p ON p.id=c.post_id WHERE r.kind='whisper_comment' AND `+predicate+`)`, args...).
+		Error; e != nil {
 		return e
 	}
 	var apps []entity.Application
-	q := db.Table("public.applications AS a").Select("a.*").Joins("JOIN public.wishes w ON w.id=a.wish_id").Where("a.status IN ('pending_scan','pending_review','active')")
+	q := db.Table("public.applications AS a").Select("a.*").
+		Joins("JOIN public.wishes w ON w.id=a.wish_id").
+		Where("a.status IN ('pending_scan','pending_review','active')")
 	if b == "" {
 		q = q.Where("a.applicant_id=? OR w.owner_id=?", a, a)
 	} else {
@@ -270,7 +311,9 @@ func cancelRelationships(ctx context.Context, tx *command.Tx, a, b string) error
 		return e
 	}
 	for _, c := range cs {
-		if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).
+			Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return e
 		}
 		var ms []entity.Message

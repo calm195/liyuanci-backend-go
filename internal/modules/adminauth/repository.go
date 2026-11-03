@@ -18,7 +18,11 @@ import (
 // 实体 CRUD 使用绑定参数；调用方事务拥有锁、提交与资源生命周期，并记录完成结果。
 func projection(ctx context.Context, db *gorm.DB, id string) (Account, error) {
 	var rows []Account
-	if err := db.WithContext(ctx).Model(&entity.AdminAccount{}).Select("id,version,login_name,status='active' AS active").Where("id=? AND login_name IS NOT NULL", id).Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Model(&entity.AdminAccount{}).
+		Select("id,version,login_name,status='active' AS active").
+		Where("id=? AND login_name IS NOT NULL", id).
+		Find(&rows).
+		Error; err != nil {
 		return Account{}, err
 	}
 	if len(rows) != 1 {
@@ -37,11 +41,18 @@ func projection(ctx context.Context, db *gorm.DB, id string) (Account, error) {
 }
 
 func audit(ctx context.Context, db *gorm.DB, actor, target, action, reason string) error {
-	return db.WithContext(ctx).Create(&entity.AdminAccountAction{ID: uuid.NewString(), ActorID: actor, TargetID: target, ActionKind: action, Reason: reason}).Error
+	return db.WithContext(ctx).Create(&entity.AdminAccountAction{
+		ID:         uuid.NewString(),
+		ActorID:    actor,
+		TargetID:   target,
+		ActionKind: action,
+		Reason:     reason,
+	}).Error
 }
 
 func (s *Service) lockTimeout(ctx context.Context, db *gorm.DB) error {
-	return db.WithContext(ctx).Exec("SELECT set_config('lock_timeout',?,true)", strconv.FormatInt(s.config.Command.LockTimeout.Milliseconds(), 10)+"ms").Error
+	return db.WithContext(ctx).Exec("SELECT set_config('lock_timeout',?,true)", strconv.FormatInt(s.config.Command.LockTimeout.Milliseconds(), 10)+"ms").
+		Error
 }
 
 // authorized 保持账号guard→会话的锁序；命名空间、到期、撤销和当前代次在锁后复核。
@@ -51,7 +62,11 @@ func (s *Service) authorized(ctx context.Context, db *gorm.DB, token string) (cr
 	}
 	hash := sha256.Sum256([]byte(token))
 	var refs []struct{ AdminID string }
-	if e := db.WithContext(ctx).Model(&entity.Session{}).Select("admin_id").Where("token_hash=? AND subject_kind='admin'", hash[:]).Find(&refs).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Session{}).
+		Select("admin_id").
+		Where("token_hash=? AND subject_kind='admin'", hash[:]).
+		Find(&refs).
+		Error; e != nil {
 		return credential{}, time.Time{}, e
 	}
 	if len(refs) != 1 {
@@ -61,7 +76,11 @@ func (s *Service) authorized(ctx context.Context, db *gorm.DB, token string) (cr
 		return credential{}, time.Time{}, e
 	}
 	var accounts []credential
-	if e := db.WithContext(ctx).Model(&entity.AdminAccount{}).Select("id,password_hash,auth_epoch,status").Where("id=?", refs[0].AdminID).Find(&accounts).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.AdminAccount{}).
+		Select("id,password_hash,auth_epoch,status").
+		Where("id=?", refs[0].AdminID).
+		Find(&accounts).
+		Error; e != nil {
 		return credential{}, time.Time{}, e
 	}
 	var sessions []struct {
@@ -70,14 +89,22 @@ func (s *Service) authorized(ctx context.Context, db *gorm.DB, token string) (cr
 		ExpiresAt time.Time
 		RevokedAt *time.Time
 	}
-	if e := db.WithContext(ctx).Model(&entity.Session{}).Select("admin_id,auth_epoch,expires_at,revoked_at").Where("token_hash=? AND subject_kind='admin'", hash[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&sessions).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Session{}).
+		Select("admin_id,auth_epoch,expires_at,revoked_at").
+		Where("token_hash=? AND subject_kind='admin'", hash[:]).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&sessions).
+		Error; e != nil {
 		return credential{}, time.Time{}, e
 	}
 	var now time.Time
 	if e := db.WithContext(ctx).Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 		return credential{}, time.Time{}, e
 	}
-	if len(accounts) != 1 || accounts[0].Status != "active" || len(sessions) != 1 || sessions[0].AdminID != accounts[0].ID || sessions[0].RevokedAt != nil || !sessions[0].ExpiresAt.After(now) || sessions[0].AuthEpoch != accounts[0].AuthEpoch {
+	if len(accounts) != 1 || accounts[0].Status != "active" || len(sessions) != 1 || sessions[0].AdminID != accounts[0].ID ||
+		sessions[0].RevokedAt != nil ||
+		!sessions[0].ExpiresAt.After(now) ||
+		sessions[0].AuthEpoch != accounts[0].AuthEpoch {
 		return credential{}, now, ErrUnauthenticated
 	}
 	return accounts[0], now, nil
@@ -97,26 +124,44 @@ func bootstrapAvailable(ctx context.Context, db *gorm.DB) error {
 	}
 	return nil
 }
+
 func insertLocal(ctx context.Context, db *gorm.DB, id, name, hash string) error {
 	return db.WithContext(ctx).Create(&entity.AdminAccount{ID: id, LoginName: &name, PasswordHash: &hash}).Error
 }
+
 func insertRole(ctx context.Context, db *gorm.DB, id, role string) error {
 	return db.WithContext(ctx).Create(&entity.AdminRoleBinding{AdminID: id, Role: role}).Error
 }
+
 func findByName(ctx context.Context, db *gorm.DB, name string, out *[]credential) error {
-	return db.WithContext(ctx).Model(&entity.AdminAccount{}).Select("id", "password_hash", "auth_epoch", "status").Where("login_name = ?", name).Scan(out).Error
+	return db.WithContext(ctx).Model(&entity.AdminAccount{}).
+		Select("id", "password_hash", "auth_epoch", "status").
+		Where("login_name = ?", name).
+		Scan(out).
+		Error
 }
+
 func findByID(ctx context.Context, db *gorm.DB, id string, out *[]credential) error {
 	return db.WithContext(ctx).Model(&entity.AdminAccount{}).Select("id", "password_hash", "auth_epoch", "status").Where("id = ?", id).Scan(out).Error
 }
+
 func lockAdmin(ctx context.Context, db *gorm.DB, id string) error {
 	return db.WithContext(ctx).Exec("SELECT * FROM public.lock_command_admin(?)", id).Error
 }
+
 func databaseNow(ctx context.Context, db *gorm.DB, out *time.Time) error {
 	return db.WithContext(ctx).Raw("SELECT clock_timestamp()").Scan(out).Error
 }
+
 func insertSession(ctx context.Context, db *gorm.DB, id string, hash []byte, epoch int64, now, expiry time.Time) error {
-	return db.WithContext(ctx).Create(&entity.Session{ID: uuid.NewString(), AdminID: &id, TokenHash: hash, AuthEpoch: epoch, CreatedAt: now, ExpiresAt: expiry}).Error
+	return db.WithContext(ctx).Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &id,
+		TokenHash: hash,
+		AuthEpoch: epoch,
+		CreatedAt: now,
+		ExpiresAt: expiry,
+	}).Error
 }
 
 type passwordReceipt struct {
@@ -125,22 +170,42 @@ type passwordReceipt struct {
 }
 
 func findReceipt(ctx context.Context, db *gorm.DB, id, scope string, key []byte, out *[]passwordReceipt) error {
-	return db.WithContext(ctx).Model(&entity.CommandReceipt{}).Select("request_hash,expires_at").Where("actor_kind='admin' AND actor_id=? AND command_kind=? AND key_hash=?", id, scope, key).Find(out).Error
+	return db.WithContext(ctx).Model(&entity.CommandReceipt{}).Select("request_hash,expires_at").Where(
+		"actor_kind='admin' AND actor_id=? AND command_kind=? AND key_hash=?",
+		id,
+		scope,
+		key,
+	).Find(out).Error
 }
+
 func replacePassword(ctx context.Context, db *gorm.DB, id, hash string, now time.Time) error {
 	db = db.WithContext(ctx)
-	if e := db.Model(&entity.AdminAccount{}).Where("id = ?", id).Updates(map[string]any{"password_hash": hash, "auth_epoch": gorm.Expr("auth_epoch + 1"), "version": gorm.Expr("version + 1")}).Error; e != nil {
+	if e := db.Model(&entity.AdminAccount{}).Where("id = ?", id).Updates(map[string]any{
+		"password_hash": hash,
+		"auth_epoch":    gorm.Expr("auth_epoch + 1"),
+		"version":       gorm.Expr("version + 1"),
+	}).Error; e != nil {
 		return e
 	}
 	return db.Model(&entity.Session{}).Where("admin_id = ? AND revoked_at IS NULL", id).Update("revoked_at", now).Error
 }
+
 func saveReceipt(ctx context.Context, db *gorm.DB, id, scope string, key, digest []byte, expiry time.Time) error {
 	// 冲突只替换回执内容，保留主体和幂等键；调用方事务统一提交业务结果。
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "actor_kind"}, {Name: "actor_id"}, {Name: "command_kind"}, {Name: "key_hash"}},
 		DoUpdates: clause.AssignmentColumns([]string{"request_hash", "result_ref", "expires_at"}),
-	}).Create(&entity.CommandReceipt{ActorKind: "admin", ActorID: id, CommandKind: scope, KeyHash: key, RequestHash: digest, ResultRef: id, ExpiresAt: expiry}).Error
+	}).Create(&entity.CommandReceipt{
+		ActorKind:   "admin",
+		ActorID:     id,
+		CommandKind: scope,
+		KeyHash:     key,
+		RequestHash: digest,
+		ResultRef:   id,
+		ExpiresAt:   expiry,
+	}).Error
 }
+
 func revokeSession(ctx context.Context, db *gorm.DB, hash []byte, now time.Time) error {
 	return db.WithContext(ctx).Model(&entity.Session{}).Where("token_hash = ? AND subject_kind = ?", hash, "admin").Update("revoked_at", now).Error
 }
@@ -175,7 +240,9 @@ func precheckSession(ctx context.Context, db *gorm.DB, token string) error {
 	var valid int64
 	err := db.WithContext(ctx).Model(&entity.Session{}).Table("public.sessions AS s").
 		Joins("JOIN public.admin_accounts AS a ON a.id = s.admin_id").
-		Where("s.token_hash = ? AND s.subject_kind = ? AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND a.status = ? AND a.auth_epoch = s.auth_epoch", digest[:], "admin", "active").Count(&valid).Error
+		Where("s.token_hash = ? AND s.subject_kind = ? AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND a.status = ? AND a.auth_epoch = s.auth_epoch", digest[:], "admin", "active").
+		Count(&valid).
+		Error
 	if err != nil {
 		return err
 	}

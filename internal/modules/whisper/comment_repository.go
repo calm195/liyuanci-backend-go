@@ -81,7 +81,13 @@ func missingRow(err error) error {
 
 func interactionBlocked(ctx context.Context, db *gorm.DB, actor, owner string) error {
 	var n int64
-	if e := db.WithContext(ctx).Model(&entity.Block{}).Where("(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)", actor, owner, owner, actor).Count(&n).Error; e != nil {
+	if e := db.WithContext(ctx).Model(&entity.Block{}).Where(
+		"(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)",
+		actor,
+		owner,
+		owner,
+		actor,
+	).Count(&n).Error; e != nil {
 		return e
 	}
 	if n > 0 {
@@ -110,7 +116,10 @@ func (s *Service) commentContext(ctx context.Context, db *gorm.DB, now time.Time
 
 // visibleCommentsQuery 与列表和权威计数共用过滤，不因关闭评论隐藏既有公开项。
 func visibleCommentsQuery(ctx context.Context, db *gorm.DB, postID string, parentVersion int64, now time.Time) *gorm.DB {
-	return db.WithContext(ctx).Table("public.whisper_comments AS c").Joins("JOIN public.whisper_comment_versions v ON v.comment_id=c.id AND v.content_version=c.content_version").Joins("JOIN public.accounts a ON a.id=c.author_id").Where(`c.post_id=? AND c.parent_content_version=? AND c.lifecycle='active' AND c.review_state='approved' AND c.published_at IS NOT NULL AND v.review_state='approved' AND v.public_body IS NOT NULL AND v.public_identity IS NOT NULL AND v.school_related IS NOT NULL AND a.lifecycle='active'
+	return db.WithContext(ctx).Table("public.whisper_comments AS c").
+		Joins("JOIN public.whisper_comment_versions v ON v.comment_id=c.id AND v.content_version=c.content_version").
+		Joins("JOIN public.accounts a ON a.id=c.author_id").
+		Where(`c.post_id=? AND c.parent_content_version=? AND c.lifecycle='active' AND c.review_state='approved' AND c.published_at IS NOT NULL AND v.review_state='approved' AND v.public_body IS NOT NULL AND v.public_identity IS NOT NULL AND v.school_related IS NOT NULL AND a.lifecycle='active'
  AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?))
  AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry r ON r.id=x.content_id WHERE r.kind='whisper_comment' AND r.entity_id=c.id AND x.active)
  AND NOT EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_comment' AND h.target_id=c.id AND h.status='active')

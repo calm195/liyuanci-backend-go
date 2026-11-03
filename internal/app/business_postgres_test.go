@@ -108,10 +108,31 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			w.WriteHeader(400)
 			return
 		}
-		respond := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
+		respond := func(v any) {
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(v)
+		}
 		switch req.Operation {
 		case "health":
-			respond(map[string]any{"Version": providerVersion, "Capabilities": []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify", "identity_digest", "object_put", "object_open", "image_scan", "school_validate", "content_analysis"}})
+			respond(map[string]any{
+				"Version": providerVersion,
+				"Capabilities": []string{
+					"wrap",
+					"unwrap",
+					"public_analysis",
+					"private_classify",
+					"redact",
+					"erase",
+					"notify",
+					"identity_digest",
+					"object_put",
+					"object_open",
+					"image_scan",
+					"school_validate",
+					"content_analysis",
+				},
+			})
 		case "wrap", "unwrap":
 			var in struct {
 				Scope, KeyRef string
@@ -213,7 +234,25 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	c.Runtime.GatewayToken = "synthetic-business-gateway-token"
 	c.Runtime.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw}))
 	version, verified := int64(1), "2026-10-31T00:00:00Z"
-	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{Version: "synthetic-release-v1", Care: &moderationCareFixture, Catalog: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "grade_test", Label: "隔离合成年级"}}}, Reports: []whisper.Item{{Code: "other", Label: "隔离合成举报"}}, Help: whisper.HelpDirectory{Status: "ready", Version: &version, VerifiedAt: &verified, Items: []whisper.HelpItem{{Kind: "school_appointment", Label: "隔离合成援助", Contact: "仅用于测试，非真实联系渠道", SourceURL: "https://example.invalid/test"}}}}})
+	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{
+		Version: "synthetic-release-v1",
+		Care:    &moderationCareFixture,
+		Catalog: whisper.CatalogSnapshot{
+			Grades:  whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "grade_test", Label: "隔离合成年级"}}},
+			Reports: []whisper.Item{{Code: "other", Label: "隔离合成举报"}},
+			Help: whisper.HelpDirectory{
+				Status:     "ready",
+				Version:    &version,
+				VerifiedAt: &verified,
+				Items: []whisper.HelpItem{{
+					Kind:      "school_appointment",
+					Label:     "隔离合成援助",
+					Contact:   "仅用于测试，非真实联系渠道",
+					SourceURL: "https://example.invalid/test",
+				}},
+			},
+		},
+	})
 	must(root.Exec("INSERT INTO public.report_types(code,label,published) VALUES ('other','隔离合成举报',true)").Error)
 	workerEnv := "production"
 	listener, e := net.Listen("tcp", "127.0.0.1:0")
@@ -327,7 +366,14 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}
 	}
 	var session adminauth.Session
-	request("POST", "/admin/sessions", "", map[string]any{"login_name": "release-admin", "password": "synthetic-business-secret"}, 200, &session)
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]any{"login_name": "release-admin", "password": "synthetic-business-secret"},
+		200,
+		&session,
+	)
 	request("GET", "/admin/users", session.Token, nil, 200, nil)
 	request("GET", "/wishes", "", nil, 200, nil)
 	request("GET", "/me", "", nil, 401, nil)
@@ -340,7 +386,12 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}
 		must(root.Create(&entity.Account{ID: row[0], Nickname: "隔离合成用户", Verification: state}).Error)
 		hash := sha256.Sum256([]byte(row[1]))
-		must(root.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), row[0], hash[:]).Error)
+		must(root.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
 	}
 	request("GET", "/admin/users", token, nil, 403, nil)
 	for _, kind := range []string{"card", "content", "whispers", "account", "evidence"} {
@@ -351,7 +402,10 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	whispers := start(workerBin, "-config", workerApp("whispers"))
 	var form bytes.Buffer
 	multipartWriter := multipart.NewWriter(&form)
-	part, e := multipartWriter.CreatePart(textproto.MIMEHeader{"Content-Disposition": {`form-data; name="file"; filename="synthetic.png"`}, "Content-Type": {"image/png"}})
+	part, e := multipartWriter.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="file"; filename="synthetic.png"`},
+		"Content-Type":        {"image/png"},
+	})
 	must(e)
 	must(png.Encode(part, image.NewRGBA(image.Rect(0, 0, 4, 4))))
 	must(multipartWriter.Close())
@@ -373,7 +427,8 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if databaseTasks {
 		wait("图片供应商故障持久重试", func() bool {
 			var n int64
-			return root.Model(&entity.WorkItem{}).Where("target_id=? AND status='retry_wait' AND attempts>0", asset.AssetID).Count(&n).Error == nil && n == 1
+			return root.Model(&entity.WorkItem{}).Where("target_id=? AND status='retry_wait' AND attempts>0", asset.AssetID).Count(&n).Error == nil &&
+				n == 1
 		}, card)
 		card.stop(t)
 		imageFailure.Store(false)
@@ -387,15 +442,43 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		t.Fatal("扫描未到达正式适配器")
 	}
 	var verificationResult verification.Result
-	request("POST", "/me/verification-requests", token, verification.Input{StudentNumber: "synthetic-number", Name: "隔离合成姓名", AssetID: asset.AssetID}, 202, &verificationResult)
-	request("POST", "/admin/identity-reviews/"+verificationResult.RequestID+"/decision", session.Token, verification.Decision{Decision: "approved", ExpectedVersion: verificationResult.Version}, 200, &verificationResult)
+	request(
+		"POST",
+		"/me/verification-requests",
+		token,
+		verification.Input{StudentNumber: "synthetic-number", Name: "隔离合成姓名", AssetID: asset.AssetID},
+		202,
+		&verificationResult,
+	)
+	request(
+		"POST",
+		"/admin/identity-reviews/"+verificationResult.RequestID+"/decision",
+		session.Token,
+		verification.Decision{Decision: "approved", ExpectedVersion: verificationResult.Version},
+		200,
+		&verificationResult,
+	)
 	var draft struct {
 		ID             string `json:"id"`
 		Version        int64  `json:"version"`
 		ContentVersion int64  `json:"content_version"`
 	}
-	request("POST", "/wishes", token, wish.ContentInput{Category: "help", Body: "生产内容工作进程的隔离心愿", Campus: "any"}, 201, &draft)
-	request("POST", "/wishes/"+draft.ID+"/submit-review", token, map[string]any{"expected_version": draft.Version, "content_version": draft.ContentVersion}, 202, &draft)
+	request(
+		"POST",
+		"/wishes",
+		token,
+		wish.ContentInput{Category: "help", Body: "生产内容工作进程的隔离心愿", Campus: "any"},
+		201,
+		&draft,
+	)
+	request(
+		"POST",
+		"/wishes/"+draft.ID+"/submit-review",
+		token,
+		map[string]any{"expected_version": draft.Version, "content_version": draft.ContentVersion},
+		202,
+		&draft,
+	)
 	wait("普通心愿工作进程", func() bool {
 		var n int64
 		return root.Model(&entity.Wish{}).Where("id=? AND state='ready'", draft.ID).Count(&n).Error == nil && n == 1
@@ -410,10 +493,26 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if databaseTasks {
 		whispers.stop(t)
 	}
-	request("POST", "/me/whispers/posts", token, whisper.ContentInput{Body: "生产装配的隔离文字", Identity: whisper.IdentityInput{Mode: "anonymous"}}, 201, &post)
-	request("POST", "/me/whispers/posts/"+post.ID+"/submit", token, map[string]any{"expected_version": post.Version}, 202, &post)
+	request(
+		"POST",
+		"/me/whispers/posts",
+		token,
+		whisper.ContentInput{Body: "生产装配的隔离文字", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		201,
+		&post,
+	)
+	request(
+		"POST",
+		"/me/whispers/posts/"+post.ID+"/submit",
+		token,
+		map[string]any{"expected_version": post.Version},
+		202,
+		&post,
+	)
 	if databaseTasks {
-		must(root.Raw("SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC LIMIT 1", post.ID).Scan(&postTask).Error)
+		must(root.Raw("SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC LIMIT 1", post.ID).
+			Scan(&postTask).
+			Error)
 		// 模拟进程退出后遗留的过期租约；重启继续处理已提交的任务。
 		changed := root.Exec("UPDATE public.work_items SET status='leased',lease_until=clock_timestamp()-interval '1 second' WHERE target_id=? AND status='pending'", postTask)
 		must(changed.Error)
@@ -425,33 +524,71 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		duplicate := start(workerBin, "-config", workerApp("whispers"))
 		wait("重启竞争完成", func() bool {
 			var n int64
-			return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil && n == 1
+			return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil &&
+				n == 1
 		}, whispers, duplicate)
 		duplicate.stop(t)
 	}
 	wait("生产树洞公开", func() bool {
 		var n int64
-		return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil && n == 1
+		return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil &&
+			n == 1
 	}, whispers)
 	var public whisper.PublicPost
 	request("GET", "/whispers/posts/"+post.ID, "", nil, 200, &public)
 	var hug whisper.HugResult
-	request("PUT", "/whispers/posts/"+post.ID+"/hugs", peerToken, whisper.HugInput{ExpectedPostVersion: public.Version, Active: true}, 200, &hug)
+	request(
+		"PUT",
+		"/whispers/posts/"+post.ID+"/hugs",
+		peerToken,
+		whisper.HugInput{ExpectedPostVersion: public.Version, Active: true},
+		200,
+		&hug,
+	)
 	if hug.HugCount != 1 || !hug.MyHug.Active {
 		t.Fatal("抱抱未保存权威状态")
 	}
-	request("PUT", "/whispers/posts/"+post.ID+"/hugs", peerToken, whisper.HugInput{ExpectedPostVersion: public.Version, ExpectedHugVersion: hug.MyHug.Version, Active: false}, 200, &hug)
+	request(
+		"PUT",
+		"/whispers/posts/"+post.ID+"/hugs",
+		peerToken,
+		whisper.HugInput{ExpectedPostVersion: public.Version, ExpectedHugVersion: hug.MyHug.Version, Active: false},
+		200,
+		&hug,
+	)
 	if hug.HugCount != 0 || hug.MyHug.Active {
 		t.Fatal("抱抱取消未生效")
 	}
 	var comment whisper.OwnerComment
-	request("POST", "/whispers/posts/"+post.ID+"/comments", peerToken, whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "隔离暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: public.Version, ExpectedCommentsEpoch: public.CommentsEpoch}, 202, &comment)
+	request(
+		"POST",
+		"/whispers/posts/"+post.ID+"/comments",
+		peerToken,
+		whisper.CommentInput{
+			ContentInput:          whisper.ContentInput{Body: "隔离暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			ExpectedPostVersion:   public.Version,
+			ExpectedCommentsEpoch: public.CommentsEpoch,
+		},
+		202,
+		&comment,
+	)
 	wait("暖评审核", func() bool {
 		var n int64
 		return root.Model(&entity.WhisperComment{}).Where("id=? AND review_state='approved'", comment.ID).Count(&n).Error == nil && n == 1
 	}, whispers)
 	var capsule whisper.Capsule
-	request("POST", "/me/whispers/capsules", token, whisper.CapsuleInput{Body: "本人胶囊私密原文", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true}, 202, &capsule)
+	request(
+		"POST",
+		"/me/whispers/capsules",
+		token,
+		whisper.CapsuleInput{
+			Body:                 "本人胶囊私密原文",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+		202,
+		&capsule,
+	)
 	request("GET", "/me/whispers/capsules/"+capsule.ID, token, nil, 200, &capsule)
 	if capsule.Body != nil {
 		t.Fatal("胶囊提前返回正文")
@@ -461,9 +598,11 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		var n int64
 		return root.Model(&entity.WhisperCapsule{}).Where("id=? AND review_state='approved'", capsule.ID).Count(&n).Error == nil && n == 1
 	}, whispers)
-	must(root.Exec("UPDATE public.whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).Error)
+	must(root.Exec("UPDATE public.whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).
+		Error)
 	must(root.Exec("UPDATE public.work_items SET next_at=clock_timestamp() WHERE target_id=? AND kind='whisper_capsule_unlock'", capsule.ID).Error)
-	must(root.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp() WHERE aggregate_id=? AND event_type='whisper.capsule.unlock.requested'", capsule.ID).Error)
+	must(root.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp() WHERE aggregate_id=? AND event_type='whisper.capsule.unlock.requested'", capsule.ID).
+		Error)
 	wait("胶囊解锁", func() bool {
 		var n int64
 		return root.Model(&entity.WhisperNotificationRef{}).Where("source_id=?", capsule.ID).Count(&n).Error == nil && n == 1
@@ -488,7 +627,14 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	var account entity.Account
 	must(root.Where("id=?", actor).Take(&account).Error)
 	var accepted privacy.Accepted
-	request("POST", "/me/deletion-requests", token, privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: account.Version}, 202, &accepted)
+	request(
+		"POST",
+		"/me/deletion-requests",
+		token,
+		privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: account.Version},
+		202,
+		&accepted,
+	)
 	request("GET", "/me", token, nil, 401, nil)
 	server.stop(t)
 	card.stop(t)

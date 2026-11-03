@@ -22,7 +22,17 @@ func (s *Service) ownerPost(ctx context.Context, db *gorm.DB, now time.Time, id,
 		return out, command.ErrNotFound
 	}
 	state := postState(a)
-	out = OwnerPost{ID: id, Version: a.post.Version, ContentVersion: a.post.CurrentContentVersion, Status: state, CreatedAt: timestamp(a.post.CreatedAt), UpdatedAt: timestamp(a.post.UpdatedAt), AllowedActions: []string{}, CommentsOpen: a.post.CommentsOpen, CommentsEpoch: a.post.CommentsEpoch}
+	out = OwnerPost{
+		ID:             id,
+		Version:        a.post.Version,
+		ContentVersion: a.post.CurrentContentVersion,
+		Status:         state,
+		CreatedAt:      timestamp(a.post.CreatedAt),
+		UpdatedAt:      timestamp(a.post.UpdatedAt),
+		AllowedActions: []string{},
+		CommentsOpen:   a.post.CommentsOpen,
+		CommentsEpoch:  a.post.CommentsEpoch,
+	}
 	if a.post.PublishedAt != nil {
 		v := timestamp(*a.post.PublishedAt)
 		out.PublishedAt = &v
@@ -77,7 +87,11 @@ func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time
 	if e != nil {
 		return out, e
 	}
-	if postState(a) != "published" || a.owner.Lifecycle != "active" || a.owner.Verification != "verified" || a.version.ReviewState != "approved" || a.version.PublicBody == nil || a.version.SchoolRelated == nil || a.post.PublishedAt == nil {
+	if postState(a) != "published" || a.owner.Lifecycle != "active" || a.owner.Verification != "verified" ||
+		a.version.ReviewState != "approved" ||
+		a.version.PublicBody == nil ||
+		a.version.SchoolRelated == nil ||
+		a.post.PublishedAt == nil {
 		return out, command.ErrNotFound
 	}
 	limited, e := restrictedAccount(ctx, db, a.owner.ID, now)
@@ -88,7 +102,9 @@ func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time
 		return out, command.ErrNotFound
 	}
 	var identity PublicIdentity
-	if json.Unmarshal(a.version.PublicIdentity, &identity) != nil || !slices.Contains([]string{"anonymous", "semi", "named"}, identity.Mode) || identity.Mode != a.version.IdentityMode {
+	if json.Unmarshal(a.version.PublicIdentity, &identity) != nil ||
+		!slices.Contains([]string{"anonymous", "semi", "named"}, identity.Mode) ||
+		identity.Mode != a.version.IdentityMode {
 		return out, command.ErrNotFound
 	}
 	identity.IsAuthor = true
@@ -115,7 +131,21 @@ func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time
 		v := "未经证实"
 		notice = &v
 	}
-	out = PublicPost{ID: id, Version: a.post.Version, ContentVersion: a.post.CurrentContentVersion, Body: *a.version.PublicBody, Identity: identity, PublishedAt: timestamp(*a.post.PublishedAt), SchoolRelated: *a.version.SchoolRelated, NoticeCodes: codes, NoticeText: notice, ViewerIsAuthor: viewer.ID == a.post.OwnerID, AllowedActions: []string{}, CommentsOpen: a.post.CommentsOpen, CommentsEpoch: a.post.CommentsEpoch}
+	out = PublicPost{
+		ID:             id,
+		Version:        a.post.Version,
+		ContentVersion: a.post.CurrentContentVersion,
+		Body:           *a.version.PublicBody,
+		Identity:       identity,
+		PublishedAt:    timestamp(*a.post.PublishedAt),
+		SchoolRelated:  *a.version.SchoolRelated,
+		NoticeCodes:    codes,
+		NoticeText:     notice,
+		ViewerIsAuthor: viewer.ID == a.post.OwnerID,
+		AllowedActions: []string{},
+		CommentsOpen:   a.post.CommentsOpen,
+		CommentsEpoch:  a.post.CommentsEpoch,
+	}
 	return out, nil
 }
 
@@ -320,7 +350,10 @@ func (s *Service) nicknameState(ctx context.Context, db *gorm.DB, now time.Time,
 			state = "review_pending"
 		}
 		if slices.Contains([]string{"scanning", "review_pending", "approved", "rejected"}, state) {
-			candidate := &NicknameCandidate{NicknameLabel: NicknameLabel{NicknameVersion: n.NicknameVersion, Label: label}, Status: state}
+			candidate := &NicknameCandidate{
+				NicknameLabel: NicknameLabel{NicknameVersion: n.NicknameVersion, Label: label},
+				Status:        state,
+			}
 			if n.ReviewTaskID != nil {
 				var task entity.ModerationTask
 				if e = reviewTask(ctx, db, *n.ReviewTaskID, n.ContentRegistryID, n.NicknameVersion, &task); e != nil {

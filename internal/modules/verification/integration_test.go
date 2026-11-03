@@ -47,6 +47,7 @@ func (keys) Wrap(_ context.Context, data []byte) (string, []byte, error) {
 	}
 	return "synthetic-card-wrap", append(nonce, gcm.Seal(nil, nonce, data, nil)...), nil
 }
+
 func (keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	if ref != "synthetic-card-wrap" || len(data) < 28 {
 		return nil, errors.New("SYNTHETIC_KMS_SECRET")
@@ -55,6 +56,7 @@ func (keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	gcm, _ := cipher.NewGCM(block)
 	return gcm.Open(nil, data[:12], data[12:], nil)
 }
+
 func (keys) Digest(_ context.Context, ref, purpose string, data []byte) ([]byte, error) {
 	return securedata.LookupDigest(bytes.Repeat([]byte{81}, 32), purpose, string(data))
 }
@@ -137,12 +139,29 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal(e)
 	}
 	adminStore, _ := identity.New(adminDB, codec, keys{}, log)
-	sessions, e := studentauth.New(studentDB, log, exchange{}, store, limiter{}, studentauth.Config{VerificationRequests: true, Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{35}, 32)})
+	sessions, e := studentauth.New(
+		studentDB,
+		log,
+		exchange{},
+		store,
+		limiter{},
+		studentauth.Config{
+			VerificationRequests: true,
+			Command:              command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+			SessionTTL:           time.Hour,
+			ExchangeTTL:          time.Minute,
+			SessionKey:           bytes.Repeat([]byte{35}, 32),
+		},
+	)
 	if e != nil {
 		t.Fatal(e)
 	}
 	bucket := &objects{}
-	cfg := verification.Config{Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, ReceiptKey: bytes.Repeat([]byte{92}, 32), MaxCardBytes: 4096}
+	cfg := verification.Config{
+		Command:      command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+		ReceiptKey:   bytes.Repeat([]byte{92}, 32),
+		MaxCardBytes: 4096,
+	}
 	student, e := verification.New(studentDB, log, codec, store, rules{}, bucket, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -164,7 +183,13 @@ func TestPostgresVerification(t *testing.T) {
 			t.Fatal(e)
 		}
 		hash := sha256.Sum256([]byte(token))
-		if e := root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; e != nil {
+		if e := root.Create(&entity.Session{
+			ID:        uuid.NewString(),
+			AccountID: &id,
+			TokenHash: hash[:],
+			AuthEpoch: 1,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}).Error; e != nil {
 			t.Fatal(e)
 		}
 		return id, token
@@ -176,7 +201,13 @@ func TestPostgresVerification(t *testing.T) {
 	}
 	exec("INSERT INTO public.admin_role_bindings(admin_id,role) VALUES (?,?)", actor, "review_operator")
 	hash := sha256.Sum256([]byte(adminToken))
-	if e := root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &actor, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; e != nil {
+	if e := root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &actor,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
 	account, token := createStudent()
@@ -191,12 +222,25 @@ func TestPostgresVerification(t *testing.T) {
 	makeAsset := func(owner string) string {
 		t.Helper()
 		id := uuid.NewString()
-		keyEnv, e := codec.Encrypt(ctx, securedata.Binding{Purpose: "student_card_key", ObjectID: id, Version: 1}, []byte("SYNTHETIC_PRIVATE_KEY"))
+		keyEnv, e := codec.Encrypt(
+			ctx,
+			securedata.Binding{Purpose: "student_card_key", ObjectID: id, Version: 1},
+			[]byte("SYNTHETIC_PRIVATE_KEY"),
+		)
 		if e != nil {
 			t.Fatal(e)
 		}
 		b, _ := json.Marshal(keyEnv)
-		if e = root.Create(&entity.Asset{ID: id, OwnerID: owner, Purpose: "student_card", EncryptedObjectKey: b, ObjectVersion: "synthetic-version", WrappedKeyRef: "synthetic-card-wrap", Status: "active", ScanStatus: "approved"}).Error; e != nil {
+		if e = root.Create(&entity.Asset{
+			ID:                 id,
+			OwnerID:            owner,
+			Purpose:            "student_card",
+			EncryptedObjectKey: b,
+			ObjectVersion:      "synthetic-version",
+			WrappedKeyRef:      "synthetic-card-wrap",
+			Status:             "active",
+			ScanStatus:         "approved",
+		}).Error; e != nil {
 			t.Fatal(e)
 		}
 		return id
@@ -251,7 +295,19 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal("原卡读取失败", e)
 	}
 	clear(data)
-	rejected, e := admin.Decide(ctx, adminToken, "reject", "review_test", result.RequestID, verification.Decision{Decision: "rejected", ExpectedVersion: 1, Reason: "材料不清晰", RevisionSuggestion: "请重传清晰学生卡"})
+	rejected, e := admin.Decide(
+		ctx,
+		adminToken,
+		"reject",
+		"review_test",
+		result.RequestID,
+		verification.Decision{
+			Decision:           "rejected",
+			ExpectedVersion:    1,
+			Reason:             "材料不清晰",
+			RevisionSuggestion: "请重传清晰学生卡",
+		},
+	)
 	if e != nil || rejected.Version != 2 || rejected.Status != "rejected" {
 		t.Fatal("驳回失败", e)
 	}
@@ -270,7 +326,14 @@ func TestPostgresVerification(t *testing.T) {
 	if e != nil || resubmitted.Version != 3 || resubmitted.RequestID != result.RequestID || resubmitted.Reason != nil {
 		t.Fatal("重提失败", e, resubmitted)
 	}
-	if _, e = admin.Decide(ctx, adminToken, "old-decision", "review_test", result.RequestID, verification.Decision{Decision: "approved", ExpectedVersion: 1}); !errors.Is(e, command.ErrVersionConflict) {
+	if _, e = admin.Decide(
+		ctx,
+		adminToken,
+		"old-decision",
+		"review_test",
+		result.RequestID,
+		verification.Decision{Decision: "approved", ExpectedVersion: 1},
+	); !errors.Is(e, command.ErrVersionConflict) {
 		t.Fatal("旧审核覆盖新材料", e)
 	}
 	// 两个不同幂等键同时审核，只能一个事务生效，另一个应得到版本冲突。
@@ -281,7 +344,14 @@ func TestPostgresVerification(t *testing.T) {
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
-			_, e := admin.Decide(ctx, adminToken, key, "review_parallel", result.RequestID, verification.Decision{Decision: "approved", ExpectedVersion: 3})
+			_, e := admin.Decide(
+				ctx,
+				adminToken,
+				key,
+				"review_parallel",
+				result.RequestID,
+				verification.Decision{Decision: "approved", ExpectedVersion: 3},
+			)
 			mu.Lock()
 			defer mu.Unlock()
 			if e == nil {
@@ -333,10 +403,25 @@ func TestPostgresVerification(t *testing.T) {
 	root.Where("id=?", second.RequestID).Take(&secondRow)
 	// 即使材料被错误的后台存储操作改成另一账号学号，通过前仍必须核验注册绑定。
 	altered, _ := json.Marshal(map[string]string{"name": secondInput.Name, "student_number": input.StudentNumber})
-	alteredEnv, _ := codec.Encrypt(ctx, securedata.Binding{Purpose: "identity_review", ObjectID: second.RequestID, Version: 1}, altered)
+	alteredEnv, _ := codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "identity_review", ObjectID: second.RequestID, Version: 1},
+		altered,
+	)
 	encodedAltered, _ := json.Marshal(alteredEnv)
-	exec("UPDATE public.identity_reviews SET data_cipher=? WHERE id=?", json.RawMessage(encodedAltered), second.RequestID)
-	if _, e = admin.Decide(ctx, adminToken, "duplicate-number", "review_test", second.RequestID, verification.Decision{Decision: "approved", ExpectedVersion: 1}); !errors.Is(e, command.ErrConflict) {
+	exec(
+		"UPDATE public.identity_reviews SET data_cipher=? WHERE id=?",
+		json.RawMessage(encodedAltered),
+		second.RequestID,
+	)
+	if _, e = admin.Decide(
+		ctx,
+		adminToken,
+		"duplicate-number",
+		"review_test",
+		second.RequestID,
+		verification.Decision{Decision: "approved", ExpectedVersion: 1},
+	); !errors.Is(e, command.ErrConflict) {
 		t.Fatal("审核未复核注册学号", e)
 	}
 	unchanged, _ := student.Current(ctx, otherToken, "review_test")
@@ -363,7 +448,14 @@ func TestPostgresVerification(t *testing.T) {
 	if _, e = admin.Detail(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrForbidden) {
 		t.Fatal("撤权未生效", e)
 	}
-	if _, e = admin.Decide(ctx, adminToken, "approve-a", "review_test", result.RequestID, verification.Decision{Decision: "approved", ExpectedVersion: 3}); !errors.Is(e, command.ErrForbidden) {
+	if _, e = admin.Decide(
+		ctx,
+		adminToken,
+		"approve-a",
+		"review_test",
+		result.RequestID,
+		verification.Decision{Decision: "approved", ExpectedVersion: 3},
+	); !errors.Is(e, command.ErrForbidden) {
 		t.Fatal("撤权后回执仍放行", e)
 	}
 	exec("INSERT INTO public.admin_role_bindings(admin_id,role) VALUES (?,?)", actor, "review_operator")
@@ -394,10 +486,16 @@ func TestPostgresVerification(t *testing.T) {
 	if w := request("POST", "/api/v1/me/verification-requests", token, `{"unknown":true}`); w.Code != 400 {
 		t.Fatal("未知字段未拒绝", w.Code)
 	}
-	if w := request("POST", "/api/v1/me/verification-requests", token, `{"student_number":"SYNTHETIC_NUMBER","name":"SYNTHETIC_NAME","asset_id":"`+card+`","expected_version":null}`); w.Code != 400 {
+	if w := request(
+		"POST",
+		"/api/v1/me/verification-requests",
+		token,
+		`{"student_number":"SYNTHETIC_NUMBER","name":"SYNTHETIC_NAME","asset_id":"`+card+`","expected_version":null}`,
+	); w.Code != 400 {
 		t.Fatal("显式null版本未拒绝", w.Code)
 	}
-	if w := request("GET", "/api/v1/admin/identity-reviews/"+result.RequestID+"/student-card", adminToken, ""); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || !bytes.Equal(w.Body.Bytes(), image) {
+	if w := request("GET", "/api/v1/admin/identity-reviews/"+result.RequestID+"/student-card", adminToken, ""); w.Code != 200 || w.Header().
+		Get("Content-Type") != "image/png" || !bytes.Equal(w.Body.Bytes(), image) {
 		t.Fatal("原卡HTTP错误", w.Code)
 	}
 	if w := request("GET", "/api/v1/admin/identity-reviews?limit=0", adminToken, ""); w.Code != 400 {
@@ -408,11 +506,20 @@ func TestPostgresVerification(t *testing.T) {
 	right, rightToken := createStudent()
 	leftCard, rightCard := makeAsset(left), makeAsset(right)
 	successes, conflicts := 0, 0
-	for _, item := range []struct{ token, card, key string }{{leftToken, leftCard, "reserve-left"}, {rightToken, rightCard, "reserve-right"}} {
+	for _, item := range []struct{ token, card, key string }{
+		{leftToken, leftCard, "reserve-left"},
+		{rightToken, rightCard, "reserve-right"},
+	} {
 		wg.Add(1)
 		go func(token, card, key string) {
 			defer wg.Done()
-			_, e := student.Submit(ctx, token, key, "review_registration", verification.Input{Name: "SYNTHETIC_SAME_NAME", StudentNumber: "SYNTHETIC_CONCURRENT_NUMBER", AssetID: card})
+			_, e := student.Submit(
+				ctx,
+				token,
+				key,
+				"review_registration",
+				verification.Input{Name: "SYNTHETIC_SAME_NAME", StudentNumber: "SYNTHETIC_CONCURRENT_NUMBER", AssetID: card},
+			)
 			mu.Lock()
 			defer mu.Unlock()
 			if e == nil {
@@ -459,7 +566,8 @@ func TestPostgresVerification(t *testing.T) {
 	}
 	for _, entry := range logs.All() {
 		b, _ := json.Marshal(entry.ContextMap())
-		if strings.Contains(entry.Message, "SYNTHETIC_") || bytes.Contains(b, []byte("SYNTHETIC_")) || bytes.Contains(b, []byte(token)) || bytes.Contains(b, []byte(adminToken)) {
+		if strings.Contains(entry.Message, "SYNTHETIC_") || bytes.Contains(b, []byte("SYNTHETIC_")) || bytes.Contains(b, []byte(token)) ||
+			bytes.Contains(b, []byte(adminToken)) {
 			t.Fatal("日志泄露")
 		}
 	}

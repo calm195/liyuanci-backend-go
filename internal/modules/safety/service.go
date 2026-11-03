@@ -56,7 +56,13 @@ func New(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, cfg Config) (
 		return nil, e
 	}
 	cfg.Key = append([]byte(nil), cfg.Key...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: engine, codec: codec, logger: logger, cfg: cfg}, nil
+	return &Service{
+		db:     db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine: engine,
+		codec:  codec,
+		logger: logger,
+		cfg:    cfg,
+	}, nil
 }
 
 // Input 是各固定命令的输入集合，处理器按路由严格限制允许字段。
@@ -129,9 +135,11 @@ func validID(id string) bool {
 	u, e := uuid.Parse(id)
 	return e == nil && u != uuid.Nil && u.String() == id
 }
+
 func (s *Service) text(v string, required bool) bool {
 	return utf8.ValidString(v) && len(v) <= s.cfg.MaxTextBytes && (!required || strings.TrimSpace(v) != "")
 }
+
 func (s *Service) digest(in any) []byte {
 	b, _ := json.Marshal(in)
 	defer clear(b)
@@ -139,13 +147,26 @@ func (s *Service) digest(in any) []byte {
 	m.Write(b)
 	return m.Sum(nil)
 }
+
 func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if recover() != nil {
 		*err = command.ErrInternal
 	}
 	if *err != nil {
 		known := false
-		for _, e := range []error{command.ErrClientUpgradeRequired, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrWarningWait, command.ErrRetry, command.ErrInternal} {
+		for _, e := range []error{
+			command.ErrClientUpgradeRequired,
+			command.ErrInvalid,
+			command.ErrUnauthenticated,
+			command.ErrForbidden,
+			command.ErrNotFound,
+			command.ErrVersionConflict,
+			command.ErrIdempotencyConflict,
+			command.ErrConflict,
+			command.ErrWarningWait,
+			command.ErrRetry,
+			command.ErrInternal,
+		} {
 			if errors.Is(*err, e) {
 				*err = e
 				known = true
@@ -160,18 +181,24 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	fields := []zap.Field{zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start))}
+	fields := []zap.Field{
+		zap.String("operation", op),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	}
 	if len(rid) <= 128 && !strings.ContainsAny(rid, "\r\n") {
 		fields = append(fields, zap.String("request_id", rid))
 	}
 	s.logger.Info("安全治理操作完成", fields...)
 }
+
 func found(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return command.ErrNotFound
 	}
 	return err
 }
+
 func (s *Service) encrypt(ctx context.Context, purpose, id string, v any) (json.RawMessage, error) {
 	b, e := json.Marshal(v)
 	if e != nil {
@@ -184,6 +211,7 @@ func (s *Service) encrypt(ctx context.Context, purpose, id string, v any) (json.
 	}
 	return json.Marshal(env)
 }
+
 func (s *Service) decrypt(ctx context.Context, purpose, id string, b json.RawMessage) (string, error) {
 	var env securedata.Envelope
 	if json.Unmarshal(b, &env) != nil {
@@ -198,9 +226,17 @@ func (s *Service) decrypt(ctx context.Context, purpose, id string, b json.RawMes
 	e = json.Unmarshal(raw, &out)
 	return out, e
 }
+
 func audit(db *gorm.DB, actor, subject, purpose string) error {
-	return db.Create(&entity.AccessAudit{ID: uuid.NewString(), ActorID: actor, SubjectRef: subject, Purpose: purpose, Outcome: "allowed"}).Error
+	return db.Create(&entity.AccessAudit{
+		ID:         uuid.NewString(),
+		ActorID:    actor,
+		SubjectRef: subject,
+		Purpose:    purpose,
+		Outcome:    "allowed",
+	}).Error
 }
+
 func notify(db *gorm.DB, account, kind, id string) error {
 	return db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: account, Type: kind, TargetRef: id}).Error
 }
@@ -237,7 +273,11 @@ func (s *Service) read(ctx context.Context, token string, admin bool, run func(*
 				return e
 			}
 			var session entity.Session
-			if e := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("token_hash=? AND subject_kind='admin' AND revoked_at IS NULL AND expires_at>?", h[:], now).Take(&session).Error; e != nil {
+			if e := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+				"token_hash=? AND subject_kind='admin' AND revoked_at IS NULL AND expires_at>?",
+				h[:],
+				now,
+			).Take(&session).Error; e != nil {
 				return found(e)
 			}
 			var roles []string
@@ -253,12 +293,14 @@ func (s *Service) read(ctx context.Context, token string, admin bool, run func(*
 		return run(db, ids[0], now)
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 }
+
 func (s *Service) cursor(actor, op string, at time.Time, id string) string {
 	payload := actor + "|" + op + "|" + at.UTC().Format(time.RFC3339Nano) + "|" + id
 	m := hmac.New(sha256.New, s.cfg.Key)
 	m.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
+
 func (s *Service) after(actor, op, c string) (time.Time, string, error) {
 	if c == "" {
 		return time.Time{}, "", nil

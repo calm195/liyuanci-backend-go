@@ -34,7 +34,13 @@ func (s *Service) ProcessNext(ctx context.Context, requestID string) (out durabl
 	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
 	var rows []entity.WorkItem
-	e := s.db.WithContext(ctx).Where("kind=? AND target_kind=? AND status IN ? AND next_at<=clock_timestamp() AND (status<>? OR lease_until<=clock_timestamp())", Route().Kind, Route().TargetKind, []string{"pending", "retry_wait", "leased"}, "leased").Order("next_at,id").Limit(1).Find(&rows).Error
+	e := s.db.WithContext(ctx).Where(
+		"kind=? AND target_kind=? AND status IN ? AND next_at<=clock_timestamp() AND (status<>? OR lease_until<=clock_timestamp())",
+		Route().Kind,
+		Route().TargetKind,
+		[]string{"pending", "retry_wait", "leased"},
+		"leased",
+	).Order("next_at,id").Limit(1).Find(&rows).Error
 	if e != nil {
 		return out, e
 	}
@@ -57,11 +63,22 @@ func (s *Service) Consume(ctx context.Context, event durable.Event) (out durable
 	}()
 	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
-	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.AggregateVersion != 1 || event.EventType != Route().EventType || event.CreatedAt.IsZero() {
+	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.AggregateVersion != 1 ||
+		event.EventType != Route().
+			EventType ||
+		event.CreatedAt.IsZero() {
 		return out, command.ErrInvalid
 	}
 	var count int64
-	e := s.db.WithContext(ctx).Model(&entity.OutboxEvent{}).Where("event_id=? AND work_id=? AND aggregate_id=? AND aggregate_version=? AND event_type=? AND created_at=? AND superseded_at IS NULL", event.EventID, event.CorrelationID, event.AggregateID, event.AggregateVersion, event.EventType, event.CreatedAt).Count(&count).Error
+	e := s.db.WithContext(ctx).Model(&entity.OutboxEvent{}).Where(
+		"event_id=? AND work_id=? AND aggregate_id=? AND aggregate_version=? AND event_type=? AND created_at=? AND superseded_at IS NULL",
+		event.EventID,
+		event.CorrelationID,
+		event.AggregateID,
+		event.AggregateVersion,
+		event.EventType,
+		event.CreatedAt,
+	).Count(&count).Error
 	if e != nil {
 		return out, e
 	}
@@ -95,7 +112,16 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		if err != nil {
 			out = durable.Consumption{}
 		}
-		s.complete("scan", requestID, start, err, zap.Bool("applied", out.Applied), zap.Bool("cancelled", out.Cancelled), zap.Bool("replayed", out.Replayed), zap.Bool("deferred", out.Deferred))
+		s.complete(
+			"scan",
+			requestID,
+			start,
+			err,
+			zap.Bool("applied", out.Applied),
+			zap.Bool("cancelled", out.Cancelled),
+			zap.Bool("replayed", out.Replayed),
+			zap.Bool("deferred", out.Deferred),
+		)
 	}()
 	if !validID(workID) {
 		return out, command.ErrInvalid
@@ -147,10 +173,71 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 	if e != nil {
 		return out, e
 	}
-	var lease leased
-	claimed := false
+	// 领取事务提交后才调用对象与扫描供应商，确认事务会再次检查租约和资产代次。
+	lease, out, claimed, err := s.claimScan(ctx, workID, asset, expected)
+	if err != nil || !claimed {
+		return out, err
+	}
+	version, approved, failure := s.external(ctx, lease)
+	out, err = s.completeScan(ctx, workID, asset, lease, version, approved, failure)
+	if err == nil && failure != nil {
+		return out, command.ErrUnavailable
+	}
+	return out, err
+}
+
+// external 只在事务外执行；任何适配器panic均失败关闭，不能被解释为扫描通过。
+func (s *Service) external(ctx context.Context, lease leased) (version string, approved bool, err error) {
+	defer func() {
+		if recover() != nil {
+			err = command.ErrUnavailable
+		}
+	}()
+	var keyEnvelope, payload securedata.Envelope
+	if json.Unmarshal(lease.asset.EncryptedObjectKey, &keyEnvelope) != nil || json.Unmarshal(lease.payload.Envelope, &payload) != nil {
+		return "", false, command.ErrUnavailable
+	}
+	key, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_card_key", ObjectID: lease.asset.ID, Version: 1},
+		keyEnvelope,
+	)
+	defer clear(key)
+	if e != nil {
+		return "", false, e
+	}
+	version, e = s.objects.PutOnce(ctx, string(key), lease.payload.Envelope)
+	if e != nil || version == "" {
+		return version, false, command.ErrUnavailable
+	}
+	image, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_card", ObjectID: lease.asset.ID, Version: 1},
+		payload,
+	)
+	defer clear(image)
+	if e != nil {
+		return version, false, e
+	}
+	if int64(len(image)) > s.config.MaxBytes {
+		return version, false, command.ErrUnavailable
+	}
+	approved, e = s.scanner.Scan(ctx, image, lease.payload.MIME)
+	return version, approved, e
+}
+
+// claimScan 按账号与资源锁序领取学生卡工作；有效租约和终态不会重复扫描。
+func (s *Service) claimScan(ctx context.Context, workID string, asset entity.Asset, expected *durable.Event) (lease leased, out durable.Consumption, claimed bool, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
-		tx, e := command.LockPlan(ctx, db, command.Discovery{Accounts: []string{asset.OwnerID}, Resources: []command.Resource{{Kind: command.Asset, ID: asset.ID}}}, s.config.Command.LockTimeout)
+		tx, e := command.LockPlan(
+			ctx,
+			db,
+			command.Discovery{
+				Accounts:  []string{asset.OwnerID},
+				Resources: []command.Resource{{Kind: command.Asset, ID: asset.ID}},
+			},
+			s.config.Command.LockTimeout,
+		)
 		if e != nil {
 			return e
 		}
@@ -168,7 +255,15 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		// 事件有效性在工作行锁后复核，防止重驱动替换与消息初读之间的窗口。
 		if expected != nil {
 			var count int64
-			if e = db.Model(&entity.OutboxEvent{}).Where("event_id=? AND work_id=? AND aggregate_id=? AND aggregate_version=? AND event_type=? AND created_at=? AND superseded_at IS NULL", expected.EventID, current.ID, current.TargetID, expected.AggregateVersion, expected.EventType, expected.CreatedAt).Count(&count).Error; e != nil {
+			if e = db.Model(&entity.OutboxEvent{}).Where(
+				"event_id=? AND work_id=? AND aggregate_id=? AND aggregate_version=? AND event_type=? AND created_at=? AND superseded_at IS NULL",
+				expected.EventID,
+				current.ID,
+				current.TargetID,
+				expected.AggregateVersion,
+				expected.EventType,
+				expected.CreatedAt,
+			).Count(&count).Error; e != nil {
 				return e
 			}
 			if count != 1 {
@@ -194,30 +289,42 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		}
 		if guard.Lifecycle != "active" || currentAsset.Status == "deleting" || currentAsset.Status == "deleted" {
 			if currentAsset.Status != "deleting" && currentAsset.Status != "deleted" {
-				if e = db.Model(&entity.Asset{}).Where("id=?", currentAsset.ID).Updates(map[string]any{"status": "deleting", "version": gorm.Expr("version+1")}).Error; e != nil {
+				if e = db.Model(&entity.Asset{}).Where("id=?", currentAsset.ID).
+					Updates(map[string]any{"status": "deleting", "version": gorm.Expr("version+1")}).
+					Error; e != nil {
 					return e
 				}
 			}
 			out.Cancelled = true
 			return finishWork(ctx, db, current, "cancelled")
 		}
-		if current.Status == "attention" || current.NextAt.After(at) || (current.Status == "leased" && current.LeaseUntil != nil && current.LeaseUntil.After(at)) {
+		if current.Status == "attention" || current.NextAt.After(at) ||
+			(current.Status == "leased" && current.LeaseUntil != nil && current.LeaseUntil.After(at)) {
 			out.Deferred = true
 			return nil
 		}
 		if int(current.Attempts) >= s.config.MaxAttempts {
 			out.Deferred = true
-			return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).Error
+			return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).
+				Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).
+				Error
 		}
 		if e = db.Where("asset_id=?", asset.ID).Take(&lease.payload).Error; e != nil {
 			if errors.Is(e, gorm.ErrRecordNotFound) {
 				out.Deferred = true
-				return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).Error
+				return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).
+					Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).
+					Error
 			}
 			return e
 		}
 		until := at.Add(s.config.Lease)
-		if e = db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": "leased", "lease_until": until, "version": gorm.Expr("version+1"), "attempts": gorm.Expr("attempts+1")}).Error; e != nil {
+		if e = db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{
+			"status":      "leased",
+			"lease_until": until,
+			"version":     gorm.Expr("version+1"),
+			"attempts":    gorm.Expr("attempts+1"),
+		}).Error; e != nil {
 			return e
 		}
 		current.Version++
@@ -228,12 +335,21 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		claimed = true
 		return nil
 	})
-	if err != nil || !claimed {
-		return out, err
-	}
-	version, approved, failure := s.external(ctx, lease)
+	return
+}
+
+// completeScan 复核租约代次、资产版本及账号生命周期后，原子确认扫描结果或安排重试。
+func (s *Service) completeScan(ctx context.Context, workID string, asset entity.Asset, lease leased, version string, approved bool, failure error) (out durable.Consumption, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
-		tx, e := command.LockPlan(ctx, db, command.Discovery{Accounts: []string{asset.OwnerID}, Resources: []command.Resource{{Kind: command.Asset, ID: asset.ID}}}, s.config.Command.LockTimeout)
+		tx, e := command.LockPlan(
+			ctx,
+			db,
+			command.Discovery{
+				Accounts:  []string{asset.OwnerID},
+				Resources: []command.Resource{{Kind: command.Asset, ID: asset.ID}},
+			},
+			s.config.Command.LockTimeout,
+		)
 		if e != nil {
 			return e
 		}
@@ -279,13 +395,23 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 					return e
 				}
 			}
-			return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": status, "lease_until": nil, "version": gorm.Expr("version+1"), "next_at": at.Add(s.config.RetryDelay)}).Error
+			return db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{
+				"status":      status,
+				"lease_until": nil,
+				"version":     gorm.Expr("version+1"),
+				"next_at":     at.Add(s.config.RetryDelay),
+			}).Error
 		}
 		status, scan := "active", "approved"
 		if !approved {
 			status, scan = "failed", "rejected"
 		}
-		if e = db.Model(&entity.Asset{}).Where("id=?", asset.ID).Updates(map[string]any{"status": status, "scan_status": scan, "object_version": version, "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = db.Model(&entity.Asset{}).Where("id=?", asset.ID).Updates(map[string]any{
+			"status":         status,
+			"scan_status":    scan,
+			"object_version": version,
+			"version":        gorm.Expr("version+1"),
+		}).Error; e != nil {
 			return e
 		}
 		if e = db.Where("asset_id=?", asset.ID).Delete(&entity.StudentCardPayload{}).Error; e != nil {
@@ -294,40 +420,5 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		out.Applied = true
 		return finishWork(ctx, db, current, "completed")
 	})
-	if err == nil && failure != nil {
-		return out, command.ErrUnavailable
-	}
-	return out, err
-}
-
-// external 只在事务外执行；任何适配器panic均失败关闭，不能被解释为扫描通过。
-func (s *Service) external(ctx context.Context, lease leased) (version string, approved bool, err error) {
-	defer func() {
-		if recover() != nil {
-			err = command.ErrUnavailable
-		}
-	}()
-	var keyEnvelope, payload securedata.Envelope
-	if json.Unmarshal(lease.asset.EncryptedObjectKey, &keyEnvelope) != nil || json.Unmarshal(lease.payload.Envelope, &payload) != nil {
-		return "", false, command.ErrUnavailable
-	}
-	key, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "student_card_key", ObjectID: lease.asset.ID, Version: 1}, keyEnvelope)
-	defer clear(key)
-	if e != nil {
-		return "", false, e
-	}
-	version, e = s.objects.PutOnce(ctx, string(key), lease.payload.Envelope)
-	if e != nil || version == "" {
-		return version, false, command.ErrUnavailable
-	}
-	image, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "student_card", ObjectID: lease.asset.ID, Version: 1}, payload)
-	defer clear(image)
-	if e != nil {
-		return version, false, e
-	}
-	if int64(len(image)) > s.config.MaxBytes {
-		return version, false, command.ErrUnavailable
-	}
-	approved, e = s.scanner.Scan(ctx, image, lease.payload.MIME)
-	return version, approved, e
+	return
 }

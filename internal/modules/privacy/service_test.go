@@ -16,11 +16,21 @@ import (
 
 // TestReceiptAuthentication 在数据库访问前拒绝截断、跨用途及篡改回执，防止随机UUID枚举状态。
 func TestReceiptAuthentication(t *testing.T) {
-	s := &Service{logger: zap.NewNop(), cfg: Config{Key: bytes.Repeat([]byte{1}, 32), Command: command.Config{Timeout: time.Second}}}
+	s := &Service{
+		logger: zap.NewNop(),
+		cfg:    Config{Key: bytes.Repeat([]byte{1}, 32), Command: command.Config{Timeout: time.Second}},
+	}
 	id := uuid.NewString()
 	handle := s.receipt(id)
 	other := &Service{cfg: Config{Key: bytes.Repeat([]byte{2}, 32)}}
-	for _, h := range []string{"", id, handle + "x", other.receipt(id), strings.Replace(handle, id, uuid.NewString(), 1), "bad." + handle} {
+	for _, h := range []string{
+		"",
+		id,
+		handle + "x",
+		other.receipt(id),
+		strings.Replace(handle, id, uuid.NewString(), 1),
+		"bad." + handle,
+	} {
 		if _, e := s.Status(context.Background(), "request", h); !errors.Is(e, command.ErrNotFound) {
 			t.Fatal("未拒绝非法回执", e)
 		}
@@ -38,7 +48,11 @@ func TestDeletionValidation(t *testing.T) {
 			t.Fatal("接受非法确认", e)
 		}
 	}
-	for _, in := range []EvidenceInput{{}, {Reason: " ", ExpectedVersion: 1}, {Reason: strings.Repeat("a", 2001), ExpectedVersion: 1}} {
+	for _, in := range []EvidenceInput{
+		{},
+		{Reason: " ", ExpectedVersion: 1},
+		{Reason: strings.Repeat("a", 2001), ExpectedVersion: 1},
+	} {
 		if _, e := s.DeleteEvidence(context.Background(), "token", "key", "request", uuid.NewString(), in); !errors.Is(e, command.ErrInvalid) {
 			t.Fatal("接受非法删除理由", e)
 		}

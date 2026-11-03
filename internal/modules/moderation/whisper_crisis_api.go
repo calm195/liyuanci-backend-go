@@ -48,6 +48,7 @@ func whisperCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err 
 	err = db.Where("id=? AND content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule')", id).Take(&c).Error
 	return c, missingWhisper(err)
 }
+
 func whisperCrisisSummary(c entity.EvidenceCrisisCase) WhisperCrisisSummary {
 	status := c.Status
 	if status == "pending_handling" {
@@ -56,8 +57,16 @@ func whisperCrisisSummary(c entity.EvidenceCrisisCase) WhisperCrisisSummary {
 	if status == "handling" {
 		status = "in_progress"
 	}
-	return WhisperCrisisSummary{c.ID, c.Version, WhisperRef{c.ContentType, *c.SourceEntityID, *c.SourceContentVersion}, status, c.HandoffAt.UTC().Truncate(time.Second).Format(time.RFC3339), []string{}}
+	return WhisperCrisisSummary{
+		c.ID,
+		c.Version,
+		WhisperRef{c.ContentType, *c.SourceEntityID, *c.SourceContentVersion},
+		status,
+		c.HandoffAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+		[]string{},
+	}
 }
+
 func whisperCrisisPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discovery, err error) {
 	c, e := whisperCrisisRow(db, id)
 	if e != nil {
@@ -69,7 +78,11 @@ func whisperCrisisPlan(ctx context.Context, db *gorm.DB, id string) (p command.D
 			return p, e
 		}
 	}
-	p.Resources = append(p.Resources, command.Resource{Kind: command.CrisisCase, ID: id}, command.Resource{Kind: command.EvidenceCase, ID: c.EvidenceCaseID})
+	p.Resources = append(
+		p.Resources,
+		command.Resource{Kind: command.CrisisCase, ID: id},
+		command.Resource{Kind: command.EvidenceCase, ID: c.EvidenceCaseID},
+	)
 	return p, nil
 }
 
@@ -112,6 +125,7 @@ func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, 
 	}
 	return
 }
+
 func (s *Service) whisperCrisisDetail(ctx context.Context, db *gorm.DB, actor string, c entity.EvidenceCrisisCase) (out WhisperCrisisDetail, err error) {
 	var scope entity.EvidenceCase
 	if e := db.Where("id=? AND status<>'deletion_pending'", c.EvidenceCaseID).Take(&scope).Error; e != nil {
@@ -125,7 +139,14 @@ func (s *Service) whisperCrisisDetail(ctx context.Context, db *gorm.DB, actor st
 	if e = decryptEvidence(ctx, s.codec, "crisis_subject", item.ID, item.SubjectCipher, &subject); e != nil {
 		return out, e
 	}
-	out = WhisperCrisisDetail{WhisperCrisisSummary: whisperCrisisSummary(c), IdentityStatus: "not_verified", EvidenceScopeID: c.EvidenceCaseID, Timeline: []WhisperTimeline{}, CareDelivery: "pending", StaffDelivery: "pending"}
+	out = WhisperCrisisDetail{
+		WhisperCrisisSummary: whisperCrisisSummary(c),
+		IdentityStatus:       "not_verified",
+		EvidenceScopeID:      c.EvidenceCaseID,
+		Timeline:             []WhisperTimeline{},
+		CareDelivery:         "pending",
+		StaffDelivery:        "pending",
+	}
 	if c.IdentityStatus != nil {
 		out.IdentityStatus = *c.IdentityStatus
 	}
@@ -228,7 +249,10 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		}
 		if _, e = whisperPublicBody(db, r); e != nil {
 			var n int64
-			if failure := db.Model(&entity.EvidenceCase{}).Where("kind='crisis' AND source_ref=? AND status<>'deletion_pending'", r.registry.ID).Count(&n).Error; failure != nil {
+			if failure := db.Model(&entity.EvidenceCase{}).
+				Where("kind='crisis' AND source_ref=? AND status<>'deletion_pending'", r.registry.ID).
+				Count(&n).
+				Error; failure != nil {
 				return "", failure
 			}
 			if n != 1 {
@@ -237,7 +261,15 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		}
 		return r.task.ID, nil
 	}
-	d := command.Definition{Kind: "whisper.crisis.escalate", Method: "POST", ResourcePath: "/api/v1/admin/whispers/" + source + "s/" + id + "/escalate", ActorKind: "admin", AllowedRoles: roles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.crisis.escalate",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/whispers/" + source + "s/" + id + "/escalate",
+		ActorKind:            "admin",
+		AllowedRoles:         roles,
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		tid, e := taskID(db)
 		if e != nil {
@@ -249,7 +281,11 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		}
 		return p, e
 	}
-	d.Authorize = func(ctx context.Context, tx *command.Tx) error { _, e := taskID(tx.DB().WithContext(ctx)); return e }
+	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
+
+		_, e := taskID(tx.DB().WithContext(ctx))
+		return e
+	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
 		tid, e := taskID(db)
@@ -274,7 +310,12 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 			reportID = &id
 		}
 		var raw []struct{ Body json.RawMessage }
-		if e = db.Raw("SELECT body FROM public.read_whisper_crisis_payload(decode(?,'hex'),?,?)", hex.EncodeToString(hash[:]), tid, reportID).Scan(&raw).Error; e != nil {
+		if e = db.Raw(
+			"SELECT body FROM public.read_whisper_crisis_payload(decode(?,'hex'),?,?)",
+			hex.EncodeToString(hash[:]),
+			tid,
+			reportID,
+		).Scan(&raw).Error; e != nil {
 			return "", e
 		}
 		if len(raw) != 1 {
@@ -312,7 +353,17 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		out = whisperCrisisSummary(c)
 		return nil
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: resource, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: resource, Value: in.ExpectedVersion}},
+		},
+	)
 	return
 }
 
@@ -326,7 +377,15 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 	if falsePositive {
 		suffix = "false-positive"
 	}
-	d := command.Definition{Kind: "whisper.crisis.action", Method: "POST", ResourcePath: "/api/v1/admin/whispers/crises/" + id + "/" + suffix, ActorKind: "admin", AllowedRoles: []string{"crisis_operator", "super_admin"}, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.crisis.action",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/whispers/crises/" + id + "/" + suffix,
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"crisis_operator", "super_admin"},
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return whisperCrisisPlan(ctx, db, id)
 	}
@@ -355,7 +414,9 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 		if falsePositive {
 			action = "false_positive"
 			status = "false_positive"
-			if e = db.Model(&entity.ContentRestriction{}).Where("kind='crisis' AND source_ref=? AND active", id).Updates(map[string]any{"active": false, "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e = db.Model(&entity.ContentRestriction{}).Where("kind='crisis' AND source_ref=? AND active", id).
+				Updates(map[string]any{"active": false, "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
 			if c.SourceTaskID != nil {
@@ -372,7 +433,9 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 					}
 				}
 			}
-			if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND status IN ('pending','leased')", id).Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).Error; e != nil {
+			if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND status IN ('pending','leased')", id).
+				Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).
+				Error; e != nil {
 				return "", e
 			}
 		} else {
@@ -385,7 +448,8 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 			case "resolve":
 				status = "resolved"
 			case "retry_notification":
-				result := db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending' AND attempts>0", id).Update("next_at", tx.Now())
+				result := db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending' AND attempts>0", id).
+					Update("next_at", tx.Now())
 				if result.Error != nil {
 					return "", result.Error
 				}
@@ -397,7 +461,12 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 		if e = crisisAction(ctx, db, s.codec, c, tx.Actor().ID, action, in.Reason, tx.Now()); e != nil {
 			return "", e
 		}
-		return id, db.Model(&entity.EvidenceCrisisCase{}).Where("id=?", id).Updates(map[string]any{"status": status, "resolution": action, "handler_id": tx.Actor().ID, "version": gorm.Expr("version+1")}).Error
+		return id, db.Model(&entity.EvidenceCrisisCase{}).Where("id=?", id).Updates(map[string]any{
+			"status":     status,
+			"resolution": action,
+			"handler_id": tx.Actor().ID,
+			"version":    gorm.Expr("version+1"),
+		}).Error
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		c, e := whisperCrisisRow(tx.DB().WithContext(ctx), ref)
@@ -407,9 +476,24 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 		out, e = s.whisperCrisisDetail(ctx, tx.DB(), tx.Actor().ID, c)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.CrisisCase, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.CrisisCase, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	return
 }
+
 func slicesCrisisAction(s string) bool {
 	return s == "take_over" || s == "follow_up" || s == "resolve" || s == "retry_notification"
 }

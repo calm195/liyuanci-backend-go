@@ -23,7 +23,12 @@ func done(log *zap.Logger, operation string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	log.Info("本地测试操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	log.Info(
+		"本地测试操作完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // Wrap 为数据密钥增加随机nonce及认证包裹，不把主密钥写入数据库。

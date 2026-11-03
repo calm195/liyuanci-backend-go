@@ -80,13 +80,26 @@ type Consumer struct {
 
 // NewConsumer 拒绝外部事务，保证结果、终态及回执由同一个根事务最终提交。
 func NewConsumer(db *gorm.DB, logger *zap.Logger, definition ConsumerDefinition, config ConsumerConfig) (*Consumer, error) {
-	if db == nil || db.Statement == nil || logger == nil || definition.Discover == nil || definition.Apply == nil || !validRoute(definition.Route) || !validRoute(Route{Kind: definition.ConsumerKind, TargetKind: "work", EventType: "wake"}) || config.Timeout <= 0 || config.LockTimeout < time.Millisecond || config.LockTimeout > config.Timeout || config.RetryDelay < time.Millisecond || config.MaxAttempts < 1 || config.MaxAttempts > 1000 {
+	if db == nil || db.Statement == nil || logger == nil || definition.Discover == nil || definition.Apply == nil ||
+		!validRoute(definition.Route) ||
+		!validRoute(Route{Kind: definition.ConsumerKind, TargetKind: "work", EventType: "wake"}) ||
+		config.Timeout <= 0 ||
+		config.LockTimeout < time.Millisecond ||
+		config.LockTimeout > config.Timeout ||
+		config.RetryDelay < time.Millisecond ||
+		config.MaxAttempts < 1 ||
+		config.MaxAttempts > 1000 {
 		return nil, ErrInvalid
 	}
 	if _, ok := db.Statement.ConnPool.(gorm.TxCommitter); ok {
 		return nil, ErrInvalid
 	}
-	return &Consumer{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), logger: logger, definition: definition, config: config}, nil
+	return &Consumer{
+		db:         db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		logger:     logger,
+		definition: definition,
+		config:     config,
+	}, nil
 }
 
 func samePlan(a, b command.Discovery) bool {
@@ -127,9 +140,21 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 		if err != nil {
 			result = "failure"
 		}
-		c.logger.Info("持久工作消费完成", zap.String("result", result), zap.String("consumer", c.definition.ConsumerKind), zap.Duration("duration", time.Since(start)), zap.Bool("recovered", recovered), zap.Bool("replayed", out.Replayed), zap.Bool("cancelled", out.Cancelled), zap.Bool("missing", out.Missing), zap.Bool("deferred", out.Deferred))
+		c.logger.Info(
+			"持久工作消费完成",
+			zap.String("result", result),
+			zap.String("consumer", c.definition.ConsumerKind),
+			zap.Duration("duration", time.Since(start)),
+			zap.Bool("recovered", recovered),
+			zap.Bool("replayed", out.Replayed),
+			zap.Bool("cancelled", out.Cancelled),
+			zap.Bool("missing", out.Missing),
+			zap.Bool("deferred", out.Deferred),
+		)
 	}()
-	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.AggregateVersion <= 0 || event.EventType != c.definition.Route.EventType || event.CreatedAt.IsZero() {
+	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.AggregateVersion <= 0 ||
+		event.EventType != c.definition.Route.EventType ||
+		event.CreatedAt.IsZero() {
 		return out, ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.config.Timeout)
@@ -176,7 +201,11 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 			}
 			// 工作 DTO 带有联表目标版本；锁源表时显式选择真实列，避免 GORM 推断虚拟列。
 			var rows []Work
-			if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", initial.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; failure != nil {
+			if failure = db.Model(&entity.WorkItem{}).Select("*").
+				Where("id=?", initial.ID).
+				Clauses(clause.Locking{Strength: "UPDATE"}).
+				Find(&rows).
+				Error; failure != nil {
 				return ErrUnavailable
 			}
 			if len(rows) != 1 {
@@ -191,11 +220,16 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				out.Missing = true
 				return nil
 			}
-			if current.OperationID != initial.OperationID || current.TargetID != initial.TargetID || current.Kind != initial.Kind || current.TargetKind != initial.TargetKind {
+			if current.OperationID != initial.OperationID || current.TargetID != initial.TargetID || current.Kind != initial.Kind ||
+				current.TargetKind != initial.TargetKind {
 				return ErrConfiguration
 			}
 			var receipts int64
-			if failure = db.Model(&entity.ConsumerReceipt{}).Where("consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Count(&receipts).Error; failure != nil {
+			if failure = db.Model(&entity.ConsumerReceipt{}).Where(
+				"consumer_kind=? AND operation_id=?",
+				c.definition.ConsumerKind,
+				current.OperationID,
+			).Count(&receipts).Error; failure != nil {
 				return ErrUnavailable
 			}
 			if receipts > 0 {
@@ -215,7 +249,10 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 					return nil
 				}
 				if current.Attempts >= c.config.MaxAttempts {
-					if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
+					if failure = db.Model(&entity.WorkItem{}).Select("*").
+						Where("id=?", current.ID).
+						Updates(map[string]any{"status": "attention", "lease_until": nil, "version": gorm.Expr("version+1")}).
+						Error; failure != nil {
 						return ErrUnavailable
 					}
 					out.Deferred = true
@@ -237,7 +274,9 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 					return failure
 				}
 				if decision == Suspend {
-					if failure = db.Model(&entity.WorkItem{}).Where("id=?", current.ID).Updates(map[string]any{"status": "waiting", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
+					if failure = db.Model(&entity.WorkItem{}).Where("id=?", current.ID).
+						Updates(map[string]any{"status": "waiting", "lease_until": nil, "version": gorm.Expr("version+1")}).
+						Error; failure != nil {
 						return ErrUnavailable
 					}
 					out.Deferred = true
@@ -246,7 +285,12 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				if decision != Complete && decision != Obsolete {
 					return ErrConfiguration
 				}
-				if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": string(decision), "lease_until": nil, "version": gorm.Expr("version+1"), "attempts": gorm.Expr("attempts+1")}).Error; failure != nil {
+				if failure = db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{
+					"status":      string(decision),
+					"lease_until": nil,
+					"version":     gorm.Expr("version+1"),
+					"attempts":    gorm.Expr("attempts+1"),
+				}).Error; failure != nil {
 					return ErrUnavailable
 				}
 				out.Applied = decision == Complete
@@ -255,7 +299,9 @@ func (c *Consumer) Consume(ctx context.Context, event Event) (out Consumption, e
 				out.Cancelled = current.Status == "cancelled"
 				out.Replayed = current.Status == "completed"
 			}
-			if failure = db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).Error; failure != nil {
+			if failure = db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).
+				Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).
+				Error; failure != nil {
 				return ErrUnavailable
 			}
 			return nil
@@ -289,21 +335,32 @@ func (c *Consumer) schedule(ctx context.Context, initial Work, cause error) erro
 	// 失败重试仅调度工作元数据，不持业务资源锁，也不覆盖其他消费者刚提交的版本/终态。
 	failure := c.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		var rows []Work
-		if failure := db.Model(&entity.WorkItem{}).Select("*").Where("id=?", initial.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; failure != nil {
+		if failure := db.Model(&entity.WorkItem{}).Select("*").
+			Where("id=?", initial.ID).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Find(&rows).
+			Error; failure != nil {
 			return ErrUnavailable
 		}
 		if len(rows) != 1 {
 			return nil
 		}
 		current := rows[0]
-		if current.Version != initial.Version || current.Status == "cancelled" || current.Status == "completed" || current.Status == "attention" {
+		if current.Version != initial.Version || current.Status == "cancelled" || current.Status == "completed" ||
+			current.Status == "attention" {
 			return nil
 		}
 		status := "retry_wait"
 		if errors.Is(cause, ErrConfiguration) || current.Attempts+1 >= c.config.MaxAttempts {
 			status = "attention"
 		}
-		if failure := db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{"status": status, "lease_until": nil, "attempts": gorm.Expr("attempts+1"), "version": gorm.Expr("version+1"), "next_at": gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", c.config.RetryDelay.Milliseconds())}).Error; failure != nil {
+		if failure := db.Model(&entity.WorkItem{}).Select("*").Where("id=?", current.ID).Updates(map[string]any{
+			"status":      status,
+			"lease_until": nil,
+			"attempts":    gorm.Expr("attempts+1"),
+			"version":     gorm.Expr("version+1"),
+			"next_at":     gorm.Expr("clock_timestamp()+(? * interval '1 millisecond')", c.config.RetryDelay.Milliseconds()),
+		}).Error; failure != nil {
 			return ErrUnavailable
 		}
 		return nil

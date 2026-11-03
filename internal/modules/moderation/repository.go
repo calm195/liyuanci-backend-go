@@ -39,12 +39,22 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	if err = db.Where("id=?", id).Take(&out.task).Error; err != nil {
 		return fail(err)
 	}
-	if err = db.Where("id=? AND kind IN ? AND content_version=?", out.task.ContentID, []string{"wish", "application", "message", "story"}, out.task.ContentVersion).Take(&out.registry).Error; err != nil {
+	if err = db.Where(
+		"id=? AND kind IN ? AND content_version=?",
+		out.task.ContentID,
+		[]string{"wish", "application", "message", "story"},
+		out.task.ContentVersion,
+	).Take(&out.registry).Error; err != nil {
 		return fail(err)
 	}
 	if out.registry.Kind == "story" {
 		var v entity.StoryVersion
-		if err = db.Where("wish_id=? AND story_version=? AND author_id=?", out.registry.EntityID, out.task.ContentVersion, out.registry.AuthorID).Take(&v).Error; err != nil {
+		if err = db.Where(
+			"wish_id=? AND story_version=? AND author_id=?",
+			out.registry.EntityID,
+			out.task.ContentVersion,
+			out.registry.AuthorID,
+		).Take(&v).Error; err != nil {
 			return fail(err)
 		}
 		out.story = &v
@@ -58,7 +68,12 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	}
 	if out.registry.Kind == "message" {
 		var m entity.Message
-		if err = db.Where("id=? AND sender_id=? AND content_version=?", out.registry.EntityID, out.registry.AuthorID, out.task.ContentVersion).Take(&m).Error; err != nil {
+		if err = db.Where(
+			"id=? AND sender_id=? AND content_version=?",
+			out.registry.EntityID,
+			out.registry.AuthorID,
+			out.task.ContentVersion,
+		).Take(&m).Error; err != nil {
 			return fail(err)
 		}
 		out.message = &m
@@ -74,7 +89,12 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	wishID, author, version := out.registry.EntityID, out.registry.AuthorID, out.task.ContentVersion
 	if out.registry.Kind == "application" {
 		var app entity.Application
-		if err = db.Where("id=? AND applicant_id=? AND content_version=?", out.registry.EntityID, out.registry.AuthorID, out.task.ContentVersion).Take(&app).Error; err != nil {
+		if err = db.Where(
+			"id=? AND applicant_id=? AND content_version=?",
+			out.registry.EntityID,
+			out.registry.AuthorID,
+			out.task.ContentVersion,
+		).Take(&app).Error; err != nil {
 			return fail(err)
 		}
 		out.application = &app
@@ -96,6 +116,7 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	}
 	return out, nil
 }
+
 func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, error) {
 	row, e := load(db.WithContext(ctx), id)
 	if errors.Is(e, command.ErrNotFound) {
@@ -112,14 +133,28 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 		if e != nil {
 			return p, e
 		}
-		p.Resources = append(p.Resources, command.Resource{Kind: command.ModerationTask, ID: id}, command.Resource{Kind: command.Message, ID: row.message.ID})
+		p.Resources = append(
+			p.Resources,
+			command.Resource{Kind: command.ModerationTask, ID: id},
+			command.Resource{Kind: command.Message, ID: row.message.ID},
+		)
 		return p, nil
 	}
 	if row.application != nil {
-		return command.Discovery{Accounts: []string{row.account.ID, row.wish.OwnerID}, Resources: []command.Resource{{Kind: command.Wish, ID: row.wish.ID}, {Kind: command.Application, ID: row.application.ID}, {Kind: command.ModerationTask, ID: id}}}, nil
+		return command.Discovery{
+			Accounts: []string{row.account.ID, row.wish.OwnerID},
+			Resources: []command.Resource{
+				{Kind: command.Wish, ID: row.wish.ID},
+				{Kind: command.Application, ID: row.application.ID},
+				{Kind: command.ModerationTask, ID: id},
+			},
+		}, nil
 	}
 
-	return command.Discovery{Accounts: []string{row.account.ID}, Resources: []command.Resource{{Kind: command.Wish, ID: row.wish.ID}, {Kind: command.ModerationTask, ID: id}}}, nil
+	return command.Discovery{
+		Accounts:  []string{row.account.ID},
+		Resources: []command.Resource{{Kind: command.Wish, ID: row.wish.ID}, {Kind: command.ModerationTask, ID: id}},
+	}, nil
 }
 
 func currentBinding(row current) bool {
@@ -127,12 +162,16 @@ func currentBinding(row current) bool {
 		return row.wish.CurrentStoryVersion == row.task.ContentVersion && row.story.ReviewTaskID != nil && *row.story.ReviewTaskID == row.task.ID
 	}
 	if row.message != nil {
-		return row.message.ReviewTaskID != nil && *row.message.ReviewTaskID == row.task.ID && row.message.ContentVersion == row.task.ContentVersion
+		return row.message.ReviewTaskID != nil && *row.message.ReviewTaskID == row.task.ID &&
+			row.message.ContentVersion == row.task.ContentVersion
 	}
 	if row.application != nil {
-		return row.application.WishContentVersion == row.wish.CurrentContentVersion && row.application.ReviewTaskID != nil && *row.application.ReviewTaskID == row.task.ID && row.application.ContentVersion == row.task.ContentVersion
+		return row.application.WishContentVersion == row.wish.CurrentContentVersion && row.application.ReviewTaskID != nil &&
+			*row.application.ReviewTaskID == row.task.ID &&
+			row.application.ContentVersion == row.task.ContentVersion
 	}
-	return row.wish.CurrentContentVersion == row.task.ContentVersion && row.content.ReviewTaskID != nil && *row.content.ReviewTaskID == row.task.ID
+	return row.wish.CurrentContentVersion == row.task.ContentVersion && row.content.ReviewTaskID != nil &&
+		*row.content.ReviewTaskID == row.task.ID
 }
 
 // eligible 在账号和资源锁后复核当前任务绑定、资格、处罚及全部历史版本限制，不从旧事件恢复正文。
@@ -163,17 +202,34 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 		}
 		return wish.ApplicationEligible(db.Statement.Context, db, *row.application, now)
 	}
-	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil || row.wish.CurrentContentVersion != row.task.ContentVersion || row.content.ReviewTaskID == nil || *row.content.ReviewTaskID != row.task.ID || row.task.SubjectEpoch != row.account.AuthEpoch || row.task.RestrictionEpoch == nil || *row.task.RestrictionEpoch != row.wish.RestrictionEpoch || (row.wish.State != "pending_review" && !((row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State))) {
+	if row.account.Lifecycle != "active" || row.account.Verification != "verified" || row.wish.DraftDeletedAt != nil ||
+		row.wish.CurrentContentVersion != row.task.ContentVersion ||
+		row.content.ReviewTaskID == nil ||
+		*row.content.ReviewTaskID != row.task.ID ||
+		row.task.SubjectEpoch != row.account.AuthEpoch ||
+		row.task.RestrictionEpoch == nil ||
+		*row.task.RestrictionEpoch != row.wish.RestrictionEpoch ||
+		(row.wish.State != "pending_review" &&
+			!((row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) &&
+				slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State))) {
 		return false, nil
 	}
 	var n int64
-	if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())", row.account.ID, []string{"mute", "ban"}).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())",
+		row.account.ID,
+		[]string{"mute", "ban"},
+	).Count(&n).Error; e != nil {
 		return false, e
 	}
 	if n > 0 {
 		return false, nil
 	}
-	if e := db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='wish' AND c.entity_id=? AND r.active", row.wish.ID).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='wish' AND c.entity_id=? AND r.active", row.wish.ID).
+		Count(&n).
+		Error; e != nil {
 		return false, e
 	}
 	if n > 0 {
@@ -194,6 +250,7 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 	}
 	return epoch == row.task.HoldEpoch, nil
 }
+
 func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte) error {
 	if row.story != nil {
 		if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
@@ -218,7 +275,12 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 			if e := db.Model(&entity.Message{}).Where("id=?", row.message.ID).Updates(updates).Error; e != nil {
 				return e
 			}
-			if e := db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: row.message.SenderID, Type: "message_reviewed", TargetRef: row.message.ID}).Error; e != nil {
+			if e := db.Create(&entity.Notification{
+				ID:          uuid.NewString(),
+				RecipientID: row.message.SenderID,
+				Type:        "message_reviewed",
+				TargetRef:   row.message.ID,
+			}).Error; e != nil {
 				return e
 			}
 		}
@@ -240,7 +302,11 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 				return e
 			}
 			defer clear(data)
-			encrypted, e := codec.Encrypt(db.Statement.Context, securedata.Binding{Purpose: "application_approved", ObjectID: app.ID, Version: uint64(app.ContentVersion)}, data)
+			encrypted, e := codec.Encrypt(
+				db.Statement.Context,
+				securedata.Binding{Purpose: "application_approved", ObjectID: app.ID, Version: uint64(app.ContentVersion)},
+				data,
+			)
 			if e != nil {
 				return e
 			}
@@ -255,19 +321,33 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 		if row.task.CrisisRecheck && app.Status == "accepted" {
 			status = "accepted"
 		}
-		if e := db.Model(&entity.Application{}).Where("id=?", app.ID).Updates(map[string]any{"status": status, "public_message_cipher": cipher, "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e := db.Model(&entity.Application{}).Where("id=?", app.ID).
+			Updates(map[string]any{"status": status, "public_message_cipher": cipher, "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return e
 		}
 		if status == "active" {
-			return db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: row.wish.OwnerID, Type: "application_active", TargetRef: app.ID}).Error
+			return db.Create(&entity.Notification{
+				ID:          uuid.NewString(),
+				RecipientID: row.wish.OwnerID,
+				Type:        "application_active",
+				TargetRef:   app.ID,
+			}).Error
 		}
 		return nil
 	}
-	if e := db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags)}).Error; e != nil {
+	if e := db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).
+		Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags)}).
+		Error; e != nil {
 		return e
 	}
 	if decision == "approved" && row.task.PrivacyRecheck {
-		if e := db.Model(&entity.PrivacyHold{}).Where("target_kind='wish' AND target_id=? AND status='active' AND hold_epoch<=? AND required_content_version<=?", row.wish.ID, row.task.HoldEpoch, row.task.ContentVersion).Updates(map[string]any{"status": "released", "released_at": gorm.Expr("clock_timestamp()")}).Error; e != nil {
+		if e := db.Model(&entity.PrivacyHold{}).Where(
+			"target_kind='wish' AND target_id=? AND status='active' AND hold_epoch<=? AND required_content_version<=?",
+			row.wish.ID,
+			row.task.HoldEpoch,
+			row.task.ContentVersion,
+		).Updates(map[string]any{"status": "released", "released_at": gorm.Expr("clock_timestamp()")}).Error; e != nil {
 			return e
 		}
 	}
@@ -275,7 +355,8 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 	if decision == "rejected" {
 		state = "rejected"
 	}
-	if (row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) && slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {
+	if (row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) &&
+		slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {
 		state = row.wish.State
 	}
 	return db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).Updates(map[string]any{"state": state, "version": gorm.Expr("version+1")}).Error

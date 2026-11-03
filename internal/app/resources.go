@@ -31,6 +31,7 @@ type provider interface {
 	Erase(context.Context, privacy.Intent, []privacy.Object) error
 	NotifyCrisis(context.Context, string, string) error
 }
+
 type recoveryJournal interface {
 	privacy.Journal
 	AllIntents(context.Context, string, int) ([]privacy.Intent, error)
@@ -55,7 +56,12 @@ func finish(log *zap.Logger, op string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	log.Info("应用运行操作完成", zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	log.Info(
+		"应用运行操作完成",
+		zap.String("operation", op),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // close 必须在HTTP请求或扫描协程结束后调用，逆序释放全部资源，即使其中一项失败。
@@ -80,7 +86,14 @@ func (r *runtimeResources) pool(ctx context.Context) (*gorm.DB, error) {
 	if r.database != nil {
 		return r.database, nil
 	}
-	db, closePool, err := platform.OpenRuntimeDatabaseWithLimits(ctx, r.cfg.DatabaseDSN, r.log, r.cfg.DatabaseMaxOpen, r.cfg.DatabaseMaxIdle, r.cfg.DatabaseMaxLifetime)
+	db, closePool, err := platform.OpenRuntimeDatabaseWithLimits(
+		ctx,
+		r.cfg.DatabaseDSN,
+		r.log,
+		r.cfg.DatabaseMaxOpen,
+		r.cfg.DatabaseMaxIdle,
+		r.cfg.DatabaseMaxLifetime,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +121,12 @@ func openRuntimeResources(ctx context.Context, cfg WhisperSettings, log *zap.Log
 		if err != nil {
 			return nil, err
 		}
-		log.Info("本地运行依赖装配完成", zap.Bool("manual_review", true), zap.Bool("external_gateway", false), zap.String("result", "success"))
+		log.Info(
+			"本地运行依赖装配完成",
+			zap.Bool("manual_review", true),
+			zap.Bool("external_gateway", false),
+			zap.String("result", "success"),
+		)
 		return r, nil
 	}
 	g, e := gateway.New(gatewayConfig(cfg), log)
@@ -159,9 +177,13 @@ func openRuntimeResources(ctx context.Context, cfg WhisperSettings, log *zap.Log
 	}
 	return r, nil
 }
+
 func (r *runtimeResources) check(ctx context.Context, db *gorm.DB) error {
 	var schema bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.resource_feedback') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND to_regclass('public.interaction_block_policy') IS NOT NULL AND to_regclass('public.whisper_capsules') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whisper_notification_refs') AND attname='suppressed' AND NOT attisdropped) AND to_regprocedure('public.clear_held_whisper_comment(bytea,uuid,jsonb)') IS NOT NULL`).Scan(&schema).Error != nil || !schema {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.resource_feedback') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND to_regclass('public.interaction_block_policy') IS NOT NULL AND to_regclass('public.whisper_capsules') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whisper_notification_refs') AND attname='suppressed' AND NOT attisdropped) AND to_regprocedure('public.clear_held_whisper_comment(bytea,uuid,jsonb)') IS NOT NULL`).
+		Scan(&schema).
+		Error != nil ||
+		!schema {
 		return command.ErrUnavailable
 	}
 	enabled, e := blockpolicy.Enabled(ctx, db)
@@ -179,7 +201,9 @@ func (r *runtimeResources) rules(ctx context.Context, db *gorm.DB) error {
 	var count int64
 	// head代次用于并发控制，快照版本用于资源状态；发布后两者无需相等。
 	// 准入只接受三类生效指针实际引用的已发布快照，不接受草案或归档版本。
-	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind WHERE h.kind IN ('crisis','school','ordinary_violation') AND v.status='published'").Scan(&count).Error; e != nil || count != 3 {
+	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind WHERE h.kind IN ('crisis','school','ordinary_violation') AND v.status='published'").
+		Scan(&count).
+		Error; e != nil || count != 3 {
 		return command.ErrUnavailable
 	}
 	return nil
@@ -216,6 +240,13 @@ func (r *runtimeResources) recoveryGate(ctx context.Context, db *gorm.DB, scope 
 		}
 	}
 }
+
 func (r *runtimeResources) privacyConfig() privacy.Config {
-	return privacy.Config{Command: command.Config(r.cfg.Command), Key: r.cfg.PrivacyKey, ReceiptTTL: r.cfg.Command.ReceiptTTL, RetryDelay: r.cfg.Interval, Redactor: r.gateway}
+	return privacy.Config{
+		Command:    command.Config(r.cfg.Command),
+		Key:        r.cfg.PrivacyKey,
+		ReceiptTTL: r.cfg.Command.ReceiptTTL,
+		RetryDelay: r.cfg.Interval,
+		Redactor:   r.gateway,
+	}
 }

@@ -33,7 +33,8 @@ func TestDevelopmentSchoolRules(t *testing.T) {
 		if i == 1 {
 			want = "failure"
 		}
-		if fields["simulated"] != true || fields["result"] != want || fields["operation"] != "development_school_rules" || fields["duration"] == nil {
+		if fields["simulated"] != true || fields["result"] != want || fields["operation"] != "development_school_rules" ||
+			fields["duration"] == nil {
 			t.Fatal("模拟完成日志字段不完整")
 		}
 		for _, field := range entry.Context {

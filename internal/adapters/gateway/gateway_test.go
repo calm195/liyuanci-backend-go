@@ -41,10 +41,25 @@ func TestGatewayFailureBoundaries(t *testing.T) {
 			_, e := g.ClassifyWhisperCapsule(context.Background(), "合成私密正文")
 			return e
 		}},
-		{"无清理写屏障", `{"Completed":true,"WriteBarrierConfirmed":false}`, 200, func(g *Client) error { return g.Erase(context.Background(), privacy.Intent{}, nil) }},
-		{"通知未确认", `{"Completed":false}`, 200, func(g *Client) error { return g.NotifyCrisis(context.Background(), "delivery", "case") }},
+		{
+			"无清理写屏障",
+			`{"Completed":true,"WriteBarrierConfirmed":false}`,
+			200,
+			func(g *Client) error { return g.Erase(context.Background(), privacy.Intent{}, nil) },
+		},
+		{
+			"通知未确认",
+			`{"Completed":false}`,
+			200,
+			func(g *Client) error { return g.NotifyCrisis(context.Background(), "delivery", "case") },
+		},
 		{"供应商不可用", `{"secret":"不得透传"}`, 503, func(g *Client) error { return g.Ready(context.Background()) }},
-		{"健康版本不符", `{"Version":"other","Capabilities":[]}`, 200, func(g *Client) error { return g.Ready(context.Background()) }},
+		{
+			"健康版本不符",
+			`{"Version":"other","Capabilities":[]}`,
+			200,
+			func(g *Client) error { return g.Ready(context.Background()) },
+		},
 		{"重定向拒绝", ``, 302, func(g *Client) error { return g.Ready(context.Background()) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

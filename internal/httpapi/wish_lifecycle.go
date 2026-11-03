@@ -36,7 +36,12 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 	}
 	group := r.Group("/api/v1")
 	// 可见性取决于当前资格和屏障，所有视图禁用响应缓存，失败和恢复同样保留请求完成日志。
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.PUT("/wishes/:id/content", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -46,7 +51,16 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 		if !ok {
 			return
 		}
-		data, fields, err := readWishJSON(c, []string{"category", "body", "campus", "identity_tags", "reward_method", "duration_days", "refresh_expiry", "expected_version"})
+		data, fields, err := readWishJSON(c, []string{
+			"category",
+			"body",
+			"campus",
+			"identity_tags",
+			"reward_method",
+			"duration_days",
+			"refresh_expiry",
+			"expected_version",
+		})
 		if err != nil {
 			adminError(c, err)
 			return
@@ -95,7 +109,8 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 				Version        int64 `json:"expected_version"`
 				ContentVersion int64 `json:"content_version"`
 			}
-			if json.Unmarshal(data, &input) != nil || fields["expected_version"] == nil || input.Version < 1 || op == "submit-review" && (fields["content_version"] == nil || input.ContentVersion < 1) {
+			if json.Unmarshal(data, &input) != nil || fields["expected_version"] == nil || input.Version < 1 ||
+				op == "submit-review" && (fields["content_version"] == nil || input.ContentVersion < 1) {
 				adminError(c, command.ErrInvalid)
 				return
 			}
@@ -181,8 +196,19 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 }
 
 func wishMutationResult(c *gin.Context, status int, out wish.CreatedDraft) {
-	adminResult(c, status, gin.H{"id": out.ID, "version": out.Version, "content_version": out.ContentVersion, "current_state": out.State, "allowed_actions": []string{}})
+	adminResult(
+		c,
+		status,
+		gin.H{
+			"id":              out.ID,
+			"version":         out.Version,
+			"content_version": out.ContentVersion,
+			"current_state":   out.State,
+			"allowed_actions": []string{},
+		},
+	)
 }
+
 func wishQuery(c *gin.Context, own bool) (q wish.Query, err error) {
 	q.Limit = 20
 	allowed := []string{"cursor", "limit", "category", "campus"}

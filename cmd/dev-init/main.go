@@ -14,6 +14,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	path := flag.String("config", "", "显式开发应用YAML")
 	flag.Parse()

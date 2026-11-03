@@ -59,12 +59,18 @@ func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn string, log *zap.Log
 		return nil, nil, command.ErrInvalid
 	}
 	p.SetConnMaxLifetime(lifetime)
-	fail := func() (*gorm.DB, func() error, error) { _ = p.Close(); return nil, nil, command.ErrUnavailable }
+	fail := func() (*gorm.DB, func() error, error) {
+
+		_ = p.Close()
+		return nil, nil, command.ErrUnavailable
+	}
 	if p.PingContext(ctx) != nil {
 		return fail()
 	}
 	var safe bool
-	e = db.WithContext(ctx).Raw(`SELECT NOT pg_is_in_recovery() AND current_user=session_user AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication FROM pg_roles r WHERE r.rolname=current_user`).Scan(&safe).Error
+	e = db.WithContext(ctx).Raw(`SELECT NOT pg_is_in_recovery() AND current_user=session_user AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication FROM pg_roles r WHERE r.rolname=current_user`).
+		Scan(&safe).
+		Error
 	if e != nil || !safe {
 		return fail()
 	}

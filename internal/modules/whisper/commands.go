@@ -19,7 +19,14 @@ func (s *Service) definition(kind, method, path, id string, restricted bool) com
 	if restricted {
 		access = command.Restricted
 	}
-	d := command.Definition{RetainReceipt: true, Kind: kind, Method: method, ResourcePath: path, ActorKind: "student", Access: access}
+	d := command.Definition{
+		RetainReceipt: true,
+		Kind:          kind,
+		Method:        method,
+		ResourcePath:  path,
+		ActorKind:     "student",
+		Access:        access,
+	}
 	d.Discover = func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 		if id == "" {
 			return command.Discovery{}, nil
@@ -50,7 +57,15 @@ func (s *Service) definition(kind, method, path, id string, restricted bool) com
 	return d
 }
 
-func (s *Service) execute(ctx context.Context, d command.Definition, token, key, rid string, value any, expected int64, id, budget string, checks ...command.Expectation) (out command.Outcome, err error) {
+func (s *Service) execute(
+	ctx context.Context,
+	d command.Definition,
+	token, key, rid string,
+	value any,
+	expected int64,
+	id, budget string,
+	checks ...command.Expectation,
+) (out command.Outcome, err error) {
 	if !s.config.Enabled {
 		return out, ErrModuleUnavailable
 	}
@@ -62,10 +77,19 @@ func (s *Service) execute(ctx context.Context, d command.Definition, token, key,
 		return out, command.ErrInvalid
 	}
 	defer clear(b)
-	input := command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: keyed(s.config.ReceiptKey, "whisper.command."+d.Kind, b)}
+	input := command.Input{
+		Token:          token,
+		IdempotencyKey: key,
+		RequestID:      rid,
+		Request:        keyed(s.config.ReceiptKey, "whisper.command."+d.Kind, b),
+	}
 	if id != "" {
 		d.RequiredExpectations = []string{"expected_version"}
-		input.Expectations = []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.WhisperPost, ID: id}, Value: expected}}
+		input.Expectations = []command.Expectation{{
+			Name:   "expected_version",
+			Target: command.Resource{Kind: command.WhisperPost, ID: id},
+			Value:  expected,
+		}}
 	}
 	if len(checks) > 0 {
 		input.Expectations = checks
@@ -126,7 +150,22 @@ func (s *Service) CreatePost(ctx context.Context, token, key, rid string, input 
 			return "", e
 		}
 		now := tx.Now()
-		if e := insertRow(ctx, tx.DB(), &entity.WhisperPost{ID: id, OwnerID: tx.Actor().ID, Version: 1, CurrentContentVersion: 1, Lifecycle: "active", ReviewState: "draft", CommentsOpen: true, CommentsEpoch: 1, CreatedAt: now, UpdatedAt: now}); e != nil {
+		if e := insertRow(
+			ctx,
+			tx.DB(),
+			&entity.WhisperPost{
+				ID:                    id,
+				OwnerID:               tx.Actor().ID,
+				Version:               1,
+				CurrentContentVersion: 1,
+				Lifecycle:             "active",
+				ReviewState:           "draft",
+				CommentsOpen:          true,
+				CommentsEpoch:         1,
+				CreatedAt:             now,
+				UpdatedAt:             now,
+			},
+		); e != nil {
 			return "", e
 		}
 		label, e := randomAlias()
@@ -160,7 +199,22 @@ func (s *Service) writeVersion(ctx context.Context, tx *command.Tx, id string, v
 	if e = registry(ctx, tx.DB(), registryID, "whisper_post", id, tx.Actor().ID, version); e != nil {
 		return e
 	}
-	return insertRow(ctx, tx.DB(), &entity.WhisperPostVersion{PostID: id, ContentVersion: version, ContentRegistryID: registryID, BodyCipher: body, IdentityMode: input.Identity.Mode, IdentityCipher: identity, NicknameVersion: input.Identity.NicknameVersion, DictionaryVersion: input.Identity.DictionaryVersion, ReviewState: "draft", CreatedAt: tx.Now()})
+	return insertRow(
+		ctx,
+		tx.DB(),
+		&entity.WhisperPostVersion{
+			PostID:            id,
+			ContentVersion:    version,
+			ContentRegistryID: registryID,
+			BodyCipher:        body,
+			IdentityMode:      input.Identity.Mode,
+			IdentityCipher:    identity,
+			NicknameVersion:   input.Identity.NicknameVersion,
+			DictionaryVersion: input.Identity.DictionaryVersion,
+			ReviewState:       "draft",
+			CreatedAt:         tx.Now(),
+		},
+	)
 }
 
 // ChangePost 在同一父帖锁下保存、送审或撤回，重放只重查当前结果。
@@ -225,7 +279,16 @@ func (s *Service) ChangePost(ctx context.Context, token, key, rid, id, action st
 			if e = cancelReviews(ctx, tx.DB(), id); e != nil {
 				return "", e
 			}
-			taskID, e := s.submit(ctx, tx, a.version.ContentRegistryID, "whisper_post", a.post.CurrentContentVersion, a.post.ReviewRound+1, a.post.PrivacyEpoch, a.post.RestrictionEpoch)
+			taskID, e := s.submit(
+				ctx,
+				tx,
+				a.version.ContentRegistryID,
+				"whisper_post",
+				a.post.CurrentContentVersion,
+				a.post.ReviewRound+1,
+				a.post.PrivacyEpoch,
+				a.post.RestrictionEpoch,
+			)
 			if e != nil {
 				return "", e
 			}
@@ -275,14 +338,27 @@ func (s *Service) submit(ctx context.Context, tx *command.Tx, contentID, kind st
 	if !ok {
 		return "", command.ErrInternal
 	}
-	task := entity.ModerationTask{ID: uuid.NewString(), ContentID: contentID, ContentVersion: version, SubjectEpoch: g.AuthEpoch, HoldEpoch: hold, RestrictionEpoch: &restriction, Status: "pending", CreatedAt: tx.Now()}
+	task := entity.ModerationTask{
+		ID:               uuid.NewString(),
+		ContentID:        contentID,
+		ContentVersion:   version,
+		SubjectEpoch:     g.AuthEpoch,
+		HoldEpoch:        hold,
+		RestrictionEpoch: &restriction,
+		Status:           "pending",
+		CreatedAt:        tx.Now(),
+	}
 	if e := insertRow(ctx, tx.DB(), &task); e != nil {
 		return "", e
 	}
 	if e := resetRegistry(ctx, tx.DB(), contentID); e != nil {
 		return "", e
 	}
-	e := s.review.Append(ctx, tx.DB(), ReviewSubmission{TaskID: task.ID, ContentID: contentID, Kind: kind, ContentVersion: version, Round: round})
+	e := s.review.Append(
+		ctx,
+		tx.DB(),
+		ReviewSubmission{TaskID: task.ID, ContentID: contentID, Kind: kind, ContentVersion: version, Round: round},
+	)
 	return task.ID, e
 }
 
@@ -338,7 +414,17 @@ func (s *Service) SetNickname(ctx context.Context, token, key, rid string, input
 		if e != nil {
 			return "", e
 		}
-		n := entity.WhisperNicknameVersion{AccountID: p.AccountID, NicknameVersion: version, ContentRegistryID: registryID, LabelCipher: cipher, ReviewState: "scanning", ControlVersion: 1, ReviewRound: 1, ReviewTaskID: &taskID, CreatedAt: tx.Now()}
+		n := entity.WhisperNicknameVersion{
+			AccountID:         p.AccountID,
+			NicknameVersion:   version,
+			ContentRegistryID: registryID,
+			LabelCipher:       cipher,
+			ReviewState:       "scanning",
+			ControlVersion:    1,
+			ReviewRound:       1,
+			ReviewTaskID:      &taskID,
+			CreatedAt:         tx.Now(),
+		}
 		if e = insertRow(ctx, tx.DB(), &n); e != nil {
 			return "", e
 		}

@@ -21,10 +21,19 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		sql string
 	}{
 		{&g.wishes, `SELECT id FROM public.wishes WHERE owner_id=?`},
-		{&g.applications, `SELECT id FROM public.applications WHERE applicant_id=? OR wish_id IN (SELECT id FROM public.wishes WHERE owner_id=?)`},
+		{
+			&g.applications,
+			`SELECT id FROM public.applications WHERE applicant_id=? OR wish_id IN (SELECT id FROM public.wishes WHERE owner_id=?)`,
+		},
 		{&g.matches, `SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?`},
-		{&g.conversations, `SELECT id FROM public.conversations WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)`},
-		{&g.messages, `SELECT id FROM public.messages WHERE sender_id=? OR conversation_id IN (SELECT c.id FROM public.conversations c JOIN public.matches m ON m.id=c.match_id WHERE m.requester_id=? OR m.helper_id=?)`},
+		{
+			&g.conversations,
+			`SELECT id FROM public.conversations WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)`,
+		},
+		{
+			&g.messages,
+			`SELECT id FROM public.messages WHERE sender_id=? OR conversation_id IN (SELECT c.id FROM public.conversations c JOIN public.matches m ON m.id=c.match_id WHERE m.requester_id=? OR m.helper_id=?)`,
+		},
 		{&g.assets, `SELECT id FROM public.assets WHERE owner_id=?`},
 	}
 	for _, q := range queries {
@@ -41,21 +50,44 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 	if err = collectWhispers(db, id, &g); err != nil {
 		return
 	}
-	if err = db.Model(&entity.ContentRegistry{}).Where("author_id=? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ?", id, g.wishes, g.applications, g.messages).Pluck("id", &g.contents).Error; err != nil {
+	if err = db.Model(&entity.ContentRegistry{}).Where(
+		"author_id=? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ?",
+		id,
+		g.wishes,
+		g.applications,
+		g.messages,
+	).Pluck("id", &g.contents).Error; err != nil {
 		return
 	}
 	if err = db.Model(&entity.ModerationTask{}).Where("content_id IN ?", g.contents).Pluck("id", &g.tasks).Error; err != nil {
 		return
 	}
 	g.refs = append(g.refs, id)
-	for _, ids := range [][]string{g.wishes, g.applications, g.matches, g.conversations, g.messages, g.contents, g.tasks, g.assets, g.posts, g.comments, g.capsules, g.nicknames} {
+	for _, ids := range [][]string{
+		g.wishes,
+		g.applications,
+		g.matches,
+		g.conversations,
+		g.messages,
+		g.contents,
+		g.tasks,
+		g.assets,
+		g.posts,
+		g.comments,
+		g.capsules,
+		g.nicknames,
+	} {
 		g.refs = append(g.refs, ids...)
 	}
 	for _, q := range []struct {
 		model any
 		where string
 	}{
-		{&entity.IdentityReview{}, "account_id=?"}, {&entity.Penalty{}, "account_id=?"}, {&entity.Appeal{}, "account_id=?"}, {&entity.Report{}, "reporter_id=?"},
+
+		{&entity.IdentityReview{}, "account_id=?"},
+		{&entity.Penalty{}, "account_id=?"},
+		{&entity.Appeal{}, "account_id=?"},
+		{&entity.Report{}, "reporter_id=?"},
 	} {
 		var ids []string
 		if err = db.Model(q.model).Where(q.where, id).Pluck("id", &ids).Error; err != nil {
@@ -64,7 +96,9 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		g.refs = append(g.refs, ids...)
 	}
 	var reportIDs []string
-	if err = db.Model(&entity.Report{}).Where("reporter_id=? OR content_id IN ? OR target_id IN ?", id, g.contents, g.refs).Pluck("id", &reportIDs).Error; err != nil {
+	if err = db.Model(&entity.Report{}).Where("reporter_id=? OR content_id IN ? OR target_id IN ?", id, g.contents, g.refs).
+		Pluck("id", &reportIDs).
+		Error; err != nil {
 		return
 	}
 	g.refs = append(g.refs, reportIDs...)
@@ -72,7 +106,14 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		return
 	}
 	g.refs = append(g.refs, g.notifications...)
-	if err = db.Model(&entity.Notification{}).Where("recipient_id=? OR target_ref IN ? OR id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE source_id IN ? OR target_id IN ? OR comment_id IN ?)", id, g.refs, g.refs, g.refs, g.refs).Pluck("id", &g.notifications).Error; err != nil {
+	if err = db.Model(&entity.Notification{}).Where(
+		"recipient_id=? OR target_ref IN ? OR id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE source_id IN ? OR target_id IN ? OR comment_id IN ?)",
+		id,
+		g.refs,
+		g.refs,
+		g.refs,
+		g.refs,
+	).Pluck("id", &g.notifications).Error; err != nil {
 		return
 	}
 	g.refs = append(g.refs, g.notifications...)
@@ -111,12 +152,28 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.CareCard{}, "recipient_id=?", []any{id}},
 		{&entity.AccessAudit{}, "subject_ref IN ?", []any{g.refs}},
 		{&entity.ResourceFeedback{}, "account_id=?", []any{id}},
-		{&entity.CommandReceipt{}, "(actor_kind='student' AND actor_id=?) OR result_ref IN ?", []any{id, g.refs}},
-		{&entity.ConsumerReceipt{}, "operation_id IN (SELECT operation_id FROM public.work_items WHERE id IN ?)", []any{g.works}},
+		{
+			&entity.CommandReceipt{},
+			"(actor_kind='student' AND actor_id=?) OR result_ref IN ?",
+			[]any{id, g.refs},
+		},
+		{
+			&entity.ConsumerReceipt{},
+			"operation_id IN (SELECT operation_id FROM public.work_items WHERE id IN ?)",
+			[]any{g.works},
+		},
 		{&entity.OutboxEvent{}, "work_id IN ? OR aggregate_id IN ?", []any{g.works, g.refs}},
 		{&entity.WorkItem{}, "id IN ?", []any{g.works}},
-		{&entity.Report{}, "reporter_id=? OR content_id IN ? OR target_id IN ?", []any{id, g.contents, g.refs}},
-		{&entity.Appeal{}, "account_id=? OR penalty_id IN (SELECT id FROM public.penalties WHERE account_id=?)", []any{id, id}},
+		{
+			&entity.Report{},
+			"reporter_id=? OR content_id IN ? OR target_id IN ?",
+			[]any{id, g.contents, g.refs},
+		},
+		{
+			&entity.Appeal{},
+			"account_id=? OR penalty_id IN (SELECT id FROM public.penalties WHERE account_id=?)",
+			[]any{id, id},
+		},
 		{&entity.Penalty{}, "account_id=?", []any{id}},
 		{&entity.ContentRestriction{}, "content_id IN ?", []any{g.contents}},
 		{&entity.ModerationScan{}, "task_id IN ?", []any{g.tasks}},
@@ -138,7 +195,11 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.WhisperNicknameVersion{}, "account_id=?", []any{id}},
 		{&entity.ModerationTask{}, "id IN ?", []any{g.tasks}},
 		{&entity.ContentRegistry{}, "id IN ?", []any{g.contents}},
-		{&entity.PrivacyHold{}, "target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ?", []any{g.wishes, g.posts, g.comments, g.capsules, g.nicknames}},
+		{
+			&entity.PrivacyHold{},
+			"target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ?",
+			[]any{g.wishes, g.posts, g.comments, g.capsules, g.nicknames},
+		},
 		{&entity.ShareLink{}, "target_id IN ?", []any{g.wishes}},
 		{&entity.IdentityReview{}, "account_id=?", []any{id}},
 		{&entity.Asset{}, "owner_id=?", []any{id}},
@@ -146,7 +207,9 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.Session{}, "account_id=?", []any{id}},
 	}
 	// 幸存故事先移除所有已删匹配的引用；保留稳定内容屏障，不随普通关系清理。
-	if e = db.Model(&entity.StoryVersion{}).Where("source_match_id IN ?", g.matches).Updates(map[string]any{"source_match_id": nil, "peer_epoch": nil}).Error; e != nil {
+	if e = db.Model(&entity.StoryVersion{}).Where("source_match_id IN ?", g.matches).
+		Updates(map[string]any{"source_match_id": nil, "peer_epoch": nil}).
+		Error; e != nil {
 		return e
 	}
 	for _, step := range steps {
@@ -160,14 +223,24 @@ func cleanAccount(db *gorm.DB, id string) error {
 	}
 	return deleteRows(db, &entity.Account{}, "id=? AND lifecycle='deleting'", id)
 }
+
 func cleanEvidence(db *gorm.DB, id string) error {
 	for _, step := range []struct {
 		model any
 		where string
 	}{
-		{&entity.CrisisDelivery{}, "case_id IN (SELECT id FROM evidence.crisis_cases WHERE evidence_case_id=?)"},
-		{&entity.EvidenceItem{}, "case_id=?"}, {&entity.EvidenceAction{}, "case_id=?"}, {&entity.EvidenceAsset{}, "case_id=?"},
-		{&entity.EvidenceCrisisCase{}, "evidence_case_id=?"}, {&entity.EvidenceCase{}, "id=?"},
+
+		{
+			&entity.CrisisDelivery{},
+			"case_id IN (SELECT id FROM evidence.crisis_cases WHERE evidence_case_id=?)",
+		},
+
+		{&entity.EvidenceItem{}, "case_id=?"},
+		{&entity.EvidenceAction{}, "case_id=?"},
+		{&entity.EvidenceAsset{}, "case_id=?"},
+
+		{&entity.EvidenceCrisisCase{}, "evidence_case_id=?"},
+		{&entity.EvidenceCase{}, "id=?"},
 	} {
 		if e := deleteRows(db, step.model, step.where, id); e != nil {
 			return e
@@ -237,6 +310,7 @@ func (s *Service) Reconcile(ctx context.Context, after string, limit int, scope 
 	}
 	return
 }
+
 func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
@@ -311,7 +385,13 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 			if in.Scope == "account" {
 				subject = &in.Target
 			}
-			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "blocked", "target_ref": in.Target, "subject_ref": subject, "next_at": gorm.Expr("clock_timestamp()"), "error_code": nil}).Error
+			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{
+				"phase":       "blocked",
+				"target_ref":  in.Target,
+				"subject_ref": subject,
+				"next_at":     gorm.Expr("clock_timestamp()"),
+				"error_code":  nil,
+			}).Error
 		}
 		if exists > 0 {
 			if in.Scope == "account" {
@@ -325,7 +405,13 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 		}
 		if in.Scope == "account" && exists == 0 {
 			// 恢复较新快照时主体已不存在，仍由适配器核实外部副本；不能因查无账号提前完成。
-			return db.Create(&entity.DeletionJob{JobID: in.ID, Scope: in.Scope, TargetRef: &in.Target, Phase: "blocked", ExpiresAt: time.Now().Add(s.cfg.ReceiptTTL)}).Error
+			return db.Create(&entity.DeletionJob{
+				JobID:     in.ID,
+				Scope:     in.Scope,
+				TargetRef: &in.Target,
+				Phase:     "blocked",
+				ExpiresAt: time.Now().Add(s.cfg.ReceiptTTL),
+			}).Error
 		}
 		return s.createJob(db, in)
 	})
@@ -367,17 +453,7 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 	if e != nil {
 		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
 	}
-	objects, e := s.objects(ctx, in)
-	if e == nil {
-		if s.eraser == nil {
-			e = command.ErrUnavailable
-		} else {
-			call, stop := context.WithTimeout(ctx, s.cfg.Command.Timeout)
-			e = eraseSafely(call, s.eraser, in, objects)
-			stop()
-		}
-	}
-	if e != nil {
+	if e := s.eraseObjects(ctx, in); e != nil {
 		return true, s.deferJob(ctx, in.ID, "external_cleanup_unavailable")
 	}
 	bounded, cancel = context.WithTimeout(ctx, s.cfg.Command.Timeout)
@@ -461,7 +537,9 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 				return e
 			}
 		}
-		return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{"phase": "verifying", "subject_ref": nil, "error_code": nil, "remaining_counts": emptyJSON()}).Error
+		return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).
+			Updates(map[string]any{"phase": "verifying", "subject_ref": nil, "error_code": nil, "remaining_counts": emptyJSON()}).
+			Error
 	})
 	if err != nil {
 		_ = s.deferJob(ctx, in.ID, "database_cleanup_unavailable")
@@ -470,6 +548,22 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 	err = s.finish(ctx, in.ID)
 	return
 }
+
+// eraseObjects 在数据库清理前枚举并删除外部副本；适配器失败时保留原目标供下次重试。
+// 网络调用独立限时，不在持有业务行锁的最终清理事务内执行。
+func (s *Service) eraseObjects(ctx context.Context, in Intent) error {
+	objects, err := s.objects(ctx, in)
+	if err != nil {
+		return err
+	}
+	if s.eraser == nil {
+		return command.ErrUnavailable
+	}
+	call, stop := context.WithTimeout(ctx, s.cfg.Command.Timeout)
+	defer stop()
+	return eraseSafely(call, s.eraser, in, objects)
+}
+
 func (s *Service) finish(ctx context.Context, id string) error {
 	// 先确认恢复日志，再清空业务目标；两者之间崩溃由verifying工作继续，不提前报告完成。
 	if e := s.journal.Confirm(ctx, id); e != nil {
@@ -477,7 +571,10 @@ func (s *Service) finish(ctx context.Context, id string) error {
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
-	return s.db.WithContext(bounded).Model(&entity.DeletionJob{}).Where("job_id=? AND phase='verifying'", id).Updates(map[string]any{"phase": "completed", "target_ref": nil, "error_code": nil}).Error
+	return s.db.WithContext(bounded).Model(&entity.DeletionJob{}).
+		Where("job_id=? AND phase='verifying'", id).
+		Updates(map[string]any{"phase": "completed", "target_ref": nil, "error_code": nil}).
+		Error
 }
 
 func eraseSafely(ctx context.Context, e Eraser, in Intent, objects []Object) (err error) {
@@ -491,10 +588,15 @@ func eraseSafely(ctx context.Context, e Eraser, in Intent, objects []Object) (er
 	}
 	return
 }
+
 func (s *Service) deferJob(ctx context.Context, id, code string) error {
 	bounded, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
-	if e := s.db.WithContext(bounded).Model(&entity.DeletionJob{}).Where("job_id=? AND phase<>'completed'", id).Updates(map[string]any{"error_code": code, "attempts": gorm.Expr("attempts+1"), "next_at": time.Now().Add(s.cfg.RetryDelay)}).Error; e != nil {
+	if e := s.db.WithContext(bounded).Model(&entity.DeletionJob{}).Where("job_id=? AND phase<>'completed'", id).Updates(map[string]any{
+		"error_code": code,
+		"attempts":   gorm.Expr("attempts+1"),
+		"next_at":    time.Now().Add(s.cfg.RetryDelay),
+	}).Error; e != nil {
 		return e
 	}
 	return command.ErrUnavailable

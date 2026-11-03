@@ -36,7 +36,12 @@ func exceptionExit(ctx context.Context, tx *command.Tx, id string) (string, erro
 		return "", e
 	}
 	allowed := n > 0
-	if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", peer, tx.Now(), tx.Now()).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		peer,
+		tx.Now(),
+		tx.Now(),
+	).Count(&n).Error; e != nil {
 		return "", e
 	}
 	allowed = allowed || n > 0
@@ -64,8 +69,15 @@ func exceptionExit(ctx context.Context, tx *command.Tx, id string) (string, erro
 			return "", e
 		}
 	}
-	if e := db.Model(&entity.Match{}).Where("id=?", m.ID).Updates(map[string]any{"status": "ended", "ended_at": tx.Now(), "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.Match{}).Where("id=?", m.ID).
+		Updates(map[string]any{"status": "ended", "ended_at": tx.Now(), "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return "", e
 	}
-	return id, db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{"state": "withdrawn", "version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1"), "refresh_on_publish": false}).Error
+	return id, db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{
+		"state":              "withdrawn",
+		"version":            gorm.Expr("version+1"),
+		"restriction_epoch":  gorm.Expr("restriction_epoch+1"),
+		"refresh_on_publish": false,
+	}).Error
 }

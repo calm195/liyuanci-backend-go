@@ -46,7 +46,12 @@ func New(db *gorm.DB, codec *securedata.Codec, digests DigestService, logger *za
 	if db == nil || codec == nil || digests == nil || logger == nil {
 		return nil, ErrUnavailable
 	}
-	return &Store{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), codec: codec, digests: digests, logger: logger}, nil
+	return &Store{
+		db:      db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		codec:   codec,
+		digests: digests,
+		logger:  logger,
+	}, nil
 }
 
 type keyState struct {
@@ -64,7 +69,12 @@ func (s *Store) transaction(ctx context.Context, operation, purpose string, acti
 			result = "failure"
 		}
 		// 不输出账号、摘要、引用或供应商错误原文，防止身份关联及凭据泄漏。
-		s.logger.Info("身份存储操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		s.logger.Info(
+			"身份存储操作完成",
+			zap.String("operation", operation),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	if !validPurpose(purpose) {
 		return ErrUnavailable
@@ -86,7 +96,11 @@ func (s *Store) transaction(ctx context.Context, operation, purpose string, acti
 // state 只读取检索状态投影，空记录仍由领域边界映射为不可用。
 func state(tx *gorm.DB, purpose string) (keyState, error) {
 	var result []keyState
-	if tx.Model(&entity.IdentityLookupKey{}).Select("current_ref, previous_ref").Where("purpose = ?", purpose).Find(&result).Error != nil || len(result) != 1 {
+	if tx.Model(&entity.IdentityLookupKey{}).Select("current_ref, previous_ref").
+		Where("purpose = ?", purpose).
+		Find(&result).
+		Error != nil ||
+		len(result) != 1 {
 		return keyState{}, ErrUnavailable
 	}
 	return result[0], nil
@@ -109,7 +123,9 @@ func (s *Store) Configure(ctx context.Context, purpose, ref string) error {
 		if _, err := s.digest(ctx, ref, purpose, []byte("key-availability-check")); err != nil {
 			return err
 		}
-		if tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "purpose"}}, DoNothing: true}).Create(&entity.IdentityLookupKey{Purpose: purpose, CurrentRef: ref}).Error != nil {
+		if tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "purpose"}}, DoNothing: true}).
+			Create(&entity.IdentityLookupKey{Purpose: purpose, CurrentRef: ref}).
+			Error != nil {
 			return ErrUnavailable
 		}
 		current, err := state(tx, purpose)
@@ -144,7 +160,11 @@ func (s *Store) BeginRotation(ctx context.Context, purpose, nextRef string) erro
 		if _, err = s.digest(ctx, nextRef, purpose, []byte("key-availability-check")); err != nil {
 			return err
 		}
-		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).Updates(map[string]any{"previous_ref": gorm.Expr("current_ref"), "current_ref": nextRef, "version": gorm.Expr("version + 1")}).Error != nil {
+		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).Updates(map[string]any{
+			"previous_ref": gorm.Expr("current_ref"),
+			"current_ref":  nextRef,
+			"version":      gorm.Expr("version + 1"),
+		}).Error != nil {
 			return ErrUnavailable
 		}
 		return nil
@@ -204,7 +224,13 @@ func (s *Store) backfillOne(ctx context.Context, tx *gorm.DB, purpose string, cu
 		return err
 	}
 	var matches int64
-	if tx.Model(&entity.IdentityLookupClaim{}).Where("account_id = ? AND purpose = ? AND key_ref = ? AND digest = ?", id, purpose, *current.PreviousRef, previous).Count(&matches).Error != nil || matches != 1 {
+	if tx.Model(&entity.IdentityLookupClaim{}).Where(
+		"account_id = ? AND purpose = ? AND key_ref = ? AND digest = ?",
+		id,
+		purpose,
+		*current.PreviousRef,
+		previous,
+	).Count(&matches).Error != nil || matches != 1 {
 		return ErrUnavailable
 	}
 	next, err := s.digest(ctx, current.CurrentRef, purpose, plain)
@@ -237,7 +263,9 @@ func (s *Store) FinishRotation(ctx context.Context, purpose string) error {
 		if tx.Where("purpose = ? AND key_ref = ?", purpose, *current.PreviousRef).Delete(&entity.IdentityLookupClaim{}).Error != nil {
 			return ErrUnavailable
 		}
-		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).Updates(map[string]any{"previous_ref": nil, "version": gorm.Expr("version + 1")}).Error != nil {
+		if tx.Model(&entity.IdentityLookupKey{}).Where("purpose = ?", purpose).
+			Updates(map[string]any{"previous_ref": nil, "version": gorm.Expr("version + 1")}).
+			Error != nil {
 			return ErrUnavailable
 		}
 		return nil
@@ -294,7 +322,9 @@ func (s *Store) reencryptOne(ctx context.Context, tx *gorm.DB, purpose, targetRe
 	if err != nil {
 		return ErrUnavailable
 	}
-	if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", id, purpose).Updates(map[string]any{"envelope": json.RawMessage(serialized)}).Error != nil {
+	if tx.Model(&entity.IdentitySecret{}).Where("account_id = ? AND purpose = ?", id, purpose).
+		Updates(map[string]any{"envelope": json.RawMessage(serialized)}).
+		Error != nil {
 		return ErrUnavailable
 	}
 	return nil
@@ -338,7 +368,11 @@ func (s *Store) ResolveOpenID(ctx context.Context, tx *gorm.DB, value []byte) (i
 			return "", e
 		}
 		var rows []struct{ AccountID string }
-		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose='openid' AND key_ref=? AND digest=?", ref, values[i]).Find(&rows).Error != nil {
+		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where(
+			"purpose='openid' AND key_ref=? AND digest=?",
+			ref,
+			values[i],
+		).Find(&rows).Error != nil {
 			return "", ErrUnavailable
 		}
 		if len(rows) == 1 {
@@ -406,6 +440,7 @@ func (s *Store) BindStudentNumber(ctx context.Context, tx *gorm.DB, accountID st
 	}
 	return s.bind(ctx, tx.WithContext(ctx), accountID, "student_number", value)
 }
+
 func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string, value []byte) error {
 	canonical, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, accountID)
 	if !canonical || len(value) == 0 {
@@ -416,7 +451,13 @@ func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string
 		return err
 	}
 	var accounts []struct{ Lifecycle string }
-	if tx.Model(&entity.Account{}).Select("lifecycle").Where("id = ?", accountID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&accounts).Error != nil || len(accounts) != 1 || accounts[0].Lifecycle != "active" {
+	if tx.Model(&entity.Account{}).Select("lifecycle").
+		Where("id = ?", accountID).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&accounts).
+		Error != nil ||
+		len(accounts) != 1 ||
+		accounts[0].Lifecycle != "active" {
 		return ErrUnavailable
 	}
 	refs := []string{current.CurrentRef}
@@ -431,7 +472,12 @@ func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string
 			return err
 		}
 		var owners []struct{ AccountID string }
-		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where("purpose = ? AND key_ref = ? AND digest = ?", purpose, ref, values[i]).Find(&owners).Error != nil {
+		if tx.Model(&entity.IdentityLookupClaim{}).Select("account_id").Where(
+			"purpose = ? AND key_ref = ? AND digest = ?",
+			purpose,
+			ref,
+			values[i],
+		).Find(&owners).Error != nil {
 			return ErrUnavailable
 		}
 		if len(owners) > 0 {
@@ -459,7 +505,12 @@ func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string
 	if err != nil {
 		return ErrUnavailable
 	}
-	if tx.Create(&entity.IdentitySecret{AccountID: accountID, Purpose: purpose, ContentVersion: 1, Envelope: json.RawMessage(encoded)}).Error != nil {
+	if tx.Create(&entity.IdentitySecret{
+		AccountID:      accountID,
+		Purpose:        purpose,
+		ContentVersion: 1,
+		Envelope:       json.RawMessage(encoded),
+	}).Error != nil {
 		return ErrUnavailable
 	}
 	for i, ref := range refs {

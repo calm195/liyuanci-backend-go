@@ -75,7 +75,16 @@ func TestAdminUsersQuery(t *testing.T) {
 	api := open(dsn + " options='-c role=liyuanci_admin_api'")
 	codec, e := securedata.New(testKeys{}, log)
 	must(e)
-	service, e := safety.New(api, log, codec, safety.Config{Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, Key: []byte(strings.Repeat("u", 32)), MaxTextBytes: 65536})
+	service, e := safety.New(
+		api,
+		log,
+		codec,
+		safety.Config{
+			Command:      command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+			Key:          []byte(strings.Repeat("u", 32)),
+			MaxTextBytes: 65536,
+		},
+	)
 	must(e)
 	router := httpapi.New(log, nil)
 	must(httpapi.RegisterSafety(router, service, service))
@@ -193,7 +202,19 @@ func TestAdminUsersQuery(t *testing.T) {
 		call(t, studentToken, "", 403)
 		call(t, emptyToken, "", 403)
 		call(t, emptyToken, "/"+uuid.NewString(), 403)
-		for _, q := range []string{"?limit=0", "?limit=51", "?cursor=", "?user_id=", "?user_id=invalid", "?verification=all", "?restriction=all", "?nickname=a&nickname=a", "?limit=1&limit=1", "?unknown=x", "?nickname=" + url.QueryEscape(strings.Repeat("鲤", 51))} {
+		for _, q := range []string{
+			"?limit=0",
+			"?limit=51",
+			"?cursor=",
+			"?user_id=",
+			"?user_id=invalid",
+			"?verification=all",
+			"?restriction=all",
+			"?nickname=a&nickname=a",
+			"?limit=1&limit=1",
+			"?unknown=x",
+			"?nickname=" + url.QueryEscape(strings.Repeat("鲤", 51)),
+		} {
 			call(t, token, q, 400)
 		}
 		call(t, token, "/"+uuid.NewString(), 404)
@@ -231,16 +252,49 @@ func TestAdminUsersQuery(t *testing.T) {
 	content := func(kind string) string {
 		t.Helper()
 		id := uuid.NewString()
-		must(root.Create(&entity.ContentRegistry{ID: id, Kind: kind, EntityID: uuid.NewString(), ContentVersion: 1, AuthorID: target, SchoolDetectionState: "pending", SchoolDetectionVersion: "synthetic"}).Error)
+		must(root.Create(&entity.ContentRegistry{
+			ID:                     id,
+			Kind:                   kind,
+			EntityID:               uuid.NewString(),
+			ContentVersion:         1,
+			AuthorID:               target,
+			SchoolDetectionState:   "pending",
+			SchoolDetectionVersion: "synthetic",
+		}).Error)
 		return id
 	}
 	ordinary, crisis, anonymous := content("wish"), content("wish"), content("whisper_post")
-	must(root.Create(&entity.ContentRestriction{ID: uuid.NewString(), ContentID: crisis, Kind: "crisis", SourceRef: uuid.NewString(), Active: true}).Error)
+	must(root.Create(&entity.ContentRestriction{
+		ID:        uuid.NewString(),
+		ContentID: crisis,
+		Kind:      "crisis",
+		SourceRef: uuid.NewString(),
+		Active:    true,
+	}).Error)
 	reportID := uuid.NewString()
-	must(root.Create(&entity.Report{ID: reportID, ReporterID: twin, TargetKind: "wish", TargetID: uuid.NewString(), ContentID: &ordinary, TypeCode: "synthetic", Status: "resolved"}).Error)
+	must(root.Create(&entity.Report{
+		ID:         reportID,
+		ReporterID: twin,
+		TargetKind: "wish",
+		TargetID:   uuid.NewString(),
+		ContentID:  &ordinary,
+		TypeCode:   "synthetic",
+		Status:     "resolved",
+	}).Error)
 	penalty := func(cid *string, kind string, start time.Time, ref string) entity.Penalty {
 		t.Helper()
-		p := entity.Penalty{ID: uuid.NewString(), AccountID: target, Level: map[string]string{"warning": "minor", "mute": "general", "ban": "severe"}[kind], ActionKind: kind, ViolationRef: ref, ContentID: cid, ContentVersion: 1, StartsAt: start, ReasonRef: uuid.NewString(), ReasonCipher: json.RawMessage(`{"sensitive":"自由理由不得输出"}`)}
+		p := entity.Penalty{
+			ID:             uuid.NewString(),
+			AccountID:      target,
+			Level:          map[string]string{"warning": "minor", "mute": "general", "ban": "severe"}[kind],
+			ActionKind:     kind,
+			ViolationRef:   ref,
+			ContentID:      cid,
+			ContentVersion: 1,
+			StartsAt:       start,
+			ReasonRef:      uuid.NewString(),
+			ReasonCipher:   json.RawMessage(`{"sensitive":"自由理由不得输出"}`),
+		}
 		if kind == "mute" {
 			end := start.Add(168 * time.Hour)
 			p.EndsAt = &end
@@ -342,7 +396,9 @@ func TestAdminUsersQuery(t *testing.T) {
 		waiting := false
 		for i := 0; i < 50; i++ {
 			var n int64
-			must(root.Raw("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%lock_command_account%'").Scan(&n).Error)
+			must(root.Raw("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%lock_command_account%'").
+				Scan(&n).
+				Error)
 			if n > 0 {
 				waiting = true
 				break
@@ -375,7 +431,8 @@ func TestAdminUsersQuery(t *testing.T) {
 		}
 	})
 	t.Run("八千用户与日志", func(t *testing.T) {
-		must(root.Exec(`INSERT INTO public.accounts(id,nickname,verification,created_at) SELECT gen_random_uuid(),'合成用户'||g,CASE WHEN g%2=0 THEN 'verified' ELSE 'unverified' END,clock_timestamp()-g*interval '1 second' FROM generate_series(1,8000) AS g`).Error)
+		must(root.Exec(`INSERT INTO public.accounts(id,nickname,verification,created_at) SELECT gen_random_uuid(),'合成用户'||g,CASE WHEN g%2=0 THEN 'verified' ELSE 'unverified' END,clock_timestamp()-g*interval '1 second' FROM generate_series(1,8000) AS g`).
+			Error)
 		// 足量有效处罚参与状态聚合，避免以几乎无处罚的空关联测量代替实际查询成本。
 		must(root.Exec(`INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,ends_at,reason_ref)
  SELECT gen_random_uuid(),id,CASE WHEN rn%2=0 THEN 'general' ELSE 'severe' END,
@@ -387,7 +444,21 @@ func TestAdminUsersQuery(t *testing.T) {
 		for _, scenario := range []struct {
 			name, path string
 			full       bool
-		}{{"无筛选", "?limit=20", true}, {"认证", "?verification=verified&limit=20", true}, {"禁言", "?restriction=muted&limit=20", true}, {"封禁", "?restriction=banned&limit=20", true}, {"高命中", "?nickname=" + url.QueryEscape("合成") + "&limit=20", true}, {"单字", "?nickname=" + url.QueryEscape("用") + "&limit=20", true}, {"组合", "?nickname=" + url.QueryEscape("合成") + "&verification=verified&restriction=normal&limit=20", true}, {"无命中", "?nickname=nonexistent", false}, {"精确ID", "?user_id=" + target, false}} {
+		}{
+			{"无筛选", "?limit=20", true},
+			{"认证", "?verification=verified&limit=20", true},
+			{"禁言", "?restriction=muted&limit=20", true},
+			{"封禁", "?restriction=banned&limit=20", true},
+			{"高命中", "?nickname=" + url.QueryEscape("合成") + "&limit=20", true},
+			{"单字", "?nickname=" + url.QueryEscape("用") + "&limit=20", true},
+			{
+				"组合",
+				"?nickname=" + url.QueryEscape("合成") + "&verification=verified&restriction=normal&limit=20",
+				true,
+			},
+			{"无命中", "?nickname=nonexistent", false},
+			{"精确ID", "?user_id=" + target, false},
+		} {
 			var samples []time.Duration
 			var nextSamples []time.Duration
 			for i := 0; i < 40; i++ {
@@ -427,7 +498,11 @@ func TestAdminUsersQuery(t *testing.T) {
 		post := func(auth, action, key string, version int64, want int) map[string]any {
 			t.Helper()
 			raw, _ := json.Marshal(map[string]any{"reason": "直接操作合成理由", "expected_version": version})
-			req, e := http.NewRequest("POST", server.URL+"/api/v1/admin/users/"+uid+"/restrictions/"+action, strings.NewReader(string(raw)))
+			req, e := http.NewRequest(
+				"POST",
+				server.URL+"/api/v1/admin/users/"+uid+"/restrictions/"+action,
+				strings.NewReader(string(raw)),
+			)
 			must(e)
 			req.Header.Set("Authorization", "Bearer "+auth)
 			req.Header.Set("Content-Type", "application/json")
@@ -480,13 +555,23 @@ func TestAdminUsersQuery(t *testing.T) {
 		var rows []entity.Penalty
 		must(root.Where("account_id=?", uid).Find(&rows).Error)
 		for _, p := range rows {
-			if p.RevokedAt == nil || p.RevokedBy == nil || len(p.RevokeReasonCipher) == 0 || strings.Contains(string(p.RevokeReasonCipher), "合成理由") {
+			if p.RevokedAt == nil || p.RevokedBy == nil || len(p.RevokeReasonCipher) == 0 ||
+				strings.Contains(string(p.RevokeReasonCipher), "合成理由") {
 				t.Fatal("解除审计缺失或理由明文")
 			}
 		}
 		// 同类型多条处罚须全部解除，另一类型及内容屏障不受影响。
 		post(superToken, "ban", uuid.NewString(), 11, 200)
-		extra := entity.Penalty{ID: uuid.NewString(), AccountID: uid, Level: "severe", ActionKind: "ban", ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: now, ReasonRef: uuid.NewString()}
+		extra := entity.Penalty{
+			ID:             uuid.NewString(),
+			AccountID:      uid,
+			Level:          "severe",
+			ActionKind:     "ban",
+			ViolationRef:   uuid.NewString(),
+			ContentVersion: 1,
+			StartsAt:       now,
+			ReasonRef:      uuid.NewString(),
+		}
 		must(root.Create(&extra).Error)
 		post(superToken, "unban", uuid.NewString(), 12, 200)
 		must(root.Model(&entity.Penalty{}).Where("account_id=? AND action_kind='ban' AND revoked_at IS NULL", uid).Count(&count).Error)
@@ -498,9 +583,26 @@ func TestAdminUsersQuery(t *testing.T) {
 		var direct entity.Penalty
 		must(root.Where("account_id=? AND action_kind='mute' AND revoked_at IS NULL", uid).Take(&direct).Error)
 		st := session(uid, false)
-		studentService, e := safety.New(open(dsn+" options='-c role=liyuanci_api'"), log, codec, safety.Config{Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, Key: []byte(strings.Repeat("u", 32)), MaxTextBytes: 65536})
+		studentService, e := safety.New(
+			open(dsn+" options='-c role=liyuanci_api'"),
+			log,
+			codec,
+			safety.Config{
+				Command:      command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+				Key:          []byte(strings.Repeat("u", 32)),
+				MaxTextBytes: 65536,
+			},
+		)
 		must(e)
-		result, e := studentService.Execute(context.Background(), st, uuid.NewString(), uuid.NewString(), "appeal", "", safety.Input{PenaltyID: direct.ID, Body: "合成申诉"})
+		result, e := studentService.Execute(
+			context.Background(),
+			st,
+			uuid.NewString(),
+			uuid.NewString(),
+			"appeal",
+			"",
+			safety.Input{PenaltyID: direct.ID, Body: "合成申诉"},
+		)
 		must(e)
 		ap := result.(safety.Appeal)
 		if _, e = service.Detail(context.Background(), token, uuid.NewString(), "appeal_detail", ap.ID); e != command.ErrForbidden {
@@ -508,13 +610,25 @@ func TestAdminUsersQuery(t *testing.T) {
 		}
 		_, e = service.Detail(context.Background(), superToken, uuid.NewString(), "appeal_detail", ap.ID)
 		must(e)
-		_, e = service.Execute(context.Background(), superToken, uuid.NewString(), uuid.NewString(), "appeal_decision", ap.ID, safety.Input{Decision: "revoke", Reason: "合成申诉通过", ExpectedVersion: ap.Version})
+		_, e = service.Execute(
+			context.Background(),
+			superToken,
+			uuid.NewString(),
+			uuid.NewString(),
+			"appeal_decision",
+			ap.ID,
+			safety.Input{Decision: "revoke", Reason: "合成申诉通过", ExpectedVersion: ap.Version},
+		)
 		must(e)
 		// 相同账号版本的并发直接操作只能一个提交；新类型与旧处罚共享账号锁。
 		statuses := make(chan int, 2)
 		for i := 0; i < 2; i++ {
 			go func() {
-				req, e := http.NewRequest("POST", server.URL+"/api/v1/admin/users/"+uid+"/restrictions/ban", strings.NewReader(`{"reason":"合成并发处置","expected_version":15}`))
+				req, e := http.NewRequest(
+					"POST",
+					server.URL+"/api/v1/admin/users/"+uid+"/restrictions/ban",
+					strings.NewReader(`{"reason":"合成并发处置","expected_version":15}`),
+				)
 				if e != nil {
 					statuses <- 0
 					return

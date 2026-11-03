@@ -27,7 +27,12 @@ func TestPasswordAndConfiguration(t *testing.T) {
 	if first == second || strings.Contains(first, password) || !verifyPassword(first, password) || verifyPassword(first, password+"x") {
 		t.Fatal("随机盐或完整口令校验失败")
 	}
-	for _, bad := range []string{"", "scrypt1$a$b", "scrypt1$" + strings.Repeat("x", 32) + "$" + strings.Repeat("a", 64), "SYNTHETIC_BAD"} {
+	for _, bad := range []string{
+		"",
+		"scrypt1$a$b",
+		"scrypt1$" + strings.Repeat("x", 32) + "$" + strings.Repeat("a", 64),
+		"SYNTHETIC_BAD",
+	} {
 		if verifyPassword(bad, password) {
 			t.Fatal("非法摘要不能通过")
 		}
@@ -59,7 +64,11 @@ func (panickingLimiter) Allow(context.Context, string) (bool, error) { panic("SY
 // T008/REQ-018：注入依赖panic仍失败关闭，不能由defer把异常误记为成功。
 func TestLoginRecoveryCompletion(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
-	service := &Service{logger: zap.New(core), limiter: panickingLimiter{}, config: Config{Command: command.Config{Timeout: time.Second}}}
+	service := &Service{
+		logger:  zap.New(core),
+		limiter: panickingLimiter{},
+		config:  Config{Command: command.Config{Timeout: time.Second}},
+	}
 	result, err := service.Login(context.Background(), "synthetic", "SYNTHETIC_PASSWORD", "source", "recovery")
 	if err != command.ErrInternal || result.Token != "" {
 		t.Fatal("panic必须转稳定失败")

@@ -60,7 +60,9 @@ func TestPostgresStoryPublication(t *testing.T) {
 		t.Fatal(e)
 	}
 	var canPublish bool
-	if e := db.Raw("SELECT has_column_privilege('liyuanci_admin_api','public.story_versions','published_at','UPDATE')").Scan(&canPublish).Error; e != nil || !canPublish {
+	if e := db.Raw("SELECT has_column_privilege('liyuanci_admin_api','public.story_versions','published_at','UPDATE')").
+		Scan(&canPublish).
+		Error; e != nil || !canPublish {
 		t.Fatal("审核身份缺少公开时间写入权限", e)
 	}
 	assertComments(t, db)

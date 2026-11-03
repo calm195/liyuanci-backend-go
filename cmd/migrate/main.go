@@ -12,6 +12,7 @@ import (
 )
 
 func main() { os.Exit(run()) }
+
 func run() int {
 	path := flag.String("config", "configs/development.yaml", "与API相同的环境覆盖YAML")
 	flag.Parse()

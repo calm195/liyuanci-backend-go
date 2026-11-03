@@ -15,8 +15,10 @@ import (
 type gradeFunc func(context.Context, string) (bool, error)
 
 func (f gradeFunc) Allows(ctx context.Context, value string) (bool, error) { return f(ctx, value) }
-func pointer[T any](value T) *T                                            { return &value }
-func input() ContentInput                                                  { return ContentInput{Category: "help", Body: "合成心愿", Campus: "any"} }
+
+func pointer[T any](value T) *T { return &value }
+
+func input() ContentInput { return ContentInput{Category: "help", Body: "合成心愿", Campus: "any"} }
 
 // TestContentBoundaries 追溯 T014/REQ-003、014：精确码点、默认值、枚举和可选标签。
 func TestContentBoundaries(t *testing.T) {
@@ -28,7 +30,11 @@ func TestContentBoundaries(t *testing.T) {
 		{"defaults", func(*ContentInput) {}, nil},
 		{"500_emoji", func(in *ContentInput) { in.Body = strings.Repeat("🐟", 500) }, nil},
 		{"501_emoji", func(in *ContentInput) { in.Body = strings.Repeat("🐟", 501) }, command.ErrInvalid},
-		{"combining_codepoints", func(in *ContentInput) { in.Body = strings.Repeat("e\u0301", 251) }, command.ErrInvalid},
+		{
+			"combining_codepoints",
+			func(in *ContentInput) { in.Body = strings.Repeat("e\u0301", 251) },
+			command.ErrInvalid,
+		},
 		{"whitespace", func(in *ContentInput) { in.Body = " \t\n\u3000" }, command.ErrInvalid},
 		{"invalid_utf8", func(in *ContentInput) { in.Body = string([]byte{255}) }, command.ErrInvalid},
 		{"category", func(in *ContentInput) { in.Category = "unknown" }, command.ErrInvalid},
@@ -41,11 +47,31 @@ func TestContentBoundaries(t *testing.T) {
 		{"empty_reward", func(in *ContentInput) { in.RewardMethod = pointer("") }, command.ErrInvalid},
 		{"reward", func(in *ContentInput) { in.RewardMethod = pointer("meal") }, nil},
 		{"tags_empty", func(in *ContentInput) { in.IdentityTags = &IdentityTags{} }, nil},
-		{"gender", func(in *ContentInput) { in.IdentityTags = &IdentityTags{Gender: pointer("undisclosed")} }, nil},
-		{"gender_unknown", func(in *ContentInput) { in.IdentityTags = &IdentityTags{Gender: pointer("other")} }, command.ErrInvalid},
-		{"tag_campus", func(in *ContentInput) { in.IdentityTags = &IdentityTags{Campus: pointer("")} }, command.ErrInvalid},
-		{"grade_empty", func(in *ContentInput) { in.IdentityTags = &IdentityTags{Grade: pointer(" ")} }, command.ErrInvalid},
-		{"grade_missing_dictionary", func(in *ContentInput) { in.IdentityTags = &IdentityTags{Grade: pointer("合成年级")} }, command.ErrUnavailable},
+		{
+			"gender",
+			func(in *ContentInput) { in.IdentityTags = &IdentityTags{Gender: pointer("undisclosed")} },
+			nil,
+		},
+		{
+			"gender_unknown",
+			func(in *ContentInput) { in.IdentityTags = &IdentityTags{Gender: pointer("other")} },
+			command.ErrInvalid,
+		},
+		{
+			"tag_campus",
+			func(in *ContentInput) { in.IdentityTags = &IdentityTags{Campus: pointer("")} },
+			command.ErrInvalid,
+		},
+		{
+			"grade_empty",
+			func(in *ContentInput) { in.IdentityTags = &IdentityTags{Grade: pointer(" ")} },
+			command.ErrInvalid,
+		},
+		{
+			"grade_missing_dictionary",
+			func(in *ContentInput) { in.IdentityTags = &IdentityTags{Grade: pointer("合成年级")} },
+			command.ErrUnavailable,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			policy, _ := NewPolicy(zap.NewNop(), nil)

@@ -39,7 +39,16 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, catalo
 	}
 	cfg.ReceiptKey = append([]byte(nil), cfg.ReceiptKey...)
 	cfg.CursorKey = append([]byte(nil), cfg.CursorKey...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), logger: logger, codec: codec, engine: engine, catalog: catalog, admission: admission, review: review, config: cfg}, nil
+	return &Service{
+		db:        db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		logger:    logger,
+		codec:     codec,
+		engine:    engine,
+		catalog:   catalog,
+		admission: admission,
+		review:    review,
+		config:    cfg,
+	}, nil
 }
 
 func (s *Service) completed(operation, rid string, start time.Time, err *error) {
@@ -51,7 +60,13 @@ func (s *Service) completed(operation, rid string, start time.Time, err *error) 
 	if *err != nil {
 		result = "failure"
 	}
-	s.logger.Info("树洞操作完成", zap.String("operation", operation), zap.String("request_id", rid), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.logger.Info(
+		"树洞操作完成",
+		zap.String("operation", operation),
+		zap.String("request_id", rid),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 func boundaryError(err error) error {
@@ -62,7 +77,26 @@ func boundaryError(err error) error {
 	if errors.As(err, &rate) {
 		return rate
 	}
-	for _, known := range []error{ErrModuleUnavailable, ErrCapsuleLimit, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, command.ErrClientUpgradeRequired, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrInternal, command.ErrUnavailable, command.ErrRetry} {
+	for _, known := range []error{
+		ErrModuleUnavailable,
+		ErrCapsuleLimit,
+		ErrVerificationRequired,
+		ErrModeUnavailable,
+		ErrDictionaryChanged,
+		ErrNicknameNotReady,
+		command.ErrClientUpgradeRequired,
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrNotFound,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrConflict,
+		command.ErrBlockedInteraction,
+		command.ErrInternal,
+		command.ErrUnavailable,
+		command.ErrRetry,
+	} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -98,7 +132,16 @@ func (s *Service) Configuration(ctx context.Context, rid string) (out ModuleConf
 		return out, e
 	}
 	err = s.transaction(ctx, func(_ *gorm.DB, now time.Time) error {
-		out = ModuleConfig{ContractVersion: "whispers/1.0.0", Enabled: s.config.Enabled, ServerNow: timestamp(now), SemiAvailable: c.Grades.Version != nil, GradeDictionary: c.Grades, Limits: Limits{500, 2, 20, 60, 31536000, 20}, ReportTypes: c.Reports, BlockAPI: "opaque-v1"}
+		out = ModuleConfig{
+			ContractVersion: "whispers/1.0.0",
+			Enabled:         s.config.Enabled,
+			ServerNow:       timestamp(now),
+			SemiAvailable:   c.Grades.Version != nil,
+			GradeDictionary: c.Grades,
+			Limits:          Limits{500, 2, 20, 60, 31536000, 20},
+			ReportTypes:     c.Reports,
+			BlockAPI:        "opaque-v1",
+		}
 		return nil
 	})
 	return
@@ -122,7 +165,12 @@ func (s *Service) Workspace(ctx context.Context, token, rid string) (out Workspa
 		if e != nil {
 			return e
 		}
-		out = Workspace{ServerNow: timestamp(now), Verification: a.Verification, WriteRestricted: a.Restricted, AllowedActions: []string{}}
+		out = Workspace{
+			ServerNow:       timestamp(now),
+			Verification:    a.Verification,
+			WriteRestricted: a.Restricted,
+			AllowedActions:  []string{},
+		}
 		if !a.Restricted {
 			out.AllowedActions = append(out.AllowedActions, "whisperCapsuleCreate")
 			// 与实际屏蔽写入一致：当前学生会话无禁言/封禁且已切换opaque才提示创建。

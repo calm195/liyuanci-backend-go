@@ -96,6 +96,7 @@ type Page struct {
 	Items      []Summary `json:"items"`
 	NextCursor *string   `json:"next_cursor"`
 }
+
 type material struct {
 	Name          string `json:"name"`
 	StudentNumber string `json:"student_number"`
@@ -115,7 +116,8 @@ type Service struct {
 
 // New 仅构造注入模块，不注册路由或执行迁移。
 func New(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, binder Binder, rules Rules, objects Objects, cfg Config) (*Service, error) {
-	if log == nil || codec == nil || binder == nil || rules == nil || objects == nil || len(cfg.ReceiptKey) < 32 || cfg.MaxCardBytes < 1 || cfg.MaxCardBytes > 32<<20 {
+	if log == nil || codec == nil || binder == nil || rules == nil || objects == nil || len(cfg.ReceiptKey) < 32 || cfg.MaxCardBytes < 1 ||
+		cfg.MaxCardBytes > 32<<20 {
 		return nil, command.ErrInvalid
 	}
 	engine, e := command.New(db, log, cfg.Command)
@@ -123,7 +125,16 @@ func New(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, binder Binder, r
 		return nil, e
 	}
 	cfg.ReceiptKey = append([]byte(nil), cfg.ReceiptKey...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: engine, logger: log, codec: codec, binder: binder, rules: rules, objects: objects, cfg: cfg}, nil
+	return &Service{
+		db:      db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine:  engine,
+		logger:  log,
+		codec:   codec,
+		binder:  binder,
+		rules:   rules,
+		objects: objects,
+		cfg:     cfg,
+	}, nil
 }
 
 // ErrAssetNotReady 表示本人学生卡尚未通过扫描，不能提交或审批通过。
@@ -133,12 +144,27 @@ func validKey(key string) bool {
 	return len(key) > 0 && len(key) <= 128 && !strings.ContainsAny(key, "\r\n")
 }
 
-func validID(id string) bool { v, e := uuid.Parse(id); return e == nil && v.String() == id }
+func validID(id string) bool {
+
+	v, e := uuid.Parse(id)
+	return e == nil && v.String() == id
+}
+
 func safe(e error) error {
 	if e == nil {
 		return nil
 	}
-	for _, known := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrInternal, ErrAssetNotReady} {
+	for _, known := range []error{
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrNotFound,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrConflict,
+		command.ErrInternal,
+		ErrAssetNotReady,
+	} {
 		if errors.Is(e, known) {
 			return known
 		}
@@ -148,6 +174,7 @@ func safe(e error) error {
 	}
 	return command.ErrUnavailable
 }
+
 func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if recover() != nil {
 		*err = command.ErrInternal
@@ -162,8 +189,15 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	}) {
 		rid = ""
 	}
-	s.logger.Info("人工认证操作完成", zap.String("operation", op), zap.String("request_id", rid), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.logger.Info(
+		"人工认证操作完成",
+		zap.String("operation", op),
+		zap.String("request_id", rid),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
+
 func (s *Service) digest(v any) string {
 	b, _ := json.Marshal(v)
 	defer clear(b)
@@ -172,16 +206,22 @@ func (s *Service) digest(v any) string {
 	m.Write(b)
 	return hex.EncodeToString(m.Sum(nil))
 }
+
 func projection(r entity.IdentityReview) Result {
 	return Result{r.ID, r.Version, r.Status, r.Reason, r.RevisionSuggestion}
 }
+
 func (s *Service) decrypt(ctx context.Context, r entity.IdentityReview) (material, error) {
 	var env securedata.Envelope
 	var m material
 	if json.Unmarshal(r.DataCipher, &env) != nil {
 		return m, command.ErrUnavailable
 	}
-	b, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "identity_review", ObjectID: r.ID, Version: uint64(r.Version)}, env)
+	b, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "identity_review", ObjectID: r.ID, Version: uint64(r.Version)},
+		env,
+	)
 	if e != nil {
 		return m, e
 	}
@@ -198,7 +238,11 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 		}
 	}()
 	defer s.done("submit", rid, time.Now(), &err)
-	if !validKey(key) || !validID(in.AssetID) || !utf8.ValidString(in.Name) || !utf8.ValidString(in.StudentNumber) || len(in.Name) > 256 || len(in.StudentNumber) > 128 || strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.StudentNumber) == "" || in.ExpectedVersion != nil && *in.ExpectedVersion < 1 {
+	if !validKey(key) || !validID(in.AssetID) || !utf8.ValidString(in.Name) || !utf8.ValidString(in.StudentNumber) || len(in.Name) > 256 ||
+		len(in.StudentNumber) > 128 ||
+		strings.TrimSpace(in.Name) == "" ||
+		strings.TrimSpace(in.StudentNumber) == "" ||
+		in.ExpectedVersion != nil && *in.ExpectedVersion < 1 {
 		return out, command.ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
@@ -214,7 +258,14 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 		return out, safe(e)
 	}
 	id := uuid.NewString()
-	d := command.Definition{Kind: "identity_review.submit", Method: "POST", ResourcePath: "/api/v1/me/verification-requests", ActorKind: "student", Access: command.Ordinary, IdentityLock: true}
+	d := command.Definition{
+		Kind:         "identity_review.submit",
+		Method:       "POST",
+		ResourcePath: "/api/v1/me/verification-requests",
+		ActorKind:    "student",
+		Access:       command.Ordinary,
+		IdentityLock: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, sub command.Subject) (command.Discovery, error) {
 		plan := command.Discovery{Resources: []command.Resource{{Kind: command.Asset, ID: in.AssetID}}}
 		r, e := latest(db.WithContext(ctx), sub.ID)
@@ -265,7 +316,11 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 			return "", e
 		}
 		defer clear(b)
-		env, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "identity_review", ObjectID: id, Version: uint64(version)}, b)
+		env, e := s.codec.Encrypt(
+			ctx,
+			securedata.Binding{Purpose: "identity_review", ObjectID: id, Version: uint64(version)},
+			b,
+		)
 		if e != nil {
 			return "", e
 		}
@@ -273,11 +328,31 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 		if e != nil {
 			return "", e
 		}
-		row := entity.IdentityReview{ID: id, AccountID: actor, Version: version, AssetID: in.AssetID, Status: "pending", DataCipher: encoded}
+		row := entity.IdentityReview{
+			ID:         id,
+			AccountID:  actor,
+			Version:    version,
+			AssetID:    in.AssetID,
+			Status:     "pending",
+			DataCipher: encoded,
+		}
 		if version == 1 {
 			e = createReview(db, &row)
 		} else {
-			e = updateReview(db, id, map[string]any{"version": version, "asset_id": in.AssetID, "status": "pending", "data_cipher": json.RawMessage(encoded), "reason": nil, "revision_suggestion": nil, "reviewer_id": nil, "reviewed_at": nil})
+			e = updateReview(
+				db,
+				id,
+				map[string]any{
+					"version":             version,
+					"asset_id":            in.AssetID,
+					"status":              "pending",
+					"data_cipher":         json.RawMessage(encoded),
+					"reason":              nil,
+					"revision_suggestion": nil,
+					"reviewer_id":         nil,
+					"reviewed_at":         nil,
+				},
+			)
 		}
 		if e != nil {
 			return "", e
@@ -298,7 +373,11 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 		out = projection(r)
 		return nil
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in)})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in)},
+	)
 	if err != nil {
 		out = Result{}
 	}
@@ -313,7 +392,12 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		}
 	}()
 	defer s.done("decision", rid, time.Now(), &err)
-	if !validKey(key) || !validID(id) || in.ExpectedVersion < 1 || (in.Decision != "approved" && in.Decision != "rejected") || len(in.Reason) > 2000 || len(in.RevisionSuggestion) > 2000 || !utf8.ValidString(in.Reason) || !utf8.ValidString(in.RevisionSuggestion) || in.Decision == "rejected" && (strings.TrimSpace(in.Reason) == "" || strings.TrimSpace(in.RevisionSuggestion) == "") {
+	if !validKey(key) || !validID(id) || in.ExpectedVersion < 1 || (in.Decision != "approved" && in.Decision != "rejected") ||
+		len(in.Reason) > 2000 ||
+		len(in.RevisionSuggestion) > 2000 ||
+		!utf8.ValidString(in.Reason) ||
+		!utf8.ValidString(in.RevisionSuggestion) ||
+		in.Decision == "rejected" && (strings.TrimSpace(in.Reason) == "" || strings.TrimSpace(in.RevisionSuggestion) == "") {
 		return out, command.ErrInvalid
 	}
 	if e := s.transaction(ctx, func(db *gorm.DB) error {
@@ -322,13 +406,24 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 	}); e != nil {
 		return out, e
 	}
-	d := command.Definition{Kind: "identity_review.decision", Method: "POST", ResourcePath: "/api/v1/admin/identity-reviews/" + id + "/decision", ActorKind: "admin", AllowedRoles: []string{"review_operator", "super_admin"}, IdentityLock: true, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "identity_review.decision",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/identity-reviews/" + id + "/decision",
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"review_operator", "super_admin"},
+		IdentityLock:         true,
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		r, e := review(db.WithContext(ctx), id)
 		if e != nil {
 			return command.Discovery{}, e
 		}
-		return command.Discovery{Accounts: []string{r.AccountID}, Resources: []command.Resource{{Kind: command.Asset, ID: r.AssetID}, {Kind: command.IdentityReview, ID: r.ID}}}, nil
+		return command.Discovery{
+			Accounts:  []string{r.AccountID},
+			Resources: []command.Resource{{Kind: command.Asset, ID: r.AssetID}, {Kind: command.IdentityReview, ID: r.ID}},
+		}, nil
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		r, e := review(tx.DB().WithContext(ctx), id)
@@ -376,7 +471,14 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			verification = "verified"
 		}
 		actor := tx.Actor().ID
-		updates := map[string]any{"status": in.Decision, "version": r.Version + 1, "reviewer_id": actor, "reviewed_at": tx.Now(), "reason": nil, "revision_suggestion": nil}
+		updates := map[string]any{
+			"status":              in.Decision,
+			"version":             r.Version + 1,
+			"reviewer_id":         actor,
+			"reviewed_at":         tx.Now(),
+			"reason":              nil,
+			"revision_suggestion": nil,
+		}
 		// 密文AAD绑定原版本，状态版本递增时同步重封装，详情不得用新版本解密旧密文。
 		m, e := s.decrypt(ctx, r)
 		if e != nil {
@@ -387,7 +489,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			return "", e
 		}
 		defer clear(b)
-		env, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "identity_review", ObjectID: id, Version: uint64(r.Version + 1)}, b)
+		env, e := s.codec.Encrypt(
+			ctx,
+			securedata.Binding{Purpose: "identity_review", ObjectID: id, Version: uint64(r.Version + 1)},
+			b,
+		)
 		if e != nil {
 			return "", e
 		}
@@ -418,7 +524,21 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		}
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.IdentityReview, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.IdentityReview, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	if err != nil {
 		out = Result{}
 	}

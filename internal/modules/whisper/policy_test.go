@@ -17,7 +17,13 @@ func TestTextAndIdentityBounds(t *testing.T) {
 		name, text string
 		valid      bool
 	}{
-		{"上限", strings.Repeat("鲤", 500), true}, {"超限", strings.Repeat("鲤", 501), false}, {"保留空白", "  树洞 \n", true}, {"纯空白", "\u3000\n", false}, {"非法编码", string([]byte{255}), false}, {"空字符", "树\x00洞", false},
+
+		{"上限", strings.Repeat("鲤", 500), true},
+		{"超限", strings.Repeat("鲤", 501), false},
+		{"保留空白", "  树洞 \n", true},
+		{"纯空白", "\u3000\n", false},
+		{"非法编码", string([]byte{255}), false},
+		{"空字符", "树\x00洞", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if validText(tc.text, 1, 500) != tc.valid {
@@ -26,7 +32,12 @@ func TestTextAndIdentityBounds(t *testing.T) {
 		})
 	}
 	v := int64(1)
-	for _, i := range []IdentityInput{{Mode: "named"}, {Mode: "semi", DictionaryVersion: &v}, {Mode: "anonymous", NicknameVersion: &v}, {Mode: "other"}} {
+	for _, i := range []IdentityInput{
+		{Mode: "named"},
+		{Mode: "semi", DictionaryVersion: &v},
+		{Mode: "anonymous", NicknameVersion: &v},
+		{Mode: "other"},
+	} {
 		if identityShape(i) {
 			t.Fatal("接受互斥档位无效组合")
 		}
@@ -50,7 +61,12 @@ func TestCursorIsolation(t *testing.T) {
 	if _, e = s.decodeCursor(value, scope); e != nil {
 		t.Fatal(e)
 	}
-	for _, pair := range [][2]string{{value, s.scope("own", uuid.NewString())}, {value, s.scope("public", owner)}, {value + "x", scope}, {strings.Repeat("x", 4097), scope}} {
+	for _, pair := range [][2]string{
+		{value, s.scope("own", uuid.NewString())},
+		{value, s.scope("public", owner)},
+		{value + "x", scope},
+		{strings.Repeat("x", 4097), scope},
+	} {
 		if _, e = s.decodeCursor(pair[0], pair[1]); e == nil {
 			t.Fatal("游标隔离失效")
 		}

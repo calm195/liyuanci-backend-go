@@ -57,7 +57,8 @@ def main():
         raise ValueError('初始化仅允许本地HTTP入口')
     cfg = values['development'] if values['mode'] == 'development' else values['business']
     source = Path(values['bootstrap']['wordlistsfile'])
-    if not source.is_absolute(): source = Path(args.config).resolve().parent / source
+    if not source.is_absolute():
+        source = Path(args.config).resolve().parent / source
     seeds = settings.read(source)
     if set(seeds) != {'crisis', 'school', 'ordinary_violation'} or any(not isinstance(items, list) or not items or any(not isinstance(x, str) or not x.strip() for x in items) for items in seeds.values()):
         raise ValueError('三类种子词库格式无效')
@@ -71,8 +72,8 @@ def main():
         if method != 'GET':
             headers['Idempotency-Key'] = str(uuid.uuid4())
         req = request.Request(api_url + '/api/v1/admin' + path,
-                              data=json.dumps(data).encode() if data is not None else None,
-                              headers=headers, method=method)
+                            data=json.dumps(data).encode() if data is not None else None,
+                            headers=headers, method=method)
         with opener.open(req, timeout=15) as response:
             if response.status == 204:
                 return None
@@ -81,7 +82,11 @@ def main():
                 raise ValueError('后台操作未完成')
             return body['data']
 
-    session = call('POST', '/sessions', {'login_name': values['bootstrap']['login'], 'password': cfg['adminpassword']})
+    session = call(
+        'POST',
+        '/sessions',
+        {'login_name': values['bootstrap']['login'], 'password': cfg['adminpassword']}
+    )
     token = session['token']
     try:
         result = initialize(call, seeds)

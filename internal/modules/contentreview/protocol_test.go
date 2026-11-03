@@ -18,7 +18,11 @@ func TestPersistedReviewProtocol(t *testing.T) {
 		want  string
 	}{
 		{"通过", Result{Decision: "approved", ContentVersion: 7}, `{"decision":"approved","content_version":7}`},
-		{"退回", Result{Decision: "rejected", ContentVersion: 7, Reason: &reason, RevisionSuggestion: &suggestion}, `{"decision":"rejected","content_version":7,"reason":"内容需修改","revision_suggestion":"请修改对应段落"}`},
+		{
+			"退回",
+			Result{Decision: "rejected", ContentVersion: 7, Reason: &reason, RevisionSuggestion: &suggestion},
+			`{"decision":"rejected","content_version":7,"reason":"内容需修改","revision_suggestion":"请修改对应段落"}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := json.Marshal(tc.value)

@@ -20,7 +20,13 @@ func (s SchoolRules) Validate(ctx context.Context, _ string, _ string) (err erro
 			result = "failure"
 		}
 		// 完成日志标明模拟，禁止记录姓名、学号或供应商输入。
-		s.Logger.Info("开发学校规则模拟校验完成", zap.String("operation", "development_school_rules"), zap.Bool("simulated", true), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		s.Logger.Info(
+			"开发学校规则模拟校验完成",
+			zap.String("operation", "development_school_rules"),
+			zap.Bool("simulated", true),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	return ctx.Err()
 }

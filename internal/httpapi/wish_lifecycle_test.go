@@ -18,12 +18,32 @@ func TestWishLifecycleValidation(t *testing.T) {
 		method, path, body string
 		status             int
 	}{
-		{"PUT", "/api/v1/wishes/id/content", `{"category":"help","body":"x","campus":"any","expected_version":1}`, 400},
-		{"PUT", "/api/v1/wishes/id/content", `{"category":"help","body":"x","campus":"any","expected_version":1,"refresh_expiry":null}`, 400},
-		{"PUT", "/api/v1/wishes/id/content", `{"category":"help","body":"x","campus":"any","expected_version":1,"refresh_expiry":true,"identity_tags":{"gender":null}}`, 400},
+		{
+			"PUT",
+			"/api/v1/wishes/id/content",
+			`{"category":"help","body":"x","campus":"any","expected_version":1}`,
+			400,
+		},
+		{
+			"PUT",
+			"/api/v1/wishes/id/content",
+			`{"category":"help","body":"x","campus":"any","expected_version":1,"refresh_expiry":null}`,
+			400,
+		},
+		{
+			"PUT",
+			"/api/v1/wishes/id/content",
+			`{"category":"help","body":"x","campus":"any","expected_version":1,"refresh_expiry":true,"identity_tags":{"gender":null}}`,
+			400,
+		},
 		{"POST", "/api/v1/wishes/id/submit-review", `{"expected_version":1}`, 400},
 		{"POST", "/api/v1/wishes/id/submit-review", `{"expected_version":1,"content_version":0}`, 400},
-		{"POST", "/api/v1/wishes/id/submit-review", `{"expected_version":1,"content_version":2,"content_version":3}`, 400},
+		{
+			"POST",
+			"/api/v1/wishes/id/submit-review",
+			`{"expected_version":1,"content_version":2,"content_version":3}`,
+			400,
+		},
 		{"POST", "/api/v1/wishes/id/publish", `{"expected_version":null}`, 400},
 		{"POST", "/api/v1/wishes/id/withdraw", `{"expected_version":1.5}`, 400},
 		{"DELETE", "/api/v1/wishes/id/draft", `{"expected_version":1,"state":"published"}`, 400},

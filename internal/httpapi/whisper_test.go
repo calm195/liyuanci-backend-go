@@ -22,6 +22,7 @@ func (s *whisperTransport) CreatePost(context.Context, string, string, string, w
 	s.calls++
 	return whisper.OwnerPost{}, nil
 }
+
 func (s *whisperTransport) ListPosts(context.Context, string, string, bool, whisper.Query) (any, error) {
 	s.calls++
 	return nil, nil
@@ -42,7 +43,10 @@ func TestWhisperStrictJSON(t *testing.T) {
 		{"缺身份", `{"body":"甲"}`},
 		{"超字节", `{"body":"` + strings.Repeat("字", 5500) + `","identity":{"mode":"anonymous"}}`},
 		{"非法编码", `{"body":"` + string([]byte{255}) + `","identity":{"mode":"anonymous"}}`},
-		{"标签空值", `{"body":"甲","identity":{"mode":"semi","dictionary_version":1,"tags":{"campus":"wushan","grade":null,"gender":"male"}}}`},
+		{
+			"标签空值",
+			`{"body":"甲","identity":{"mode":"semi","dictionary_version":1,"tags":{"campus":"wushan","grade":null,"gender":"male"}}}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := gin.New()
@@ -56,7 +60,8 @@ func TestWhisperStrictJSON(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
-			if w.Code != 400 || s.calls != 0 || !strings.Contains(w.Body.String(), "VALIDATION_FAILED") || w.Header().Get("Cache-Control") != "no-store" {
+			if w.Code != 400 || s.calls != 0 || !strings.Contains(w.Body.String(), "VALIDATION_FAILED") ||
+				w.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("严格协议校验失效", w.Code, w.Body.String())
 			}
 		})
@@ -72,7 +77,14 @@ func TestWhisperQueryAndAuth(t *testing.T) {
 		path, auth string
 		status     int
 	}{
-		{"/api/v1/whispers/posts?limit=0", "", 400}, {"/api/v1/whispers/posts?limit=51", "", 400}, {"/api/v1/whispers/posts?author_id=secret", "", 400}, {"/api/v1/whispers/posts?cursor=", "", 400}, {"/api/v1/whispers/posts?limit=2&limit=3", "", 400}, {"/api/v1/whispers/posts", "Bad token", 401}, {"/api/v1/me/whispers/posts", "", 401},
+
+		{"/api/v1/whispers/posts?limit=0", "", 400},
+		{"/api/v1/whispers/posts?limit=51", "", 400},
+		{"/api/v1/whispers/posts?author_id=secret", "", 400},
+		{"/api/v1/whispers/posts?cursor=", "", 400},
+		{"/api/v1/whispers/posts?limit=2&limit=3", "", 400},
+		{"/api/v1/whispers/posts", "Bad token", 401},
+		{"/api/v1/me/whispers/posts", "", 401},
 	} {
 		r := gin.New()
 		s := &whisperTransport{}

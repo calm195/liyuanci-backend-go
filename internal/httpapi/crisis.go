@@ -27,7 +27,12 @@ func RegisterCrisis(r *gin.Engine, s CrisisAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1/admin")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	g.GET("/crisis-cases", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -45,7 +50,13 @@ func RegisterCrisis(r *gin.Engine, s CrisisAPI) error {
 		}
 		adminResult(c, http.StatusOK, out)
 	})
-	for _, route := range []struct{ path, kind string }{{"/crisis-cases/:id", "case"}, {"/crisis-cases/:id/timeline", "timeline"}, {"/crisis-cases/:id/work", "work"}, {"/evidence/:id", "evidence"}, {"/evidence/:id/asset", "asset"}} {
+	for _, route := range []struct{ path, kind string }{
+		{"/crisis-cases/:id", "case"},
+		{"/crisis-cases/:id/timeline", "timeline"},
+		{"/crisis-cases/:id/work", "work"},
+		{"/evidence/:id", "evidence"},
+		{"/evidence/:id/asset", "asset"},
+	} {
 		g.GET(route.path, func(c *gin.Context) {
 			token, ok := bearer(c)
 			if !ok {
@@ -81,7 +92,12 @@ func RegisterCrisis(r *gin.Engine, s CrisisAPI) error {
 	for _, route := range []struct {
 		path, source  string
 		falsePositive bool
-	}{{"/crisis-cases/:id/actions", "", false}, {"/crisis-cases/:id/resolve-false-positive", "", true}, {"/moderation-tasks/:id/escalate-crisis", "task", false}, {"/reports/:id/escalate-crisis", "report", false}} {
+	}{
+		{"/crisis-cases/:id/actions", "", false},
+		{"/crisis-cases/:id/resolve-false-positive", "", true},
+		{"/moderation-tasks/:id/escalate-crisis", "task", false},
+		{"/reports/:id/escalate-crisis", "report", false},
+	} {
 		g.POST(route.path, func(c *gin.Context) {
 			token, ok := bearer(c)
 			if !ok {
@@ -105,7 +121,15 @@ func RegisterCrisis(r *gin.Engine, s CrisisAPI) error {
 			if route.source != "" {
 				out, e = s.EscalateCrisis(c.Request.Context(), token, key, c.GetString("request_id"), route.source, c.Param("id"), in)
 			} else {
-				out, e = s.ActOnCrisis(c.Request.Context(), token, key, c.GetString("request_id"), c.Param("id"), in, route.falsePositive)
+				out, e = s.ActOnCrisis(
+					c.Request.Context(),
+					token,
+					key,
+					c.GetString("request_id"),
+					c.Param("id"),
+					in,
+					route.falsePositive,
+				)
 			}
 			if e != nil {
 				adminError(c, e)

@@ -26,7 +26,15 @@ import (
 )
 
 // testWhisperCapsules 验证B06实际角色、加密、私密审核和持久解锁；时间推进用显式SQL夹具。
-func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Service, w *moderation.WhisperWorker, a *reviewAnalyzer, reviews, crises *moderation.Service, owner, token, otherToken, adminToken string) {
+func testWhisperCapsules(
+	t *testing.T,
+	admin, workerDB *gorm.DB,
+	s *whisper.Service,
+	w *moderation.WhisperWorker,
+	a *reviewAnalyzer,
+	reviews, crises *moderation.Service,
+	owner, token, otherToken, adminToken string,
+) {
 	t.Helper()
 	ctx := context.Background()
 	must := func(e error) {
@@ -35,7 +43,16 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 			t.Fatal(e)
 		}
 	}
-	unlock, e := whisper.NewCapsuleUnlockWorker(workerDB, zap.NewNop(), durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3})
+	unlock, e := whisper.NewCapsuleUnlockWorker(
+		workerDB,
+		zap.NewNop(),
+		durable.ConsumerConfig{
+			Timeout:     5 * time.Second,
+			LockTimeout: time.Second,
+			RetryDelay:  time.Millisecond,
+			MaxAttempts: 3,
+		},
+	)
 	must(e)
 	router := httpapi.New(zap.NewNop(), nil)
 	must(httpapi.RegisterWhisperCapsules(router, s))
@@ -81,7 +98,13 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		return at.UTC()
 	}
 	create := func(body string) whisper.Capsule {
-		v, e := s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: body, UnlockAt: now().Add(120 * time.Second), SafetyNoticeAccepted: true})
+		v, e := s.CreateCapsule(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			whisper.CapsuleInput{Body: body, UnlockAt: now().Add(120 * time.Second), SafetyNoticeAccepted: true},
+		)
 		must(e)
 		if v.Body != nil {
 			t.Fatal("创建泄漏正文")
@@ -100,13 +123,24 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		}
 		return ev
 	}
-	scan := func(id string) { _, e := w.Consume(ctx, event(id, "review")); must(e) }
+	scan := func(id string) {
+
+		_, e := w.Consume(ctx, event(id, "review"))
+		must(e)
+	}
 	due := func(id string) {
 		must(admin.Exec("UPDATE public.whisper_capsules SET unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", id).Error)
-		must(admin.Exec("UPDATE public.work_items SET next_at=clock_timestamp()-interval '1 second' WHERE kind='whisper_capsule_unlock' AND target_id=?", id).Error)
-		must(admin.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp()-interval '1 second' WHERE work_id IN (SELECT id FROM public.work_items WHERE kind='whisper_capsule_unlock' AND target_id=?)", id).Error)
+		must(admin.Exec("UPDATE public.work_items SET next_at=clock_timestamp()-interval '1 second' WHERE kind='whisper_capsule_unlock' AND target_id=?", id).
+			Error)
+		must(admin.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp()-interval '1 second' WHERE work_id IN (SELECT id FROM public.work_items WHERE kind='whisper_capsule_unlock' AND target_id=?)", id).
+			Error)
 	}
-	current := func(id string) whisper.Capsule { v, e := s.GetCapsule(ctx, token, "", id); must(e); return v }
+	current := func(id string) whisper.Capsule {
+
+		v, e := s.GetCapsule(ctx, token, "", id)
+		must(e)
+		return v
+	}
 	countNotices := func(id string) int64 {
 		var n int64
 		must(admin.Model(&entity.WhisperNotificationRef{}).Where("kind='whisper_capsule_unlocked' AND source_id=?", id).Count(&n).Error)
@@ -165,7 +199,14 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		if !r.Replayed || countNotices(c.ID) != 1 {
 			t.Fatal(r)
 		}
-		raw = request("whisperCapsuleDelete", "POST", "/me/whispers/capsules/"+c.ID+"/delete", token, map[string]any{"expected_version": c.Version}, 200)
+		raw = request(
+			"whisperCapsuleDelete",
+			"POST",
+			"/me/whispers/capsules/"+c.ID+"/delete",
+			token,
+			map[string]any{"expected_version": c.Version},
+			200,
+		)
 		must(json.Unmarshal(raw, &c))
 		if c.Status != "deleted" || c.Body != nil || countNotices(c.ID) != 0 {
 			t.Fatal(c)
@@ -176,11 +217,32 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 			t.Fatal("删除后旧工作补发")
 		}
 		c = create("未来取消信件")
-		request("whisperCapsuleCancel", "POST", "/me/whispers/capsules/"+c.ID+"/cancel", token, map[string]any{"expected_version": c.Version}, 200)
+		request(
+			"whisperCapsuleCancel",
+			"POST",
+			"/me/whispers/capsules/"+c.ID+"/cancel",
+			token,
+			map[string]any{"expected_version": c.Version},
+			200,
+		)
 		request("whisperCapsuleGet", "GET", "/me/whispers/capsules/"+c.ID, otherToken, nil, 404)
 		request("whisperCapsulesList", "GET", "/me/whispers/capsules", "", nil, 401)
-		request("whisperCapsuleCreate", "POST", "/me/whispers/capsules", token, `{"body":"正文","unlock_at":"2027-01-01T00:00:00Z","safety_notice_accepted":false}`, 400)
-		request("whisperCapsuleCreate", "POST", "/me/whispers/capsules", token, whisper.CapsuleInput{Body: "过早", UnlockAt: now().Add(59 * time.Second), SafetyNoticeAccepted: true}, 400)
+		request(
+			"whisperCapsuleCreate",
+			"POST",
+			"/me/whispers/capsules",
+			token,
+			`{"body":"正文","unlock_at":"2027-01-01T00:00:00Z","safety_notice_accepted":false}`,
+			400,
+		)
+		request(
+			"whisperCapsuleCreate",
+			"POST",
+			"/me/whispers/capsules",
+			token,
+			whisper.CapsuleInput{Body: "过早", UnlockAt: now().Add(59 * time.Second), SafetyNoticeAccepted: true},
+			400,
+		)
 	})
 	t.Run("审核挂起迟到批准与补偿", func(t *testing.T) {
 		c := create("普通命中 的私密原稿")
@@ -203,8 +265,24 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 			t.Fatal("未审工作忙轮询")
 		}
 		var task entity.ModerationTask
-		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", c.ID).Take(&task).Error)
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", task.ID, moderation.WhisperReviewCommand{ExpectedVersion: task.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		must(admin.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.entity_id=?", c.ID).
+			Take(&task).
+			Error)
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			task.ID,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        task.Version,
+				ExpectedContentVersion: 1,
+				Decision:               "approved",
+			},
+		)
 		must(e)
 		if v := current(c.ID); v.Status != "unlocked" || v.Body == nil || *v.Body != "普通命中 的私密原稿" {
 			t.Fatal(v)
@@ -233,7 +311,11 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		c := create("普通命中 取消竞争")
 		reviewEvent := event(c.ID, "review")
 		wake := event(c.ID, "unlock")
-		a.hook = func() { _, e := s.CloseCapsule(ctx, token, uuid.NewString(), "", c.ID, "cancel", c.Version); must(e) }
+		a.hook = func() {
+
+			_, e := s.CloseCapsule(ctx, token, uuid.NewString(), "", c.ID, "cancel", c.Version)
+			must(e)
+		}
 		r, e := w.Consume(ctx, reviewEvent)
 		a.hook = nil
 		must(e)
@@ -251,14 +333,30 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		future := create("受罚仍可取消")
 		starts := now().Add(-time.Second)
 		ends := starts.Add(7 * 24 * time.Hour)
-		penalty := entity.Penalty{ID: uuid.NewString(), AccountID: owner, Level: "general", ActionKind: "mute", ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: starts, EndsAt: &ends, ReasonRef: uuid.NewString()}
+		penalty := entity.Penalty{
+			ID:             uuid.NewString(),
+			AccountID:      owner,
+			Level:          "general",
+			ActionKind:     "mute",
+			ViolationRef:   uuid.NewString(),
+			ContentVersion: 1,
+			StartsAt:       starts,
+			EndsAt:         &ends,
+			ReasonRef:      uuid.NewString(),
+		}
 		must(admin.Create(&penalty).Error)
 		if v := current(readable.ID); v.Body == nil {
 			t.Fatal("处罚中断私密读取")
 		}
 		_, e = s.CloseCapsule(ctx, token, uuid.NewString(), "", future.ID, "cancel", future.Version)
 		must(e)
-		_, e = s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: "受罚不能新封存", UnlockAt: now().Add(120 * time.Second), SafetyNoticeAccepted: true})
+		_, e = s.CreateCapsule(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			whisper.CapsuleInput{Body: "受罚不能新封存", UnlockAt: now().Add(120 * time.Second), SafetyNoticeAccepted: true},
+		)
 		if !errors.Is(e, command.ErrForbidden) {
 			t.Fatal(e)
 		}
@@ -284,16 +382,33 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		must(e)
 		// 命中普通词在重试成功后仍需原人工复核，不能因恢复供应商而自动批准。
 		var reviewTask entity.ModerationTask
-		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", c.ID).Take(&reviewTask).Error)
+		must(admin.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.entity_id=?", c.ID).
+			Take(&reviewTask).
+			Error)
 		if current(c.ID).Body != nil || reviewTask.Status != "human_required" {
 			t.Fatal("词库命中在重试后被免审")
 		}
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", reviewTask.ID, moderation.WhisperReviewCommand{ExpectedVersion: reviewTask.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			reviewTask.ID,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        reviewTask.Version,
+				ExpectedContentVersion: 1,
+				Decision:               "approved",
+			},
+		)
 		must(e)
 		if current(c.ID).Body == nil {
 			t.Fatal("重试批准未能按时读取")
 		}
-		must(admin.Exec(`CREATE FUNCTION public.fail_capsule_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='whisper_capsule_unlocked' THEN RAISE EXCEPTION '合成站内通知故障'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_capsule_notice BEFORE INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.fail_capsule_notice()`).Error)
+		must(admin.Exec(`CREATE FUNCTION public.fail_capsule_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='whisper_capsule_unlocked' THEN RAISE EXCEPTION '合成站内通知故障'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_capsule_notice BEFORE INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.fail_capsule_notice()`).
+			Error)
 		_, e = unlock.Consume(ctx, event(c.ID, "unlock"))
 		if e == nil {
 			t.Fatal("故障夹具未触发")
@@ -314,8 +429,26 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		rejected := create("普通命中 需要拒绝")
 		scan(rejected.ID)
 		var task entity.ModerationTask
-		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", rejected.ID).Take(&task).Error)
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", task.ID, moderation.WhisperReviewCommand{ExpectedVersion: task.Version, ExpectedContentVersion: 1, Decision: "rejected", Reason: "合成原因", RevisionSuggestion: "请另建新胶囊"})
+		must(admin.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.entity_id=?", rejected.ID).
+			Take(&task).
+			Error)
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			task.ID,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        task.Version,
+				ExpectedContentVersion: 1,
+				Decision:               "rejected",
+				Reason:                 "合成原因",
+				RevisionSuggestion:     "请另建新胶囊",
+			},
+		)
 		must(e)
 		if v := current(rejected.ID); v.Status != "rejected" || v.ReviewResult.Reason == nil {
 			t.Fatal(v)
@@ -373,18 +506,39 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		if fp.ID == "" {
 			t.Fatal("未建立合成误报案件")
 		}
-		_, e = crises.ActOnWhisperCrisis(ctx, adminToken, uuid.NewString(), "", fp.ID, moderation.CrisisCommand{ExpectedVersion: fp.Version, Reason: "合成分类误报"}, true)
+		_, e = crises.ActOnWhisperCrisis(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			fp.ID,
+			moderation.CrisisCommand{ExpectedVersion: fp.Version, Reason: "合成分类误报"},
+			true,
+		)
 		must(e)
 		if v := current(rescan.ID); v.Status == "unlocked" || v.Body != nil {
 			t.Fatal("误报直接解锁")
 		}
 		scan(rescan.ID)
 		var next entity.ModerationTask
-		must(admin.Raw("SELECT t.* FROM public.moderation_tasks t JOIN public.whisper_capsules c ON c.review_task_id=t.id WHERE c.id=?", rescan.ID).Scan(&next).Error)
+		must(admin.Raw("SELECT t.* FROM public.moderation_tasks t JOIN public.whisper_capsules c ON c.review_task_id=t.id WHERE c.id=?", rescan.ID).
+			Scan(&next).
+			Error)
 		if next.Status != "human_required" {
 			t.Fatal("误报未回普通人工复核", next.Status)
 		}
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", next.ID, moderation.WhisperReviewCommand{ExpectedVersion: next.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			next.ID,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        next.Version,
+				ExpectedContentVersion: 1,
+				Decision:               "approved",
+			},
+		)
 		must(e)
 		if v := current(rescan.ID); v.Status != "locked" || v.Body != nil {
 			t.Fatal("普通批准绕过预约时间")
@@ -394,7 +548,14 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		c := create("隐私保护")
 		scan(c.ID)
 		due(c.ID)
-		must(admin.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: "whisper_capsule", TargetID: c.ID, HoldEpoch: 1, RequiredContentVersion: 1, Status: "active"}).Error)
+		must(admin.Create(&entity.PrivacyHold{
+			ID:                     uuid.NewString(),
+			TargetKind:             "whisper_capsule",
+			TargetID:               c.ID,
+			HoldEpoch:              1,
+			RequiredContentVersion: 1,
+			Status:                 "active",
+		}).Error)
 		if v := current(c.ID); v.Status != "isolated" || v.Body != nil {
 			t.Fatal(v)
 		}
@@ -406,7 +567,12 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		fresh, tok := uuid.NewString(), uuid.NewString()
 		hash := sha256.Sum256([]byte(tok))
 		must(admin.Create(&entity.Account{ID: fresh, Nickname: "合成额度主体"}).Error)
-		must(admin.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), fresh, hash[:]).Error)
+		must(admin.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			fresh,
+			hash[:],
+		).Error)
 		var first whisper.Capsule
 		input := whisper.CapsuleInput{Body: "额度信件", UnlockAt: now().Add(120 * time.Second), SafetyNoticeAccepted: true}
 		for i := 0; i < 19; i++ {
@@ -420,7 +586,12 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		results := make(chan error, 2)
 		for i := 0; i < 2; i++ {
 			wg.Add(1)
-			go func() { defer wg.Done(); _, e := s.CreateCapsule(ctx, tok, uuid.NewString(), "", input); results <- e }()
+			go func() {
+
+				defer wg.Done()
+				_, e := s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
+				results <- e
+			}()
 		}
 		wg.Wait()
 		close(results)
@@ -443,13 +614,15 @@ func testWhisperCapsules(t *testing.T, admin, workerDB *gorm.DB, s *whisper.Serv
 		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
 		must(e)
 		// B07补正：解锁、拒绝不占额度；隔离到期内容仍占额度。
-		must(admin.Exec("UPDATE public.whisper_capsules SET review_state='approved',created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE owner_id=? AND lifecycle='active'", fresh).Error)
+		must(admin.Exec("UPDATE public.whisper_capsules SET review_state='approved',created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE owner_id=? AND lifecycle='active'", fresh).
+			Error)
 		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
 		must(e)
 		must(admin.Exec("UPDATE public.whisper_capsules SET review_state='rejected' WHERE owner_id=? AND lifecycle='active'", fresh).Error)
 		_, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input)
 		must(e)
-		must(admin.Exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version,status) SELECT gen_random_uuid(),'whisper_capsule',id,1,1,'active' FROM public.whisper_capsules WHERE owner_id=? AND lifecycle='active'", fresh).Error)
+		must(admin.Exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version,status) SELECT gen_random_uuid(),'whisper_capsule',id,1,1,'active' FROM public.whisper_capsules WHERE owner_id=? AND lifecycle='active'", fresh).
+			Error)
 		if _, e = s.CreateCapsule(ctx, tok, uuid.NewString(), "", input); !errors.Is(e, whisper.ErrCapsuleLimit) {
 			t.Fatal("隔离未占用额度", e)
 		}

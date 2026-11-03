@@ -94,6 +94,7 @@ func (s *Service) encodeCursor(c pageCursor) string {
 	mac.Write(b)
 	return base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
+
 func (s *Service) decodeCursor(value, scope string) (out pageCursor, err error) {
 	if value == "" {
 		return out, nil
@@ -121,20 +122,26 @@ func (s *Service) decodeCursor(value, scope string) (out pageCursor, err error) 
 	}
 	return out, nil
 }
+
 func queryScope(kind, owner string, q Query) string {
 	b, _ := json.Marshal([]any{kind, owner, q.Category, q.Campus, q.State})
 	return string(b)
 }
+
 func validateQuery(q Query, own bool) error {
 	if q.Limit < 1 || q.Limit > 100 {
 		return command.ErrInvalid
 	}
 	if own {
-		if q.Category != "" || q.Campus != "" || q.State != "" && !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Matching, Realized, Fulfilled, Withdrawn, Expired}, q.State) {
+		if q.Category != "" || q.Campus != "" ||
+			q.State != "" &&
+				!slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Matching, Realized, Fulfilled, Withdrawn, Expired}, q.State) {
 			return command.ErrInvalid
 		}
 	} else {
-		if q.State != "" || q.Category != "" && !slices.Contains([]string{"help", "team", "items", "dating", "skill_exchange", "other"}, q.Category) || q.Campus != "" && !campus(q.Campus) {
+		if q.State != "" ||
+			q.Category != "" && !slices.Contains([]string{"help", "team", "items", "dating", "skill_exchange", "other"}, q.Category) ||
+			q.Campus != "" && !campus(q.Campus) {
 			return command.ErrInvalid
 		}
 	}
@@ -153,13 +160,22 @@ func (s *Service) readTransaction(ctx context.Context, run func(*gorm.DB, time.T
 		return run(db, now)
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 }
+
 func currentReader(ctx context.Context, db *gorm.DB, token string, now time.Time) (string, error) {
 	if token == "" {
 		return "", command.ErrUnauthenticated
 	}
 	h := sha256.Sum256([]byte(token))
 	var rows []struct{ ID string }
-	e := db.WithContext(ctx).Model(&entity.Session{}).Table("public.sessions AS s").Select("a.id").Joins("JOIN public.accounts a ON a.id=s.account_id").Where("s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'", h[:], now).Find(&rows).Error
+	e := db.WithContext(ctx).Model(&entity.Session{}).
+		Table("public.sessions AS s").
+		Select("a.id").
+		Joins("JOIN public.accounts a ON a.id=s.account_id").
+		Where(
+			"s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'",
+			h[:],
+			now,
+		).Find(&rows).Error
 	if e != nil {
 		return "", e
 	}
@@ -168,17 +184,25 @@ func currentReader(ctx context.Context, db *gorm.DB, token string, now time.Time
 	}
 	return rows[0].ID, nil
 }
+
 func readError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrNotFound, command.ErrForbidden, command.ErrInternal} {
+	for _, known := range []error{
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrNotFound,
+		command.ErrForbidden,
+		command.ErrInternal,
+	} {
 		if errors.Is(err, known) {
 			return known
 		}
 	}
 	return command.ErrUnavailable
 }
+
 func (s *Service) queryDone(operation, rid string, start time.Time, err *error) {
 	*err = readError(*err)
 	s.policy.finish("心愿查询操作完成", operation, rid, start, *err)
@@ -193,19 +217,43 @@ func (s *Service) publicContent(rid string, now time.Time, a aggregate) (out Pub
 	if p.IdentityTags.Grade != nil && strings.TrimSpace(*p.IdentityTags.Grade) == "" {
 		return out, command.ErrNotFound
 	}
-	if p.IdentityTags.Campus != nil && !campus(*p.IdentityTags.Campus) || p.IdentityTags.Gender != nil && !slices.Contains([]string{"male", "female", "undisclosed"}, *p.IdentityTags.Gender) {
+	if p.IdentityTags.Campus != nil && !campus(*p.IdentityTags.Campus) ||
+		p.IdentityTags.Gender != nil && !slices.Contains([]string{"male", "female", "undisclosed"}, *p.IdentityTags.Gender) {
 		return out, command.ErrNotFound
 	}
-	return PublicContent{ID: a.row.ID, Body: p.Body, ContentVersion: a.row.CurrentContentVersion, SchoolRelated: *a.snapshot.Review.SchoolRelated, NoticeCodes: p.NoticeCodes, NoticeText: p.NoticeText, Author: PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname, IdentityTags: p.IdentityTags}, Category: a.row.Category, Campus: a.row.Campus, RewardMethod: a.content.RewardMethod, ExpiresAt: a.row.ExpiresAt}, nil
+	return PublicContent{
+		ID:             a.row.ID,
+		Body:           p.Body,
+		ContentVersion: a.row.CurrentContentVersion,
+		SchoolRelated:  *a.snapshot.Review.SchoolRelated,
+		NoticeCodes:    p.NoticeCodes,
+		NoticeText:     p.NoticeText,
+		Author:         PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname, IdentityTags: p.IdentityTags},
+		Category:       a.row.Category,
+		Campus:         a.row.Campus,
+		RewardMethod:   a.content.RewardMethod,
+		ExpiresAt:      a.row.ExpiresAt,
+	}, nil
 }
+
 func effectiveState(a aggregate, now time.Time) State {
 	if a.snapshot.State == Published && a.row.ExpiresAt != nil && !now.Before(*a.row.ExpiresAt) {
 		return Expired
 	}
 	return a.snapshot.State
 }
+
 func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now time.Time, a aggregate) (out Result, err error) {
-	out = Result{PeerDeleted: a.row.PeerDeleted, ID: a.row.ID, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: effectiveState(a, now), AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, PrivacyReviewRequired: a.snapshot.PrivacyHeld}
+	out = Result{
+		PeerDeleted:           a.row.PeerDeleted,
+		ID:                    a.row.ID,
+		Version:               a.row.Version,
+		ContentVersion:        a.row.CurrentContentVersion,
+		State:                 effectiveState(a, now),
+		AllowedActions:        []string{},
+		ExpiresAt:             a.row.ExpiresAt,
+		PrivacyReviewRequired: a.snapshot.PrivacyHeld,
+	}
 	if a.task != nil {
 		decision := "pending"
 		if a.task.Status == "approved" || a.task.Status == "rejected" {
@@ -243,10 +291,15 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 			}
 		}
 		var storyRestrictions int64
-		if e = db.WithContext(ctx).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='story' AND c.entity_id=? AND r.active", a.row.ID).Count(&storyRestrictions).Error; e != nil {
+		if e = db.WithContext(ctx).Table("public.content_restrictions AS r").
+			Joins("JOIN public.content_registry c ON c.id=r.content_id").
+			Where("c.kind='story' AND c.entity_id=? AND r.active", a.row.ID).
+			Count(&storyRestrictions).
+			Error; e != nil {
 			return out, e
 		}
-		if storyRestrictions == 0 && s.config.MaxStoryBytes > 0 && a.owner.Active && a.owner.Verified && !a.owner.Restricted && !a.snapshot.Restricted {
+		if storyRestrictions == 0 && s.config.MaxStoryBytes > 0 && a.owner.Active && a.owner.Verified && !a.owner.Restricted &&
+			!a.snapshot.Restricted {
 			out.AllowedActions = append(out.AllowedActions, "putWishesIdStory")
 			if v.WithdrawnAt == nil {
 				out.AllowedActions = append(out.AllowedActions, "postWishesIdStoryWithdraw")
@@ -258,7 +311,11 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		if json.Unmarshal(a.content.BodyCipher, &envelope) != nil {
 			return Result{}, command.ErrUnavailable
 		}
-		plain, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(a.content.ContentVersion)}, envelope)
+		plain, e := s.codec.Decrypt(
+			ctx,
+			securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(a.content.ContentVersion)},
+			envelope,
+		)
 		if e != nil {
 			return Result{}, command.ErrUnavailable
 		}
@@ -267,14 +324,39 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		if json.Unmarshal(plain, &c) != nil {
 			return Result{}, command.ErrUnavailable
 		}
-		out.OwnContent = &ContentInput{Category: c.Category, Body: c.Body, Campus: c.Campus, IdentityTags: &c.IdentityTags, RewardMethod: &c.RewardMethod, DurationDays: &c.DurationDays}
+		out.OwnContent = &ContentInput{
+			Category:     c.Category,
+			Body:         c.Body,
+			Campus:       c.Campus,
+			IdentityTags: &c.IdentityTags,
+			RewardMethod: &c.RewardMethod,
+			DurationDays: &c.DurationDays,
+		}
 	}
 	if manageable(a.owner, a.snapshot, Edit) {
 		for _, candidate := range []struct {
 			action Action
 			code   string
-		}{{Edit, "putWishesIdContent"}, {DeleteDraft, "deleteWishesIdDraft"}, {SubmitReview, "postWishesIdSubmitReview"}, {Publish, "postWishesIdPublish"}, {Withdraw, "postWishesIdWithdraw"}} {
-			_, e := s.policy.Plan(rid, now, a.owner, a.snapshot, 0, Change{Action: candidate.action, ExpectedVersion: a.row.Version, ExpectedContentVersion: a.row.CurrentContentVersion, DurationDays: int(a.row.DurationDays)})
+		}{
+			{Edit, "putWishesIdContent"},
+			{DeleteDraft, "deleteWishesIdDraft"},
+			{SubmitReview, "postWishesIdSubmitReview"},
+			{Publish, "postWishesIdPublish"},
+			{Withdraw, "postWishesIdWithdraw"},
+		} {
+			_, e := s.policy.Plan(
+				rid,
+				now,
+				a.owner,
+				a.snapshot,
+				0,
+				Change{
+					Action:                 candidate.action,
+					ExpectedVersion:        a.row.Version,
+					ExpectedContentVersion: a.row.CurrentContentVersion,
+					DurationDays:           int(a.row.DurationDays),
+				},
+			)
 			if e == nil {
 				out.AllowedActions = append(out.AllowedActions, candidate.code)
 			}
@@ -298,7 +380,11 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 				capacity := true
 				if a.snapshot.State == Realized {
 					var n int64
-					if e := db.WithContext(ctx).Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))", a.row.OwnerID, now).Count(&n).Error; e != nil {
+					if e := db.WithContext(ctx).Model(&entity.Wish{}).Where(
+						"owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))",
+						a.row.OwnerID,
+						now,
+					).Count(&n).Error; e != nil {
 						return Result{}, e
 					}
 					capacity = n < 3
@@ -361,7 +447,18 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 				if !a.owner.Active || a.snapshot.PrivacyHeld || a.snapshot.Restricted || !reviewReady(a.snapshot) {
 					return command.ErrNotFound
 				}
-				p := PublicContent{ID: id, Body: a.snapshot.Review.PublicBody, ContentVersion: a.row.CurrentContentVersion, SchoolRelated: *a.snapshot.Review.SchoolRelated, NoticeCodes: []string{}, Author: PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname}, Category: a.row.Category, Campus: a.row.Campus, RewardMethod: a.content.RewardMethod, ExpiresAt: a.row.ExpiresAt}
+				p := PublicContent{
+					ID:             id,
+					Body:           a.snapshot.Review.PublicBody,
+					ContentVersion: a.row.CurrentContentVersion,
+					SchoolRelated:  *a.snapshot.Review.SchoolRelated,
+					NoticeCodes:    []string{},
+					Author:         PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname},
+					Category:       a.row.Category,
+					Campus:         a.row.Campus,
+					RewardMethod:   a.content.RewardMethod,
+					ExpiresAt:      a.row.ExpiresAt,
+				}
 				if !a.owner.HideIdentityTags {
 					p.Author.IdentityTags = copyTags(a.snapshot.Review.Tags)
 				}
@@ -369,7 +466,16 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 					p.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
 					p.NoticeText = "未经证实"
 				}
-				out = Result{PeerDeleted: a.row.PeerDeleted, ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: a.snapshot.State, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Participant: &p}
+				out = Result{
+					PeerDeleted:    a.row.PeerDeleted,
+					ID:             id,
+					Version:        a.row.Version,
+					ContentVersion: a.row.CurrentContentVersion,
+					State:          a.snapshot.State,
+					AllowedActions: []string{},
+					ExpiresAt:      a.row.ExpiresAt,
+					Participant:    &p,
+				}
 				return nil
 			}
 		}
@@ -377,12 +483,26 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 		if e != nil {
 			return command.ErrNotFound
 		}
-		out = Result{PeerDeleted: a.row.PeerDeleted, ID: id, Version: a.row.Version, ContentVersion: a.row.CurrentContentVersion, State: Published, AllowedActions: []string{}, ExpiresAt: a.row.ExpiresAt, Public: &p}
+		out = Result{
+			PeerDeleted:    a.row.PeerDeleted,
+			ID:             id,
+			Version:        a.row.Version,
+			ContentVersion: a.row.CurrentContentVersion,
+			State:          Published,
+			AllowedActions: []string{},
+			ExpiresAt:      a.row.ExpiresAt,
+			Public:         &p,
+		}
 		if actor != "" {
 			gate := applicationTarget(ctx, db, a, actor, now)
 			if gate == nil {
 				var count int64
-				if e = db.Model(&entity.Application{}).Where("wish_id=? AND applicant_id=? AND status IN ?", id, actor, []string{"pending_scan", "pending_review", "active"}).Count(&count).Error; e != nil {
+				if e = db.Model(&entity.Application{}).Where(
+					"wish_id=? AND applicant_id=? AND status IN ?",
+					id,
+					actor,
+					[]string{"pending_scan", "pending_review", "active"},
+				).Count(&count).Error; e != nil {
 					return e
 				}
 				if count == 0 {

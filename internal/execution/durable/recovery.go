@@ -36,7 +36,19 @@ func (c *Consumer) Compensate(ctx context.Context, limit int) (out Compensation,
 		if err != nil {
 			result = "failure"
 		}
-		c.logger.Info("数据库工作补偿完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Int("scanned", out.Scanned), zap.Int("applied", out.Applied), zap.Int("replayed", out.Replayed), zap.Int("cancelled", out.Cancelled), zap.Int("deferred", out.Deferred), zap.Int("missing", out.Missing), zap.Int("attention", out.Attention), zap.Int("failed", out.Failed))
+		c.logger.Info(
+			"数据库工作补偿完成",
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+			zap.Int("scanned", out.Scanned),
+			zap.Int("applied", out.Applied),
+			zap.Int("replayed", out.Replayed),
+			zap.Int("cancelled", out.Cancelled),
+			zap.Int("deferred", out.Deferred),
+			zap.Int("missing", out.Missing),
+			zap.Int("attention", out.Attention),
+			zap.Int("failed", out.Failed),
+		)
 	}()
 	if limit < 1 || limit > 100 {
 		return out, ErrInvalid
@@ -52,7 +64,9 @@ func (c *Consumer) Compensate(ctx context.Context, limit int) (out Compensation,
  ORDER BY created_at,event_id LIMIT 1) e ON true
  WHERE w.kind=? AND w.target_kind=? AND w.status IN ('pending','retry_wait','leased')
  AND w.next_at<=clock_timestamp() AND (w.status<>'leased' OR w.lease_until<=clock_timestamp())
- ORDER BY w.next_at,w.id LIMIT ?`, c.definition.Route.EventType, c.definition.Route.Kind, c.definition.Route.TargetKind, limit).Scan(&events).Error; failure != nil {
+ ORDER BY w.next_at,w.id LIMIT ?`, c.definition.Route.EventType, c.definition.Route.Kind, c.definition.Route.TargetKind, limit).
+		Scan(&events).
+		Error; failure != nil {
 		return out, ErrUnavailable
 	}
 	for _, event := range events {
@@ -132,7 +146,9 @@ func (c *Consumer) source(ctx context.Context, db *gorm.DB, id string) (Work, er
 	var rows []Work
 	if failure := db.WithContext(ctx).Raw(`SELECT w.*,coalesce(e.aggregate_version,0) AS target_version FROM public.work_items w
  LEFT JOIN LATERAL (SELECT aggregate_version FROM public.outbox_events WHERE work_id=w.id AND event_type=? AND aggregate_id=w.target_id AND superseded_at IS NULL ORDER BY created_at,event_id LIMIT 1) e ON true
- WHERE w.id=? AND w.kind=? AND w.target_kind=?`, c.definition.Route.EventType, id, c.definition.Route.Kind, c.definition.Route.TargetKind).Scan(&rows).Error; failure != nil {
+ WHERE w.id=? AND w.kind=? AND w.target_kind=?`, c.definition.Route.EventType, id, c.definition.Route.Kind, c.definition.Route.TargetKind).
+		Scan(&rows).
+		Error; failure != nil {
 		return Work{}, command.ErrUnavailable
 	}
 	if len(rows) != 1 {
@@ -199,7 +215,12 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 		return out, err
 	}
 	var locked []Work
-	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&locked).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).
+		Select("*").
+		Where("id=?", work.ID).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&locked).
+		Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if len(locked) != 1 {
@@ -229,7 +250,11 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 		return out, err
 	}
 	var receipts int64
-	if failure := tx.DB().WithContext(ctx).Model(&entity.ConsumerReceipt{}).Where("consumer_kind=? AND operation_id=?", c.definition.ConsumerKind, current.OperationID).Count(&receipts).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.ConsumerReceipt{}).Where(
+		"consumer_kind=? AND operation_id=?",
+		c.definition.ConsumerKind,
+		current.OperationID,
+	).Count(&receipts).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if receipts != 0 {
@@ -247,18 +272,33 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 	}
 	// 所有唤醒按固定事件顺序锁定；旧转发者之后只能看到失效租约，不能确认或把新周期写成 attention。
 	var eventIDs []string
-	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).Select("event_id").Where("work_id=?", work.ID).Order("event_id").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&eventIDs).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).
+		Select("event_id").
+		Where("work_id=?", work.ID).
+		Order("event_id").
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&eventIDs).
+		Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
-	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).Where("work_id=? AND superseded_at IS NULL", work.ID).Updates(map[string]any{"superseded_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.OutboxEvent{}).
+		Where("work_id=? AND superseded_at IS NULL", work.ID).
+		Updates(map[string]any{"superseded_at": gorm.Expr("clock_timestamp()"), "lease_until": nil}).
+		Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if decision == Invalidate {
-		if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; failure != nil {
+		if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).
+			Select("*").
+			Where("id=?", work.ID).
+			Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).
+			Error; failure != nil {
 			return out, command.ErrUnavailable
 		}
 		// 后台只有回执键的读取权限；显式回读主键，禁止 GORM 自动 RETURNING 完成时间。
-		if failure := tx.DB().WithContext(ctx).Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).Error; failure != nil {
+		if failure := tx.DB().WithContext(ctx).Clauses(clause.Returning{Columns: []clause.Column{{Name: "operation_id"}}}).
+			Create(&entity.ConsumerReceipt{ConsumerKind: c.definition.ConsumerKind, OperationID: current.OperationID}).
+			Error; failure != nil {
 			return out, command.ErrUnavailable
 		}
 		if err = recordRedrive(ctx, tx, work.ID, "cancelled"); err != nil {
@@ -271,10 +311,22 @@ func (c *Consumer) Redrive(ctx context.Context, tx *command.Tx, policy RedrivePo
 	if err != nil {
 		return out, command.ErrInternal
 	}
-	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Updates(map[string]any{"status": "pending", "lease_until": nil, "attempts": 0, "next_at": gorm.Expr("clock_timestamp()"), "version": gorm.Expr("version+1")}).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Model(&entity.WorkItem{}).Select("*").Where("id=?", work.ID).Updates(map[string]any{
+		"status":      "pending",
+		"lease_until": nil,
+		"attempts":    0,
+		"next_at":     gorm.Expr("clock_timestamp()"),
+		"version":     gorm.Expr("version+1"),
+	}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
-	if failure := tx.DB().WithContext(ctx).Create(&entity.OutboxEvent{EventID: id, WorkID: work.ID, AggregateID: current.TargetID, AggregateVersion: current.TargetVersion, EventType: c.definition.Route.EventType}).Error; failure != nil {
+	if failure := tx.DB().WithContext(ctx).Create(&entity.OutboxEvent{
+		EventID:          id,
+		WorkID:           work.ID,
+		AggregateID:      current.TargetID,
+		AggregateVersion: current.TargetVersion,
+		EventType:        c.definition.Route.EventType,
+	}).Error; failure != nil {
 		return out, command.ErrUnavailable
 	}
 	if err = recordRedrive(ctx, tx, work.ID, "resumed"); err != nil {
@@ -291,7 +343,13 @@ func recordRedrive(ctx context.Context, tx *command.Tx, workID, outcome string) 
 	if err != nil {
 		return command.ErrInternal
 	}
-	if tx.DB().WithContext(ctx).Create(&entity.AccessAudit{ID: id, ActorID: tx.Actor().ID, SubjectRef: workID, Purpose: "work.redrive." + outcome, Outcome: "allowed"}).Error != nil {
+	if tx.DB().WithContext(ctx).Create(&entity.AccessAudit{
+		ID:         id,
+		ActorID:    tx.Actor().ID,
+		SubjectRef: workID,
+		Purpose:    "work.redrive." + outcome,
+		Outcome:    "allowed",
+	}).Error != nil {
 		return command.ErrUnavailable
 	}
 	return nil
@@ -340,10 +398,17 @@ func (c *Consumer) RedriveCommand(policy RedrivePolicy, input RedriveRequest) (c
 	}
 	policy.AllowedRoles = roles
 	return command.Definition{
-		Kind: "work.redrive", Method: "POST", ResourcePath: "/admin/works/" + input.WorkID + "/redrive", ActorKind: "admin", AllowedRoles: roles,
+
+		Kind:         "work.redrive",
+		Method:       "POST",
+		ResourcePath: "/admin/works/" + input.WorkID + "/redrive",
+		ActorKind:    "admin",
+		AllowedRoles: roles,
+
 		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 			return c.RedrivePlan(ctx, db, input.WorkID)
 		},
+
 		Authorize: func(ctx context.Context, tx *command.Tx) error {
 			work, err := c.source(ctx, tx.DB(), input.WorkID)
 			if err != nil {
@@ -358,12 +423,14 @@ func (c *Consumer) RedriveCommand(policy RedrivePolicy, input RedriveRequest) (c
 			}
 			return nil
 		},
+
 		Apply: func(ctx context.Context, tx *command.Tx) (string, error) {
 			if _, err := c.Redrive(ctx, tx, policy, input); err != nil {
 				return "", err
 			}
 			return input.WorkID, nil
 		},
+
 		Resolve: func(ctx context.Context, tx *command.Tx, id string) error {
 			_, err := c.source(ctx, tx.DB(), id)
 			return err
@@ -384,7 +451,13 @@ func (c *Consumer) RunCompensator(ctx context.Context, interval time.Duration, l
 		if err != nil {
 			result = "failure"
 		}
-		c.logger.Info("数据库补偿调度完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Int("batches", batches), zap.Int("failures", failures))
+		c.logger.Info(
+			"数据库补偿调度完成",
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+			zap.Int("batches", batches),
+			zap.Int("failures", failures),
+		)
 	}()
 	if interval < time.Millisecond || limit < 1 || limit > 100 {
 		return ErrInvalid

@@ -28,7 +28,12 @@ func RegisterStories(r *gin.Engine, s StoriesAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	for _, path := range []string{"/wishes/:id/complete", "/wishes/:id/story/withdraw"} {
 		route := path
 		g.POST(route, func(c *gin.Context) {

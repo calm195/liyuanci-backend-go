@@ -129,10 +129,19 @@ func (s *Service) blockVisible(ctx context.Context, tx *command.Tx, src BlockSou
 func (s *Service) CreateBlock(ctx context.Context, token, key, rid string, in BlockInput) (out BlockAck, err error) {
 	defer s.completed("interaction_block_create", rid, time.Now(), &err)
 	src := in.Source
-	if !ValidID(src.ID) || (src.Kind == "public_profile" && src.ContentVersion != nil) || (src.Kind != "public_profile" && (src.Kind != "whisper_post" && src.Kind != "whisper_comment" || src.ContentVersion == nil || *src.ContentVersion < 1)) {
+	if !ValidID(src.ID) || (src.Kind == "public_profile" && src.ContentVersion != nil) ||
+		(src.Kind != "public_profile" &&
+			(src.Kind != "whisper_post" && src.Kind != "whisper_comment" || src.ContentVersion == nil || *src.ContentVersion < 1)) {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "interaction_block.create", Method: "POST", ResourcePath: "/api/v1/me/interaction-blocks", ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
+	d := command.Definition{
+		Kind:          "interaction_block.create",
+		Method:        "POST",
+		ResourcePath:  "/api/v1/me/interaction-blocks",
+		ActorKind:     "student",
+		Access:        command.Ordinary,
+		RetainReceipt: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, a command.Subject) (command.Discovery, error) {
 		target, p, e := s.blockTarget(ctx, db, src)
 		if e != nil {
@@ -167,10 +176,23 @@ func (s *Service) CreateBlock(ctx context.Context, token, key, rid string, in Bl
 		}
 		return b.BlockID, safety.ApplyBlockEffects(ctx, tx, tx.Actor().ID, target)
 	}
-	d.Resolve = func(context.Context, *command.Tx, string) error { out.Accepted = true; return nil }
+	d.Resolve = func(context.Context, *command.Tx, string) error {
+
+		out.Accepted = true
+		return nil
+	}
 	raw, _ := json.Marshal(in)
 	defer clear(raw)
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: keyed(s.config.ReceiptKey, "interaction_block.create", raw)})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        keyed(s.config.ReceiptKey, "interaction_block.create", raw),
+		},
+	)
 	if err != nil {
 		out = BlockAck{}
 	}
@@ -234,7 +256,14 @@ func (s *Service) DeleteBlock(ctx context.Context, token, key, rid, id string, v
 	if !ValidID(id) || version < 1 {
 		return command.ErrInvalid
 	}
-	d := command.Definition{Kind: "interaction_block.delete", Method: "DELETE", ResourcePath: "/api/v1/me/interaction-blocks/" + id, ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
+	d := command.Definition{
+		Kind:          "interaction_block.delete",
+		Method:        "DELETE",
+		ResourcePath:  "/api/v1/me/interaction-blocks/" + id,
+		ActorKind:     "student",
+		Access:        command.Ordinary,
+		RetainReceipt: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, a command.Subject) (p command.Discovery, e error) {
 		var rows []entity.Block
 		e = db.WithContext(ctx).Where("owner_id=? AND block_id=?", a.ID, id).Find(&rows).Error
@@ -255,6 +284,10 @@ func (s *Service) DeleteBlock(ctx context.Context, token, key, rid, id string, v
 		return id, tx.DB().WithContext(ctx).Where("owner_id=? AND block_id=?", tx.Actor().ID, id).Delete(&entity.Block{}).Error
 	}
 	d.Resolve = func(context.Context, *command.Tx, string) error { return nil }
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: struct{ Version int64 }{version}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: struct{ Version int64 }{version}},
+	)
 	return
 }

@@ -100,7 +100,10 @@ func decodeWhisperCapsule(data []byte) (out whisper.CapsuleInput, err error) {
 		return out, e
 	}
 	var stamp string
-	if json.Unmarshal(fields["body"], &out.Body) != nil || !whisperText(out.Body, 1, 500) || json.Unmarshal(fields["unlock_at"], &stamp) != nil || json.Unmarshal(fields["safety_notice_accepted"], &out.SafetyNoticeAccepted) != nil || !out.SafetyNoticeAccepted {
+	if json.Unmarshal(fields["body"], &out.Body) != nil || !whisperText(out.Body, 1, 500) ||
+		json.Unmarshal(fields["unlock_at"], &stamp) != nil ||
+		json.Unmarshal(fields["safety_notice_accepted"], &out.SafetyNoticeAccepted) != nil ||
+		!out.SafetyNoticeAccepted {
 		return out, command.ErrInvalid
 	}
 	at, e := time.Parse(time.RFC3339, stamp)

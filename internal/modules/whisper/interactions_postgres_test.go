@@ -27,7 +27,18 @@ import (
 )
 
 // testWhisperInteractions 复用独立数据库与受限身份，验证B05真实命令、审核及HTTP闭环。
-func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Service, w *moderation.WhisperWorker, analyzer *reviewAnalyzer, actor, other, token, otherToken string, legacy *chat.Service, governance *safety.Service, reviews *moderation.Service, adminToken string) {
+func testWhisperInteractions(
+	t *testing.T,
+	admin, api *gorm.DB,
+	s *whisper.Service,
+	w *moderation.WhisperWorker,
+	analyzer *reviewAnalyzer,
+	actor, other, token, otherToken string,
+	legacy *chat.Service,
+	governance *safety.Service,
+	reviews *moderation.Service,
+	adminToken string,
+) {
 	t.Helper()
 	ctx := context.Background()
 	must := func(e error) {
@@ -38,12 +49,24 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 	}
 	event := func(id string) durable.Event {
 		var ev durable.Event
-		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, id).Scan(&ev).Error)
+		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, id).
+			Scan(&ev).
+			Error)
 		return ev
 	}
-	consume := func(id string) { _, e := w.Consume(ctx, event(id)); must(e) }
+	consume := func(id string) {
+
+		_, e := w.Consume(ctx, event(id))
+		must(e)
+	}
 	createPost := func() whisper.PublicPost {
-		p, e := s.CreatePost(ctx, token, uuid.NewString(), "", whisper.ContentInput{Body: "互动测试父帖", Identity: whisper.IdentityInput{Mode: "anonymous"}})
+		p, e := s.CreatePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			whisper.ContentInput{Body: "互动测试父帖", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		)
 		must(e)
 		_, e = s.ChangePost(ctx, token, uuid.NewString(), "", p.ID, "submit", whisper.PostInput{ExpectedVersion: p.Version})
 		must(e)
@@ -99,14 +122,31 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		return out.Data
 	}
 	createComment := func(p whisper.PublicPost, body string) whisper.OwnerComment {
-		v, e := s.SaveComment(ctx, otherToken, uuid.NewString(), "", p.ID, "", whisper.CommentInput{ContentInput: whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch})
+		v, e := s.SaveComment(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"",
+			whisper.CommentInput{
+				ContentInput:          whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}},
+				ExpectedPostVersion:   p.Version,
+				ExpectedCommentsEpoch: p.CommentsEpoch,
+			},
+		)
 		must(e)
 		return v
 	}
 	t.Run("未实名暖评与十个HTTP操作", func(t *testing.T) {
 		p := createPost()
 		must(admin.Exec("UPDATE public.accounts SET verification='unverified' WHERE id=?", other).Error)
-		body := map[string]any{"expected_post_version": p.Version, "expected_comments_epoch": p.CommentsEpoch, "body": "合成人名的暖评", "identity": map[string]any{"mode": "anonymous"}}
+		body := map[string]any{
+			"expected_post_version":   p.Version,
+			"expected_comments_epoch": p.CommentsEpoch,
+			"body":                    "合成人名的暖评",
+			"identity":                map[string]any{"mode": "anonymous"},
+		}
 		raw := request("whisperCommentCreate", "POST", "/whispers/posts/"+p.ID+"/comments", otherToken, body, 202)
 		var c whisper.OwnerComment
 		must(json.Unmarshal(raw, &c))
@@ -128,7 +168,13 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		request("whisperOwnCommentGet", "GET", "/me/whispers/comments/"+c.ID, otherToken, nil, 200)
 		owner, e := s.GetComment(ctx, otherToken, "", c.ID)
 		must(e)
-		update := map[string]any{"expected_version": owner.Version, "expected_post_version": p.Version, "expected_comments_epoch": p.CommentsEpoch, "body": "改稿暖评", "identity": map[string]any{"mode": "anonymous"}}
+		update := map[string]any{
+			"expected_version":        owner.Version,
+			"expected_post_version":   p.Version,
+			"expected_comments_epoch": p.CommentsEpoch,
+			"body":                    "改稿暖评",
+			"identity":                map[string]any{"mode": "anonymous"},
+		}
 		raw = request("whisperCommentUpdate", "PUT", "/me/whispers/comments/"+c.ID, otherToken, update, 202)
 		must(json.Unmarshal(raw, &c))
 		consume(c.ID)
@@ -146,7 +192,14 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		if count != 1 {
 			t.Fatal("重审重复通知", notices)
 		}
-		request("whisperNotificationRead", "POST", "/me/whispers/notifications/"+notice.ID+"/read", token, map[string]any{"expected_version": notice.Version}, 200)
+		request(
+			"whisperNotificationRead",
+			"POST",
+			"/me/whispers/notifications/"+notice.ID+"/read",
+			token,
+			map[string]any{"expected_version": notice.Version},
+			200,
+		)
 		_, e = legacy.ReadNotification(ctx, token, uuid.NewString(), "", notice.ID, notice.Version)
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal("旧已读入口泄漏", e)
@@ -165,12 +218,37 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		}
 		c, e = s.GetComment(ctx, otherToken, "", c.ID)
 		must(e)
-		request("whisperCommentWithdraw", "POST", "/me/whispers/comments/"+c.ID+"/withdraw", otherToken, map[string]any{"expected_version": c.Version}, 200)
+		request(
+			"whisperCommentWithdraw",
+			"POST",
+			"/me/whispers/comments/"+c.ID+"/withdraw",
+			otherToken,
+			map[string]any{"expected_version": c.Version},
+			200,
+		)
 		p = current(p.ID)
-		request("whisperCommentsSetting", "PUT", "/me/whispers/posts/"+p.ID+"/comments-setting", token, map[string]any{"expected_version": p.Version, "comments_open": false}, 200)
+		request(
+			"whisperCommentsSetting",
+			"PUT",
+			"/me/whispers/posts/"+p.ID+"/comments-setting",
+			token,
+			map[string]any{"expected_version": p.Version, "comments_open": false},
+			200,
+		)
 		p = current(p.ID)
-		request("whisperHugSet", "PUT", "/whispers/posts/"+p.ID+"/hugs", otherToken, map[string]any{"expected_post_version": p.Version, "expected_hug_version": 0, "active": true}, 200)
-		for _, bad := range []string{`{"expected_post_version":1,"expected_comments_epoch":1,"body":"正文","body":"重复","identity":{"mode":"anonymous"}}`, `{"expected_post_version":1,"expected_comments_epoch":1,"body":null,"identity":{"mode":"anonymous"}}`, `{"expected_post_version":1,"expected_comments_epoch":1,"body":"正文","identity":{"mode":"anonymous"},"extra":1}`} {
+		request(
+			"whisperHugSet",
+			"PUT",
+			"/whispers/posts/"+p.ID+"/hugs",
+			otherToken,
+			map[string]any{"expected_post_version": p.Version, "expected_hug_version": 0, "active": true},
+			200,
+		)
+		for _, bad := range []string{
+			`{"expected_post_version":1,"expected_comments_epoch":1,"body":"正文","body":"重复","identity":{"mode":"anonymous"}}`,
+			`{"expected_post_version":1,"expected_comments_epoch":1,"body":null,"identity":{"mode":"anonymous"}}`,
+			`{"expected_post_version":1,"expected_comments_epoch":1,"body":"正文","identity":{"mode":"anonymous"},"extra":1}`,
+		} {
 			request("whisperCommentCreate", "POST", "/whispers/posts/"+p.ID+"/comments", otherToken, bad, 400)
 		}
 		request("whisperOwnCommentGet", "GET", "/me/whispers/comments/"+c.ID, token, nil, 404)
@@ -181,7 +259,11 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		first := createComment(p, "已有公开暖评")
 		consume(first.ID)
 		pending := createComment(p, "普通命中 迟到审核")
-		analyzer.hook = func() { _, e := s.SetComments(ctx, token, uuid.NewString(), "", p.ID, p.Version, false); must(e) }
+		analyzer.hook = func() {
+
+			_, e := s.SetComments(ctx, token, uuid.NewString(), "", p.ID, p.Version, false)
+			must(e)
+		}
 		result, e := w.Consume(ctx, event(pending.ID))
 		analyzer.hook = nil
 		must(e)
@@ -203,32 +285,80 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 			t.Fatal("恢复补发取消项")
 		}
 		p = current(p.ID)
-		changed, e := s.ChangePost(ctx, token, uuid.NewString(), "", p.ID, "update", whisper.PostInput{ExpectedVersion: p.Version, ContentInput: whisper.ContentInput{Body: "新父正文", Identity: whisper.IdentityInput{Mode: "anonymous"}}})
+		changed, e := s.ChangePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"update",
+			whisper.PostInput{
+				ExpectedVersion: p.Version,
+				ContentInput:    whisper.ContentInput{Body: "新父正文", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			},
+		)
 		must(e)
 		c, e := s.GetComment(ctx, otherToken, "", first.ID)
 		must(e)
 		if c.Status != "context_changed" {
 			t.Fatal(c)
 		}
-		_, e = s.ChangePost(ctx, token, uuid.NewString(), "", p.ID, "submit", whisper.PostInput{ExpectedVersion: changed.Version})
+		_, e = s.ChangePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"submit",
+			whisper.PostInput{ExpectedVersion: changed.Version},
+		)
 		must(e)
 		consume(p.ID)
 		p = current(p.ID)
 		if p.CommentCount != 0 {
 			t.Fatal("旧评论串跨正文恢复")
 		}
-		c, e = s.SaveComment(ctx, otherToken, uuid.NewString(), "", "", c.ID, whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "显式重提", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedVersion: c.Version, ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch})
+		c, e = s.SaveComment(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			"",
+			c.ID,
+			whisper.CommentInput{
+				ContentInput:          whisper.ContentInput{Body: "显式重提", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+				ExpectedVersion:       c.Version,
+				ExpectedPostVersion:   p.Version,
+				ExpectedCommentsEpoch: p.CommentsEpoch,
+			},
+		)
 		must(e)
 		consume(c.ID)
 		p = current(p.ID)
 		if p.CommentCount != 1 {
 			t.Fatal(p)
 		}
-		_, e = s.ChangePost(ctx, token, uuid.NewString(), "", p.ID, "withdraw", whisper.PostInput{ExpectedVersion: p.Version})
+		_, e = s.ChangePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"withdraw",
+			whisper.PostInput{ExpectedVersion: p.Version},
+		)
 		must(e)
 		rawOwn, e := s.GetPost(ctx, token, "", p.ID, true)
 		must(e)
-		_, e = s.ChangePost(ctx, token, uuid.NewString(), "", p.ID, "submit", whisper.PostInput{ExpectedVersion: rawOwn.(whisper.OwnerPost).Version})
+		_, e = s.ChangePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"submit",
+			whisper.PostInput{ExpectedVersion: rawOwn.(whisper.OwnerPost).Version},
+		)
 		must(e)
 		consume(p.ID)
 		if current(p.ID).CommentCount != 1 {
@@ -244,7 +374,14 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		if h.MyHug.Version != 1 || h.HugCount != 1 {
 			t.Fatal(h)
 		}
-		h, e = s.SetHug(ctx, otherToken, uuid.NewString(), "", p.ID, whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 1, Active: false})
+		h, e = s.SetHug(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			p.ID,
+			whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 1, Active: false},
+		)
 		must(e)
 		replay, e := s.SetHug(ctx, otherToken, key, "", p.ID, in)
 		must(e)
@@ -260,13 +397,39 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 			t.Fatal(e)
 		}
 		must(admin.Create(&entity.Block{OwnerID: actor, TargetID: other}).Error)
-		_, e = s.SetHug(ctx, otherToken, uuid.NewString(), "", p.ID, whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 2, Active: true})
+		_, e = s.SetHug(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			p.ID,
+			whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 2, Active: true},
+		)
 		if !errors.Is(e, command.ErrBlockedInteraction) {
 			t.Fatal(e)
 		}
-		_, e = s.SetHug(ctx, otherToken, uuid.NewString(), "", p.ID, whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 2, Active: false})
+		_, e = s.SetHug(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			p.ID,
+			whisper.HugInput{ExpectedPostVersion: p.Version, ExpectedHugVersion: 2, Active: false},
+		)
 		must(e)
-		_, e = s.SaveComment(ctx, otherToken, uuid.NewString(), "", p.ID, "", whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "关系受限", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch})
+		_, e = s.SaveComment(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"",
+			whisper.CommentInput{
+				ContentInput:          whisper.ContentInput{Body: "关系受限", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+				ExpectedPostVersion:   p.Version,
+				ExpectedCommentsEpoch: p.CommentsEpoch,
+			},
+		)
 		if !errors.Is(e, command.ErrBlockedInteraction) {
 			t.Fatal(e)
 		}
@@ -278,7 +441,14 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, e := s.SetHug(ctx, otherToken, uuid.NewString(), "", p2.ID, whisper.HugInput{ExpectedPostVersion: p2.Version, ExpectedHugVersion: 0, Active: true})
+				_, e := s.SetHug(
+					ctx,
+					otherToken,
+					uuid.NewString(),
+					"",
+					p2.ID,
+					whisper.HugInput{ExpectedPostVersion: p2.Version, ExpectedHugVersion: 0, Active: true},
+				)
 				errs <- e
 			}()
 		}
@@ -305,7 +475,19 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 	})
 	t.Run("自评论静默与隐私父屏障", func(t *testing.T) {
 		p := createPost()
-		c, e := s.SaveComment(ctx, token, uuid.NewString(), "", p.ID, "", whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "帖主自己的评论", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch})
+		c, e := s.SaveComment(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"",
+			whisper.CommentInput{
+				ContentInput:          whisper.ContentInput{Body: "帖主自己的评论", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+				ExpectedPostVersion:   p.Version,
+				ExpectedCommentsEpoch: p.CommentsEpoch,
+			},
+		)
 		must(e)
 		consume(c.ID)
 		var count int64
@@ -313,7 +495,14 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		if count != 0 {
 			t.Fatal("自评论产生通知")
 		}
-		must(admin.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: "whisper_post", TargetID: p.ID, HoldEpoch: 1, RequiredContentVersion: 1, Status: "active"}).Error)
+		must(admin.Create(&entity.PrivacyHold{
+			ID:                     uuid.NewString(),
+			TargetKind:             "whisper_post",
+			TargetID:               p.ID,
+			HoldEpoch:              1,
+			RequiredContentVersion: 1,
+			Status:                 "active",
+		}).Error)
 		own, e := s.GetComment(ctx, token, "", c.ID)
 		must(e)
 		if own.Status != "privacy_hold" || own.Body != nil || own.IdentityInput != nil {
@@ -328,7 +517,15 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 			must(e)
 			var block entity.Block
 			must(admin.Where("owner_id=? AND target_id=?", other, actor).Take(&block).Error)
-			_, e = governance.Execute(ctx, otherToken, uuid.NewString(), "", "unblock", actor, safety.Input{ExpectedVersion: block.Version})
+			_, e = governance.Execute(
+				ctx,
+				otherToken,
+				uuid.NewString(),
+				"",
+				"unblock",
+				actor,
+				safety.Input{ExpectedVersion: block.Version},
+			)
 			must(e)
 		}
 		result, e := w.Consume(ctx, event(c.ID))
@@ -347,8 +544,24 @@ func testWhisperInteractions(t *testing.T, admin, api *gorm.DB, s *whisper.Servi
 		c := createComment(p, "普通命中 的暖评")
 		consume(c.ID)
 		var task entity.ModerationTask
-		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", c.ID).Take(&task).Error)
-		_, e := reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", task.ID, moderation.WhisperReviewCommand{ExpectedVersion: task.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		must(admin.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.entity_id=?", c.ID).
+			Take(&task).
+			Error)
+		_, e := reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			task.ID,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        task.Version,
+				ExpectedContentVersion: 1,
+				Decision:               "approved",
+			},
+		)
 		must(e)
 		if current(p.ID).CommentCount != 1 {
 			t.Fatal("人工批准未公开")

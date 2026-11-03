@@ -26,7 +26,12 @@ func RegisterStudent(r *gin.Engine, service StudentService) error {
 		return adminauth.ErrInvalid
 	}
 	group := r.Group("/api/v1")
-	noStore := func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() }
+	noStore := func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	}
 	fail := func(c *gin.Context, err error) {
 		if errors.Is(err, studentauth.ErrRateLimited) {
 			adminError(c, adminauth.ErrRateLimited)
@@ -72,7 +77,8 @@ func RegisterStudent(r *gin.Engine, service StudentService) error {
 			return
 		}
 		var input studentauth.ProfileInput
-		if strictJSON(c, &input) != nil || strings.TrimSpace(input.Nickname) == "" || input.HideIdentityTags == nil || input.ExpectedVersion < 1 {
+		if strictJSON(c, &input) != nil || strings.TrimSpace(input.Nickname) == "" || input.HideIdentityTags == nil ||
+			input.ExpectedVersion < 1 {
 			adminError(c, adminauth.ErrInvalid)
 			return
 		}

@@ -14,7 +14,12 @@ import (
 )
 
 func developmentPrivacyConfig(cfg DevelopmentSettings) privacy.Config {
-	return privacy.Config{Command: developmentCommandConfig(), Key: privacy.DeriveKey(cfg.WishKey), ReceiptTTL: 7 * 24 * time.Hour, RetryDelay: time.Minute}
+	return privacy.Config{
+		Command:    developmentCommandConfig(),
+		Key:        privacy.DeriveKey(cfg.WishKey),
+		ReceiptTTL: 7 * 24 * time.Hour,
+		RetryDelay: time.Minute,
+	}
 }
 
 func openDevelopmentJournal(ctx context.Context, cfg DevelopmentSettings, logger *zap.Logger) (out privacy.Journal, closeAll func(), err error) {
@@ -49,7 +54,11 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if e != nil {
 		return e
 	}
-	defer func() { e := closePool(); finishDevelopment(logger, "privacy_worker_pool_close", time.Now(), &e) }()
+	defer func() {
+
+		e := closePool()
+		finishDevelopment(logger, "privacy_worker_pool_close", time.Now(), &e)
+	}()
 	codec, e := securedata.New(&local.IdentityKeys{WrapKey: cfg.WrapKey, LookupKey: cfg.LookupKey, Logger: logger}, logger)
 	if e != nil {
 		return e
@@ -58,6 +67,11 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if e != nil {
 		return e
 	}
-	logger.Info("开发隐私工作进程启动完成", zap.String("scope", scope), zap.Bool("external_cleanup_configured", false), zap.String("result", "success"))
+	logger.Info(
+		"开发隐私工作进程启动完成",
+		zap.String("scope", scope),
+		zap.Bool("external_cleanup_configured", false),
+		zap.String("result", "success"),
+	)
 	return s.Run(ctx, scope, time.Second)
 }

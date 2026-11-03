@@ -22,7 +22,8 @@ type ContentWorkerConfig struct {
 
 // ValidateContentWorker 在数据库启动前拒绝生产环境与未知分析模式。
 func ValidateContentWorker(environment string, cfg DevelopmentSettings, options ContentWorkerConfig) error {
-	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" || len(cfg.WrapKey) != 32 || len(cfg.LookupKey) != 32 ||
+	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" || len(cfg.WrapKey) != 32 ||
+		len(cfg.LookupKey) != 32 ||
 		(options.Analyzer != "" && options.Analyzer != "unavailable" && options.Analyzer != "synthetic" && options.Analyzer != "manual") {
 		return command.ErrInvalid
 	}
@@ -58,10 +59,19 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if err != nil {
 		return err
 	}
-	analyzer := local.Analyzer{Logger: logger, Synthetic: options.Analyzer == "synthetic", Manual: options.Analyzer == "manual"}
+	analyzer := local.Analyzer{
+		Logger:    logger,
+		Synthetic: options.Analyzer == "synthetic",
+		Manual:    options.Analyzer == "manual",
+	}
 	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
-		Care:            careResources(cfg.Care),
-		Consumer:        durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3},
+		Care: careResources(cfg.Care),
+		Consumer: durable.ConsumerConfig{
+			Timeout:     5 * time.Second,
+			LockTimeout: time.Second,
+			RetryDelay:  time.Minute,
+			MaxAttempts: 3,
+		},
 		AnalysisTimeout: 5 * time.Second,
 		MessageAnalyzer: analyzer,
 	})
@@ -77,7 +87,12 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 			err = command.ErrUnavailable
 		}
 	}()
-	logger.Info("开发内容工作进程启动完成", zap.Bool("simulated", options.Analyzer == "synthetic"), zap.Bool("manual_review", options.Analyzer == "manual"), zap.String("result", "success"))
+	logger.Info(
+		"开发内容工作进程启动完成",
+		zap.Bool("simulated", options.Analyzer == "synthetic"),
+		zap.Bool("manual_review", options.Analyzer == "manual"),
+		zap.String("result", "success"),
+	)
 	<-ctx.Done()
 	return nil
 }

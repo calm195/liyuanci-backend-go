@@ -94,19 +94,51 @@ func TestCrisisCare(t *testing.T) {
 	codec, e := securedata.New(testKeys{}, logger)
 	must(e)
 	cfg := command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 5}
-	wishes, e := wish.NewService(api, logger, codec, nil, wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))})
+	wishes, e := wish.NewService(
+		api,
+		logger,
+		codec,
+		nil,
+		wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))},
+	)
 	must(e)
-	reviews, e := moderation.New(adminDB, logger, codec, moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100})
+	reviews, e := moderation.New(
+		adminDB,
+		logger,
+		codec,
+		moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100},
+	)
 	must(e)
 	provider := &analyzer{}
-	worker, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{MessageAnalyzer: privateAnalyzer{}, AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+	worker, e := moderation.NewWorker(
+		workerDB,
+		logger,
+		codec,
+		provider,
+		moderation.WorkerConfig{
+			MessageAnalyzer: privateAnalyzer{},
+			AnalysisTimeout: 5 * time.Second,
+			Consumer: durable.ConsumerConfig{
+				Timeout:     10 * time.Second,
+				LockTimeout: time.Second,
+				RetryDelay:  time.Millisecond,
+				MaxAttempts: 3,
+			},
+		},
+	)
 	must(e)
 	admin, adminToken := uuid.NewString(), uuid.NewString()
 	credential := "synthetic-application-reviewer"
 	must(root.Create(&entity.AdminAccount{ID: admin, CredentialRef: &credential}).Error)
 	must(root.Create(&entity.AdminRoleBinding{AdminID: admin, Role: "review_operator"}).Error)
 	hash := sha256.Sum256([]byte(adminToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &admin, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &admin,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	for _, item := range []struct{ kind, word string }{{"ordinary_violation", "普通命中"}, {"school", "学校命中"}, {"crisis", "危机命中"}} {
 		heads, e := reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -116,7 +148,13 @@ func TestCrisisCare(t *testing.T) {
 				v = h.Version
 			}
 		}
-		draft, e := reviews.CreateWordlist(ctx, adminToken, uuid.NewString(), "rules", moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v})
+		draft, e := reviews.CreateWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v},
+		)
 		must(e)
 		heads, e = reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -125,7 +163,14 @@ func TestCrisisCare(t *testing.T) {
 				v = h.Version
 			}
 		}
-		_, e = reviews.PublishWordlist(ctx, adminToken, uuid.NewString(), "rules", draft.ID, moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v})
+		_, e = reviews.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			draft.ID,
+			moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v},
+		)
 		must(e)
 	}
 	student := func() (string, string) {
@@ -133,13 +178,23 @@ func TestCrisisCare(t *testing.T) {
 		id, token := uuid.NewString(), uuid.NewString()
 		must(root.Create(&entity.Account{ID: id, Nickname: "合成参与人", Verification: "verified"}).Error)
 		h := sha256.Sum256([]byte(token))
-		must(root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: h[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+		must(root.Create(&entity.Session{
+			ID:        uuid.NewString(),
+			AccountID: &id,
+			TokenHash: h[:],
+			AuthEpoch: 1,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}).Error)
 		return id, token
 	}
 	event := func(kind, id string) durable.Event {
 		t.Helper()
 		var out durable.Event
-		must(root.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`, kind, id).Scan(&out).Error)
+		must(root.Raw(
+			`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`,
+			kind,
+			id,
+		).Scan(&out).Error)
 		if out.EventID == "" {
 			t.Fatal("未原子创建审核工作")
 		}
@@ -155,7 +210,13 @@ func TestCrisisCare(t *testing.T) {
 	}
 	published := func(token string) wish.CreatedDraft {
 		t.Helper()
-		out, e := wishes.Create(ctx, token, uuid.NewString(), "create", wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"})
+		out, e := wishes.Create(
+			ctx,
+			token,
+			uuid.NewString(),
+			"create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"},
+		)
 		must(e)
 		out, e = wishes.Submit(ctx, token, uuid.NewString(), "submit", out.ID, out.Version, out.ContentVersion)
 		must(e)
@@ -170,25 +231,64 @@ func TestCrisisCare(t *testing.T) {
 		return out
 	}
 	crisisDB := open(dsn + " options='-c role=liyuanci_crisis_api'")
-	crisis, e := moderation.New(crisisDB, logger, codec, moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("d", 32)), MaxEntries: 100})
+	crisis, e := moderation.New(
+		crisisDB,
+		logger,
+		codec,
+		moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("d", 32)), MaxEntries: 100},
+	)
 	must(e)
 	operator, operatorToken := uuid.NewString(), uuid.NewString()
 	crisisCredential := "synthetic-crisis-operator"
 	must(root.Create(&entity.AdminAccount{ID: operator, CredentialRef: &crisisCredential}).Error)
 	must(root.Create(&entity.AdminRoleBinding{AdminID: operator, Role: "crisis_operator"}).Error)
 	h := sha256.Sum256([]byte(operatorToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &operator, TokenHash: h[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &operator,
+		TokenHash: h[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	notifier := &crisisNotifier{fail: true}
-	resources := &moderation.CareResources{Version: "synthetic-v1", Source: "synthetic://test-only", VerifiedAt: "2026-10-23", Hotline24Hours: "合成测试渠道，无真实号码", Appointment: "合成预约入口", Notice: "合成资料，仅隔离验收"}
+	resources := &moderation.CareResources{
+		Version:        "synthetic-v1",
+		Source:         "synthetic://test-only",
+		VerifiedAt:     "2026-10-23",
+		Hotline24Hours: "合成测试渠道，无真实号码",
+		Appointment:    "合成预约入口",
+		Notice:         "合成资料，仅隔离验收",
+	}
 	makeWorker := func(care *moderation.CareResources) *moderation.Worker {
 		t.Helper()
-		w, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{Care: care, CrisisNotifier: notifier, MessageAnalyzer: privateAnalyzer{}, AnalysisTimeout: time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Minute, MaxAttempts: 3}})
+		w, e := moderation.NewWorker(
+			workerDB,
+			logger,
+			codec,
+			provider,
+			moderation.WorkerConfig{
+				Care:            care,
+				CrisisNotifier:  notifier,
+				MessageAnalyzer: privateAnalyzer{},
+				AnalysisTimeout: time.Second,
+				Consumer: durable.ConsumerConfig{
+					Timeout:     10 * time.Second,
+					LockTimeout: time.Second,
+					RetryDelay:  time.Minute,
+					MaxAttempts: 3,
+				},
+			},
+		)
 		must(e)
 		return w
 	}
 	worker = makeWorker(nil)
 	owner, token := student()
-	identity, e := codec.Encrypt(ctx, securedata.Binding{Purpose: "student_number", ObjectID: owner, Version: 1}, []byte("SYNTHETIC_STUDENT_NUMBER"))
+	identity, e := codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_number", ObjectID: owner, Version: 1},
+		[]byte("SYNTHETIC_STUDENT_NUMBER"),
+	)
 	must(e)
 	raw, e := json.Marshal(identity)
 	must(e)
@@ -196,7 +296,13 @@ func TestCrisisCare(t *testing.T) {
 	must(root.Create(&entity.IdentitySecret{AccountID: owner, Purpose: "student_number", ContentVersion: 1, Envelope: raw}).Error)
 	create := func(body string) wish.CreatedDraft {
 		t.Helper()
-		w, e := wishes.Create(ctx, token, uuid.NewString(), "create", wish.ContentInput{Category: "help", Campus: "wushan", Body: body})
+		w, e := wishes.Create(
+			ctx,
+			token,
+			uuid.NewString(),
+			"create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: body},
+		)
 		must(e)
 		w, e = wishes.Submit(ctx, token, uuid.NewString(), "submit", w.ID, w.Version, w.ContentVersion)
 		must(e)
@@ -205,7 +311,11 @@ func TestCrisisCare(t *testing.T) {
 	findCase := func(id string) entity.EvidenceCrisisCase {
 		t.Helper()
 		var c entity.EvidenceCrisisCase
-		must(root.Table("evidence.crisis_cases AS c").Select("c.*").Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id JOIN public.content_registry cr ON cr.id=ec.source_ref").Where("cr.entity_id=?", id).Take(&c).Error)
+		must(root.Table("evidence.crisis_cases AS c").Select("c.*").
+			Joins("JOIN evidence.evidence_cases ec ON ec.id=c.evidence_case_id JOIN public.content_registry cr ON cr.id=ec.source_ref").
+			Where("cr.entity_id=?", id).
+			Take(&c).
+			Error)
 		return c
 	}
 	count := func(table, where string, args ...any) int64 {
@@ -215,13 +325,15 @@ func TestCrisisCare(t *testing.T) {
 		return n
 	}
 	makeDue := func() {
-		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()-interval '1 second',lease_until=clock_timestamp()-interval '1 second' WHERE status IN ('pending','leased')").Error)
+		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()-interval '1 second',lease_until=clock_timestamp()-interval '1 second' WHERE status IN ('pending','leased')").
+			Error)
 	}
 	w := create("危机命中 合成个人姓名")
 	scan("wish", w.ID)
 	c := findCase(w.ID)
 	t.Run("隔离证据原子持久与消费重放", func(t *testing.T) {
-		if count("evidence.evidence_items", "case_id=?", c.EvidenceCaseID) != 1 || count("evidence.crisis_deliveries", "case_id=?", c.ID) != 2 {
+		if count("evidence.evidence_items", "case_id=?", c.EvidenceCaseID) != 1 ||
+			count("evidence.crisis_deliveries", "case_id=?", c.ID) != 2 {
 			t.Fatal("证据或双待办缺失")
 		}
 		out, e := worker.Consume(ctx, event("wish", w.ID))
@@ -255,7 +367,8 @@ func TestCrisisCare(t *testing.T) {
 		}
 		detail, e := crisis.CrisisCase(ctx, operatorToken, "authorized", c.ID)
 		must(e)
-		if detail.StudentNumber == nil || *detail.StudentNumber != "SYNTHETIC_STUDENT_NUMBER" || detail.Body == nil || *detail.Body != "危机命中 合成个人姓名" {
+		if detail.StudentNumber == nil || *detail.StudentNumber != "SYNTHETIC_STUDENT_NUMBER" || detail.Body == nil ||
+			*detail.Body != "危机命中 合成个人姓名" {
 			t.Fatal("限定证据投影错误")
 		}
 		if count("evidence.evidence_actions", "case_id=? AND action='view'", c.EvidenceCaseID) != 1 {
@@ -294,7 +407,11 @@ func TestCrisisCare(t *testing.T) {
 		worker = makeWorker(resources)
 		notifier.fail = false
 		makeDue()
-		must(root.Exec("UPDATE evidence.crisis_deliveries SET status='leased',lease_id=?,lease_until=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'", uuid.NewString(), c.ID).Error)
+		must(root.Exec(
+			"UPDATE evidence.crisis_deliveries SET status='leased',lease_id=?,lease_until=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'",
+			uuid.NewString(),
+			c.ID,
+		).Error)
 		for i := 0; i < 2; i++ {
 			_, e := worker.ProcessCrisisDelivery(ctx)
 			must(e)
@@ -302,7 +419,12 @@ func TestCrisisCare(t *testing.T) {
 		if count("evidence.crisis_deliveries", "case_id=? AND status='sent'", c.ID) != 2 {
 			t.Fatal("补偿未完成")
 		}
-		chats, e := chat.New(api, logger, codec, chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 65536})
+		chats, e := chat.New(
+			api,
+			logger,
+			codec,
+			chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 65536},
+		)
 		must(e)
 		page, e := chats.Notifications(ctx, token, "care", chat.Query{Limit: 50})
 		must(e)
@@ -349,11 +471,27 @@ func TestCrisisCare(t *testing.T) {
 		if !errors.Is(e, command.ErrIdempotencyConflict) {
 			t.Fatal(e)
 		}
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "stale", c.ID, moderation.CrisisCommand{Action: "follow_up", Reason: "合成", ExpectedVersion: 1}, false)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"stale",
+			c.ID,
+			moderation.CrisisCommand{Action: "follow_up", Reason: "合成", ExpectedVersion: 1},
+			false,
+		)
 		if !errors.Is(e, command.ErrVersionConflict) {
 			t.Fatal(e)
 		}
-		out, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false_positive", c.ID, moderation.CrisisCommand{Reason: "合成误报复核", ExpectedVersion: out.Version}, true)
+		out, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false_positive",
+			c.ID,
+			moderation.CrisisCommand{Reason: "合成误报复核", ExpectedVersion: out.Version},
+			true,
+		)
 		must(e)
 		if out.Status != "false_positive" {
 			t.Fatal("未解除误报")
@@ -370,7 +508,14 @@ func TestCrisisCare(t *testing.T) {
 		}
 		task, e := reviews.Case(ctx, adminToken, "ordinary", *v.ReviewTaskID)
 		must(e)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "approve", task.ID, moderation.Decision{Decision: "approved", ExpectedVersion: task.Version})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"approve",
+			task.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: task.Version},
+		)
 		must(e)
 		must(root.Where("id=?", w.ID).Take(&current).Error)
 		if current.State != "ready" {
@@ -382,7 +527,15 @@ func TestCrisisCare(t *testing.T) {
 		ev := event("wish", pub.ID)
 		var task entity.ModerationTask
 		must(root.Where("id=?", ev.AggregateID).Take(&task).Error)
-		out, e := crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "patrol", "task", task.ID, moderation.CrisisCommand{Reason: "合成巡查", ExpectedVersion: task.Version})
+		out, e := crisis.EscalateCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"patrol",
+			"task",
+			task.ID,
+			moderation.CrisisCommand{Reason: "合成巡查", ExpectedVersion: task.Version},
+		)
 		must(e)
 		var current entity.Wish
 		must(root.Where("id=?", pub.ID).Take(&current).Error)
@@ -400,9 +553,25 @@ func TestCrisisCare(t *testing.T) {
 		reporter, _ := student()
 		var registry entity.ContentRegistry
 		must(root.Where("kind='wish' AND entity_id=? AND content_version=?", pub2.ID, pub2.ContentVersion).Take(&registry).Error)
-		report := entity.Report{ID: uuid.NewString(), ReporterID: reporter, TargetKind: "wish", TargetID: pub2.ID, TypeCode: "synthetic-crisis", ContentID: &registry.ID, Version: 1}
+		report := entity.Report{
+			ID:         uuid.NewString(),
+			ReporterID: reporter,
+			TargetKind: "wish",
+			TargetID:   pub2.ID,
+			TypeCode:   "synthetic-crisis",
+			ContentID:  &registry.ID,
+			Version:    1,
+		}
 		must(root.Create(&report).Error)
-		escalated, e := crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "report-escalation", "report", report.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成举报风险复核"})
+		escalated, e := crisis.EscalateCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"report-escalation",
+			"report",
+			report.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成举报风险复核"},
+		)
 		must(e)
 		if escalated.ID == out.ID {
 			t.Fatal("举报升级串案")
@@ -447,33 +616,73 @@ func TestCrisisCare(t *testing.T) {
 				t.Fatal("人工升级或幂等失败")
 			}
 			path = "/crisis-cases/" + out.ID
-			out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "take_over", Reason: "合成接手", ExpectedVersion: out.Version}, 200)
+			out = post(
+				path+"/actions",
+				operatorToken,
+				uuid.NewString(),
+				moderation.CrisisCommand{Action: "take_over", Reason: "合成接手", ExpectedVersion: out.Version},
+				200,
+			)
 			if out.Status != "handling" {
 				t.Fatal("接手未进入处理中")
 			}
-			post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "follow_up", Reason: "合成旧版本", ExpectedVersion: out.Version - 1}, 409)
-			out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "follow_up", Reason: "合成跟进", ExpectedVersion: out.Version}, 200)
+			post(
+				path+"/actions",
+				operatorToken,
+				uuid.NewString(),
+				moderation.CrisisCommand{Action: "follow_up", Reason: "合成旧版本", ExpectedVersion: out.Version - 1},
+				409,
+			)
+			out = post(
+				path+"/actions",
+				operatorToken,
+				uuid.NewString(),
+				moderation.CrisisCommand{Action: "follow_up", Reason: "合成跟进", ExpectedVersion: out.Version},
+				200,
+			)
 			if !falsePositive {
-				out = post(path+"/actions", operatorToken, uuid.NewString(), moderation.CrisisCommand{Action: "resolve", Reason: "合成结案", ExpectedVersion: out.Version}, 200)
+				out = post(
+					path+"/actions",
+					operatorToken,
+					uuid.NewString(),
+					moderation.CrisisCommand{Action: "resolve", Reason: "合成结案", ExpectedVersion: out.Version},
+					200,
+				)
 				if out.Status != "resolved" {
 					t.Fatal("结案状态错误")
 				}
 				continue
 			}
-			out = post(path+"/resolve-false-positive", operatorToken, uuid.NewString(), moderation.CrisisCommand{Reason: "合成误报", ExpectedVersion: out.Version}, 200)
+			out = post(
+				path+"/resolve-false-positive",
+				operatorToken,
+				uuid.NewString(),
+				moderation.CrisisCommand{Reason: "合成误报", ExpectedVersion: out.Version},
+				200,
+			)
 			var current entity.Wish
 			var version entity.WishVersion
 			must(root.Where("id=?", w.ID).Take(&current).Error)
 			must(root.Where("wish_id=? AND content_version=?", w.ID, current.CurrentContentVersion).Take(&version).Error)
-			if out.Status != "false_positive" || current.State != "pending_review" || version.ReviewTaskID == nil || *version.ReviewTaskID == original.ID || version.PublicBody != nil {
+			if out.Status != "false_positive" || current.State != "pending_review" || version.ReviewTaskID == nil ||
+				*version.ReviewTaskID == original.ID ||
+				version.PublicBody != nil {
 				t.Fatal("误报未返回新人工任务或意外恢复公开正文")
 			}
-			if count("public.content_restrictions", "source_ref=? AND kind='crisis' AND active", out.ID) != 0 || count("evidence.crisis_deliveries", "case_id=? AND status IN ('pending','leased')", out.ID) != 0 {
+			if count("public.content_restrictions", "source_ref=? AND kind='crisis' AND active", out.ID) != 0 ||
+				count("evidence.crisis_deliveries", "case_id=? AND status IN ('pending','leased')", out.ID) != 0 {
 				t.Fatal("误报未解除限制或取消投递")
 			}
 			task, err := reviews.Case(ctx, adminToken, "http-return", *version.ReviewTaskID)
 			must(err)
-			_, err = reviews.Decide(ctx, adminToken, uuid.NewString(), "http-return-approve", task.ID, moderation.Decision{Decision: "approved", ExpectedVersion: task.Version})
+			_, err = reviews.Decide(
+				ctx,
+				adminToken,
+				uuid.NewString(),
+				"http-return-approve",
+				task.ID,
+				moderation.Decision{Decision: "approved", ExpectedVersion: task.Version},
+			)
 			must(err)
 			must(root.Where("id=?", w.ID).Take(&current).Error)
 			if current.State != "ready" {
@@ -488,9 +697,20 @@ func TestCrisisCare(t *testing.T) {
 			method, path, token, body string
 			status                    int
 		}{
-			{"GET", "/admin/crisis-cases", adminToken, "", 403}, {"GET", "/admin/crisis-cases/" + c.ID, operatorToken, "", 200},
+
+			{"GET", "/admin/crisis-cases", adminToken, "", 403},
+			{"GET", "/admin/crisis-cases/" + c.ID, operatorToken, "", 200},
+
 			{"GET", "/admin/evidence/" + c.EvidenceCaseID + "/asset", operatorToken, "", 404},
-			{"POST", "/admin/crisis-cases/" + c.ID + "/actions", operatorToken, `{"action":"resolve","reason":"合成","expected_version":1,"student_number":"forged"}`, 400},
+
+			{
+				"POST",
+				"/admin/crisis-cases/" + c.ID + "/actions",
+				operatorToken,
+				`{"action":"resolve","reason":"合成","expected_version":1,"student_number":"forged"}`,
+				400,
+			},
+
 			{"GET", "/admin/crisis-cases?limit=1&limit=2", operatorToken, "", 400},
 		} {
 			req := httptest.NewRequest(tc.method, "/api/v1"+tc.path, strings.NewReader(tc.body))
@@ -509,15 +729,24 @@ func TestCrisisCare(t *testing.T) {
 	})
 	t.Run("证据落库失败整单回滚再重试", func(t *testing.T) {
 		w := create("危机命中 原子回滚")
-		must(root.Exec(`CREATE FUNCTION public.reject_crisis_evidence() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic evidence failure'; END $$; CREATE TRIGGER reject_crisis_evidence BEFORE INSERT ON evidence.evidence_items FOR EACH ROW EXECUTE FUNCTION public.reject_crisis_evidence()`).Error)
+		must(root.Exec(`CREATE FUNCTION public.reject_crisis_evidence() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic evidence failure'; END $$; CREATE TRIGGER reject_crisis_evidence BEFORE INSERT ON evidence.evidence_items FOR EACH ROW EXECUTE FUNCTION public.reject_crisis_evidence()`).
+			Error)
 		out, _ := worker.Consume(ctx, event("wish", w.ID))
 		if out.Applied {
 			t.Fatal("证据失败仍提交扫描")
 		}
-		if count("evidence.evidence_cases", "source_ref IN (SELECT id FROM public.content_registry WHERE entity_id=?)", w.ID) != 0 {
+		if count(
+			"evidence.evidence_cases",
+			"source_ref IN (SELECT id FROM public.content_registry WHERE entity_id=?)",
+			w.ID,
+		) != 0 {
 			t.Fatal("失败留下半案")
 		}
-		if count("public.content_restrictions", "content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)", w.ID) != 0 {
+		if count(
+			"public.content_restrictions",
+			"content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)",
+			w.ID,
+		) != 0 {
 			t.Fatal("失败留下半隔离")
 		}
 		must(root.Exec(`DROP TRIGGER reject_crisis_evidence ON evidence.evidence_items;DROP FUNCTION public.reject_crisis_evidence()`).Error)
@@ -571,11 +800,20 @@ func TestCrisisCare(t *testing.T) {
 		scan("wish", w.ID)
 		target := findCase(w.ID)
 		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()+interval '1 hour' WHERE status='pending'").Error)
-		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'", target.ID).Error)
+		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'", target.ID).
+			Error)
 		notifier.fail = true
 		var actionErr error
 		notifier.hook = func() {
-			_, actionErr = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "late-notify", target.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"}, true)
+			_, actionErr = crisis.ActOnCrisis(
+				ctx,
+				operatorToken,
+				uuid.NewString(),
+				"late-notify",
+				target.ID,
+				moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"},
+				true,
+			)
 		}
 		_, e := worker.ProcessCrisisDelivery(ctx)
 		if e == nil {
@@ -590,19 +828,41 @@ func TestCrisisCare(t *testing.T) {
 	})
 	t.Run("注销状态不重建普通内容但限定证据仍可读", func(t *testing.T) {
 		id, tok := student()
-		draft, e := wishes.Create(ctx, tok, uuid.NewString(), "create", wish.ContentInput{Category: "help", Campus: "wushan", Body: "危机命中 注销边界"})
+		draft, e := wishes.Create(
+			ctx,
+			tok,
+			uuid.NewString(),
+			"create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: "危机命中 注销边界"},
+		)
 		must(e)
 		draft, e = wishes.Submit(ctx, tok, uuid.NewString(), "submit", draft.ID, draft.Version, draft.ContentVersion)
 		must(e)
 		scan("wish", draft.ID)
 		target := findCase(draft.ID)
-		before := count("public.moderation_tasks", "content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)", draft.ID)
+		before := count(
+			"public.moderation_tasks",
+			"content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)",
+			draft.ID,
+		)
 		must(root.Exec("UPDATE public.accounts SET lifecycle='deleting',auth_epoch=auth_epoch+1 WHERE id=?", id).Error)
 		_, e = crisis.CrisisCase(ctx, operatorToken, "evidence-after-deleting", target.ID)
 		must(e)
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-after-deleting", target.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-after-deleting",
+			target.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"},
+			true,
+		)
 		must(e)
-		if count("public.moderation_tasks", "content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)", draft.ID) != before {
+		if count(
+			"public.moderation_tasks",
+			"content_id IN (SELECT id FROM public.content_registry WHERE entity_id=?)",
+			draft.ID,
+		) != before {
 			t.Fatal("注销重建审核任务")
 		}
 	})
@@ -611,27 +871,68 @@ func TestCrisisCare(t *testing.T) {
 		_, own := student()
 		_, helper := student()
 		pub := published(own)
-		app, e := wishes.Apply(ctx, helper, uuid.NewString(), "apply", pub.ID, wish.ApplicationInput{Message: "危机命中 应愿留言", WishContentVersion: pub.ContentVersion})
+		app, e := wishes.Apply(
+			ctx,
+			helper,
+			uuid.NewString(),
+			"apply",
+			pub.ID,
+			wish.ApplicationInput{Message: "危机命中 应愿留言", WishContentVersion: pub.ContentVersion},
+		)
 		must(e)
 		scan("application", app.ID)
 		appCase := findCase(app.ID)
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-application", appCase.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成留言误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-application",
+			appCase.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成留言误报"},
+			true,
+		)
 		must(e)
 		var a entity.Application
 		must(root.Where("id=?", app.ID).Take(&a).Error)
 		var task entity.ModerationTask
 		must(root.Where("id=?", *a.ReviewTaskID).Take(&task).Error)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "review-app", task.ID, moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"review-app",
+			task.ID,
+			moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"},
+		)
 		must(e)
 		must(root.Where("id=?", app.ID).Take(&a).Error)
 		var current entity.Wish
 		must(root.Where("id=?", pub.ID).Take(&current).Error)
-		match, e := wishes.AcceptApplication(ctx, own, uuid.NewString(), "accept", a.ID, wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: current.Version})
+		match, e := wishes.AcceptApplication(
+			ctx,
+			own,
+			uuid.NewString(),
+			"accept",
+			a.ID,
+			wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: current.Version},
+		)
 		must(e)
-		chats, e := chat.New(api, logger, codec, chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 65536})
+		chats, e := chat.New(
+			api,
+			logger,
+			codec,
+			chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 65536},
+		)
 		must(e)
 
-		pending, e := chats.Send(ctx, own, uuid.NewString(), "crisis-message", match.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "危机命中 未送达私聊", ExpectedWriteEpoch: 1})
+		pending, e := chats.Send(
+			ctx,
+			own,
+			uuid.NewString(),
+			"crisis-message",
+			match.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "危机命中 未送达私聊", ExpectedWriteEpoch: 1},
+		)
 		must(e)
 		scan("message", pending.MessageID)
 		pendingCase := findCase(pending.MessageID)
@@ -640,14 +941,41 @@ func TestCrisisCare(t *testing.T) {
 		if pendingMessage.DeliverySeq != nil {
 			t.Fatal("危机消息提前分配送达序号")
 		}
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-pending-message", pendingCase.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成未送达消息误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-pending-message",
+			pendingCase.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成未送达消息误报"},
+			true,
+		)
 		must(e)
 		must(root.Where("id=?", pending.MessageID).Take(&pendingMessage).Error)
 		pendingTask := entity.ModerationTask{}
 		must(root.Where("id=?", *pendingMessage.ReviewTaskID).Take(&pendingTask).Error)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "review-pending-message", pendingTask.ID, moderation.Decision{ExpectedVersion: pendingTask.Version, Decision: "rejected", Reason: "合成测试驳回", RevisionSuggestion: "合成修改建议"})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"review-pending-message",
+			pendingTask.ID,
+			moderation.Decision{
+				ExpectedVersion:    pendingTask.Version,
+				Decision:           "rejected",
+				Reason:             "合成测试驳回",
+				RevisionSuggestion: "合成修改建议",
+			},
+		)
 		must(e)
-		msg, e := chats.Send(ctx, own, uuid.NewString(), "send", match.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "合成已送达正文", ExpectedWriteEpoch: 1})
+		msg, e := chats.Send(
+			ctx,
+			own,
+			uuid.NewString(),
+			"send",
+			match.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "合成已送达正文", ExpectedWriteEpoch: 1},
+		)
 		must(e)
 		scan("message", msg.MessageID)
 		var m entity.Message
@@ -658,7 +986,15 @@ func TestCrisisCare(t *testing.T) {
 		seq := *m.DeliverySeq
 		task = entity.ModerationTask{}
 		must(root.Where("id=?", *m.ReviewTaskID).Take(&task).Error)
-		msgCase, e := crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "patrol-message", "task", task.ID, moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成消息巡查"})
+		msgCase, e := crisis.EscalateCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"patrol-message",
+			"task",
+			task.ID,
+			moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成消息巡查"},
+		)
 		must(e)
 		zero := int64(0)
 		page, e := chats.Messages(ctx, helper, "isolated", match.ConversationID, chat.Query{AfterSeq: &zero, Limit: 50})
@@ -666,19 +1002,41 @@ func TestCrisisCare(t *testing.T) {
 		if len(page.Items) != 0 {
 			t.Fatal("已送达危机正文仍可见")
 		}
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-message", msgCase.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成消息误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-message",
+			msgCase.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成消息误报"},
+			true,
+		)
 		must(e)
 		must(root.Where("id=?", msg.MessageID).Take(&m).Error)
 		task = entity.ModerationTask{}
 		must(root.Where("id=?", *m.ReviewTaskID).Take(&task).Error)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "review-message", task.ID, moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"review-message",
+			task.ID,
+			moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"},
+		)
 		must(e)
 		must(root.Where("id=?", msg.MessageID).Take(&m).Error)
 		if m.DeliverySeq == nil || *m.DeliverySeq != seq || m.Status != "delivered" {
 			t.Fatal("已送达重审改变序号", m.Status)
 		}
 
-		rejectedMessage, e := chats.Send(ctx, own, uuid.NewString(), "send-to-recheck-reject", match.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "合成已送达后重审驳回", ExpectedWriteEpoch: 1})
+		rejectedMessage, e := chats.Send(
+			ctx,
+			own,
+			uuid.NewString(),
+			"send-to-recheck-reject",
+			match.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "合成已送达后重审驳回", ExpectedWriteEpoch: 1},
+		)
 		must(e)
 		scan("message", rejectedMessage.MessageID)
 		var rejectedRow entity.Message
@@ -686,20 +1044,54 @@ func TestCrisisCare(t *testing.T) {
 		rejectedSeq := *rejectedRow.DeliverySeq
 		task = entity.ModerationTask{}
 		must(root.Where("id=?", *rejectedRow.ReviewTaskID).Take(&task).Error)
-		rejectedCase, e := crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "patrol-recheck-reject", "task", task.ID, moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成巡查"})
+		rejectedCase, e := crisis.EscalateCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"patrol-recheck-reject",
+			"task",
+			task.ID,
+			moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成巡查"},
+		)
 		must(e)
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-recheck-reject", rejectedCase.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-recheck-reject",
+			rejectedCase.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"},
+			true,
+		)
 		must(e)
 		must(root.Where("id=?", rejectedMessage.MessageID).Take(&rejectedRow).Error)
 		task = entity.ModerationTask{}
 		must(root.Where("id=?", *rejectedRow.ReviewTaskID).Take(&task).Error)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "reject-recheck", task.ID, moderation.Decision{ExpectedVersion: task.Version, Decision: "rejected", Reason: "合成普通违规", RevisionSuggestion: "合成修改建议"})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"reject-recheck",
+			task.ID,
+			moderation.Decision{
+				ExpectedVersion:    task.Version,
+				Decision:           "rejected",
+				Reason:             "合成普通违规",
+				RevisionSuggestion: "合成修改建议",
+			},
+		)
 		must(e)
 		must(root.Where("id=?", rejectedMessage.MessageID).Take(&rejectedRow).Error)
 		if rejectedRow.DeliverySeq == nil || *rejectedRow.DeliverySeq != rejectedSeq || rejectedRow.Status != "delivered" {
 			t.Fatal("驳回复核破坏历史送达约束")
 		}
-		page, e = chats.Messages(ctx, helper, "after-recheck-reject", match.ConversationID, chat.Query{AfterSeq: &zero, Limit: 50})
+		page, e = chats.Messages(
+			ctx,
+			helper,
+			"after-recheck-reject",
+			match.ConversationID,
+			chat.Query{AfterSeq: &zero, Limit: 50},
+		)
 		must(e)
 		for _, item := range page.Items {
 			if item.MessageID == rejectedMessage.MessageID {
@@ -707,7 +1099,14 @@ func TestCrisisCare(t *testing.T) {
 			}
 		}
 
-		cancelledMessage, e := chats.Send(ctx, own, uuid.NewString(), "send-cancel-before-crisis", match.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "普通命中 业务取消不得升格", ExpectedWriteEpoch: 1})
+		cancelledMessage, e := chats.Send(
+			ctx,
+			own,
+			uuid.NewString(),
+			"send-cancel-before-crisis",
+			match.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "普通命中 业务取消不得升格", ExpectedWriteEpoch: 1},
+		)
 		must(e)
 		scan("message", cancelledMessage.MessageID)
 		must(root.Where("id=?", pub.ID).Take(&current).Error)
@@ -718,22 +1117,49 @@ func TestCrisisCare(t *testing.T) {
 		must(root.Where("id=?", cancelledMessage.MessageID).Take(&cancelledRow).Error)
 		cancelledTask := entity.ModerationTask{}
 		must(root.Where("id=?", *cancelledRow.ReviewTaskID).Take(&cancelledTask).Error)
-		_, e = crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "reject-cancelled-evidence", "task", cancelledTask.ID, moderation.CrisisCommand{ExpectedVersion: cancelledTask.Version, Reason: "不能升格的取消任务"})
+		_, e = crisis.EscalateCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"reject-cancelled-evidence",
+			"task",
+			cancelledTask.ID,
+			moderation.CrisisCommand{ExpectedVersion: cancelledTask.Version, Reason: "不能升格的取消任务"},
+		)
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal("取消消息被升级为永久危机证据", e)
 		}
-		if count("evidence.evidence_cases", "source_ref IN (SELECT id FROM public.content_registry WHERE entity_id=?)", cancelledMessage.MessageID) != 0 {
+		if count(
+			"evidence.evidence_cases",
+			"source_ref IN (SELECT id FROM public.content_registry WHERE entity_id=?)",
+			cancelledMessage.MessageID,
+		) != 0 {
 			t.Fatal("取消消息留下永久证据")
 		}
 		must(root.Where("id=?", pub.ID).Take(&current).Error)
-		_, e = wishes.SubmitStory(ctx, own, uuid.NewString(), "story", pub.ID, wish.StoryInput{Body: "危机命中 故事", WishExpectedVersion: current.Version})
+		_, e = wishes.SubmitStory(
+			ctx,
+			own,
+			uuid.NewString(),
+			"story",
+			pub.ID,
+			wish.StoryInput{Body: "危机命中 故事", WishExpectedVersion: current.Version},
+		)
 		must(e)
 		scan("story", pub.ID)
 		storyCase := findCase(pub.ID)
 		if storyCase.ContentType != "story" {
 			t.Fatal("故事危机来源不正确")
 		}
-		_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-story", storyCase.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成故事误报"}, true)
+		_, e = crisis.ActOnCrisis(
+			ctx,
+			operatorToken,
+			uuid.NewString(),
+			"false-story",
+			storyCase.ID,
+			moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成故事误报"},
+			true,
+		)
 		must(e)
 		var story entity.StoryVersion
 		must(root.Where("wish_id=? AND story_version=1", pub.ID).Take(&story).Error)
@@ -742,7 +1168,14 @@ func TestCrisisCare(t *testing.T) {
 		}
 		task = entity.ModerationTask{}
 		must(root.Where("id=?", *story.ReviewTaskID).Take(&task).Error)
-		_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "review-story", task.ID, moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"})
+		_, e = reviews.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"review-story",
+			task.ID,
+			moderation.Decision{ExpectedVersion: task.Version, Decision: "approved"},
+		)
 		must(e)
 		must(root.Where("wish_id=? AND story_version=1", pub.ID).Take(&story).Error)
 		if story.PublicBody == nil {
@@ -754,26 +1187,67 @@ func TestCrisisCare(t *testing.T) {
 		_, own := student()
 		_, helper := student()
 		pub := published(own)
-		app, e := wishes.Apply(ctx, helper, uuid.NewString(), "apply-normal", pub.ID, wish.ApplicationInput{Message: "合成普通申请", WishContentVersion: pub.ContentVersion})
+		app, e := wishes.Apply(
+			ctx,
+			helper,
+			uuid.NewString(),
+			"apply-normal",
+			pub.ID,
+			wish.ApplicationInput{Message: "合成普通申请", WishContentVersion: pub.ContentVersion},
+		)
 		must(e)
 		scan("application", app.ID)
 		var a entity.Application
 		must(root.Where("id=?", app.ID).Take(&a).Error)
 		var w entity.Wish
 		must(root.Where("id=?", pub.ID).Take(&w).Error)
-		_, e = wishes.AcceptApplication(ctx, own, uuid.NewString(), "accept-normal", a.ID, wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: w.Version})
+		_, e = wishes.AcceptApplication(
+			ctx,
+			own,
+			uuid.NewString(),
+			"accept-normal",
+			a.ID,
+			wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: w.Version},
+		)
 		must(e)
 		for _, source := range []struct{ kind, id string }{{"application", app.ID}, {"wish", pub.ID}} {
 			ev := event(source.kind, source.id)
 			var task entity.ModerationTask
 			must(root.Where("id=?", ev.AggregateID).Take(&task).Error)
-			out, e := crisis.EscalateCrisis(ctx, operatorToken, uuid.NewString(), "patrol-matching", "task", task.ID, moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成匹配中内容风险"})
+			out, e := crisis.EscalateCrisis(
+				ctx,
+				operatorToken,
+				uuid.NewString(),
+				"patrol-matching",
+				"task",
+				task.ID,
+				moderation.CrisisCommand{ExpectedVersion: task.Version, Reason: "合成匹配中内容风险"},
+			)
 			must(e)
-			_, e = crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "false-matching", out.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成匹配中误报"}, true)
+			_, e = crisis.ActOnCrisis(
+				ctx,
+				operatorToken,
+				uuid.NewString(),
+				"false-matching",
+				out.ID,
+				moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成匹配中误报"},
+				true,
+			)
 			must(e)
 			var next entity.ModerationTask
-			must(root.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.kind=? AND c.entity_id=? AND t.crisis_recheck AND t.status='human_required'", source.kind, source.id).Take(&next).Error)
-			_, e = reviews.Decide(ctx, adminToken, uuid.NewString(), "review-matching", next.ID, moderation.Decision{ExpectedVersion: next.Version, Decision: "approved"})
+			must(root.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where(
+				"c.kind=? AND c.entity_id=? AND t.crisis_recheck AND t.status='human_required'",
+				source.kind,
+				source.id,
+			).Take(&next).Error)
+			_, e = reviews.Decide(
+				ctx,
+				adminToken,
+				uuid.NewString(),
+				"review-matching",
+				next.ID,
+				moderation.Decision{ExpectedVersion: next.Version, Decision: "approved"},
+			)
 			must(e)
 			must(root.Where("id=?", pub.ID).Take(&w).Error)
 			must(root.Where("id=?", app.ID).Take(&a).Error)

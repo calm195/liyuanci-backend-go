@@ -145,11 +145,19 @@ func (s *Service) ChangeRoles(ctx context.Context, token, key, requestID, target
 		}
 	}
 	definition := command.Definition{
-		Kind: "admin.account.roles", Method: "PUT", ResourcePath: "/api/v1/admin/accounts/" + target + "/roles", ActorKind: "admin", AllowedRoles: []string{"super_admin"},
+
+		Kind:         "admin.account.roles",
+		Method:       "PUT",
+		ResourcePath: "/api/v1/admin/accounts/" + target + "/roles",
+		ActorKind:    "admin",
+		AllowedRoles: []string{"super_admin"},
+
 		Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 			return command.Discovery{Admins: []string{target}}, nil
 		},
+
 		Authorize: func(context.Context, *command.Tx) error { return nil },
+
 		Apply: func(ctx context.Context, tx *command.Tx) (string, error) {
 			current, e := projection(ctx, tx.DB(), target)
 			if e != nil {
@@ -164,12 +172,17 @@ func (s *Service) ChangeRoles(ctx context.Context, token, key, requestID, target
 			}
 			return target, audit(ctx, tx.DB(), tx.Actor().ID, target, "roles_change", input.Reason)
 		},
+
 		Resolve: func(ctx context.Context, tx *command.Tx, id string) error {
 			var e error
 			out, e = projection(ctx, tx.DB(), id)
 			return e
 		},
 	}
-	_, err = s.engine.Execute(ctx, definition, command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input})
+	_, err = s.engine.Execute(
+		ctx,
+		definition,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input},
+	)
 	return out, err
 }

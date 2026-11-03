@@ -69,13 +69,47 @@ func TestPostgresWhisperLocks(t *testing.T) {
 			sql  string
 			args []any
 		}{
-			{"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'whisper_post',?,?,1,'pending'),(?,'whisper_comment',?,?,1,'pending'),(?,'whisper_capsule',?,?,1,'pending'),(?,'whisper_nickname',?,?,2,'pending')", []any{postContent, post, owner, commentContent, comment, owner, capsuleContent, capsule, owner, nickname, nickname, owner}},
-			{"INSERT INTO public.whisper_posts(id,owner_id,version,comments_epoch) VALUES (?,?,3,8)", []any{post, owner}},
-			{"INSERT INTO public.whisper_post_versions(post_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')", []any{post, postContent}},
-			{"INSERT INTO public.whisper_comments(id,post_id,author_id,version,comments_epoch) VALUES (?,?,?,4,8)", []any{comment, post, owner}},
-			{"INSERT INTO public.whisper_comment_versions(comment_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')", []any{comment, commentContent}},
-			{"INSERT INTO public.whisper_capsules(id,owner_id,content_registry_id,body_cipher,unlock_at,version) VALUES (?,?,?,'{}',date_trunc('second',CURRENT_TIMESTAMP)+interval '1 day',5)", []any{capsule, owner, capsuleContent}},
-			{"INSERT INTO public.whisper_nickname_versions(account_id,nickname_version,content_registry_id,label_cipher,control_version) VALUES (?,2,?,'{}',6)", []any{owner, nickname}},
+			{
+				"INSERT INTO public.content_registry(id,kind,entity_id,author_id,content_version,school_detection_version) VALUES (?,'whisper_post',?,?,1,'pending'),(?,'whisper_comment',?,?,1,'pending'),(?,'whisper_capsule',?,?,1,'pending'),(?,'whisper_nickname',?,?,2,'pending')",
+				[]any{
+					postContent,
+					post,
+					owner,
+					commentContent,
+					comment,
+					owner,
+					capsuleContent,
+					capsule,
+					owner,
+					nickname,
+					nickname,
+					owner,
+				},
+			},
+			{
+				"INSERT INTO public.whisper_posts(id,owner_id,version,comments_epoch) VALUES (?,?,3,8)",
+				[]any{post, owner},
+			},
+			{
+				"INSERT INTO public.whisper_post_versions(post_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')",
+				[]any{post, postContent},
+			},
+			{
+				"INSERT INTO public.whisper_comments(id,post_id,author_id,version,comments_epoch) VALUES (?,?,?,4,8)",
+				[]any{comment, post, owner},
+			},
+			{
+				"INSERT INTO public.whisper_comment_versions(comment_id,content_version,content_registry_id,body_cipher,identity_mode,identity_cipher) VALUES (?,1,?,'{}','anonymous','{}')",
+				[]any{comment, commentContent},
+			},
+			{
+				"INSERT INTO public.whisper_capsules(id,owner_id,content_registry_id,body_cipher,unlock_at,version) VALUES (?,?,?,'{}',date_trunc('second',CURRENT_TIMESTAMP)+interval '1 day',5)",
+				[]any{capsule, owner, capsuleContent},
+			},
+			{
+				"INSERT INTO public.whisper_nickname_versions(account_id,nickname_version,content_registry_id,label_cipher,control_version) VALUES (?,2,?,'{}',6)",
+				[]any{owner, nickname},
+			},
 		} {
 			if e := tx.Exec(q.sql, q.args...).Error; e != nil {
 				return e
@@ -83,7 +117,15 @@ func TestPostgresWhisperLocks(t *testing.T) {
 		}
 		return nil
 	}))
-	plan := Discovery{Accounts: []string{owner}, Resources: []Resource{{Kind: WhisperComment, ID: comment}, {Kind: WhisperCapsule, ID: capsule}, {Kind: WhisperNickname, ID: nickname}, {Kind: WhisperPost, ID: post}}}
+	plan := Discovery{
+		Accounts: []string{owner},
+		Resources: []Resource{
+			{Kind: WhisperComment, ID: comment},
+			{Kind: WhisperCapsule, ID: capsule},
+			{Kind: WhisperNickname, ID: nickname},
+			{Kind: WhisperPost, ID: post},
+		},
+	}
 	for _, role := range []string{"liyuanci_domain_worker", "liyuanci_admin_api"} {
 		t.Run(role, func(t *testing.T) {
 			must(db.Connection(func(conn *gorm.DB) error {
@@ -127,18 +169,43 @@ func TestPostgresWhisperLocks(t *testing.T) {
 	must(writer.Rollback().Error)
 	token := googleuuid.NewString()
 	hash := sha256.Sum256([]byte(token))
-	must(db.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')", googleuuid.NewString(), owner, hash[:]).Error)
-	d := Definition{Kind: "whisper.foundation_check", Method: "PUT", ResourcePath: "/synthetic/whisper-foundation", ActorKind: "student", Access: Ordinary, RequiredExpectations: []string{"expected_version", "expected_post_version", "expected_comments_epoch"}, Discover: func(context.Context, *gorm.DB, Subject) (Discovery, error) { return plan, nil }, Authorize: func(context.Context, *Tx) error { return nil }, Apply: func(_ context.Context, tx *Tx) (string, error) {
-		return comment, tx.DB().Exec("UPDATE public.whisper_comments SET version=version+1 WHERE id=?", comment).Error
-	}, Resolve: func(_ context.Context, _ *Tx, ref string) error {
-		if ref != comment {
-			return ErrNotFound
-		}
-		return nil
-	}}
+	must(db.Exec(
+		"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')",
+		googleuuid.NewString(),
+		owner,
+		hash[:],
+	).Error)
+	d := Definition{
+		Kind:                 "whisper.foundation_check",
+		Method:               "PUT",
+		ResourcePath:         "/synthetic/whisper-foundation",
+		ActorKind:            "student",
+		Access:               Ordinary,
+		RequiredExpectations: []string{"expected_version", "expected_post_version", "expected_comments_epoch"},
+		Discover:             func(context.Context, *gorm.DB, Subject) (Discovery, error) { return plan, nil },
+		Authorize:            func(context.Context, *Tx) error { return nil },
+		Apply: func(_ context.Context, tx *Tx) (string, error) {
+			return comment, tx.DB().Exec("UPDATE public.whisper_comments SET version=version+1 WHERE id=?", comment).Error
+		},
+		Resolve: func(_ context.Context, _ *Tx, ref string) error {
+			if ref != comment {
+				return ErrNotFound
+			}
+			return nil
+		},
+	}
 	engine, e := New(db, log, config())
 	must(e)
-	input := Input{Token: token, IdempotencyKey: googleuuid.NewString(), Request: struct{}{}, Expectations: []Expectation{{Name: "expected_version", Target: Resource{Kind: WhisperComment, ID: comment}, Value: 4}, {Name: "expected_post_version", Target: Resource{Kind: WhisperPost, ID: post}, Value: 3}, {Name: "expected_comments_epoch", Target: Resource{Kind: WhisperPost, ID: post}, Value: 7}}}
+	input := Input{
+		Token:          token,
+		IdempotencyKey: googleuuid.NewString(),
+		Request:        struct{}{},
+		Expectations: []Expectation{
+			{Name: "expected_version", Target: Resource{Kind: WhisperComment, ID: comment}, Value: 4},
+			{Name: "expected_post_version", Target: Resource{Kind: WhisperPost, ID: post}, Value: 3},
+			{Name: "expected_comments_epoch", Target: Resource{Kind: WhisperPost, ID: post}, Value: 7},
+		},
+	}
 	if _, e = engine.Execute(ctx, d, input); e != ErrVersionConflict {
 		t.Fatal("旧评论代次未拒绝", e)
 	}

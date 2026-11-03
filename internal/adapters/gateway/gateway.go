@@ -51,12 +51,17 @@ func New(cfg Config, log *zap.Logger) (*Client, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
-	client := &http.Client{Transport: transport, Timeout: cfg.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{
+		Transport:     transport,
+		Timeout:       cfg.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	return &Client{client, cfg.URL, credential, cfg.Version, log}, nil
 }
 
 // Close 释放本客户端的空闲连接，不拥有数据库或调用方上下文。
 func (g *Client) Close() { g.client.CloseIdleConnections() }
+
 func (g *Client) call(ctx context.Context, operation string, input, out any) (err error) {
 	return g.callLimit(ctx, operation, input, out, 1<<20)
 }
@@ -69,7 +74,12 @@ func (g *Client) callLimit(ctx context.Context, operation string, input, out any
 		if err != nil {
 			result = "failure"
 		}
-		g.logger.Info("业务供应商调用完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+		g.logger.Info(
+			"业务供应商调用完成",
+			zap.String("operation", operation),
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	data, e := json.Marshal(struct {
 		Operation, Version string

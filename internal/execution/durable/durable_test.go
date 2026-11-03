@@ -24,9 +24,11 @@ import (
 type sendFunc func(context.Context, Event) error
 
 func (f sendFunc) Send(ctx context.Context, event Event) error { return f(ctx, event) }
+
 func route() Route {
 	return Route{Kind: "synthetic.scan", TargetKind: "wish", EventType: "content.scan"}
 }
+
 func configuration() Config {
 	return Config{
 		DatabaseTimeout: time.Second,
@@ -36,20 +38,41 @@ func configuration() Config {
 		MaxAttempts:     2,
 	}
 }
+
 func draft(n int) Draft {
-	return Draft{WorkID: uid(n), OperationID: uid(n + 100), EventID: uid(n + 200), AggregateID: uid(n + 300), AggregateVersion: 1}
+	return Draft{
+		WorkID:           uid(n),
+		OperationID:      uid(n + 100),
+		EventID:          uid(n + 200),
+		AggregateID:      uid(n + 300),
+		AggregateVersion: 1,
+	}
 }
+
 func uid(n int) string { return fmt.Sprintf("70000000-0000-0000-0000-%012d", n) }
 
 // T007/REQ-006、007、015、017、018：禁止任意载荷/动态身份类型，缺失依赖失败关闭。
 func TestContracts(t *testing.T) {
-	if _, err := NewRelay(nil, zap.NewNop(), sendFunc(func(context.Context, Event) error { return nil }), route(), configuration()); err != ErrInvalid {
+	if _, err := NewRelay(
+		nil,
+		zap.NewNop(),
+		sendFunc(func(context.Context, Event) error { return nil }),
+		route(),
+		configuration(),
+	); err != ErrInvalid {
 		t.Fatal("无数据库应拒绝")
 	}
 	if validRoute(Route{Kind: "body contains secret", TargetKind: "wish", EventType: "scan"}) {
 		t.Fatal("任意正文不能成为路由")
 	}
-	encoded, err := json.Marshal(Event{EventID: uid(1), EventType: "content.scan", AggregateID: uid(2), AggregateVersion: 1, CorrelationID: uid(3), CreatedAt: time.Unix(1, 0).UTC()})
+	encoded, err := json.Marshal(Event{
+		EventID:          uid(1),
+		EventType:        "content.scan",
+		AggregateID:      uid(2),
+		AggregateVersion: 1,
+		CorrelationID:    uid(3),
+		CreatedAt:        time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +129,11 @@ func TestPostgresDurable(t *testing.T) {
 			t.Fatal(failure)
 		}
 	}
-	clear := func() { exec("DELETE FROM public.outbox_events"); exec("DELETE FROM public.work_items") }
+	clear := func() {
+
+		exec("DELETE FROM public.outbox_events")
+		exec("DELETE FROM public.work_items")
+	}
 	relay := func(sender Sender) *Relay {
 		t.Helper()
 		got, failure := NewRelay(db, log, sender, route(), configuration())
@@ -186,7 +213,12 @@ func TestPostgresDurable(t *testing.T) {
 		failures := make(chan error, 8)
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
-			go func() { defer wg.Done(); _, failure := r.Once(ctx); failures <- failure }()
+			go func() {
+
+				defer wg.Done()
+				_, failure := r.Once(ctx)
+				failures <- failure
+			}()
 		}
 		wg.Wait()
 		close(failures)
@@ -301,7 +333,11 @@ func TestPostgresDurable(t *testing.T) {
 			clear()
 			appendWork(7)
 			exec("UPDATE public.work_items SET status=?", status)
-			r := relay(sendFunc(func(context.Context, Event) error { t.Error("终态不应再次转发"); return nil }))
+			r := relay(sendFunc(func(context.Context, Event) error {
+
+				t.Error("终态不应再次转发")
+				return nil
+			}))
 			if claimed, failure := r.Once(ctx); failure != nil || claimed {
 				t.Fatal("终态应跳过")
 			}
@@ -323,7 +359,11 @@ func TestPostgresDurable(t *testing.T) {
 		clear()
 		appendWork(10)
 		exec("UPDATE public.outbox_events SET attempts=2,lease_until=clock_timestamp()-interval '1 second'")
-		r := relay(sendFunc(func(context.Context, Event) error { t.Error("预算已耗尽不得发送"); return nil }))
+		r := relay(sendFunc(func(context.Context, Event) error {
+
+			t.Error("预算已耗尽不得发送")
+			return nil
+		}))
 		if claimed, failure := r.Once(ctx); failure != nil || claimed {
 			t.Fatal("预算耗尽仅标记待办", failure)
 		}

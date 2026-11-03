@@ -29,14 +29,19 @@ func (k *testKeys) Wrap(_ context.Context, key []byte) (string, []byte, error) {
 	}
 	return "synthetic-only", append([]byte(nil), key...), nil
 }
+
 func (k *testKeys) Unwrap(_ context.Context, ref string, key []byte) ([]byte, error) {
 	if k.failed || ref != "synthetic-only" {
 		return nil, command.ErrUnavailable
 	}
 	return append([]byte(nil), key...), nil
 }
+
 func serviceConfig() ServiceConfig {
-	return ServiceConfig{Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, ReceiptKey: bytes.Repeat([]byte{71}, 32)}
+	return ServiceConfig{
+		Command:    command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+		ReceiptKey: bytes.Repeat([]byte{71}, 32),
+	}
 }
 
 // TestServiceConfiguration 追溯 T014/REQ-018：无隐式数据库、日志器、密钥或回执配置。
@@ -55,7 +60,11 @@ func TestServiceConfiguration(t *testing.T) {
 		codec *securedata.Codec
 		cfg   ServiceConfig
 	}{
-		{nil, logger, codec, serviceConfig()}, {db, nil, codec, serviceConfig()}, {db, logger, nil, serviceConfig()}, {db, logger, codec, ServiceConfig{}},
+
+		{nil, logger, codec, serviceConfig()},
+		{db, nil, codec, serviceConfig()},
+		{db, logger, nil, serviceConfig()},
+		{db, logger, codec, ServiceConfig{}},
 	} {
 		if got, err := NewService(tc.db, tc.log, tc.codec, nil, tc.cfg); err == nil || got != nil {
 			t.Fatal("错误配置被接受")

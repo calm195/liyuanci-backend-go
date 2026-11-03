@@ -49,7 +49,16 @@ func (p *Policy) CreateDraft(ctx context.Context, requestID string, owner Eligib
 
 // EditDraft 把完整内容校验与编辑状态计划绑定，避免期限与正文分别校验后出现不一致。
 // 当前快照必须在持锁事务中读取；返回计划须与旧审核、申请作废及幂等回执原子提交。
-func (p *Policy) EditDraft(ctx context.Context, requestID string, now time.Time, owner Eligibility, current Snapshot, expectedVersion int64, refreshExpiry bool, input ContentInput) (out DraftPlan, err error) {
+func (p *Policy) EditDraft(
+	ctx context.Context,
+	requestID string,
+	now time.Time,
+	owner Eligibility,
+	current Snapshot,
+	expectedVersion int64,
+	refreshExpiry bool,
+	input ContentInput,
+) (out DraftPlan, err error) {
 	start := time.Now()
 	defer func() {
 		if err != nil {
@@ -75,7 +84,8 @@ func (p *Policy) EditDraft(ctx context.Context, requestID string, now time.Time,
 		return out, err
 	}
 	// 隐私修订不借编辑已建立关系刷新期限或改变期限配置。
-	if slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) && (refreshExpiry || content.DurationDays != current.DurationDays) {
+	if slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) &&
+		(refreshExpiry || content.DurationDays != current.DurationDays) {
 		return out, command.ErrConflict
 	}
 	transition.Next.DurationDays = content.DurationDays

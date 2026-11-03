@@ -39,7 +39,14 @@ func summaries(db *gorm.DB, rows []entity.ResourceMaterial) (map[string]map[stri
 	ids := []string{}
 	for _, r := range rows {
 		ids = append(ids, r.ID)
-		out[r.ID] = map[string]any{"content_version": r.ContentVersion, "valid": int64(0), "link_invalid": int64(0), "outdated": int64(0), "incomplete": int64(0), "total": int64(0)}
+		out[r.ID] = map[string]any{
+			"content_version": r.ContentVersion,
+			"valid":           int64(0),
+			"link_invalid":    int64(0),
+			"outdated":        int64(0),
+			"incomplete":      int64(0),
+			"total":           int64(0),
+		}
 	}
 	if len(ids) == 0 {
 		return out, nil
@@ -48,7 +55,13 @@ func summaries(db *gorm.DB, rows []entity.ResourceMaterial) (map[string]map[stri
 		ResourceID, Kind string
 		Count            int64
 	}
-	e := db.Table("public.resource_feedback f").Select("f.resource_id,f.kind,count(*) AS count").Joins("JOIN public.accounts a ON a.id=f.account_id AND a.lifecycle='active'").Joins("JOIN public.resource_materials r ON r.id=f.resource_id AND r.content_version=f.content_version").Where("f.resource_id IN ?", ids).Group("f.resource_id,f.kind").Scan(&counts).Error
+	e := db.Table("public.resource_feedback f").Select("f.resource_id,f.kind,count(*) AS count").
+		Joins("JOIN public.accounts a ON a.id=f.account_id AND a.lifecycle='active'").
+		Joins("JOIN public.resource_materials r ON r.id=f.resource_id AND r.content_version=f.content_version").
+		Where("f.resource_id IN ?", ids).
+		Group("f.resource_id,f.kind").
+		Scan(&counts).
+		Error
 	for _, c := range counts {
 		out[c.ResourceID][c.Kind] = c.Count
 		out[c.ResourceID]["total"] = out[c.ResourceID]["total"].(int64) + c.Count
@@ -76,7 +89,11 @@ func (s *Service) lock(db *gorm.DB, op, id string, in Input, a actor) (r entity.
 		if err != nil {
 			return
 		}
-		refs = append(refs, command.Resource{Kind: command.ResourceCategory, ID: r.CategoryID}, command.Resource{Kind: command.ResourceMaterial, ID: r.ID})
+		refs = append(
+			refs,
+			command.Resource{Kind: command.ResourceCategory, ID: r.CategoryID},
+			command.Resource{Kind: command.ResourceMaterial, ID: r.ID},
+		)
 	}
 	if len(refs) > 0 {
 		_, err = command.LockPlan(db.Statement.Context, db, command.Discovery{Resources: refs}, s.cfg.Command.LockTimeout)
@@ -110,7 +127,14 @@ func (s *Service) lock(db *gorm.DB, op, id string, in Input, a actor) (r entity.
 }
 
 func (s *Service) audit(db *gorm.DB, a actor, op, id string, version int64, reason string) error {
-	r := entity.ResourceAudit{ID: uuid.NewString(), ActorID: a.ID, TargetID: id, Operation: op, Version: version, CreatedAt: a.Now}
+	r := entity.ResourceAudit{
+		ID:        uuid.NewString(),
+		ActorID:   a.ID,
+		TargetID:  id,
+		Operation: op,
+		Version:   version,
+		CreatedAt: a.Now,
+	}
 	if reason != "" {
 		b, e := s.encrypt(db.Statement.Context, "resource_offline_reason", r.ID, version, reason)
 		if e != nil {
@@ -123,7 +147,8 @@ func (s *Service) audit(db *gorm.DB, a actor, op, id string, version int64, reas
 
 // clearFeedback 与内容更新共用事务，同时移除旧反馈及其回执，防止重放恢复过期反馈。
 func clearFeedback(db *gorm.DB, id string) error {
-	if e := db.Exec("DELETE FROM public.command_receipts WHERE actor_kind='student' AND result_ref IN (SELECT id FROM public.resource_feedback WHERE resource_id=?)", id).Error; e != nil {
+	if e := db.Exec("DELETE FROM public.command_receipts WHERE actor_kind='student' AND result_ref IN (SELECT id FROM public.resource_feedback WHERE resource_id=?)", id).
+		Error; e != nil {
 		return e
 	}
 	return db.Where("resource_id=?", id).Delete(&entity.ResourceFeedback{}).Error

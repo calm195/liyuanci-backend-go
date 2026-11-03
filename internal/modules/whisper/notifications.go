@@ -37,14 +37,38 @@ func AppendCommentNotice(ctx context.Context, db *gorm.DB, id string, now time.T
 		return nil
 	}
 	notificationID := uuid.NewString()
-	if e := db.Create(&entity.Notification{ID: notificationID, RecipientID: p.OwnerID, Type: "whisper_comment", TargetRef: *c.PostID, CreatedAt: now}).Error; e != nil {
+	if e := db.Create(&entity.Notification{
+		ID:          notificationID,
+		RecipientID: p.OwnerID,
+		Type:        "whisper_comment",
+		TargetRef:   *c.PostID,
+		CreatedAt:   now,
+	}).Error; e != nil {
 		return e
 	}
-	return db.Create(&entity.WhisperNotificationRef{NotificationID: notificationID, Kind: "whisper_comment", SourceID: id, TargetKind: "post", TargetID: *c.PostID, CommentID: &id}).Error
+	return db.Create(&entity.WhisperNotificationRef{
+		NotificationID: notificationID,
+		Kind:           "whisper_comment",
+		SourceID:       id,
+		TargetKind:     "post",
+		TargetID:       *c.PostID,
+		CommentID:      &id,
+	}).Error
 }
 
 func notificationProjection(n entity.Notification, r entity.WhisperNotificationRef) Notification {
-	out := Notification{ID: n.ID, Version: n.Version, Kind: r.Kind, TargetKind: r.TargetKind, TargetID: r.TargetID, CommentID: r.CommentID, Read: n.ReadAt != nil, CreatedAt: timestamp(n.CreatedAt), Notice: "有新的暖评，请打开帖子查看", AllowedActions: []string{}}
+	out := Notification{
+		ID:             n.ID,
+		Version:        n.Version,
+		Kind:           r.Kind,
+		TargetKind:     r.TargetKind,
+		TargetID:       r.TargetID,
+		CommentID:      r.CommentID,
+		Read:           n.ReadAt != nil,
+		CreatedAt:      timestamp(n.CreatedAt),
+		Notice:         "有新的暖评，请打开帖子查看",
+		AllowedActions: []string{},
+	}
 	if r.Kind == "whisper_capsule_unlocked" {
 		out.Notice = "时空胶囊已到约定时间，请打开查看"
 	}
@@ -76,7 +100,8 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.WithContext(ctx).Model(&entity.Notification{}).Where("recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)", actor.ID)
+		query := db.WithContext(ctx).Model(&entity.Notification{}).
+			Where("recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)", actor.ID)
 		if after.ID != "" {
 			query = query.Where("(created_at,id)<(?,?)", after.At, after.ID)
 		}
@@ -112,13 +137,25 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	if !ValidID(id) || version < 1 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.notification.read", Method: "POST", ResourcePath: "/api/v1/me/whispers/notifications/" + id + "/read", ActorKind: "student", Access: command.Restricted, RetainReceipt: true, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "whisper.notification.read",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/me/whispers/notifications/" + id + "/read",
+		ActorKind:            "student",
+		Access:               command.Restricted,
+		RetainReceipt:        true,
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 		return command.Discovery{Resources: []command.Resource{{Kind: command.Notification, ID: id}}}, nil
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var n int64
-		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)", id, tx.Actor().ID).Count(&n).Error
+		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where(
+			"id=? AND recipient_id=? AND id IN (SELECT notification_id FROM public.whisper_notification_refs WHERE NOT suppressed)",
+			id,
+			tx.Actor().ID,
+		).Count(&n).Error
 		if e != nil {
 			return e
 		}
@@ -128,7 +165,10 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 		return nil
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
-		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND read_at IS NULL", id).Updates(map[string]any{"read_at": tx.Now(), "version": gorm.Expr("version+1")}).Error
+		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).
+			Where("id=? AND read_at IS NULL", id).
+			Updates(map[string]any{"read_at": tx.Now(), "version": gorm.Expr("version+1")}).
+			Error
 		return id, e
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
@@ -143,6 +183,21 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 		out = notificationProjection(n, r)
 		return nil
 	}
-	_, err = s.execute(ctx, d, token, key, rid, struct{ Version int64 }{version}, 0, "", "maintenance", command.Expectation{Name: "expected_version", Target: command.Resource{Kind: command.Notification, ID: id}, Value: version})
+	_, err = s.execute(
+		ctx,
+		d,
+		token,
+		key,
+		rid,
+		struct{ Version int64 }{version},
+		0,
+		"",
+		"maintenance",
+		command.Expectation{
+			Name:   "expected_version",
+			Target: command.Resource{Kind: command.Notification, ID: id},
+			Value:  version,
+		},
+	)
 	return
 }

@@ -29,13 +29,21 @@ type Engine struct {
 
 // New 拒绝外部事务，避免将 savepoint 成功误记为整个命令已提交。
 func New(db *gorm.DB, logger *zap.Logger, config Config) (*Engine, error) {
-	if db == nil || db.Statement == nil || logger == nil || config.Timeout <= 0 || config.LockTimeout < time.Millisecond || config.LockTimeout > config.Timeout || config.ReceiptTTL <= 0 || config.MaxAttempts < 1 || config.MaxAttempts > 10 {
+	if db == nil || db.Statement == nil || logger == nil || config.Timeout <= 0 || config.LockTimeout < time.Millisecond ||
+		config.LockTimeout > config.Timeout ||
+		config.ReceiptTTL <= 0 ||
+		config.MaxAttempts < 1 ||
+		config.MaxAttempts > 10 {
 		return nil, ErrInvalid
 	}
 	if _, nested := db.Statement.ConnPool.(gorm.TxCommitter); nested {
 		return nil, ErrInvalid
 	}
-	return &Engine{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), logger: logger, config: config}, nil
+	return &Engine{
+		db:     db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		logger: logger,
+		config: config,
+	}, nil
 }
 
 func uuid(value string) bool {
@@ -46,13 +54,24 @@ func uuid(value string) bool {
 func validDefinition(d Definition) bool {
 	required := map[string]bool{}
 	for _, name := range d.RequiredExpectations {
-		if required[name] || !slices.Contains([]string{"expected_version", "wish_expected_version", "expected_write_epoch", "expected_post_version", "expected_comments_epoch"}, name) {
+		if required[name] || !slices.Contains([]string{
+			"expected_version",
+			"wish_expected_version",
+			"expected_write_epoch",
+			"expected_post_version",
+			"expected_comments_epoch",
+		}, name) {
 			return false
 		}
 		required[name] = true
 	}
 	kind, _ := regexp.MatchString(`^[a-z][a-z0-9_.]{0,63}$`, d.Kind)
-	if !kind || d.ResourcePath == "" || !strings.HasPrefix(d.ResourcePath, "/") || path.Clean(d.ResourcePath) != d.ResourcePath || strings.ContainsAny(d.ResourcePath, "?#%\r\n") || d.Discover == nil || d.Authorize == nil || d.Apply == nil || d.Resolve == nil {
+	if !kind || d.ResourcePath == "" || !strings.HasPrefix(d.ResourcePath, "/") || path.Clean(d.ResourcePath) != d.ResourcePath ||
+		strings.ContainsAny(d.ResourcePath, "?#%\r\n") ||
+		d.Discover == nil ||
+		d.Authorize == nil ||
+		d.Apply == nil ||
+		d.Resolve == nil {
 		return false
 	}
 	if !slices.Contains([]string{"POST", "PUT", "PATCH", "DELETE"}, d.Method) {
@@ -82,7 +101,9 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 	for _, check := range checks {
 		// 父帖版本与评论代次绑定同一资源，但各自校验，不能互相替代。
 		previous := seen[check.Target]
-		parentPair := check.Target.Kind == WhisperPost && ((previous == "expected_post_version" && check.Name == "expected_comments_epoch") || (previous == "expected_comments_epoch" && check.Name == "expected_post_version"))
+		parentPair := check.Target.Kind == WhisperPost &&
+			((previous == "expected_post_version" && check.Name == "expected_comments_epoch") ||
+				(previous == "expected_comments_epoch" && check.Name == "expected_post_version"))
 		if !uuid(check.Target.ID) || check.Value <= 0 || (previous != "" && !parentPair) || names[check.Name] {
 			return nil, ErrInvalid
 		}
@@ -90,7 +111,24 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 		names[check.Name] = true
 		switch check.Name {
 		case "expected_version":
-			if !slices.Contains([]ResourceKind{Account, IdentityReview, Wish, Application, Message, ModerationTask, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase, WhisperPost, WhisperComment, WhisperNickname, WhisperCapsule}, check.Target.Kind) {
+			if !slices.Contains([]ResourceKind{
+				Account,
+				IdentityReview,
+				Wish,
+				Application,
+				Message,
+				ModerationTask,
+				Notification,
+				Report,
+				Penalty,
+				Appeal,
+				CrisisCase,
+				EvidenceCase,
+				WhisperPost,
+				WhisperComment,
+				WhisperNickname,
+				WhisperCapsule,
+			}, check.Target.Kind) {
 				return nil, ErrInvalid
 			}
 		case "expected_post_version", "expected_comments_epoch":
@@ -145,7 +183,14 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 		if err != nil {
 			result = "failure"
 		}
-		fields := []zap.Field{zap.String("operation", safeKind), zap.String("result", result), zap.String("code", resultCode(err)), zap.Int("attempts", out.Attempts), zap.Duration("duration", time.Since(start)), zap.Bool("recovered", recovered)}
+		fields := []zap.Field{
+			zap.String("operation", safeKind),
+			zap.String("result", result),
+			zap.String("code", resultCode(err)),
+			zap.Int("attempts", out.Attempts),
+			zap.Duration("duration", time.Since(start)),
+			zap.Bool("recovered", recovered),
+		}
 		if safeRequestID != "" {
 			fields = append(fields, zap.String("request_id", safeRequestID))
 		}
@@ -181,32 +226,7 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 		}
 		var subject Subject
 		var discovered Discovery
-		// 初次发现使用真正的只读事务，错误写入不能产生提前提交的业务副作用。
-		err = e.db.WithContext(ctx).Transaction(func(reader *gorm.DB) error {
-			var subjects []Subject
-			// 只读发现使用单次联表快照；资格检查仍在取得 guard 后重新执行。
-			query := reader.Model(&entity.Session{}).Table("public.sessions AS s").
-				Select("s.subject_kind AS kind", "s.subject_id AS id").
-				Where("s.token_hash = ? AND s.subject_kind = ? AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND s.auth_epoch = a.auth_epoch", token[:], d.ActorKind)
-			if d.ActorKind == "admin" {
-				query = query.Joins("JOIN public.admin_accounts AS a ON a.id = s.admin_id").Where("a.status = ?", "active")
-			} else {
-				query = query.Joins("JOIN public.accounts AS a ON a.id = s.account_id").Where("a.lifecycle = ?", "active")
-			}
-			if failure := query.Find(&subjects).Error; failure != nil {
-				return failure
-			}
-			if len(subjects) != 1 {
-				return ErrUnauthenticated
-			}
-			subject = subjects[0]
-			found, failure := d.Discover(ctx, reader, subject)
-			if failure != nil {
-				return failure
-			}
-			discovered, failure = normalize(found, subject)
-			return failure
-		}, &sql.TxOptions{Isolation: sql.LevelReadCommitted, ReadOnly: true})
+		subject, discovered, err = e.discoverCommand(ctx, d, token)
 		if err == nil {
 			err = e.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 				// 身份唯一占用锁先于所有主体锁，避免与登录和密钥轮换形成反向等待。
@@ -220,30 +240,14 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 					return failure
 				}
 				// 锁账号后及锁资源后分别重读，任一集合变化均退出事务，禁止追加锁。
-				found, failure := d.Discover(ctx, db, subject)
-				if failure != nil {
+				if failure = verifyDiscovery(ctx, db, d, subject, discovered); failure != nil {
 					return failure
-				}
-				normalized, failure := normalize(found, subject)
-				if failure != nil {
-					return failure
-				}
-				if !same(discovered, normalized) {
-					return ErrRetry
 				}
 				if failure = tx.lockResources(discovered.Resources); failure != nil {
 					return failure
 				}
-				found, failure = d.Discover(ctx, db, subject)
-				if failure != nil {
+				if failure = verifyDiscovery(ctx, db, d, subject, discovered); failure != nil {
 					return failure
-				}
-				normalized, failure = normalize(found, subject)
-				if failure != nil {
-					return failure
-				}
-				if !same(discovered, normalized) {
-					return ErrRetry
 				}
 				if failure = db.Raw("SELECT clock_timestamp()").Scan(&tx.now).Error; failure != nil {
 					return failure
@@ -261,7 +265,13 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 					ExpiresAt      time.Time
 					LifecycleBound bool
 				}
-				if failure = db.Model(&entity.CommandReceipt{}).Select("request_hash,result_ref,expires_at,lifecycle_bound").Where("actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=?", subject.Kind, subject.ID, scope, key[:]).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&receipts).Error; failure != nil {
+				if failure = db.Model(&entity.CommandReceipt{}).Select("request_hash,result_ref,expires_at,lifecycle_bound").Where(
+					"actor_kind=? AND actor_id=? AND command_kind=? AND key_hash=?",
+					subject.Kind,
+					subject.ID,
+					scope,
+					key[:],
+				).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&receipts).Error; failure != nil {
 					return failure
 				}
 				// 同一主体 guard 串行化同键操作；数据库唯一键兜底，回执和业务结果同事务。
@@ -277,29 +287,8 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 					out.Replayed = true
 					return nil
 				}
-				for _, check := range input.Expectations {
-					var actual int64
-					if check.Target.Kind == Account {
-						guard, present := tx.guards[check.Target.ID]
-						if !present {
-							return ErrInvalid
-						}
-						actual = guard.Version
-					} else {
-						snapshot, present := tx.resources[check.Target]
-						if !present {
-							return ErrInvalid
-						}
-						actual = snapshot.Version
-						if check.Name == "expected_write_epoch" {
-							actual = snapshot.WriteEpoch
-						} else if check.Name == "expected_comments_epoch" {
-							actual = snapshot.CommentsEpoch
-						}
-					}
-					if actual != check.Value {
-						return ErrVersionConflict
-					}
+				if failure = verifyExpectations(tx, input.Expectations); failure != nil {
+					return failure
 				}
 				if d.PersistIntent != nil {
 					if failure = d.PersistIntent(ctx, tx); failure != nil {
@@ -323,10 +312,21 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 				saved := db.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "actor_kind"}, {Name: "actor_id"}, {Name: "command_kind"}, {Name: "key_hash"}},
 					DoUpdates: clause.AssignmentColumns(assignments),
-					Where:     clause.Where{Exprs: []clause.Expression{clause.Lte{Column: clause.Column{Table: "command_receipts", Name: "expires_at"}, Value: tx.now}, clause.Eq{Column: clause.Column{Table: "command_receipts", Name: "lifecycle_bound"}, Value: false}}},
+					Where: clause.Where{Exprs: []clause.Expression{
+						clause.Lte{Column: clause.Column{Table: "command_receipts", Name: "expires_at"}, Value: tx.now},
+						clause.Eq{Column: clause.Column{Table: "command_receipts", Name: "lifecycle_bound"}, Value: false},
+					}},
 				}).Create(&entity.CommandReceipt{
-					LifecycleBound: d.RetainReceipt, ActorKind: subject.Kind, ActorID: subject.ID, CommandKind: scope, KeyHash: key[:],
-					RequestHash: digest, ResultRef: ref, ExpiresAt: tx.now.Add(e.config.ReceiptTTL),
+
+					LifecycleBound: d.RetainReceipt,
+					ActorKind:      subject.Kind,
+					ActorID:        subject.ID,
+					CommandKind:    scope,
+					KeyHash:        key[:],
+
+					RequestHash: digest,
+					ResultRef:   ref,
+					ExpiresAt:   tx.now.Add(e.config.ReceiptTTL),
 				})
 				if saved.Error != nil {
 					return saved.Error
@@ -352,11 +352,112 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 	return out, err
 }
 
+// discoverCommand 使用真正的只读事务定位主体和参与集合，发现回调的错误写入不能提前提交。
+// 这里只做单次联表快照发现，资格检查仍在写事务取得主体锁后重新执行。
+func (e *Engine) discoverCommand(ctx context.Context, d Definition, token [32]byte) (subject Subject, discovered Discovery, err error) {
+	err = e.db.WithContext(ctx).Transaction(func(reader *gorm.DB) error {
+		var subjects []Subject
+		query := reader.Model(&entity.Session{}).Table("public.sessions AS s").
+			Select("s.subject_kind AS kind", "s.subject_id AS id").
+			Where("s.token_hash = ? AND s.subject_kind = ? AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND s.auth_epoch = a.auth_epoch", token[:], d.ActorKind)
+		if d.ActorKind == "admin" {
+			query = query.Joins("JOIN public.admin_accounts AS a ON a.id = s.admin_id").Where("a.status = ?", "active")
+		} else {
+			query = query.Joins("JOIN public.accounts AS a ON a.id = s.account_id").Where("a.lifecycle = ?", "active")
+		}
+		if failure := query.Find(&subjects).Error; failure != nil {
+			return failure
+		}
+		if len(subjects) != 1 {
+			return ErrUnauthenticated
+		}
+		subject = subjects[0]
+		found, failure := d.Discover(ctx, reader, subject)
+		if failure != nil {
+			return failure
+		}
+		discovered, failure = normalize(found, subject)
+		return failure
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted, ReadOnly: true})
+	return
+}
+
+// verifyDiscovery 在主体锁后和资源锁后分别复核参与集合，集合变化交给外层重新发现与重试。
+// 此处不追加锁，避免资源集合变化破坏统一锁序。
+func verifyDiscovery(ctx context.Context, db *gorm.DB, d Definition, subject Subject, expected Discovery) error {
+	found, err := d.Discover(ctx, db, subject)
+	if err != nil {
+		return err
+	}
+	normalized, err := normalize(found, subject)
+	if err != nil {
+		return err
+	}
+	if !same(expected, normalized) {
+		return ErrRetry
+	}
+	return nil
+}
+
+// verifyExpectations 只比较已经加锁的快照；缺少目标不能退回无锁查询或默认版本。
+func verifyExpectations(tx *Tx, checks []Expectation) error {
+	for _, check := range checks {
+		var actual int64
+		if check.Target.Kind == Account {
+			guard, present := tx.guards[check.Target.ID]
+			if !present {
+				return ErrInvalid
+			}
+			actual = guard.Version
+		} else {
+			snapshot, present := tx.resources[check.Target]
+			if !present {
+				return ErrInvalid
+			}
+			actual = snapshot.Version
+			if check.Name == "expected_write_epoch" {
+				actual = snapshot.WriteEpoch
+			} else if check.Name == "expected_comments_epoch" {
+				actual = snapshot.CommentsEpoch
+			}
+		}
+		if actual != check.Value {
+			return ErrVersionConflict
+		}
+	}
+	return nil
+}
+
 func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrClientUpgradeRequired, ErrVerificationRequired, ErrModeUnavailable, ErrDictionaryChanged, ErrNicknameNotReady, ErrWarningWait, ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrNotFound, ErrVersionConflict, ErrIdempotencyConflict, ErrConflict, ErrAssetNotReady, ErrCapsuleLimit, ErrActiveWishLimit, ErrDuplicateApplication, ErrBlockedInteraction, ErrReviewPending, ErrRetry, ErrUnavailable, ErrInternal, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{
+		ErrClientUpgradeRequired,
+		ErrVerificationRequired,
+		ErrModeUnavailable,
+		ErrDictionaryChanged,
+		ErrNicknameNotReady,
+		ErrWarningWait,
+		ErrInvalid,
+		ErrUnauthenticated,
+		ErrForbidden,
+		ErrNotFound,
+		ErrVersionConflict,
+		ErrIdempotencyConflict,
+		ErrConflict,
+		ErrAssetNotReady,
+		ErrCapsuleLimit,
+		ErrActiveWishLimit,
+		ErrDuplicateApplication,
+		ErrBlockedInteraction,
+		ErrReviewPending,
+		ErrRetry,
+		ErrUnavailable,
+		ErrInternal,
+		context.Canceled,
+		context.DeadlineExceeded,
+	} {
 		if errors.Is(err, known) {
 			return known
 		}

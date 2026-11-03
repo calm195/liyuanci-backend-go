@@ -177,7 +177,10 @@ func (s *Service) usersAfter(binding, value string, now time.Time) (out usersCur
 		return out, command.ErrInvalid
 	}
 	defer clear(plain)
-	if json.Unmarshal(plain, &out) != nil || out.Version != 1 || out.Binding != binding || !now.Before(out.Expires) || out.Expires.After(now.Add(30*time.Minute)) || !validID(out.ID) || out.Position.IsZero() {
+	if json.Unmarshal(plain, &out) != nil || out.Version != 1 || out.Binding != binding || !now.Before(out.Expires) ||
+		out.Expires.After(now.Add(30*time.Minute)) ||
+		!validID(out.ID) ||
+		out.Position.IsZero() {
 		return usersCursor{}, command.ErrInvalid
 	}
 	return out, nil
@@ -236,13 +239,21 @@ func (s *Service) usersRead(ctx context.Context, token, target string, run func(
 			return e
 		}
 		var admin entity.AdminAccount
-		if e = db.Select("id,status,auth_epoch").Where("id=? AND status='active' AND auth_epoch=?", session.SubjectID, session.AuthEpoch).Take(&admin).Error; e != nil {
+		if e = db.Select("id,status,auth_epoch").Where(
+			"id=? AND status='active' AND auth_epoch=?",
+			session.SubjectID,
+			session.AuthEpoch,
+		).Take(&admin).Error; e != nil {
 			if e == gorm.ErrRecordNotFound {
 				return command.ErrUnauthenticated
 			}
 			return e
 		}
-		if e = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id=? AND revoked_at IS NULL AND expires_at>?", session.ID, now).Take(&session).Error; e != nil {
+		if e = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+			"id=? AND revoked_at IS NULL AND expires_at>?",
+			session.ID,
+			now,
+		).Take(&session).Error; e != nil {
 			if e == gorm.ErrRecordNotFound {
 				return command.ErrUnauthenticated
 			}
@@ -313,7 +324,16 @@ func (s *Service) UsersList(ctx context.Context, token, rid string, q UsersQuery
 		return audit(db, a, a, "admin_users_list")
 	})
 	if err == nil {
-		s.logger.Info("后台用户查询完成", zap.String("actor_id", actor), zap.String("request_id", rid), zap.Bool("filter_user_id", q.UserID != ""), zap.Bool("filter_nickname", q.Nickname != ""), zap.Bool("filter_verification", q.Verification != ""), zap.Bool("filter_restriction", q.Restriction != ""), zap.Int("result_count", len(out.Items)))
+		s.logger.Info(
+			"后台用户查询完成",
+			zap.String("actor_id", actor),
+			zap.String("request_id", rid),
+			zap.Bool("filter_user_id", q.UserID != ""),
+			zap.Bool("filter_nickname", q.Nickname != ""),
+			zap.Bool("filter_verification", q.Verification != ""),
+			zap.Bool("filter_restriction", q.Restriction != ""),
+			zap.Int("result_count", len(out.Items)),
+		)
 	}
 	return
 }
@@ -338,7 +358,12 @@ func (s *Service) UserDetailRead(ctx context.Context, token, rid, id string) (ou
 		if len(rows) != 1 {
 			return command.ErrNotFound
 		}
-		out = UserDetail{UserSummary: rows[0].summary(now), AccountVersion: rows[0].Version, ActivePenalties: []ActivePenalty{}, AllowedActions: []string{"view_penalties"}}
+		out = UserDetail{
+			UserSummary:     rows[0].summary(now),
+			AccountVersion:  rows[0].Version,
+			ActivePenalties: []ActivePenalty{},
+			AllowedActions:  []string{"view_penalties"},
+		}
 		out.ActivePenalties, e = usersActivePenalties(ctx, db, id, roles, now)
 		if e != nil {
 			return e

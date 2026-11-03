@@ -75,7 +75,15 @@ func DiscoverStory(ctx context.Context, db *gorm.DB, id string) (plan command.Di
 
 // StoryEligible 在统一锁下复核故事精确任务及当前权限；内容审核不改变fulfilled状态。
 func StoryEligible(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.StoryVersion, t entity.ModerationTask) (bool, error) {
-	if w.DraftDeletedAt != nil || w.State != "fulfilled" || w.CurrentStoryVersion != v.StoryVersion || v.WithdrawnAt != nil || v.ReviewTaskID == nil || *v.ReviewTaskID != t.ID || v.AuthorID != w.OwnerID || t.ContentVersion != v.StoryVersion || t.RestrictionEpoch == nil || *t.RestrictionEpoch != w.RestrictionEpoch || t.Status == "obsolete" || t.Status == "cancelled" {
+	if w.DraftDeletedAt != nil || w.State != "fulfilled" || w.CurrentStoryVersion != v.StoryVersion || v.WithdrawnAt != nil ||
+		v.ReviewTaskID == nil ||
+		*v.ReviewTaskID != t.ID ||
+		v.AuthorID != w.OwnerID ||
+		t.ContentVersion != v.StoryVersion ||
+		t.RestrictionEpoch == nil ||
+		*t.RestrictionEpoch != w.RestrictionEpoch ||
+		t.Status == "obsolete" ||
+		t.Status == "cancelled" {
 		return false, nil
 	}
 	db = db.WithContext(ctx)
@@ -87,13 +95,21 @@ func StoryEligible(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.Sto
 		return false, nil
 	}
 	var n int64
-	if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())", a.ID, []string{"mute", "ban"}).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())",
+		a.ID,
+		[]string{"mute", "ban"},
+	).Count(&n).Error; e != nil {
 		return false, e
 	}
 	if n > 0 {
 		return false, nil
 	}
-	if e := db.Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.entity_id=? AND c.kind IN ('wish','story') AND r.active", w.ID).Count(&n).Error; e != nil {
+	if e := db.Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.entity_id=? AND c.kind IN ('wish','story') AND r.active", w.ID).
+		Count(&n).
+		Error; e != nil {
 		return false, e
 	}
 	if n > 0 {
@@ -103,7 +119,8 @@ func StoryEligible(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.Sto
 	if e != nil {
 		return false, e
 	}
-	if t.HoldEpoch != holds.Epoch || v.ParentHoldEpoch != holds.ParentEpoch || holds.ParentActive || holds.Active && v.StoryVersion < holds.RequiredVersion {
+	if t.HoldEpoch != holds.Epoch || v.ParentHoldEpoch != holds.ParentEpoch || holds.ParentActive ||
+		holds.Active && v.StoryVersion < holds.RequiredVersion {
 		return false, nil
 	}
 	if v.SourceMatchID != nil {
@@ -133,7 +150,11 @@ func DecryptStory(ctx context.Context, codec *securedata.Codec, v entity.StoryVe
 	if json.Unmarshal(v.BodyCipher, &envelope) != nil {
 		return "", command.ErrUnavailable
 	}
-	plain, e := codec.Decrypt(ctx, securedata.Binding{Purpose: "story_content", ObjectID: v.WishID, Version: uint64(v.StoryVersion)}, envelope)
+	plain, e := codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "story_content", ObjectID: v.WishID, Version: uint64(v.StoryVersion)},
+		envelope,
+	)
 	defer clear(plain)
 	var body string
 	if e != nil || json.Unmarshal(plain, &body) != nil {
@@ -156,10 +177,14 @@ func invalidateStories(ctx context.Context, tx *command.Tx, id string) error {
 	if e := db.Model(&entity.StoryVersion{}).Where("wish_id=? AND review_task_id IS NOT NULL", id).Pluck("review_task_id", &tasks).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.ModerationTask{}).Where("id IN ?", tasks).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.ModerationTask{}).Where("id IN ?", tasks).
+		Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.StoryVersion{}).Where("wish_id=?", id).Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil}).Error; e != nil {
+	if e := db.Model(&entity.StoryVersion{}).Where("wish_id=?", id).
+		Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil}).
+		Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.ContentRegistry{}).Where("kind='story' AND entity_id=?", id).Update("status", "obsolete").Error; e != nil {
@@ -171,7 +196,12 @@ func invalidateStories(ctx context.Context, tx *command.Tx, id string) error {
 // ApplyStoryReview 写入精确故事投影并释放其已覆盖屏障，不解除父心愿屏障或恢复旧版本。
 func ApplyStoryReview(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.StoryVersion, t entity.ModerationTask, decision string, body *string, tags []byte) error {
 	db = db.WithContext(ctx)
-	updates := map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags), "published_at": nil}
+	updates := map[string]any{
+		"moderation_status": decision,
+		"public_body":       body,
+		"identity_tags":     json.RawMessage(tags),
+		"published_at":      nil,
+	}
 	if decision == "approved" {
 		// 同版本幂等复核保留首次公开位置；新版本在批准事务内建立独立位置。
 		updates["published_at"] = gorm.Expr("COALESCE(published_at, clock_timestamp())")
@@ -180,7 +210,12 @@ func ApplyStoryReview(ctx context.Context, db *gorm.DB, w entity.Wish, v entity.
 		return e
 	}
 	if decision == "approved" {
-		if e := db.Model(&entity.PrivacyHold{}).Where("target_kind='story' AND target_id=? AND status='active' AND hold_epoch<=? AND required_content_version<=?", w.ID, t.HoldEpoch, v.StoryVersion).Updates(map[string]any{"status": "released", "released_at": gorm.Expr("clock_timestamp()")}).Error; e != nil {
+		if e := db.Model(&entity.PrivacyHold{}).Where(
+			"target_kind='story' AND target_id=? AND status='active' AND hold_epoch<=? AND required_content_version<=?",
+			w.ID,
+			t.HoldEpoch,
+			v.StoryVersion,
+		).Updates(map[string]any{"status": "released", "released_at": gorm.Expr("clock_timestamp()")}).Error; e != nil {
 			return e
 		}
 	}

@@ -49,7 +49,9 @@ func LoadConversation(ctx context.Context, db *gorm.DB, id string) (s Snapshot, 
 
 // CanRead 在双方仍存续时允许原参与者读取终结会话；注销意图立即阻断读取。
 func (s Snapshot) CanRead(actor string) bool {
-	return (actor == s.Match.RequesterID || actor == s.Match.HelperID) && s.Requester.Lifecycle == "active" && s.Helper.Lifecycle == "active" && s.Wish.DraftDeletedAt == nil && s.Wish.OwnerID == s.Match.RequesterID
+	return (actor == s.Match.RequesterID || actor == s.Match.HelperID) && s.Requester.Lifecycle == "active" && s.Helper.Lifecycle == "active" &&
+		s.Wish.DraftDeletedAt == nil &&
+		s.Wish.OwnerID == s.Match.RequesterID
 }
 
 // DiscoverConversation 返回统一锁序所需原双方账号及父资源。
@@ -61,34 +63,63 @@ func DiscoverConversation(ctx context.Context, db *gorm.DB, id string) (command.
 	if e != nil {
 		return command.Discovery{}, e
 	}
-	return command.Discovery{Accounts: []string{s.Match.RequesterID, s.Match.HelperID}, Resources: []command.Resource{{Kind: command.Wish, ID: s.Wish.ID}, {Kind: command.Match, ID: s.Match.ID}, {Kind: command.Conversation, ID: id}}}, nil
+	return command.Discovery{
+		Accounts: []string{s.Match.RequesterID, s.Match.HelperID},
+		Resources: []command.Resource{
+			{Kind: command.Wish, ID: s.Wish.ID},
+			{Kind: command.Match, ID: s.Match.ID},
+			{Kind: command.Conversation, ID: id},
+		},
+	}, nil
 }
+
 func holdEpoch(ctx context.Context, db *gorm.DB, id string) (int64, error) {
 	var epoch int64
-	e := db.WithContext(ctx).Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)").Where("target_kind='wish' AND target_id=?", id).Scan(&epoch).Error
+	e := db.WithContext(ctx).Model(&entity.PrivacyHold{}).
+		Select("coalesce(max(hold_epoch),0)").
+		Where("target_kind='wish' AND target_id=?", id).
+		Scan(&epoch).
+		Error
 	return epoch, e
 }
 
 // Writable 在已有锁和当前时间下复核双方资格、处罚、拉黑及父内容屏障。
 func Writable(ctx context.Context, db *gorm.DB, s Snapshot, now time.Time) error {
-	if !s.CanRead(s.Requester.ID) || s.Match.Status != "current" || s.Wish.State != "matching" || s.Requester.Verification != "verified" || s.Helper.Verification != "verified" {
+	if !s.CanRead(s.Requester.ID) || s.Match.Status != "current" || s.Wish.State != "matching" || s.Requester.Verification != "verified" ||
+		s.Helper.Verification != "verified" {
 		return command.ErrForbidden
 	}
 	db = db.WithContext(ctx)
 	var n int64
-	if e := db.Model(&entity.Penalty{}).Where("account_id IN ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", []string{s.Requester.ID, s.Helper.ID}, []string{"mute", "ban"}, now, now).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Penalty{}).Where(
+		"account_id IN ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		[]string{s.Requester.ID, s.Helper.ID},
+		[]string{"mute", "ban"},
+		now,
+		now,
+	).Count(&n).Error; e != nil {
 		return e
 	}
 	if n > 0 {
 		return command.ErrForbidden
 	}
-	if e := db.Model(&entity.Block{}).Where("(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)", s.Requester.ID, s.Helper.ID, s.Helper.ID, s.Requester.ID).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Block{}).Where(
+		"(owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?)",
+		s.Requester.ID,
+		s.Helper.ID,
+		s.Helper.ID,
+		s.Requester.ID,
+	).Count(&n).Error; e != nil {
 		return e
 	}
 	if n > 0 {
 		return command.ErrBlockedInteraction
 	}
-	if e := db.Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='wish' AND c.entity_id=? AND r.active", s.Wish.ID).Count(&n).Error; e != nil {
+	if e := db.Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='wish' AND c.entity_id=? AND r.active", s.Wish.ID).
+		Count(&n).
+		Error; e != nil {
 		return e
 	}
 	if n > 0 {
@@ -105,7 +136,8 @@ func Writable(ctx context.Context, db *gorm.DB, s Snapshot, now time.Time) error
 
 // EligibleMessage 复核提交时双方代次及全部屏障；旧任务不能因权限恢复而重新生效。
 func EligibleMessage(ctx context.Context, db *gorm.DB, m entity.Message, now time.Time) (bool, error) {
-	if (m.Status != "pending_scan" && m.Status != "pending_review" && m.Status != "delivered") || m.ReviewTaskID == nil || m.PeerEpoch == nil {
+	if (m.Status != "pending_scan" && m.Status != "pending_review" && m.Status != "delivered") || m.ReviewTaskID == nil ||
+		m.PeerEpoch == nil {
 		return false, nil
 	}
 	s, e := LoadConversation(ctx, db, m.ConversationID)
@@ -139,11 +171,20 @@ func EligibleMessage(ctx context.Context, db *gorm.DB, m entity.Message, now tim
 	if e != nil {
 		return false, e
 	}
-	if m.CancelEpoch != s.Conversation.WriteEpoch || t.SubjectEpoch != sender.AuthEpoch || *m.PeerEpoch != peer.AuthEpoch || t.RestrictionEpoch == nil || *t.RestrictionEpoch != s.Wish.RestrictionEpoch || t.HoldEpoch != epoch || (t.Status != "pending" && t.Status != "human_required") || t.ContentVersion != m.ContentVersion {
+	if m.CancelEpoch != s.Conversation.WriteEpoch || t.SubjectEpoch != sender.AuthEpoch || *m.PeerEpoch != peer.AuthEpoch ||
+		t.RestrictionEpoch == nil ||
+		*t.RestrictionEpoch != s.Wish.RestrictionEpoch ||
+		t.HoldEpoch != epoch ||
+		(t.Status != "pending" && t.Status != "human_required") ||
+		t.ContentVersion != m.ContentVersion {
 		return false, nil
 	}
 	var n int64
-	e = db.WithContext(ctx).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='message' AND c.entity_id=? AND r.active", m.ID).Count(&n).Error
+	e = db.WithContext(ctx).Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='message' AND c.entity_id=? AND r.active", m.ID).
+		Count(&n).
+		Error
 	return n == 0, e
 }
 
@@ -154,11 +195,17 @@ func CancelMessage(ctx context.Context, db *gorm.DB, m entity.Message) error {
 		return nil
 	}
 	db = db.WithContext(ctx)
-	if e := db.Model(&entity.Message{}).Where("id=? AND status IN ?", m.ID, []string{"pending_scan", "pending_review"}).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.Message{}).Where("id=? AND status IN ?", m.ID, []string{"pending_scan", "pending_review"}).
+		Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
 	if m.ReviewTaskID != nil {
-		if e := db.Model(&entity.ModerationTask{}).Where("id=? AND status IN ?", *m.ReviewTaskID, []string{"pending", "human_required"}).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e := db.Model(&entity.ModerationTask{}).Where(
+			"id=? AND status IN ?",
+			*m.ReviewTaskID,
+			[]string{"pending", "human_required"},
+		).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
 			return e
 		}
 	}
@@ -187,21 +234,32 @@ func Deliver(ctx context.Context, db *gorm.DB, m entity.Message, now time.Time) 
 		return command.ErrConflict
 	}
 	db = db.WithContext(ctx)
-	r := db.Model(&entity.Conversation{}).Where("id=? AND next_delivery_seq=?", s.Conversation.ID, seq).Updates(map[string]any{"next_delivery_seq": seq + 1, "version": gorm.Expr("version+1")})
+	r := db.Model(&entity.Conversation{}).Where("id=? AND next_delivery_seq=?", s.Conversation.ID, seq).
+		Updates(map[string]any{"next_delivery_seq": seq + 1, "version": gorm.Expr("version+1")})
 	if r.Error != nil {
 		return r.Error
 	}
 	if r.RowsAffected != 1 {
 		return command.ErrRetry
 	}
-	if e = db.Model(&entity.Message{}).Where("id=?", m.ID).Updates(map[string]any{"status": "delivered", "delivery_seq": seq, "delivered_at": now, "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e = db.Model(&entity.Message{}).Where("id=?", m.ID).Updates(map[string]any{
+		"status":       "delivered",
+		"delivery_seq": seq,
+		"delivered_at": now,
+		"version":      gorm.Expr("version+1"),
+	}).Error; e != nil {
 		return e
 	}
 	peer := s.Helper.ID
 	if peer == m.SenderID {
 		peer = s.Requester.ID
 	}
-	return db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: peer, Type: "message_delivered", TargetRef: s.Conversation.ID}).Error
+	return db.Create(&entity.Notification{
+		ID:          uuid.NewString(),
+		RecipientID: peer,
+		Type:        "message_delivered",
+		TargetRef:   s.Conversation.ID,
+	}).Error
 }
 
 // DecryptBody 只供已授权调用方读取私聊原文；不套用公开内容脱敏投影。
@@ -210,7 +268,11 @@ func DecryptBody(ctx context.Context, codec *securedata.Codec, m entity.Message)
 	if json.Unmarshal(m.BodyCipher, &envelope) != nil {
 		return "", command.ErrUnavailable
 	}
-	plain, e := codec.Decrypt(ctx, securedata.Binding{Purpose: "chat_message", ObjectID: m.ID, Version: uint64(m.ContentVersion)}, envelope)
+	plain, e := codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "chat_message", ObjectID: m.ID, Version: uint64(m.ContentVersion)},
+		envelope,
+	)
 	defer clear(plain)
 	var body string
 	if e != nil || json.Unmarshal(plain, &body) != nil {

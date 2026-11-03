@@ -25,10 +25,17 @@ type CrisisCommand struct {
 
 func (s *Service) crisisPreflight(ctx context.Context, token string) error {
 	return s.transaction(ctx, func(db *gorm.DB) error {
-		_, e := s.authorizeRoles(db.Statement.Context, db, token, command.Discovery{}, []string{"crisis_operator", "super_admin"})
+		_, e := s.authorizeRoles(
+			db.Statement.Context,
+			db,
+			token,
+			command.Discovery{},
+			[]string{"crisis_operator", "super_admin"},
+		)
 		return e
 	})
 }
+
 func crisisSource(db *gorm.DB, c entity.EvidenceCrisisCase) (row current, exists bool, err error) {
 	if c.SourceTaskID == nil {
 		return row, false, nil
@@ -39,6 +46,7 @@ func crisisSource(db *gorm.DB, c entity.EvidenceCrisisCase) (row current, exists
 	}
 	return row, err == nil, err
 }
+
 func crisisPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discovery, err error) {
 	c, e := crisisRow(db, id)
 	if e != nil {
@@ -92,7 +100,14 @@ func (s *Service) EscalateCrisis(ctx context.Context, token, key, rid, source, i
 		target.Kind = command.Report
 		path = "/api/v1/admin/reports/" + id + "/escalate-crisis"
 	}
-	d := command.Definition{Kind: "crisis.escalate", Method: "POST", ResourcePath: path, ActorKind: "admin", AllowedRoles: []string{"crisis_operator", "super_admin"}, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "crisis.escalate",
+		Method:               "POST",
+		ResourcePath:         path,
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"crisis_operator", "super_admin"},
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		t, e := taskID(db)
 		if e != nil {
@@ -149,12 +164,17 @@ func (s *Service) EscalateCrisis(ctx context.Context, token, key, rid, source, i
 		if e = crisisAction(ctx, db, s.codec, c, tx.Actor().ID, "detected", in.Reason, tx.Now()); e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.ModerationTask{}).Where("id=?", t).Updates(map[string]any{"status": "human_required", "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = db.Model(&entity.ModerationTask{}).Where("id=?", t).
+			Updates(map[string]any{"status": "human_required", "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return "", e
 		}
 
 		if source == "report" {
-			if e = db.Model(&entity.Report{}).Where("id=?", id).Updates(map[string]any{"status": "processing", "handler_id": tx.Actor().ID, "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e = db.Model(&entity.Report{}).Where("id=?", id).
+				Updates(map[string]any{"status": "processing", "handler_id": tx.Actor().
+					ID, "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
 		}
@@ -167,7 +187,17 @@ func (s *Service) EscalateCrisis(ctx context.Context, token, key, rid, source, i
 		}
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}},
+		},
+	)
 	return
 }
 
@@ -179,7 +209,8 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 		}
 	}()
 	defer s.done("crisis.action", rid, time.Now(), &err)
-	if !validID(id) || in.ExpectedVersion < 1 || !text(in.Reason, 2000) || (!falsePositive && !slices.Contains([]string{"take_over", "follow_up", "resolve", "retry_notification"}, in.Action)) {
+	if !validID(id) || in.ExpectedVersion < 1 || !text(in.Reason, 2000) ||
+		(!falsePositive && !slices.Contains([]string{"take_over", "follow_up", "resolve", "retry_notification"}, in.Action)) {
 		return out, command.ErrInvalid
 	}
 	if e := s.crisisPreflight(ctx, token); e != nil {
@@ -189,7 +220,14 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 	if falsePositive {
 		suffix = "resolve-false-positive"
 	}
-	d := command.Definition{Kind: "crisis." + strings.ReplaceAll(suffix, "-", "_"), Method: "POST", ResourcePath: "/api/v1/admin/crisis-cases/" + id + "/" + suffix, ActorKind: "admin", AllowedRoles: []string{"crisis_operator", "super_admin"}, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "crisis." + strings.ReplaceAll(suffix, "-", "_"),
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/crisis-cases/" + id + "/" + suffix,
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"crisis_operator", "super_admin"},
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return crisisPlan(ctx, db, id)
 	}
@@ -220,10 +258,14 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 			if e = s.returnToOrdinary(ctx, db, c); e != nil {
 				return "", e
 			}
-			if e = db.Model(&entity.ContentRestriction{}).Where("source_ref=? AND kind='crisis' AND active", id).Updates(map[string]any{"active": false, "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e = db.Model(&entity.ContentRestriction{}).Where("source_ref=? AND kind='crisis' AND active", id).
+				Updates(map[string]any{"active": false, "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
-			if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND status IN ('pending','leased')", id).Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).Error; e != nil {
+			if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND status IN ('pending','leased')", id).
+				Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).
+				Error; e != nil {
 				return "", e
 			}
 		} else {
@@ -233,7 +275,9 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 			case "resolve":
 				status = "resolved"
 			case "retry_notification":
-				if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending'", id).Update("next_at", tx.Now()).Error; e != nil {
+				if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending'", id).
+					Update("next_at", tx.Now()).
+					Error; e != nil {
 					return "", e
 				}
 			}
@@ -241,7 +285,12 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 		if e = crisisAction(ctx, db, s.codec, c, tx.Actor().ID, action, in.Reason, tx.Now()); e != nil {
 			return "", e
 		}
-		e = db.Model(&entity.EvidenceCrisisCase{}).Where("id=?", id).Updates(map[string]any{"status": status, "handler_id": tx.Actor().ID, "resolution": action, "version": gorm.Expr("version+1")}).Error
+		e = db.Model(&entity.EvidenceCrisisCase{}).Where("id=?", id).Updates(map[string]any{
+			"status":     status,
+			"handler_id": tx.Actor().ID,
+			"resolution": action,
+			"version":    gorm.Expr("version+1"),
+		}).Error
 		return id, e
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
@@ -251,7 +300,21 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 		}
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.CrisisCase, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.CrisisCase, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	return
 }
 
@@ -262,13 +325,15 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	if e != nil {
 		return e
 	}
-	if !exists || !currentBinding(row) || row.account.Lifecycle != "active" || row.task.SubjectEpoch != row.account.AuthEpoch || row.wish.DraftDeletedAt != nil {
+	if !exists || !currentBinding(row) || row.account.Lifecycle != "active" || row.task.SubjectEpoch != row.account.AuthEpoch ||
+		row.wish.DraftDeletedAt != nil {
 		return nil
 	}
 	if row.message != nil && (row.message.Status == "cancelled" || row.message.Status == "rejected") {
 		return nil
 	}
-	if row.application != nil && !slices.Contains([]string{"pending_scan", "pending_review", "active", "accepted"}, row.application.Status) {
+	if row.application != nil &&
+		!slices.Contains([]string{"pending_scan", "pending_review", "active", "accepted"}, row.application.Status) {
 		return nil
 	}
 	if row.story != nil && row.story.WithdrawnAt != nil {
@@ -282,7 +347,11 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	if json.Unmarshal(scan.ProjectionCipher, &env) != nil {
 		return command.ErrUnavailable
 	}
-	plain, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "moderation_projection", ObjectID: row.task.ID, Version: 1}, env)
+	plain, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "moderation_projection", ObjectID: row.task.ID, Version: 1},
+		env,
+	)
 	if e != nil {
 		return e
 	}
@@ -320,7 +389,9 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	if e = db.Create(&scan).Error; e != nil {
 		return e
 	}
-	if e = db.Model(&entity.ModerationTask{}).Where("id=?", row.task.ID).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e = db.Model(&entity.ModerationTask{}).Where("id=?", row.task.ID).
+		Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
 	if e = db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", "pending").Error; e != nil {
@@ -331,16 +402,26 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	case "wish":
 		updates["moderation_status"] = "human_required"
 		updates["public_body"] = nil
-		if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.registry.ContentVersion).Updates(updates).Error; e != nil {
+		if e = db.Model(&entity.WishVersion{}).Where(
+			"wish_id=? AND content_version=?",
+			row.wish.ID,
+			row.registry.ContentVersion,
+		).Updates(updates).Error; e != nil {
 			return e
 		}
 		if slices.Contains([]string{"pending_review", "withdrawn", "ready", "rejected"}, row.wish.State) {
-			return db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).Updates(map[string]any{"state": "pending_review", "version": gorm.Expr("version+1")}).Error
+			return db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).
+				Updates(map[string]any{"state": "pending_review", "version": gorm.Expr("version+1")}).
+				Error
 		}
 	case "story":
 		updates["moderation_status"] = "human_required"
 		updates["public_body"] = nil
-		return db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.registry.ContentVersion).Updates(updates).Error
+		return db.Model(&entity.StoryVersion{}).Where(
+			"wish_id=? AND story_version=?",
+			row.wish.ID,
+			row.registry.ContentVersion,
+		).Updates(updates).Error
 	case "message":
 		if row.message.DeliverySeq == nil {
 			updates["status"] = "pending_review"

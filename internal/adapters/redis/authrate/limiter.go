@@ -28,7 +28,12 @@ func New(client redis.UniversalClient, window time.Duration, limit int) (*Limite
 
 // Allow 把计数与首次过期写入放在同一脚本中；错误只由服务操作边界记录稳定结果。
 func (l *Limiter) Allow(ctx context.Context, key string) (bool, error) {
-	result, err := l.client.Eval(ctx, `local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) end; return n`, []string{"admin-login:" + key}, l.window.Milliseconds()).Int64()
+	result, err := l.client.Eval(
+		ctx,
+		`local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) end; return n`,
+		[]string{"admin-login:" + key},
+		l.window.Milliseconds(),
+	).Int64()
 	if err != nil {
 		return false, command.ErrUnavailable
 	}

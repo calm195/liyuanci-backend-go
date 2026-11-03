@@ -32,12 +32,21 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 		}
 	}()
 	defer s.interactionDone("wish.rollback", rid, time.Now(), &err)
-	if !validWishID(id) || !validCommandKey(key) || in.ExpectedVersion < 1 || (in.Target != Matching && in.Target != Published) || (in.Target == Matching && in.RefreshExpiry) {
+	if !validWishID(id) || !validCommandKey(key) || in.ExpectedVersion < 1 || (in.Target != Matching && in.Target != Published) ||
+		(in.Target == Matching && in.RefreshExpiry) {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "wish.rollback", Method: "POST", ResourcePath: "/api/v1/wishes/" + id + "/rollback", ActorKind: "student", Access: command.Verified, RequiredExpectations: []string{"expected_version"}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return DiscoverInteraction(ctx, db, id)
-	}}
+	d := command.Definition{
+		Kind:                 "wish.rollback",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/wishes/" + id + "/rollback",
+		ActorKind:            "student",
+		Access:               command.Verified,
+		RequiredExpectations: []string{"expected_version"},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			return DiscoverInteraction(ctx, db, id)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		a, e := readAggregate(ctx, tx.DB(), id, false)
 		if e != nil {
@@ -93,7 +102,11 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 				return "", command.ErrConflict
 			}
 			var count int64
-			if e = tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where("owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))", a.row.OwnerID, tx.Now()).Count(&count).Error; e != nil {
+			if e = tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where(
+				"owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))",
+				a.row.OwnerID,
+				tx.Now(),
+			).Count(&count).Error; e != nil {
 				return "", e
 			}
 			if count >= 3 {
@@ -111,7 +124,10 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 		if in.Target == Matching {
 			next.State = Matching
 		} else {
-			if e = tx.DB().WithContext(ctx).Model(&entity.Match{}).Where("id=?", m.ID).Updates(map[string]any{"status": "ended", "ended_at": tx.Now(), "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e = tx.DB().WithContext(ctx).Model(&entity.Match{}).
+				Where("id=?", m.ID).
+				Updates(map[string]any{"status": "ended", "ended_at": tx.Now(), "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
 			if m.ApplicationID != nil {
@@ -156,27 +172,53 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 		out, e = resolveCreated(ctx, tx.DB(), id, tx.Actor().ID)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: in, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Wish, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        in,
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.Wish, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	return
 }
 
 func cancelConversation(ctx context.Context, tx *command.Tx, c entity.Conversation) error {
 	db := tx.DB().WithContext(ctx)
-	if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).
+		Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
 	var ids []string
-	if e := db.Model(&entity.Message{}).Where("conversation_id=? AND status IN ?", c.ID, []string{"pending_scan", "pending_review"}).Pluck("id", &ids).Error; e != nil {
+	if e := db.Model(&entity.Message{}).Where(
+		"conversation_id=? AND status IN ?",
+		c.ID,
+		[]string{"pending_scan", "pending_review"},
+	).Pluck("id", &ids).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.Message{}).Where("id IN ?", ids).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.Message{}).Where("id IN ?", ids).
+		Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
 	var tasks []string
 	if e := db.Model(&entity.Message{}).Where("id IN ? AND review_task_id IS NOT NULL", ids).Pluck("review_task_id", &tasks).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.ModerationTask{}).Where("id IN ? AND status IN ?", tasks, []string{"pending", "human_required"}).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.ModerationTask{}).Where(
+		"id IN ? AND status IN ?",
+		tasks,
+		[]string{"pending", "human_required"},
+	).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.ContentRegistry{}).Where("kind='message' AND entity_id IN ?", ids).Update("status", "cancelled").Error; e != nil {
@@ -196,7 +238,11 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 	if json.Unmarshal(a.content.BodyCipher, &envelope) != nil {
 		return command.ErrUnavailable
 	}
-	plain, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(a.row.CurrentContentVersion)}, envelope)
+	plain, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(a.row.CurrentContentVersion)},
+		envelope,
+	)
 	if e != nil {
 		return command.ErrUnavailable
 	}
@@ -205,7 +251,11 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 	next.State = PendingReview
 	next.RefreshOnPublish = true
 	next.Review = Review{}
-	wrapped, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(next.ContentVersion)}, plain)
+	wrapped, e := s.codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "wish_content", ObjectID: a.row.ID, Version: uint64(next.ContentVersion)},
+		plain,
+	)
 	if e != nil {
 		return command.ErrUnavailable
 	}
@@ -217,18 +267,56 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 		return e
 	}
 	registryID, taskID := uuid.NewString(), uuid.NewString()
-	if e = tx.DB().WithContext(ctx).Create(&entity.WishVersion{WishID: a.row.ID, ContentVersion: next.ContentVersion, BodyCipher: cipher, RewardMethod: a.content.RewardMethod, IdentityTags: json.RawMessage(`{}`), SchoolDetectionVersion: "pending"}).Error; e != nil {
+	if e = tx.DB().WithContext(ctx).Create(&entity.WishVersion{
+		WishID:                 a.row.ID,
+		ContentVersion:         next.ContentVersion,
+		BodyCipher:             cipher,
+		RewardMethod:           a.content.RewardMethod,
+		IdentityTags:           json.RawMessage(`{}`),
+		SchoolDetectionVersion: "pending",
+	}).Error; e != nil {
 		return e
 	}
-	if e = tx.DB().WithContext(ctx).Create(&entity.ContentRegistry{ID: registryID, Kind: "wish", EntityID: a.row.ID, AuthorID: a.row.OwnerID, ContentVersion: next.ContentVersion, SchoolDetectionVersion: "pending"}).Error; e != nil {
+	if e = tx.DB().WithContext(ctx).Create(&entity.ContentRegistry{
+		ID:                     registryID,
+		Kind:                   "wish",
+		EntityID:               a.row.ID,
+		AuthorID:               a.row.OwnerID,
+		ContentVersion:         next.ContentVersion,
+		SchoolDetectionVersion: "pending",
+	}).Error; e != nil {
 		return e
 	}
 	epoch := a.row.RestrictionEpoch
-	if e = tx.DB().WithContext(ctx).Create(&entity.ModerationTask{ID: taskID, ContentID: registryID, ContentVersion: next.ContentVersion, SubjectEpoch: a.account.AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: a.snapshot.HoldEpoch, CreatedAt: tx.Now()}).Error; e != nil {
+	if e = tx.DB().WithContext(ctx).Create(&entity.ModerationTask{
+		ID:               taskID,
+		ContentID:        registryID,
+		ContentVersion:   next.ContentVersion,
+		SubjectEpoch:     a.account.AuthEpoch,
+		RestrictionEpoch: &epoch,
+		HoldEpoch:        a.snapshot.HoldEpoch,
+		CreatedAt:        tx.Now(),
+	}).Error; e != nil {
 		return e
 	}
-	if e = tx.DB().WithContext(ctx).Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", a.row.ID, next.ContentVersion).Update("review_task_id", taskID).Error; e != nil {
+	if e = tx.DB().WithContext(ctx).Model(&entity.WishVersion{}).Where(
+		"wish_id=? AND content_version=?",
+		a.row.ID,
+		next.ContentVersion,
+	).Update("review_task_id", taskID).Error; e != nil {
 		return e
 	}
-	return durable.Append(ctx, tx.DB(), s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: next.ContentVersion})
+	return durable.Append(
+		ctx,
+		tx.DB(),
+		s.policy.logger,
+		contentreview.Route(),
+		durable.Draft{
+			WorkID:           uuid.NewString(),
+			OperationID:      uuid.NewString(),
+			EventID:          uuid.NewString(),
+			AggregateID:      taskID,
+			AggregateVersion: next.ContentVersion,
+		},
+	)
 }

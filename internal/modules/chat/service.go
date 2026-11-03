@@ -56,15 +56,33 @@ func New(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, cfg Config) (
 		return nil, err
 	}
 	cfg.Key = append([]byte(nil), cfg.Key...)
-	return &Service{db: db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), engine: e, codec: codec, logger: logger, cfg: cfg}, nil
+	return &Service{
+		db:     db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine: e,
+		codec:  codec,
+		logger: logger,
+		cfg:    cfg,
+	}, nil
 }
+
 func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if recover() != nil {
 		*err = command.ErrInternal
 	}
 	if *err != nil {
 		known := false
-		for _, e := range []error{command.ErrInvalid, command.ErrNotFound, command.ErrForbidden, command.ErrUnauthenticated, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrBlockedInteraction, command.ErrRetry, command.ErrInternal} {
+		for _, e := range []error{
+			command.ErrInvalid,
+			command.ErrNotFound,
+			command.ErrForbidden,
+			command.ErrUnauthenticated,
+			command.ErrVersionConflict,
+			command.ErrIdempotencyConflict,
+			command.ErrConflict,
+			command.ErrBlockedInteraction,
+			command.ErrRetry,
+			command.ErrInternal,
+		} {
 			if errors.Is(*err, e) {
 				*err = e
 				known = true
@@ -79,7 +97,13 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	s.logger.Info("聊天通知操作完成", zap.String("operation", op), zap.String("request_id", rid), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.logger.Info(
+		"聊天通知操作完成",
+		zap.String("operation", op),
+		zap.String("request_id", rid),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // MessageInput 不允许客户端指定作者、审核状态或送达序号。
@@ -100,6 +124,7 @@ func validID(id string) bool {
 	u, e := uuid.Parse(id)
 	return e == nil && u.String() == id && u != uuid.Nil
 }
+
 func (s *Service) digest(in MessageInput) []byte {
 	b, _ := json.Marshal(in)
 	defer clear(b)
@@ -117,19 +142,34 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 		}
 	}()
 	defer s.done("message.submit", rid, time.Now(), &err)
-	if !validID(id) || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > s.cfg.MaxBodyBytes || in.ClientMessageID == "" || !utf8.ValidString(in.ClientMessageID) || len(in.ClientMessageID) > 256 || in.ExpectedWriteEpoch < 0 {
+	if !validID(id) || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > s.cfg.MaxBodyBytes ||
+		in.ClientMessageID == "" ||
+		!utf8.ValidString(in.ClientMessageID) ||
+		len(in.ClientMessageID) > 256 ||
+		in.ExpectedWriteEpoch < 0 {
 		return out, command.ErrInvalid
 	}
 	messageID, registryID, taskID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	digest := s.digest(in)
-	d := command.Definition{Kind: "message.submit", Method: "POST", ResourcePath: "/api/v1/conversations/" + id + "/messages", ActorKind: "student", Access: command.Verified}
+	d := command.Definition{
+		Kind:         "message.submit",
+		Method:       "POST",
+		ResourcePath: "/api/v1/conversations/" + id + "/messages",
+		ActorKind:    "student",
+		Access:       command.Verified,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, actor command.Subject) (command.Discovery, error) {
 		p, e := DiscoverConversation(ctx, db, id)
 		if e != nil {
 			return p, e
 		}
 		var rows []entity.Message
-		if e = db.WithContext(ctx).Where("conversation_id=? AND sender_id=? AND client_message_id=?", id, actor.ID, in.ClientMessageID).Find(&rows).Error; e != nil {
+		if e = db.WithContext(ctx).Where(
+			"conversation_id=? AND sender_id=? AND client_message_id=?",
+			id,
+			actor.ID,
+			in.ClientMessageID,
+		).Find(&rows).Error; e != nil {
 			return p, e
 		}
 		for _, m := range rows {
@@ -172,6 +212,7 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 		if v.Conversation.WriteEpoch != in.ExpectedWriteEpoch {
 			return "", command.ErrVersionConflict
 		}
+		// 新消息只保存加密原文与当前双方代次，送达号在审核通过时才分配。
 		data, _ := json.Marshal(in.Body)
 		defer clear(data)
 		envelope, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "chat_message", ObjectID: messageID, Version: 1}, data)
@@ -190,19 +231,58 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 		if e != nil {
 			return "", e
 		}
-		m := entity.Message{ID: messageID, ConversationID: id, SenderID: tx.Actor().ID, ClientMessageID: in.ClientMessageID, BodyCipher: raw, ContentVersion: 1, CancelEpoch: v.Conversation.WriteEpoch, PeerEpoch: &peer.AuthEpoch, ReviewTaskID: &taskID, RequestDigest: digest, CreatedAt: tx.Now()}
+		m := entity.Message{
+			ID:              messageID,
+			ConversationID:  id,
+			SenderID:        tx.Actor().ID,
+			ClientMessageID: in.ClientMessageID,
+			BodyCipher:      raw,
+			ContentVersion:  1,
+			CancelEpoch:     v.Conversation.WriteEpoch,
+			PeerEpoch:       &peer.AuthEpoch,
+			ReviewTaskID:    &taskID,
+			RequestDigest:   digest,
+			CreatedAt:       tx.Now(),
+		}
 		if e = db.Create(&m).Error; e != nil {
 			return "", e
 		}
-		if e = db.Create(&entity.ContentRegistry{ID: registryID, Kind: "message", EntityID: messageID, AuthorID: m.SenderID, ContentVersion: 1, SchoolDetectionVersion: "pending"}).Error; e != nil {
+		if e = db.Create(&entity.ContentRegistry{
+			ID:                     registryID,
+			Kind:                   "message",
+			EntityID:               messageID,
+			AuthorID:               m.SenderID,
+			ContentVersion:         1,
+			SchoolDetectionVersion: "pending",
+		}).Error; e != nil {
 			return "", e
 		}
 		epoch := v.Wish.RestrictionEpoch
-		if e = db.Create(&entity.ModerationTask{ID: taskID, ContentID: registryID, ContentVersion: 1, SubjectEpoch: tx.Actor().AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: hold, CreatedAt: tx.Now()}).Error; e != nil {
+		if e = db.Create(&entity.ModerationTask{
+			ID:               taskID,
+			ContentID:        registryID,
+			ContentVersion:   1,
+			SubjectEpoch:     tx.Actor().AuthEpoch,
+			RestrictionEpoch: &epoch,
+			HoldEpoch:        hold,
+			CreatedAt:        tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
 		// 消息先写入时审核任务尚不存在；外键使用延迟约束以维持同一原子提交。
-		if e = durable.Append(ctx, db, s.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
+		if e = durable.Append(
+			ctx,
+			db,
+			s.logger,
+			contentreview.Route(),
+			durable.Draft{
+				WorkID:           uuid.NewString(),
+				OperationID:      uuid.NewString(),
+				EventID:          uuid.NewString(),
+				AggregateID:      taskID,
+				AggregateVersion: 1,
+			},
+		); e != nil {
 			return "", e
 		}
 		return messageID, nil

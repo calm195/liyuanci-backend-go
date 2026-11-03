@@ -54,7 +54,15 @@ func validateDevelopment(cfg DevelopmentSettings) (DevelopmentSettings, error) {
 	if cfg.DatabaseDSN == "" || cfg.ObjectDirectory == "" || len(cfg.AdminPassword) < 12 {
 		return cfg, command.ErrInvalid
 	}
-	keys := [][]byte{cfg.WrapKey, cfg.LookupKey, cfg.SessionKey, cfg.CardKey, cfg.VerificationKey, cfg.WishKey, cfg.AdminKey}
+	keys := [][]byte{
+		cfg.WrapKey,
+		cfg.LookupKey,
+		cfg.SessionKey,
+		cfg.CardKey,
+		cfg.VerificationKey,
+		cfg.WishKey,
+		cfg.AdminKey,
+	}
 	if len(cfg.RecoveryWrapKey) > 0 {
 		keys = append(keys, cfg.RecoveryWrapKey)
 	}
@@ -112,6 +120,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 			closeAll = nil
 		}
 	}()
+	// 先取得共享数据库与身份能力，后续服务只借用资源，关闭责任仍归当前宿主。
 	database, closePool, e := cfg.pool(ctx, logger)
 	if e != nil {
 		return nil, closeAll, e
@@ -157,18 +166,28 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		}
 		return command.ErrUnavailable
 	}
+	// 开发预算在此集中投影到领域配置，不让业务包反向读取运行模式或私有 YAML。
 	cmd := developmentCommandConfig()
 	var moderationConfig *moderation.Config
 	if len(cfg.ModerationKey) > 0 {
 		moderationConfig = &moderation.Config{Command: cmd, CursorKey: cfg.ModerationKey, MaxEntries: 2000}
 	}
 	crisisDB := database
-	crisisConfig := &moderation.Config{Command: cmd, CursorKey: safety.DeriveKey(append(append([]byte(nil), cfg.WishKey...), []byte("crisis")...)), MaxEntries: 2000}
+	crisisConfig := &moderation.Config{
+		Command:    cmd,
+		CursorKey:  safety.DeriveKey(append(append([]byte(nil), cfg.WishKey...), []byte("crisis")...)),
+		MaxEntries: 2000,
+	}
+	// 删除意图账本必须先就绪，才允许装配包含隐私清理能力的业务路由。
 	deletionJournal, closeJournal, e := openDevelopmentJournal(ctx, cfg, logger)
 	if e != nil {
 		return nil, closeAll, e
 	}
-	closes = append(closes, func() error { closeJournal(); return nil })
+	closes = append(closes, func() error {
+
+		closeJournal()
+		return nil
+	})
 	privacyDB, evidenceDeletionDB := database, database
 	pc := developmentPrivacyConfig(cfg)
 	accountCfg, evidenceCfg := &pc, &pc

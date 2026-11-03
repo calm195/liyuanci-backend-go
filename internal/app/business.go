@@ -59,7 +59,12 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if !ok {
 		return nil, command.ErrInvalid
 	}
-	b := &BusinessAPI{runtime: a, whispers: whispers, cfg: cfg, gateway: gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536)}
+	b := &BusinessAPI{
+		runtime:  a,
+		whispers: whispers,
+		cfg:      cfg,
+		gateway:  gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536),
+	}
 	student, e := a.r.pool(ctx)
 	if e != nil {
 		return nil, e
@@ -84,8 +89,15 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	httpClient := &http.Client{Timeout: cfg.Runtime.ProviderTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	a.r.closes = append(a.r.closes, func() error { httpClient.CloseIdleConnections(); return nil })
+	httpClient := &http.Client{
+		Timeout:       cfg.Runtime.ProviderTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	a.r.closes = append(a.r.closes, func() error {
+
+		httpClient.CloseIdleConnections()
+		return nil
+	})
 	exchange, e := gateway.NewWeChat(httpClient, cfg.WeChatAppID, secret, log)
 	if e != nil {
 		return nil, e
@@ -95,18 +107,52 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	econf := pconf
 	econf.Key = cfg.Runtime.EvidenceKey
 	router, e := newServiceRouter(ServiceDependencies{
-		StudentDB: student, ReviewDB: a.database, WishDB: a.database, CrisisDB: a.database, PrivacyDB: a.database, EvidenceDeletionDB: a.database,
-		DeletionJournal: a.r.journal, Eraser: b.gateway, Logger: log, Ready: b.Ready, Exchange: exchange, Identity: store, Limiter: limiter, Codec: a.r.codec, Objects: b.gateway, Scanner: b.gateway, Rules: b.gateway, Grades: businessGrades{cfg.Runtime},
+
+		StudentDB:          student,
+		ReviewDB:           a.database,
+		WishDB:             a.database,
+		CrisisDB:           a.database,
+		PrivacyDB:          a.database,
+		EvidenceDeletionDB: a.database,
+
+		DeletionJournal: a.r.journal,
+		Eraser:          b.gateway,
+		Logger:          log,
+		Ready:           b.Ready,
+		Exchange:        exchange,
+		Identity:        store,
+		Limiter:         limiter,
+		Codec:           a.r.codec,
+		Objects:         b.gateway,
+		Scanner:         b.gateway,
+		Rules:           b.gateway,
+		Grades:          businessGrades{cfg.Runtime},
 	}, ServiceConfig{
-		Auth: studentauth.Config{SessionTTL: cfg.SessionTTL, ExchangeTTL: cfg.ExchangeTTL, SessionKey: cfg.SessionKey, Command: cmd},
-		Card: businessCardConfig(cfg), Verification: verification.Config{Command: cmd, ReceiptKey: cfg.VerificationKey, MaxCardBytes: cfg.Card.MaxBytes},
-		Wish:       &wish.ServiceConfig{Command: cmd, ReceiptKey: cfg.WishKey, MaxStoryBytes: cfg.MaxTextBytes},
-		Chat:       &chat.Config{Command: cmd, Key: chat.DeriveKey(cfg.WishKey), MaxBodyBytes: cfg.MaxTextBytes},
-		Safety:     &safety.Config{Command: cmd, Key: cfg.Runtime.SafetyKey, MaxTextBytes: cfg.MaxTextBytes},
-		Resources:  &resourceplaza.Config{Command: cmd, Key: resourceplaza.DeriveKey(cfg.Runtime.SafetyKey)},
+
+		Auth: studentauth.Config{
+			SessionTTL:  cfg.SessionTTL,
+			ExchangeTTL: cfg.ExchangeTTL,
+			SessionKey:  cfg.SessionKey,
+			Command:     cmd,
+		},
+
+		Card:         businessCardConfig(cfg),
+		Verification: verification.Config{Command: cmd, ReceiptKey: cfg.VerificationKey, MaxCardBytes: cfg.Card.MaxBytes},
+
+		Wish: &wish.ServiceConfig{Command: cmd, ReceiptKey: cfg.WishKey, MaxStoryBytes: cfg.MaxTextBytes},
+
+		Chat: &chat.Config{Command: cmd, Key: chat.DeriveKey(cfg.WishKey), MaxBodyBytes: cfg.MaxTextBytes},
+
+		Safety: &safety.Config{Command: cmd, Key: cfg.Runtime.SafetyKey, MaxTextBytes: cfg.MaxTextBytes},
+
+		Resources: &resourceplaza.Config{Command: cmd, Key: resourceplaza.DeriveKey(cfg.Runtime.SafetyKey)},
+
 		Moderation: &moderation.Config{Command: cmd, CursorKey: cfg.Runtime.GovernanceKey, MaxEntries: 2000},
-		Crisis:     &moderation.Config{Command: cmd, CursorKey: cfg.CrisisKey, MaxEntries: 2000},
-		Privacy:    &pconf, EvidenceDeletion: &econf,
+
+		Crisis: &moderation.Config{Command: cmd, CursorKey: cfg.CrisisKey, MaxEntries: 2000},
+
+		Privacy:          &pconf,
+		EvidenceDeletion: &econf,
 	})
 	if e != nil {
 		return nil, e
@@ -115,7 +161,17 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	admin, e := adminauth.New(adminDB, limiter, log, adminauth.Config{Command: cmd, ReceiptKey: cfg.AdminKey, SessionTTL: cfg.AdminSessionTTL, InitialPassword: password})
+	admin, e := adminauth.New(
+		adminDB,
+		limiter,
+		log,
+		adminauth.Config{
+			Command:         cmd,
+			ReceiptKey:      cfg.AdminKey,
+			SessionTTL:      cfg.AdminSessionTTL,
+			InitialPassword: password,
+		},
+	)
 	if e != nil {
 		return nil, e
 	}
@@ -154,7 +210,10 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 		return e
 	}
 	var reports []whisper.Item
-	if b.runtime.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").Scan(&reports).Error != nil || len(reports) != len(catalog.Catalog.Reports) {
+	if b.runtime.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").
+		Scan(&reports).
+		Error != nil ||
+		len(reports) != len(catalog.Catalog.Reports) {
 		return command.ErrUnavailable
 	}
 	for _, item := range catalog.Catalog.Reports {
@@ -170,7 +229,10 @@ func (b *BusinessAPI) Close() error { return b.runtime.close() }
 
 func businessSchema(ctx context.Context, db *gorm.DB) error {
 	var ready bool
-	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.penalties') AND attname='source_kind' AND NOT attisdropped)`).Scan(&ready).Error != nil || !ready {
+	if db.WithContext(ctx).Raw(`SELECT to_regclass('public.student_login_exchanges') IS NOT NULL AND to_regclass('public.student_card_payloads') IS NOT NULL AND to_regclass('public.resource_audits') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.penalties') AND attname='source_kind' AND NOT attisdropped)`).
+		Scan(&ready).
+		Error != nil ||
+		!ready {
 		return command.ErrUnavailable
 	}
 	return nil
@@ -204,12 +266,26 @@ func lookupReady(ctx context.Context, db *gorm.DB, g *gateway.Business) error {
 }
 
 func businessCardConfig(c config.Business) studentcard.Config {
-	return studentcard.Config{Command: command.Config(c.Runtime.Command), ReceiptKey: c.CardKey, DecodeSlots: c.Card.DecodeSlots, MaxBytes: c.Card.MaxBytes, MaxPixels: c.Card.MaxPixels, Lease: c.Card.Lease, RetryDelay: c.Card.RetryDelay, MaxAttempts: c.Card.MaxAttempts}
+	return studentcard.Config{
+		Command:     command.Config(c.Runtime.Command),
+		ReceiptKey:  c.CardKey,
+		DecodeSlots: c.Card.DecodeSlots,
+		MaxBytes:    c.Card.MaxBytes,
+		MaxPixels:   c.Card.MaxPixels,
+		Lease:       c.Card.Lease,
+		RetryDelay:  c.Card.RetryDelay,
+		MaxAttempts: c.Card.MaxAttempts,
+	}
 }
 
 func businessResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile, error) {
 	r, e := loadResources(ctx, cfg)
-	if e != nil || !moderation.CareResourcesReady(r.Care) || r.Catalog.Grades.Version == nil || len(r.Catalog.Grades.Items) == 0 || len(r.Catalog.Reports) == 0 || r.Catalog.Help.Status != "ready" || r.Catalog.Help.Version == nil || r.Catalog.Help.VerifiedAt == nil || len(r.Catalog.Help.Items) == 0 {
+	if e != nil || !moderation.CareResourcesReady(r.Care) || r.Catalog.Grades.Version == nil || len(r.Catalog.Grades.Items) == 0 ||
+		len(r.Catalog.Reports) == 0 ||
+		r.Catalog.Help.Status != "ready" ||
+		r.Catalog.Help.Version == nil ||
+		r.Catalog.Help.VerifiedAt == nil ||
+		len(r.Catalog.Help.Items) == 0 {
 		return ResourcesFile{}, command.ErrUnavailable
 	}
 	return r, nil

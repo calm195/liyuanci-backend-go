@@ -107,7 +107,19 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 		if e != nil {
 			return e
 		}
-		scanner, e = moderation.NewWorker(db, log, r.codec, b, moderation.WorkerConfig{Consumer: durable.ConsumerConfig(c.Runtime.Worker.Consumer), AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout, Care: catalog.Care, CrisisNotifier: b, MessageAnalyzer: b})
+		scanner, e = moderation.NewWorker(
+			db,
+			log,
+			r.codec,
+			b,
+			moderation.WorkerConfig{
+				Consumer:        durable.ConsumerConfig(c.Runtime.Worker.Consumer),
+				AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout,
+				Care:            catalog.Care,
+				CrisisNotifier:  b,
+				MessageAnalyzer: b,
+			},
+		)
 		if e != nil {
 			return e
 		}

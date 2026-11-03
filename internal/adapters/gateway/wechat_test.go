@@ -26,12 +26,36 @@ func TestWeChatExchange(t *testing.T) {
 		status             int
 		failure, errorWant error
 	}{
-		{name: "success", status: 200, body: `{"openid":"synthetic-openid","session_key":"SYNTHETIC_SESSION_KEY"}`},
-		{name: "expired_code", status: 200, body: `{"errcode":40163,"errmsg":"SYNTHETIC_SECRET"}`, errorWant: command.ErrUnauthenticated},
+		{
+			name:   "success",
+			status: 200,
+			body:   `{"openid":"synthetic-openid","session_key":"SYNTHETIC_SESSION_KEY"}`,
+		},
+		{
+			name:      "expired_code",
+			status:    200,
+			body:      `{"errcode":40163,"errmsg":"SYNTHETIC_SECRET"}`,
+			errorWant: command.ErrUnauthenticated,
+		},
 		{name: "invalid_code", status: 200, body: `{"errcode":40029}`, errorWant: command.ErrUnauthenticated},
-		{name: "provider_failure", status: 200, body: `{"errcode":-1,"errmsg":"SYNTHETIC_SECRET"}`, errorWant: command.ErrUnavailable},
-		{name: "missing_identity", status: 200, body: `{"session_key":"SYNTHETIC_SESSION_KEY"}`, errorWant: command.ErrUnavailable},
-		{name: "duplicate", status: 200, body: `{"openid":"a","openid":"b"}`, errorWant: command.ErrUnavailable},
+		{
+			name:      "provider_failure",
+			status:    200,
+			body:      `{"errcode":-1,"errmsg":"SYNTHETIC_SECRET"}`,
+			errorWant: command.ErrUnavailable,
+		},
+		{
+			name:      "missing_identity",
+			status:    200,
+			body:      `{"session_key":"SYNTHETIC_SESSION_KEY"}`,
+			errorWant: command.ErrUnavailable,
+		},
+		{
+			name:      "duplicate",
+			status:    200,
+			body:      `{"openid":"a","openid":"b"}`,
+			errorWant: command.ErrUnavailable,
+		},
 		{name: "trailing", status: 200, body: `{"openid":"a"}{}`, errorWant: command.ErrUnavailable},
 		{name: "too_large", status: 200, body: strings.Repeat("x", 32769), errorWant: command.ErrUnavailable},
 		{name: "redirect", status: 302, body: "", errorWant: command.ErrUnavailable},
@@ -40,13 +64,26 @@ func TestWeChatExchange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			core, logs := observer.New(zap.InfoLevel)
 			client := &http.Client{Timeout: time.Second, Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
-				if r.URL.Scheme != "https" || r.URL.Host != "api.weixin.qq.com" || r.URL.Path != "/sns/jscode2session" || r.URL.Query().Get("grant_type") != "authorization_code" || r.URL.Query().Get("js_code") != "synthetic-code" || r.URL.Query().Get("appid") != "synthetic-app" || r.URL.Query().Get("secret") != "SYNTHETIC_SECRET" {
+				if r.URL.Scheme != "https" || r.URL.Host != "api.weixin.qq.com" || r.URL.Path != "/sns/jscode2session" ||
+					r.URL.Query().
+						Get("grant_type") != "authorization_code" ||
+					r.URL.Query().
+						Get("js_code") != "synthetic-code" ||
+					r.URL.Query().
+						Get("appid") != "synthetic-app" ||
+					r.URL.Query().
+						Get("secret") != "SYNTHETIC_SECRET" {
 					t.Fatal("微信请求协议不符")
 				}
 				if tc.failure != nil {
 					return nil, tc.failure
 				}
-				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body)), Header: http.Header{}, Request: r}, nil
+				return &http.Response{
+					StatusCode: tc.status,
+					Body:       io.NopCloser(strings.NewReader(tc.body)),
+					Header:     http.Header{},
+					Request:    r,
+				}, nil
 			})}
 			adapter, e := NewWeChat(client, "synthetic-app", "SYNTHETIC_SECRET", zap.New(core))
 			if e != nil {
@@ -74,4 +111,8 @@ func TestWeChatExchange(t *testing.T) {
 	}
 }
 
-func toString(v any) string { value, _ := v.(string); return value }
+func toString(v any) string {
+
+	value, _ := v.(string)
+	return value
+}

@@ -35,8 +35,20 @@ func TestCrisisHTTPBoundary(t *testing.T) {
 	}{
 		{"缺会话", "", "key", `{}`, 401},
 		{"缺幂等", "token", "", `{}`, 400},
-		{"重复字段", "token", "key", `{"action":"resolve","action":"follow_up","reason":"合成","expected_version":1}`, 400},
-		{"未知字段", "token", "key", `{"action":"resolve","reason":"合成","expected_version":1,"student_number":"forged"}`, 400},
+		{
+			"重复字段",
+			"token",
+			"key",
+			`{"action":"resolve","action":"follow_up","reason":"合成","expected_version":1}`,
+			400,
+		},
+		{
+			"未知字段",
+			"token",
+			"key",
+			`{"action":"resolve","reason":"合成","expected_version":1,"student_number":"forged"}`,
+			400,
+		},
 		{"空字段", "token", "key", `{"action":null,"reason":"合成","expected_version":1}`, 400},
 		{"缺字段", "token", "key", `{"action":"resolve","expected_version":1}`, 400},
 		{"尾随JSON", "token", "key", `{"action":"resolve","reason":"合成","expected_version":1} {}`, 400},

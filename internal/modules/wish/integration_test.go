@@ -79,7 +79,13 @@ func TestPostgresCreateDraft(t *testing.T) {
 			t.Fatal(err)
 		}
 		hash := sha256.Sum256([]byte(token))
-		if err := root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil {
+		if err := root.Create(&entity.Session{
+			ID:        uuid.NewString(),
+			AccountID: &id,
+			TokenHash: hash[:],
+			AuthEpoch: 1,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}).Error; err != nil {
 			t.Fatal(err)
 		}
 		return id, token
@@ -94,12 +100,22 @@ func TestPostgresCreateDraft(t *testing.T) {
 	}
 	assertNoWrite := func(run func() (CreatedDraft, error), want error) {
 		t.Helper()
-		before := []int64{count(&entity.Wish{}), count(&entity.WishVersion{}), count(&entity.ContentRegistry{}), count(&entity.CommandReceipt{})}
+		before := []int64{
+			count(&entity.Wish{}),
+			count(&entity.WishVersion{}),
+			count(&entity.ContentRegistry{}),
+			count(&entity.CommandReceipt{}),
+		}
 		out, failure := run()
 		if !errors.Is(failure, want) || !reflect.DeepEqual(out, CreatedDraft{}) {
 			t.Fatalf("失败结果: %+v %v", out, failure)
 		}
-		after := []int64{count(&entity.Wish{}), count(&entity.WishVersion{}), count(&entity.ContentRegistry{}), count(&entity.CommandReceipt{})}
+		after := []int64{
+			count(&entity.Wish{}),
+			count(&entity.WishVersion{}),
+			count(&entity.ContentRegistry{}),
+			count(&entity.CommandReceipt{}),
+		}
 		if !reflect.DeepEqual(before, after) {
 			t.Fatal("失败留下部分写入", before, after)
 		}
@@ -122,7 +138,8 @@ func TestPostgresCreateDraft(t *testing.T) {
 	if err := root.Where("wish_id=?", created.ID).Take(&version).Error; err != nil {
 		t.Fatal(err)
 	}
-	if version.PublicBody != nil || string(version.IdentityTags) != "{}" || version.SchoolRelated != nil || version.SchoolDetectionState != "pending" {
+	if version.PublicBody != nil || string(version.IdentityTags) != "{}" || version.SchoolRelated != nil ||
+		version.SchoolDetectionState != "pending" {
 		t.Fatal("未审输入成为公开投影")
 	}
 	var envelope securedata.Envelope
@@ -141,10 +158,15 @@ func TestPostgresCreateDraft(t *testing.T) {
 	if content.Body != input.Body || *content.IdentityTags.Gender != "female" {
 		t.Fatal("私有内容往返错误")
 	}
-	if _, err := codec.Decrypt(ctx, securedata.Binding{Purpose: "wish_content", ObjectID: uuid.NewString(), Version: 1}, envelope); err == nil {
+	if _, err := codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "wish_content", ObjectID: uuid.NewString(), Version: 1},
+		envelope,
+	); err == nil {
 		t.Fatal("跨对象密文替换成功")
 	}
-	if count(&entity.Wish{}) != 1 || count(&entity.ContentRegistry{}) != 1 || count(&entity.WorkItem{}) != 0 || count(&entity.OutboxEvent{}) != 0 {
+	if count(&entity.Wish{}) != 1 || count(&entity.ContentRegistry{}) != 1 || count(&entity.WorkItem{}) != 0 ||
+		count(&entity.OutboxEvent{}) != 0 {
 		t.Fatal("创建不应送审或创建额外聚合")
 	}
 	// 相同账号/路由/键并发只产生一个结果，重放不重复调用密钥服务。
@@ -231,7 +253,16 @@ func TestPostgresCreateDraft(t *testing.T) {
 		return s.Create(ctx, token, "create-key", "revoked-qualification", input)
 	}, command.ErrForbidden)
 	exec("UPDATE public.accounts SET verification='verified' WHERE id=?", owner)
-	if err := root.Create(&entity.Penalty{ID: uuid.NewString(), AccountID: owner, Level: "severe", ActionKind: "ban", ViolationRef: uuid.NewString(), ReasonRef: uuid.NewString(), ContentVersion: 1, StartsAt: time.Now().Add(-time.Minute)}).Error; err != nil {
+	if err := root.Create(&entity.Penalty{
+		ID:             uuid.NewString(),
+		AccountID:      owner,
+		Level:          "severe",
+		ActionKind:     "ban",
+		ViolationRef:   uuid.NewString(),
+		ReasonRef:      uuid.NewString(),
+		ContentVersion: 1,
+		StartsAt:       time.Now().Add(-time.Minute),
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	assertNoWrite(func() (CreatedDraft, error) { return s.Create(ctx, token, "create-key", "penalty", input) }, command.ErrForbidden)

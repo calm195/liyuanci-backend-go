@@ -87,7 +87,40 @@ func TestBusinessSchema(t *testing.T) {
 		t.Fatal("迁移权限组不能完成空库回退及重建", err)
 	}
 	assertComments(t, db)
-	required := []string{"identity_names", "admin_accounts", "admin_account_actions", "admin_role_bindings", "sessions", "assets", "identity_reviews", "blocks", "penalties", "appeals", "wishes", "wish_versions", "applications", "matches", "conversations", "messages", "story_versions", "content_registry", "wordlist_versions", "wordlist_entries", "moderation_tasks", "reports", "content_restrictions", "privacy_holds", "work_items", "outbox_events", "consumer_receipts", "notifications", "delivery_attempts", "command_receipts", "access_audits", "deletion_jobs"}
+	required := []string{
+		"identity_names",
+		"admin_accounts",
+		"admin_account_actions",
+		"admin_role_bindings",
+		"sessions",
+		"assets",
+		"identity_reviews",
+		"blocks",
+		"penalties",
+		"appeals",
+		"wishes",
+		"wish_versions",
+		"applications",
+		"matches",
+		"conversations",
+		"messages",
+		"story_versions",
+		"content_registry",
+		"wordlist_versions",
+		"wordlist_entries",
+		"moderation_tasks",
+		"reports",
+		"content_restrictions",
+		"privacy_holds",
+		"work_items",
+		"outbox_events",
+		"consumer_receipts",
+		"notifications",
+		"delivery_attempts",
+		"command_receipts",
+		"access_audits",
+		"deletion_jobs",
+	}
 	for _, table := range required {
 		if !db.Migrator().HasTable("public." + table) {
 			t.Fatal("设计表缺失", table)
@@ -115,42 +148,105 @@ func TestBusinessSchema(t *testing.T) {
 		must("INSERT INTO public.accounts(id,nickname) VALUES (?,?)", uid(i), "合成账号")
 	}
 	admin := uid(10)
-	must("INSERT INTO public.admin_accounts(id,credential_ref) VALUES (?,?)", admin, "synthetic-provider-reference")
+	must(
+		"INSERT INTO public.admin_accounts(id,credential_ref) VALUES (?,?)",
+		admin,
+		"synthetic-provider-reference",
+	)
 	reject("后台无凭据", "INSERT INTO public.admin_accounts(id) VALUES (?)", uid(11))
-	reject("学生后台主体混用", "INSERT INTO public.sessions(id,account_id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,decode(repeat('ab',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')", uid(12), uid(1), admin)
-	must("INSERT INTO public.assets(id,owner_id,purpose,encrypted_object_key,object_version,wrapped_key_ref) VALUES (?,?,'student_card','{}','synthetic-version','synthetic-key')", uid(13), uid(1))
+	reject(
+		"学生后台主体混用",
+		"INSERT INTO public.sessions(id,account_id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,decode(repeat('ab',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')",
+		uid(12),
+		uid(1),
+		admin,
+	)
+	must(
+		"INSERT INTO public.assets(id,owner_id,purpose,encrypted_object_key,object_version,wrapped_key_ref) VALUES (?,?,'student_card','{}','synthetic-version','synthetic-key')",
+		uid(13),
+		uid(1),
+	)
 	must("INSERT INTO public.identity_reviews(id,account_id,asset_id) VALUES (?,?,?)", uid(14), uid(1), uid(13))
-	reject("重复待审身份", "INSERT INTO public.identity_reviews(id,account_id,asset_id,version) VALUES (?,?,?,2)", uid(15), uid(1), uid(13))
+	reject(
+		"重复待审身份",
+		"INSERT INTO public.identity_reviews(id,account_id,asset_id,version) VALUES (?,?,?,2)",
+		uid(15),
+		uid(1),
+		uid(13),
+	)
 	reject("驳回缺少原因", "UPDATE public.identity_reviews SET status='rejected' WHERE id=?", uid(14))
 	for _, duration := range []int{0, 31} {
-		reject("期限越界", "INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus,duration_days) VALUES (?,?,1,'help','wushan',?)", uid(20+duration), uid(1), duration)
+		reject(
+			"期限越界",
+			"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus,duration_days) VALUES (?,?,1,'help','wushan',?)",
+			uid(20+duration),
+			uid(1),
+			duration,
+		)
 	}
-	reject("未知分类", "INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'invalid','wushan')", uid(21), uid(1))
+	reject(
+		"未知分类",
+		"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'invalid','wushan')",
+		uid(21),
+		uid(1),
+	)
 	wish := uid(30)
 	if err := db.Transaction(func(tx *gorm.DB) error {
-		if e := tx.Exec("INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus,duration_days) VALUES (?,?,1,'team','any',30)", wish, uid(1)).Error; e != nil {
+		if e := tx.Exec(
+			"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus,duration_days) VALUES (?,?,1,'team','any',30)",
+			wish,
+			uid(1),
+		).Error; e != nil {
 			return e
 		}
-		return tx.Exec("INSERT INTO public.wish_versions(wish_id,content_version,body_cipher,school_detection_version) VALUES (?,1,'{}','synthetic-detector')", wish).Error
+		return tx.Exec("INSERT INTO public.wish_versions(wish_id,content_version,body_cipher,school_detection_version) VALUES (?,1,'{}','synthetic-detector')", wish).
+			Error
 	}); err != nil {
 		t.Fatal(err)
 	}
-	reject("缺失目标内容版本", "INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'help','wushan')", uid(31), uid(1))
+	reject(
+		"缺失目标内容版本",
+		"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus) VALUES (?,?,1,'help','wushan')",
+		uid(31),
+		uid(1),
+	)
 	reject("未检测不能默认为不涉校", "UPDATE public.wish_versions SET school_related=false WHERE wish_id=?", wish)
 	reject("未审核公开正文", "UPDATE public.wish_versions SET public_body='合成正文' WHERE wish_id=?", wish)
 	must("UPDATE public.wish_versions SET moderation_status='approved',school_related=false,school_detection_state='completed',public_body=repeat('鲤',500) WHERE wish_id=?", wish)
 	reject("公开投影超过五百码点", "UPDATE public.wish_versions SET public_body=repeat('鲤',501) WHERE wish_id=?", wish)
-	must("INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')", uid(40), wish, uid(2))
-	reject("重复待审应愿", "INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')", uid(41), wish, uid(2))
+	must(
+		"INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')",
+		uid(40),
+		wish,
+		uid(2),
+	)
+	reject(
+		"重复待审应愿",
+		"INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')",
+		uid(41),
+		wish,
+		uid(2),
+	)
 	must("UPDATE public.applications SET status='withdrawn' WHERE id=?", uid(40))
-	must("INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')", uid(41), wish, uid(2))
+	must(
+		"INSERT INTO public.applications(id,wish_id,wish_content_version,applicant_id,message_cipher) VALUES (?,?,1,?,'{}')",
+		uid(41),
+		wish,
+		uid(2),
+	)
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results <- db.Exec("INSERT INTO public.matches(id,wish_id,requester_id,helper_id) VALUES (?,?,?,?)", uid(50+i), wish, uid(1), uid(2+i)).Error
+			results <- db.Exec(
+				"INSERT INTO public.matches(id,wish_id,requester_id,helper_id) VALUES (?,?,?,?)",
+				uid(50+i),
+				wish,
+				uid(1),
+				uid(2+i),
+			).Error
 		}(i)
 	}
 	wg.Wait()
@@ -164,21 +260,48 @@ func TestBusinessSchema(t *testing.T) {
 	if successes != 1 {
 		t.Fatal("同心愿并发只能一个当前匹配", successes)
 	}
-	reject("匹配许愿人不符", "INSERT INTO public.matches(id,wish_id,requester_id,helper_id,status,ended_at) VALUES (?,?,?,?,'ended',CURRENT_TIMESTAMP)", uid(55), wish, uid(3), uid(2))
+	reject(
+		"匹配许愿人不符",
+		"INSERT INTO public.matches(id,wish_id,requester_id,helper_id,status,ended_at) VALUES (?,?,?,?,'ended',CURRENT_TIMESTAMP)",
+		uid(55),
+		wish,
+		uid(3),
+		uid(2),
+	)
 	var match string
 	if err := db.Raw("SELECT id FROM public.matches WHERE wish_id=?", wish).Scan(&match).Error; err != nil {
 		t.Fatal(err)
 	}
 	conversation := uid(60)
 	must("INSERT INTO public.conversations(id,match_id) VALUES (?,?)", conversation, match)
-	reject("待审占序号", "INSERT INTO public.messages(id,conversation_id,sender_id,delivery_seq,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,1,?,'{}',1)", uid(61), conversation, uid(1), uid(62))
-	reject("送达无序号", "INSERT INTO public.messages(id,conversation_id,sender_id,status,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',?,'{}',1)", uid(61), conversation, uid(1), uid(62))
+	reject(
+		"待审占序号",
+		"INSERT INTO public.messages(id,conversation_id,sender_id,delivery_seq,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,1,?,'{}',1)",
+		uid(61),
+		conversation,
+		uid(1),
+		uid(62),
+	)
+	reject(
+		"送达无序号",
+		"INSERT INTO public.messages(id,conversation_id,sender_id,status,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',?,'{}',1)",
+		uid(61),
+		conversation,
+		uid(1),
+		uid(62),
+	)
 	// 只验证计数器可随事务回滚，不模拟未实现的业务审核/消息消费者。
 	err := db.Transaction(func(tx *gorm.DB) error {
 		if e := tx.Exec("UPDATE public.conversations SET next_delivery_seq=next_delivery_seq+1 WHERE id=?", conversation).Error; e != nil {
 			return e
 		}
-		return tx.Exec("INSERT INTO public.messages(id,conversation_id,sender_id,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,?,'{}',1)", uid(61), conversation, uid(999), uid(62)).Error
+		return tx.Exec(
+			"INSERT INTO public.messages(id,conversation_id,sender_id,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,?,'{}',1)",
+			uid(61),
+			conversation,
+			uid(999),
+			uid(62),
+		).Error
 	})
 	if err == nil {
 		t.Fatal("失效发送者应回滚")
@@ -187,23 +310,93 @@ func TestBusinessSchema(t *testing.T) {
 	if err = db.Raw("SELECT next_delivery_seq FROM public.conversations WHERE id=?", conversation).Scan(&next).Error; err != nil || next != 1 {
 		t.Fatal("回滚消耗送达计数器", next, err)
 	}
-	must("INSERT INTO public.messages(id,conversation_id,sender_id,status,delivery_seq,delivered_at,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',1,CURRENT_TIMESTAMP,?,'{}',1)", uid(61), conversation, uid(1), uid(62))
-	reject("送达序号重复", "INSERT INTO public.messages(id,conversation_id,sender_id,status,delivery_seq,delivered_at,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',1,CURRENT_TIMESTAMP,?,'{}',1)", uid(63), conversation, uid(1), uid(64))
-	must("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'story',?,1,2)", uid(70), wish)
-	reject("重复有效屏障", "INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'story',?,2,3)", uid(71), wish)
-	must("INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,reason_ref,first_displayed_at,confirmable_at) VALUES (?,?,'minor','warning',?,1,CURRENT_TIMESTAMP,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '30 seconds')", uid(80), uid(2), uid(81), uid(82))
-	reject("二十九秒确认", "UPDATE public.penalties SET acknowledged_at=first_displayed_at+interval '29 seconds' WHERE id=?", uid(80))
+	must(
+		"INSERT INTO public.messages(id,conversation_id,sender_id,status,delivery_seq,delivered_at,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',1,CURRENT_TIMESTAMP,?,'{}',1)",
+		uid(61),
+		conversation,
+		uid(1),
+		uid(62),
+	)
+	reject(
+		"送达序号重复",
+		"INSERT INTO public.messages(id,conversation_id,sender_id,status,delivery_seq,delivered_at,client_message_id,body_cipher,cancel_epoch) VALUES (?,?,?,'delivered',1,CURRENT_TIMESTAMP,?,'{}',1)",
+		uid(63),
+		conversation,
+		uid(1),
+		uid(64),
+	)
+	must(
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'story',?,1,2)",
+		uid(70),
+		wish,
+	)
+	reject(
+		"重复有效屏障",
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'story',?,2,3)",
+		uid(71),
+		wish,
+	)
+	must(
+		"INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,reason_ref,first_displayed_at,confirmable_at) VALUES (?,?,'minor','warning',?,1,CURRENT_TIMESTAMP,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '30 seconds')",
+		uid(80),
+		uid(2),
+		uid(81),
+		uid(82),
+	)
+	reject(
+		"二十九秒确认",
+		"UPDATE public.penalties SET acknowledged_at=first_displayed_at+interval '29 seconds' WHERE id=?",
+		uid(80),
+	)
 	must("UPDATE public.penalties SET acknowledged_at=confirmable_at WHERE id=?", uid(80))
-	reject("禁言缺期限", "INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,reason_ref) VALUES (?,?,'general','mute',?,1,CURRENT_TIMESTAMP,?)", uid(83), uid(2), uid(84), uid(85))
-	reject("禁言任意时长", "INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,ends_at,reason_ref) VALUES (?,?,'general','mute',?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '1 hour',?)", uid(83), uid(2), uid(84), uid(85))
-	must("INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id) VALUES (?,'synthetic','wish',?,?)", uid(90), wish, uid(91))
-	reject("工作操作重复", "INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id) VALUES (?,'synthetic','wish',?,?)", uid(92), wish, uid(91))
+	reject(
+		"禁言缺期限",
+		"INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,reason_ref) VALUES (?,?,'general','mute',?,1,CURRENT_TIMESTAMP,?)",
+		uid(83),
+		uid(2),
+		uid(84),
+		uid(85),
+	)
+	reject(
+		"禁言任意时长",
+		"INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,starts_at,ends_at,reason_ref) VALUES (?,?,'general','mute',?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '1 hour',?)",
+		uid(83),
+		uid(2),
+		uid(84),
+		uid(85),
+	)
+	must(
+		"INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id) VALUES (?,'synthetic','wish',?,?)",
+		uid(90),
+		wish,
+		uid(91),
+	)
+	reject(
+		"工作操作重复",
+		"INSERT INTO public.work_items(id,kind,target_kind,target_id,operation_id) VALUES (?,'synthetic','wish',?,?)",
+		uid(92),
+		wish,
+		uid(91),
+	)
 	must("INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES ('synthetic',?)", uid(91))
-	reject("消费回执重复", "INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES ('synthetic',?)", uid(91))
-	reject("完成删除仍留身份", "INSERT INTO public.deletion_jobs(job_id,subject_ref,phase) VALUES (?,?,'completed')", uid(93), uid(2))
+	reject(
+		"消费回执重复",
+		"INSERT INTO public.consumer_receipts(consumer_kind,operation_id) VALUES ('synthetic',?)",
+		uid(91),
+	)
+	reject(
+		"完成删除仍留身份",
+		"INSERT INTO public.deletion_jobs(job_id,subject_ref,phase) VALUES (?,?,'completed')",
+		uid(93),
+		uid(2),
+	)
 	caseID := uid(100)
 	must("INSERT INTO evidence.evidence_cases(id,kind,source_ref) VALUES (?,'crisis',?)", caseID, uid(101))
-	must("INSERT INTO evidence.evidence_items(id,case_id,subject_cipher,body_cipher,key_ref) VALUES (?,?,'{}','{}','synthetic-key')", uid(102), caseID)
+	must(
+		"INSERT INTO evidence.evidence_items(id,case_id,subject_cipher,body_cipher,key_ref) VALUES (?,?,'{}','{}','synthetic-key')",
+		uid(102),
+		caseID,
+	)
 	must("DELETE FROM public.accounts WHERE id=?", uid(4))
 	var evidenceCount int64
 	if err = db.Table("evidence.evidence_items").Count(&evidenceCount).Error; err != nil || evidenceCount != 1 {
@@ -218,8 +411,16 @@ func TestBusinessSchema(t *testing.T) {
 	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
-	must("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?, ?, decode(repeat('01',32),'hex'), 1, CURRENT_TIMESTAMP+interval '1 hour')", uid(110), uid(1))
-	must("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?, ?, decode(repeat('02',32),'hex'), 1, CURRENT_TIMESTAMP+interval '1 hour')", uid(111), admin)
+	must(
+		"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?, ?, decode(repeat('01',32),'hex'), 1, CURRENT_TIMESTAMP+interval '1 hour')",
+		uid(110),
+		uid(1),
+	)
+	must(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?, ?, decode(repeat('02',32),'hex'), 1, CURRENT_TIMESTAMP+interval '1 hour')",
+		uid(111),
+		admin,
+	)
 	for _, check := range []struct {
 		role, sql string
 		allowed   bool
@@ -238,10 +439,26 @@ func TestBusinessSchema(t *testing.T) {
 		{"liyuanci_admin_api", "UPDATE public.admin_role_bindings SET role=role WHERE false", false},
 		{"liyuanci_admin_maintenance", "UPDATE public.admin_role_bindings SET role=role WHERE false", true},
 		{"liyuanci_api", "CREATE TABLE public.forbidden_object(id uuid)", false},
-		{"liyuanci_api", "DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE admin_id IS NOT NULL) THEN RAISE EXCEPTION '后台会话泄漏'; END IF; END $$", true},
-		{"liyuanci_admin_api", "DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE account_id IS NOT NULL) THEN RAISE EXCEPTION '学生会话泄漏'; END IF; END $$", true},
-		{"liyuanci_api", "INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES ('30000000-0000-0000-0000-000000000112','30000000-0000-0000-0000-000000000010',decode(repeat('03',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')", false},
-		{"liyuanci_admin_api", "INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES ('30000000-0000-0000-0000-000000000113','30000000-0000-0000-0000-000000000001',decode(repeat('04',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')", false},
+		{
+			"liyuanci_api",
+			"DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE admin_id IS NOT NULL) THEN RAISE EXCEPTION '后台会话泄漏'; END IF; END $$",
+			true,
+		},
+		{
+			"liyuanci_admin_api",
+			"DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE account_id IS NOT NULL) THEN RAISE EXCEPTION '学生会话泄漏'; END IF; END $$",
+			true,
+		},
+		{
+			"liyuanci_api",
+			"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES ('30000000-0000-0000-0000-000000000112','30000000-0000-0000-0000-000000000010',decode(repeat('03',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')",
+			false,
+		},
+		{
+			"liyuanci_admin_api",
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES ('30000000-0000-0000-0000-000000000113','30000000-0000-0000-0000-000000000001',decode(repeat('04',32),'hex'),1,CURRENT_TIMESTAMP+interval '1 hour')",
+			false,
+		},
 	} {
 		e := underRole(db, check.role, check.sql)
 		if (e == nil) != check.allowed {
@@ -266,7 +483,11 @@ func TestBusinessSchema(t *testing.T) {
 	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
-	if underRole(db, "liyuanci_api", "DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE admin_id IS NOT NULL) THEN RAISE EXCEPTION '后台会话泄漏'; END IF; END $$") != nil {
+	if underRole(
+		db,
+		"liyuanci_api",
+		"DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE admin_id IS NOT NULL) THEN RAISE EXCEPTION '后台会话泄漏'; END IF; END $$",
+	) != nil {
 		t.Fatal("权限重放未恢复会话行级隔离")
 	}
 	must("CREATE POLICY unmanaged_scope ON public.sessions TO PUBLIC USING (true)")
@@ -314,7 +535,11 @@ func TestRecoverySchema(t *testing.T) {
 	if err := testconfig.RunJournal(ctx, db, log, "permissions"); err != nil {
 		t.Fatal(err)
 	}
-	if underRole(db, "liyuanci_recovery_writer", "INSERT INTO public.recovery_delete_journal(intent_id,deletion_scope,entry_envelope) VALUES ('40000000-0000-0000-0000-000000000001','account','{}')") != nil {
+	if underRole(
+		db,
+		"liyuanci_recovery_writer",
+		"INSERT INTO public.recovery_delete_journal(intent_id,deletion_scope,entry_envelope) VALUES ('40000000-0000-0000-0000-000000000001','account','{}')",
+	) != nil {
 		t.Fatal("写入角色应能记录意图")
 	}
 	if testconfig.RunJournal(ctx, db, log, "down") == nil {
@@ -326,14 +551,19 @@ func TestRecoverySchema(t *testing.T) {
 	if underRole(db, "liyuanci_recovery_writer", "UPDATE public.recovery_delete_journal SET entry_envelope='{}'") == nil {
 		t.Fatal("写入角色不能改写已有意图")
 	}
-	if underRole(db, "liyuanci_recovery_writer", "UPDATE public.recovery_delete_journal SET confirmed_at=CURRENT_TIMESTAMP") != nil {
+	if underRole(
+		db,
+		"liyuanci_recovery_writer",
+		"UPDATE public.recovery_delete_journal SET confirmed_at=CURRENT_TIMESTAMP",
+	) != nil {
 		t.Fatal("写入角色应能确认意图")
 	}
 	if underRole(db, "liyuanci_recovery_reader", "SELECT * FROM public.recovery_delete_journal") != nil {
 		t.Fatal("恢复读取角色应可读意图")
 	}
 	// 独立服务器不应自带业务组；仅在专用测试库的权限夹具中显式创建合成组。
-	if err := db.Exec(`DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='liyuanci_api') THEN CREATE ROLE liyuanci_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`).Error; err != nil {
+	if err := db.Exec(`DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='liyuanci_api') THEN CREATE ROLE liyuanci_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`).
+		Error; err != nil {
 		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_api", "SELECT * FROM public.recovery_delete_journal") == nil {
@@ -356,7 +586,8 @@ func TestRecoverySchema(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if observed.FilterField(zap.String("result", "failure")).Len() == 0 || observed.FilterField(zap.String("result", "success")).Len() == 0 {
+	if observed.FilterField(zap.String("result", "failure")).Len() == 0 ||
+		observed.FilterField(zap.String("result", "success")).Len() == 0 {
 		t.Fatal("恢复日志结构缺少成功或失败完成记录")
 	}
 	for _, entry := range observed.FilterMessage("恢复日志结构操作完成").All() {

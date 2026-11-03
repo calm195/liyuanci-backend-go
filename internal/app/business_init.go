@@ -20,7 +20,14 @@ import (
 
 // InitializeBusiness 仅供显式初始化命令调用，不迁移、不替换历史身份密钥、不重置已有后台口令。
 // 可选词库通过现有授权服务发布完整快照并保留审计；已存在的生效快照只能等值重放。
-func InitializeBusiness(ctx context.Context, c config.Business, environment, login string, wordlists map[string][]string, client redis.UniversalClient, log *zap.Logger) (err error) {
+func InitializeBusiness(
+	ctx context.Context,
+	c config.Business,
+	environment, login string,
+	wordlists map[string][]string,
+	client redis.UniversalClient,
+	log *zap.Logger,
+) (err error) {
 	if log == nil || client == nil || login == "" || config.ValidateBusiness(c, environment, "bootstrap") != nil {
 		return command.ErrInvalid
 	}
@@ -77,7 +84,17 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	admin, e := adminauth.New(adminDB, limiter, log, adminauth.Config{SessionTTL: c.AdminSessionTTL, Command: command.Config(c.Runtime.Command), InitialPassword: password, ReceiptKey: c.AdminKey})
+	admin, e := adminauth.New(
+		adminDB,
+		limiter,
+		log,
+		adminauth.Config{
+			SessionTTL:      c.AdminSessionTTL,
+			Command:         command.Config(c.Runtime.Command),
+			InitialPassword: password,
+			ReceiptKey:      c.AdminKey,
+		},
+	)
 	if e != nil {
 		return e
 	}
@@ -108,7 +125,16 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 	if e != nil {
 		return e
 	}
-	service, e := moderation.New(review, log, r.codec, moderation.Config{Command: command.Config(c.Runtime.Command), CursorKey: c.Runtime.GovernanceKey, MaxEntries: 2000})
+	service, e := moderation.New(
+		review,
+		log,
+		r.codec,
+		moderation.Config{
+			Command:    command.Config(c.Runtime.Command),
+			CursorKey:  c.Runtime.GovernanceKey,
+			MaxEntries: 2000,
+		},
+	)
 	if e != nil {
 		return e
 	}
@@ -134,11 +160,24 @@ func InitializeBusiness(ctx context.Context, c config.Business, environment, log
 				}
 				continue
 			}
-			draft, e := service.CreateWordlist(ctx, session.Token, uuid.NewString(), uuid.NewString(), moderation.WordlistInput{Kind: kind, Entries: wordlists[kind], ExpectedVersion: head.Version})
+			draft, e := service.CreateWordlist(
+				ctx,
+				session.Token,
+				uuid.NewString(),
+				uuid.NewString(),
+				moderation.WordlistInput{Kind: kind, Entries: wordlists[kind], ExpectedVersion: head.Version},
+			)
 			if e != nil {
 				return e
 			}
-			_, e = service.PublishWordlist(ctx, session.Token, uuid.NewString(), uuid.NewString(), draft.ID, moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: head.Version + 1})
+			_, e = service.PublishWordlist(
+				ctx,
+				session.Token,
+				uuid.NewString(),
+				uuid.NewString(),
+				draft.ID,
+				moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: head.Version + 1},
+			)
 			if e != nil {
 				return e
 			}

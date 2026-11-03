@@ -98,7 +98,11 @@ func TestPostgresQueries(t *testing.T) {
 		t.Fatal(ownPage, e)
 	}
 	// 屏障同时阻止游客公开和本人旧正文，不会因原审核approved而放行。
-	f.exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'wish',?,1,1)", "70000000-0000-4000-8000-000000000001", r.ID)
+	f.exec(
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'wish',?,1,1)",
+		"70000000-0000-4000-8000-000000000001",
+		r.ID,
+	)
 	if _, e = s.Detail(ctx, "", "held", r.ID); !errors.Is(e, command.ErrNotFound) {
 		t.Fatal(e)
 	}

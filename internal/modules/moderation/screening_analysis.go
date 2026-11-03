@@ -15,7 +15,8 @@ func (w *Worker) analyze(ctx context.Context, source current, snapshot rules, in
 		if err == nil {
 			out.CrisisHit = out.CrisisHit || hit(input.Body, snapshot.crisisEntries)
 			out.SchoolRelated = source.message == nil && (out.SchoolRelated || hit(input.Body, snapshot.schoolEntries))
-			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(input.Body, snapshot.ordinaryEntries) || source.message != nil && hit(input.Body, snapshot.schoolEntries)
+			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(input.Body, snapshot.ordinaryEntries) ||
+				source.message != nil && hit(input.Body, snapshot.schoolEntries)
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -29,7 +30,12 @@ func (w *Worker) analyze(ctx context.Context, source current, snapshot rules, in
 			return Assessment{}, command.ErrUnavailable
 		}
 		result, err := w.cfg.MessageAnalyzer.AnalyzeMessage(ctx, input.Body)
-		return Assessment{Body: input.Body, OrdinaryHit: result.OrdinaryHit, CrisisHit: result.CrisisHit, DetectorVersion: result.DetectorVersion}, err
+		return Assessment{
+			Body:            input.Body,
+			OrdinaryHit:     result.OrdinaryHit,
+			CrisisHit:       result.CrisisHit,
+			DetectorVersion: result.DetectorVersion,
+		}, err
 	}
 	return w.analyzer.Analyze(ctx, input)
 }
@@ -39,7 +45,8 @@ func (w *WhisperWorker) analyze(ctx context.Context, source whisperSource, snaps
 	defer func() {
 		if err == nil {
 			out.CrisisHit = out.CrisisHit || hit(body, snapshot.crisisEntries)
-			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(body, snapshot.ordinaryEntries) || source.registry.Kind == "whisper_capsule" && hit(body, snapshot.schoolEntries)
+			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(body, snapshot.ordinaryEntries) ||
+				source.registry.Kind == "whisper_capsule" && hit(body, snapshot.schoolEntries)
 			out.SchoolRelated = source.registry.Kind != "whisper_capsule" && (out.SchoolRelated || hit(body, snapshot.schoolEntries))
 		}
 	}()
@@ -54,7 +61,11 @@ func (w *WhisperWorker) analyze(ctx context.Context, source whisperSource, snaps
 	}
 	if source.registry.Kind == "whisper_capsule" {
 		result, err := w.private.ClassifyWhisperCapsule(ctx, body)
-		return WhisperAssessment{OrdinaryHit: result.OrdinaryHit, CrisisHit: result.CrisisHit, DetectorVersion: result.DetectorVersion}, err
+		return WhisperAssessment{
+			OrdinaryHit:     result.OrdinaryHit,
+			CrisisHit:       result.CrisisHit,
+			DetectorVersion: result.DetectorVersion,
+		}, err
 	}
 	return w.public.AnalyzeWhisper(ctx, source.registry.Kind, body, identity)
 }

@@ -18,7 +18,18 @@ func TestDatabaseFieldsRoundTrip(t *testing.T) {
 		d.Name, d.User = "库名 /?'\\", "应用 user'"
 		d.Password = "secret ' host=evil TimeZone=invalid \\ $TOKEN %?#@"
 		d.TimeZone, d.ConnectTimeout = "Asia/Shanghai", 12*time.Second
-		for _, name := range []string{"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSSLMODE", "PGCONNECT_TIMEOUT", "PGSSLROOTCERT", "PGSSLCERT", "PGSSLKEY"} {
+		for _, name := range []string{
+			"PGHOST",
+			"PGPORT",
+			"PGDATABASE",
+			"PGUSER",
+			"PGPASSWORD",
+			"PGSSLMODE",
+			"PGCONNECT_TIMEOUT",
+			"PGSSLROOTCERT",
+			"PGSSLCERT",
+			"PGSSLKEY",
+		} {
 			t.Setenv(name, "ignored")
 		}
 		if err := d.resolve(); err != nil {
@@ -31,7 +42,11 @@ func TestDatabaseFieldsRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal("生成的连接无法解析")
 		}
-		if parsed.Host != host || parsed.Port != 15432 || parsed.Database != d.Name || parsed.User != d.User || parsed.Password != d.Password || parsed.ConnectTimeout != d.ConnectTimeout || parsed.RuntimeParams["TimeZone"] != d.TimeZone || parsed.TLSConfig != nil || len(parsed.Fallbacks) != 0 {
+		if parsed.Host != host || parsed.Port != 15432 || parsed.Database != d.Name || parsed.User != d.User || parsed.Password != d.Password ||
+			parsed.ConnectTimeout != d.ConnectTimeout ||
+			parsed.RuntimeParams["TimeZone"] != d.TimeZone ||
+			parsed.TLSConfig != nil ||
+			len(parsed.Fallbacks) != 0 {
 			t.Fatal("连接字段改变或被环境覆盖")
 		}
 		raw, err := yamlconfig.Marshal(d)
@@ -78,7 +93,8 @@ func TestDatabaseFieldsValidation(t *testing.T) {
 			t.Fatal("拒绝有效TLS模式")
 		}
 		p, err := pgconn.ParseConfig(d.DSN)
-		if err != nil || (mode == "verify-full" && (p.TLSConfig == nil || p.TLSConfig.InsecureSkipVerify || p.TLSConfig.ServerName != d.Host)) {
+		if err != nil ||
+			(mode == "verify-full" && (p.TLSConfig == nil || p.TLSConfig.InsecureSkipVerify || p.TLSConfig.ServerName != d.Host)) {
 			t.Fatal("TLS模式装配不符")
 		}
 	}

@@ -27,7 +27,11 @@ type borrowedRedis struct {
 	closed bool
 }
 
-func (r *borrowedRedis) Close() error { r.closed = true; return nil }
+func (r *borrowedRedis) Close() error {
+
+	r.closed = true
+	return nil
+}
 
 // TestAPIOwnership 验证两个入口都遵循拥有/借用边界，失败后仍逆序释放全部资源且重复关闭保持结果。
 func TestAPIOwnership(t *testing.T) {
@@ -59,7 +63,11 @@ func TestAPIOwnership(t *testing.T) {
 			results := make(chan error, 2)
 			for _, close := range []func() error{api.Close, whisper.Close} {
 				wait.Add(1)
-				go func() { defer wait.Done(); results <- close() }()
+				go func() {
+
+					defer wait.Done()
+					results <- close()
+				}()
 			}
 			wait.Wait()
 			close(results)

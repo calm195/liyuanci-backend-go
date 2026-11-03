@@ -106,7 +106,12 @@ func buildServices(d ServiceDependencies, cfg ServiceConfig) (out *serviceSet, e
 		if err != nil {
 			result = "failure"
 		}
-		d.Logger.Info("业务服务构造完成", zap.String("result", result), zap.Duration("duration", time.Since(start)), zap.Bool("wishes_enabled", cfg.Wish != nil))
+		d.Logger.Info(
+			"业务服务构造完成",
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+			zap.Bool("wishes_enabled", cfg.Wish != nil),
+		)
 	}()
 	if d.StudentDB == nil || d.ReviewDB == nil || d.Ready == nil {
 		return nil, command.ErrInvalid
@@ -116,7 +121,8 @@ func buildServices(d ServiceDependencies, cfg ServiceConfig) (out *serviceSet, e
 		return nil, command.ErrInvalid
 	}
 	// 不允许跨用途复用会话和材料回执密钥，避免单个用途泄漏扩大到其他入口。
-	if bytes.Equal(cfg.Auth.SessionKey, cfg.Card.ReceiptKey) || bytes.Equal(cfg.Auth.SessionKey, cfg.Verification.ReceiptKey) || bytes.Equal(cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey) {
+	if bytes.Equal(cfg.Auth.SessionKey, cfg.Card.ReceiptKey) || bytes.Equal(cfg.Auth.SessionKey, cfg.Verification.ReceiptKey) ||
+		bytes.Equal(cfg.Card.ReceiptKey, cfg.Verification.ReceiptKey) {
 		return nil, command.ErrInvalid
 	}
 	// 模块共享一个数据库账号及连接池；每个入口仍独立检查当前业务会话、角色和用途密钥。

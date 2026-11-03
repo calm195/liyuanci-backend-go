@@ -38,9 +38,11 @@ type privacyAuthUnused struct{}
 func (privacyAuthUnused) Exchange(context.Context, string) ([]byte, error) {
 	panic("本用例不登录")
 }
+
 func (privacyAuthUnused) ResolveOpenID(context.Context, *gorm.DB, []byte) (string, error) {
 	panic("本用例不解析身份")
 }
+
 func (privacyAuthUnused) Allow(context.Context, string) (bool, error) { panic("本用例不登录") }
 
 type privacyRedactor struct {
@@ -74,7 +76,18 @@ func (e *privacyEraser) Erase(ctx context.Context, _ privacy.Intent, objects []p
 
 // testWhisperPrivacy 覆盖B07的匿名切换、真实权限注销、幸存候选与独立日志恢复重删。
 // 分类、KMS、脱敏及外部副本清理均为显式合成适配器，不冒充生产全副本验收。
-func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisper.Service, w *moderation.WhisperWorker, codec *securedata.Codec, journal privacy.Journal, cfg whisper.Config, catalog whisper.Catalog, admission whisper.Admission, analyzer *reviewAnalyzer) {
+func testWhisperPrivacy(
+	t *testing.T,
+	admin, api, maintenance *gorm.DB,
+	s *whisper.Service,
+	w *moderation.WhisperWorker,
+	codec *securedata.Codec,
+	journal privacy.Journal,
+	cfg whisper.Config,
+	catalog whisper.Catalog,
+	admission whisper.Admission,
+	analyzer *reviewAnalyzer,
+) {
 	ctx, log := context.Background(), zap.NewNop()
 	must := func(e error) {
 		t.Helper()
@@ -87,16 +100,33 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	for _, row := range [][2]string{{actor, token}, {peer, peerToken}} {
 		must(admin.Exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'隐私合成主体','verified')", row[0]).Error)
 		hash := sha256.Sum256([]byte(row[1]))
-		must(admin.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), row[0], hash[:]).Error)
+		must(admin.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
 	}
 	event := func(id string) durable.Event {
 		var ev durable.Event
-		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, id).Scan(&ev).Error)
+		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, id).
+			Scan(&ev).
+			Error)
 		return ev
 	}
-	consume := func(id string) { _, e := w.Consume(ctx, event(id)); must(e) }
+	consume := func(id string) {
+
+		_, e := w.Consume(ctx, event(id))
+		must(e)
+	}
 	post := func(tok string) whisper.PublicPost {
-		p, e := s.CreatePost(ctx, tok, uuid.NewString(), "", whisper.ContentInput{Body: "隐私测试父帖", Identity: whisper.IdentityInput{Mode: "anonymous"}})
+		p, e := s.CreatePost(
+			ctx,
+			tok,
+			uuid.NewString(),
+			"",
+			whisper.ContentInput{Body: "隐私测试父帖", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		)
 		must(e)
 		_, e = s.ChangePost(ctx, tok, uuid.NewString(), "", p.ID, "submit", whisper.PostInput{ExpectedVersion: p.Version})
 		must(e)
@@ -107,7 +137,13 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	}
 	name, e := s.GetNickname(ctx, token, "")
 	must(e)
-	_, e = s.SetNickname(ctx, token, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: name.Version, Label: "隐私昵称"})
+	_, e = s.SetNickname(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		whisper.NicknameInput{ExpectedVersion: name.Version, Label: "隐私昵称"},
+	)
 	must(e)
 	var nameRef string
 	must(admin.Model(&entity.WhisperNicknameVersion{}).Where("account_id=?", actor).Pluck("content_registry_id", &nameRef).Error)
@@ -115,7 +151,19 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	parent := post(token)
 	otherParent := post(peerToken)
 	comment := func(tok string, p whisper.PublicPost) whisper.OwnerComment {
-		v, e := s.SaveComment(ctx, tok, uuid.NewString(), "", p.ID, "", whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "保留作者自己的暖评和原帖主信息", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch})
+		v, e := s.SaveComment(
+			ctx,
+			tok,
+			uuid.NewString(),
+			"",
+			p.ID,
+			"",
+			whisper.CommentInput{
+				ContentInput:          whisper.ContentInput{Body: "保留作者自己的暖评和原帖主信息", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+				ExpectedPostVersion:   p.Version,
+				ExpectedCommentsEpoch: p.CommentsEpoch,
+			},
+		)
 		must(e)
 		return v
 	}
@@ -125,11 +173,31 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	consume(ownComment.ID)
 	late := comment(peerToken, parent)
 	lateEvent := event(late.ID)
-	capsule, e := s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: "注销前尚未审核的未来信", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true})
+	capsule, e := s.CreateCapsule(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		whisper.CapsuleInput{
+			Body:                 "注销前尚未审核的未来信",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+	)
 	must(e)
 	must(admin.Exec("UPDATE public.work_items SET status='waiting' WHERE kind='whisper_capsule_unlock' AND target_id=?", capsule.ID).Error)
 	must(admin.Model(&entity.Account{}).Where("id=?", actor).Update("verification", "unverified").Error)
-	evidenceCapsule, e := s.CreateCapsule(ctx, token, uuid.NewString(), "", whisper.CapsuleInput{Body: "危机命中 独立危机证据私密信", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true})
+	evidenceCapsule, e := s.CreateCapsule(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		whisper.CapsuleInput{
+			Body:                 "危机命中 独立危机证据私密信",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+	)
 	must(e)
 	analyzer.privateCrisis = true
 	consume(evidenceCapsule.ID)
@@ -140,7 +208,12 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	if evidenceID == "" {
 		t.Fatal("未建立独立证据")
 	}
-	governance, e := safety.New(api, log, codec, safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{15}, 32), MaxTextBytes: 2000})
+	governance, e := safety.New(
+		api,
+		log,
+		codec,
+		safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{15}, 32), MaxTextBytes: 2000},
+	)
 	must(e)
 	// 切换前历史关系真实写入并保留相同block_id。
 	_, e = governance.Execute(ctx, peerToken, uuid.NewString(), "", "block", "", safety.Input{TargetUserID: actor})
@@ -171,7 +244,17 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 			if action == "ban" {
 				level = "severe"
 			}
-			penalty := entity.Penalty{ID: uuid.NewString(), AccountID: actor, Level: level, ActionKind: action, ViolationRef: uuid.NewString(), ContentVersion: 1, StartsAt: starts, EndsAt: &ends, ReasonRef: uuid.NewString()}
+			penalty := entity.Penalty{
+				ID:             uuid.NewString(),
+				AccountID:      actor,
+				Level:          level,
+				ActionKind:     action,
+				ViolationRef:   uuid.NewString(),
+				ContentVersion: 1,
+				StartsAt:       starts,
+				EndsAt:         &ends,
+				ReasonRef:      uuid.NewString(),
+			}
 			if action == "ban" {
 				penalty.EndsAt = nil
 			}
@@ -227,7 +310,11 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 		return rr.Body.Bytes()
 	}
 	t.Run("旧协议与新Me切换且模块关闭不降级", func(t *testing.T) {
-		for _, tc := range []struct{ method, path string }{{"GET", "/me/blocks?limit=bogus"}, {"POST", "/me/blocks"}, {"DELETE", "/me/blocks/not-a-uuid"}} {
+		for _, tc := range []struct{ method, path string }{
+			{"GET", "/me/blocks?limit=bogus"},
+			{"POST", "/me/blocks"},
+			{"DELETE", "/me/blocks/not-a-uuid"},
+		} {
 			raw := request("", tc.method, tc.path, token, "{}", 409)
 			if !bytes.Contains(raw, []byte("CLIENT_UPGRADE_REQUIRED")) {
 				t.Fatal(string(raw))
@@ -240,14 +327,34 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 			t.Fatal(page)
 		}
 		must(off.DeleteBlock(ctx, peerToken, uuid.NewString(), "", historical.BlockID, historical.Version))
-		_, e = off.CreateBlock(ctx, peerToken, uuid.NewString(), "", whisper.BlockInput{Source: whisper.BlockSource{Kind: "public_profile", ID: actor}})
+		_, e = off.CreateBlock(
+			ctx,
+			peerToken,
+			uuid.NewString(),
+			"",
+			whisper.BlockInput{Source: whisper.BlockSource{Kind: "public_profile", ID: actor}},
+		)
 		must(e)
-		auth, e := studentauth.New(api, log, privacyAuthUnused{}, privacyAuthUnused{}, privacyAuthUnused{}, studentauth.Config{Command: cfg.Command, Safety: true, SessionKey: bytes.Repeat([]byte{18}, 32), SessionTTL: time.Hour, ExchangeTTL: time.Minute})
+		auth, e := studentauth.New(
+			api,
+			log,
+			privacyAuthUnused{},
+			privacyAuthUnused{},
+			privacyAuthUnused{},
+			studentauth.Config{
+				Command:     cfg.Command,
+				Safety:      true,
+				SessionKey:  bytes.Repeat([]byte{18}, 32),
+				SessionTTL:  time.Hour,
+				ExchangeTTL: time.Minute,
+			},
+		)
 		must(e)
 		me, e := auth.Current(ctx, token, "")
 		must(e)
 		raw, _ := json.Marshal(me)
-		if bytes.Contains(raw, []byte("postMeBlocks")) || bytes.Contains(raw, []byte("deleteMeBlocks")) || !bytes.Contains(raw, []byte("interactionBlockCreate")) {
+		if bytes.Contains(raw, []byte("postMeBlocks")) || bytes.Contains(raw, []byte("deleteMeBlocks")) ||
+			!bytes.Contains(raw, []byte("interactionBlockCreate")) {
 			t.Fatal(string(raw))
 		}
 	})
@@ -256,7 +363,14 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 		must(e)
 		request("interactionBlocksList", "GET", "/me/interaction-blocks", peerToken, "", 200)
 		id := page.Items[0].BlockID
-		request("interactionBlockDelete", "DELETE", "/me/interaction-blocks/"+id, peerToken, `{"expected_version":1}`, 204)
+		request(
+			"interactionBlockDelete",
+			"DELETE",
+			"/me/interaction-blocks/"+id,
+			peerToken,
+			`{"expected_version":1}`,
+			204,
+		)
 		body := `{"source":{"kind":"whisper_post","id":"` + parent.ID + `","content_version":1}}`
 		raw := request("interactionBlockCreate", "POST", "/me/interaction-blocks", peerToken, body, 200)
 		if bytes.Contains(raw, []byte(actor)) || bytes.Contains(raw, []byte("block_id")) {
@@ -272,19 +386,43 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 		}
 		must(s.DeleteBlock(ctx, peerToken, uuid.NewString(), "", page.Items[0].BlockID, page.Items[0].Version))
 		bad := int64(99)
-		_, e = s.CreateBlock(ctx, peerToken, uuid.NewString(), "", whisper.BlockInput{Source: whisper.BlockSource{Kind: "whisper_post", ID: parent.ID, ContentVersion: &bad}})
+		_, e = s.CreateBlock(
+			ctx,
+			peerToken,
+			uuid.NewString(),
+			"",
+			whisper.BlockInput{Source: whisper.BlockSource{Kind: "whisper_post", ID: parent.ID, ContentVersion: &bad}},
+		)
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
 		}
 		one := int64(1)
-		_, e = s.CreateBlock(ctx, peerToken, uuid.NewString(), "", whisper.BlockInput{Source: whisper.BlockSource{Kind: "whisper_comment", ID: ownComment.ID, ContentVersion: &one}})
+		_, e = s.CreateBlock(
+			ctx,
+			peerToken,
+			uuid.NewString(),
+			"",
+			whisper.BlockInput{Source: whisper.BlockSource{Kind: "whisper_comment", ID: ownComment.ID, ContentVersion: &one}},
+		)
 		must(e)
-		request("", "POST", "/me/interaction-blocks", peerToken, `{"source":{"kind":"public_profile","id":"`+actor+`","content_version":1}}`, 400)
+		request(
+			"",
+			"POST",
+			"/me/interaction-blocks",
+			peerToken,
+			`{"source":{"kind":"public_profile","id":"`+actor+`","content_version":1}}`,
+			400,
+		)
 	})
 	t.Run("普通API无直接原稿治理清理权限", func(t *testing.T) {
 		digest := sha256.Sum256([]byte(peerToken))
 		for _, id := range []string{ownComment.ID, survivor.ID} {
-			if e := api.Exec("SELECT public.clear_held_whisper_comment(decode(?,'hex'),?,?::jsonb)", hex.EncodeToString(digest[:]), id, "[]").Error; e == nil {
+			if e := api.Exec(
+				"SELECT public.clear_held_whisper_comment(decode(?,'hex'),?,?::jsonb)",
+				hex.EncodeToString(digest[:]),
+				id,
+				"[]",
+			).Error; e == nil {
 				t.Fatal("清理函数越过本人屏障")
 			}
 		}
@@ -301,12 +439,30 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 		t.Fatal("缺少评论通知")
 	}
 	// 把真实旧业务快照保存为JSON，仅位于隔离测试进程内；完成后重新插入以验证独立日志覆盖completed回执。
-	tables := []string{"accounts", "sessions", "content_registry", "moderation_tasks", "whisper_preferences", "whisper_nickname_versions", "whisper_posts", "whisper_post_versions", "whisper_comments", "whisper_comment_versions", "whisper_capsules", "whisper_aliases", "whisper_hugs", "work_items", "outbox_events"}
+	tables := []string{
+		"accounts",
+		"sessions",
+		"content_registry",
+		"moderation_tasks",
+		"whisper_preferences",
+		"whisper_nickname_versions",
+		"whisper_posts",
+		"whisper_post_versions",
+		"whisper_comments",
+		"whisper_comment_versions",
+		"whisper_capsules",
+		"whisper_aliases",
+		"whisper_hugs",
+		"work_items",
+		"outbox_events",
+	}
 	snapshots := map[string]string{}
 	columns := map[string]string{}
 	for _, table := range tables {
 		var cols string
-		must(admin.Raw("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid=?::regclass AND attnum>0 AND NOT attisdropped AND attgenerated=''", "public."+table).Scan(&cols).Error)
+		must(admin.Raw("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid=?::regclass AND attnum>0 AND NOT attisdropped AND attgenerated=''", "public."+table).
+			Scan(&cols).
+			Error)
 		columns[table] = cols
 		var raw string
 		must(admin.Raw("SELECT COALESCE(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM public." + table + " t").Scan(&raw).Error)
@@ -314,7 +470,13 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	}
 	redactor := &privacyRedactor{fail: true}
 	eraser := &privacyEraser{}
-	pcfg := privacy.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{17}, 32), ReceiptTTL: 24 * time.Hour, RetryDelay: time.Millisecond, Redactor: redactor}
+	pcfg := privacy.Config{
+		Command:    cfg.Command,
+		Key:        bytes.Repeat([]byte{17}, 32),
+		ReceiptTTL: 24 * time.Hour,
+		RetryDelay: time.Millisecond,
+		Redactor:   redactor,
+	}
 	deletion, e := privacy.New(maintenance, journal, codec, nil, log, pcfg)
 	must(e)
 	purger, e := privacy.New(maintenance, journal, codec, eraser, log, pcfg)
@@ -323,7 +485,13 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 	t.Run("同步屏障暂停脱敏与外部清理", func(t *testing.T) {
 		var a entity.Account
 		must(admin.Where("id=?", actor).Take(&a).Error)
-		accepted, e = deletion.Request(ctx, token, uuid.NewString(), "", privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: a.Version})
+		accepted, e = deletion.Request(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: a.Version},
+		)
 		must(e)
 		if _, e = s.GetPost(ctx, "", "", parent.ID, false); !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
@@ -421,7 +589,16 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 		for _, tc := range []struct {
 			model any
 			query string
-		}{{&entity.Account{}, "id=?"}, {&entity.ContentRegistry{}, "author_id=?"}, {&entity.WhisperPost{}, "owner_id=?"}, {&entity.WhisperCapsule{}, "owner_id=?"}, {&entity.WhisperNicknameVersion{}, "account_id=?"}, {&entity.WhisperComment{}, "author_id=?"}, {&entity.WhisperAlias{}, "actor_id=?"}, {&entity.WhisperHug{}, "actor_id=?"}} {
+		}{
+			{&entity.Account{}, "id=?"},
+			{&entity.ContentRegistry{}, "author_id=?"},
+			{&entity.WhisperPost{}, "owner_id=?"},
+			{&entity.WhisperCapsule{}, "owner_id=?"},
+			{&entity.WhisperNicknameVersion{}, "account_id=?"},
+			{&entity.WhisperComment{}, "author_id=?"},
+			{&entity.WhisperAlias{}, "actor_id=?"},
+			{&entity.WhisperHug{}, "actor_id=?"},
+		} {
 			must(admin.Model(tc.model).Where(tc.query, actor).Count(&count).Error)
 			if count != 0 {
 				t.Fatalf("%T 残留 %d", tc.model, count)
@@ -453,10 +630,12 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 				}
 			}
 			// 恢复幸存评论原始父关联和公开候选，以证明日志会再次隐藏而非依赖上次hold。
-			if e := db.Exec("DELETE FROM public.privacy_holds WHERE target_kind LIKE 'whisper_%' AND target_id IN ?", []string{parent.ID, survivor.ID, late.ID, capsule.ID}).Error; e != nil {
+			if e := db.Exec("DELETE FROM public.privacy_holds WHERE target_kind LIKE 'whisper_%' AND target_id IN ?", []string{parent.ID, survivor.ID, late.ID, capsule.ID}).
+				Error; e != nil {
 				return e
 			}
-			if e := db.Exec("UPDATE public.whisper_comments c SET post_id=x.post_id,privacy_epoch=x.privacy_epoch,version=x.version,review_state=x.review_state,recovery_cipher=x.recovery_cipher FROM jsonb_populate_recordset(NULL::public.whisper_comments,?::jsonb) x WHERE c.id=x.id", snapshots["whisper_comments"]).Error; e != nil {
+			if e := db.Exec("UPDATE public.whisper_comments c SET post_id=x.post_id,privacy_epoch=x.privacy_epoch,version=x.version,review_state=x.review_state,recovery_cipher=x.recovery_cipher FROM jsonb_populate_recordset(NULL::public.whisper_comments,?::jsonb) x WHERE c.id=x.id", snapshots["whisper_comments"]).
+				Error; e != nil {
 				return e
 			}
 			return nil

@@ -50,6 +50,7 @@ func (k *syntheticKeys) Wrap(_ context.Context, data []byte) (string, []byte, er
 	}
 	return ref, append(nonce, gcm.Seal(nil, nonce, data, nil)...), nil
 }
+
 func (k *syntheticKeys) Unwrap(_ context.Context, ref string, wrapped []byte) ([]byte, error) {
 	if k.unavailable || (ref != "synthetic-wrap" && ref != "synthetic-wrap-new") || len(wrapped) < 28 {
 		return nil, errors.New("SYNTHETIC_PROVIDER_SECRET")
@@ -62,6 +63,7 @@ func (k *syntheticKeys) Unwrap(_ context.Context, ref string, wrapped []byte) ([
 	gcm, _ := cipher.NewGCM(block)
 	return gcm.Open(nil, wrapped[:12], wrapped[12:], nil)
 }
+
 func (k *syntheticKeys) Digest(_ context.Context, ref, purpose string, value []byte) ([]byte, error) {
 	if k.unavailable {
 		return nil, errors.New("SYNTHETIC_PROVIDER_SECRET")
@@ -171,7 +173,9 @@ func TestPostgresIdentity(t *testing.T) {
 		t.Fatal("不能静默改号")
 	}
 	var payload []struct{ Envelope []byte }
-	if err = db.Raw("SELECT envelope FROM public.identity_secrets WHERE account_id = ? AND purpose = 'student_number'", winner).Scan(&payload).Error; err != nil || len(payload) != 1 {
+	if err = db.Raw("SELECT envelope FROM public.identity_secrets WHERE account_id = ? AND purpose = 'student_number'", winner).
+		Scan(&payload).
+		Error; err != nil || len(payload) != 1 {
 		t.Fatal("缺少身份密文")
 	}
 	if bytes.Contains(payload[0].Envelope, value) {
@@ -202,7 +206,10 @@ func TestPostgresIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int64
-	if err = db.Table("public.identity_lookup_claims").Where("account_id = ? AND purpose = ?", ids[8], "student_number").Count(&count).Error; err != nil || count != 2 {
+	if err = db.Table("public.identity_lookup_claims").
+		Where("account_id = ? AND purpose = ?", ids[8], "student_number").
+		Count(&count).
+		Error; err != nil || count != 2 {
 		t.Fatal("轮换期间新绑定必须双写")
 	}
 	// 失钥批次必须回滚；后续恢复可继续，不清除旧代占用。
@@ -214,13 +221,22 @@ func TestPostgresIdentity(t *testing.T) {
 		t.Fatal("失钥不能写入")
 	}
 	keys.unavailable = false
-	if err = db.Exec("UPDATE public.identity_secrets SET envelope = '{}'::jsonb WHERE account_id = ? AND purpose = ?", winner, "student_number").Error; err != nil {
+	if err = db.Exec(
+		"UPDATE public.identity_secrets SET envelope = '{}'::jsonb WHERE account_id = ? AND purpose = ?",
+		winner,
+		"student_number",
+	).Error; err != nil {
 		t.Fatal(err)
 	}
 	if n, e := store.Backfill(ctx, "student_number", 1); e == nil || n != 0 {
 		t.Fatal("损坏密文不能回填")
 	}
-	if err = db.Exec("UPDATE public.identity_secrets SET envelope = ?::jsonb WHERE account_id = ? AND purpose = ?", string(payload[0].Envelope), winner, "student_number").Error; err != nil {
+	if err = db.Exec(
+		"UPDATE public.identity_secrets SET envelope = ?::jsonb WHERE account_id = ? AND purpose = ?",
+		string(payload[0].Envelope),
+		winner,
+		"student_number",
+	).Error; err != nil {
 		t.Fatal(err)
 	}
 	if n, e := store.Backfill(ctx, "student_number", 1); e != nil || n != 1 {
@@ -232,7 +248,11 @@ func TestPostgresIdentity(t *testing.T) {
 	if err = store.FinishRotation(ctx, "student_number"); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Table("public.identity_lookup_claims").Where("purpose = ? AND key_ref = ?", "student_number", "synthetic-old").Count(&count).Error; err != nil || count != 0 {
+	if err = db.Table("public.identity_lookup_claims").Where(
+		"purpose = ? AND key_ref = ?",
+		"student_number",
+		"synthetic-old",
+	).Count(&count).Error; err != nil || count != 0 {
 		t.Fatal("完成轮换后应清除旧代")
 	}
 	if !errors.Is(store.Bind(ctx, ids[9], "student_number", value), ErrConflict) {
@@ -274,7 +294,11 @@ func TestPostgresIdentity(t *testing.T) {
 		}
 	}
 	var reencrypted []struct{ Envelope []byte }
-	if err = db.Raw("SELECT envelope FROM public.identity_secrets WHERE account_id = ? AND purpose = ?", ids[9], "student_number").Scan(&reencrypted).Error; err != nil || len(reencrypted) != 1 {
+	if err = db.Raw(
+		"SELECT envelope FROM public.identity_secrets WHERE account_id = ? AND purpose = ?",
+		ids[9],
+		"student_number",
+	).Scan(&reencrypted).Error; err != nil || len(reencrypted) != 1 {
 		t.Fatal("缺少重加密结果")
 	}
 	if json.Unmarshal(reencrypted[0].Envelope, &envelope) != nil || envelope.KeyRef != "synthetic-wrap-new" {
@@ -304,7 +328,9 @@ func TestPostgresIdentity(t *testing.T) {
 		{"liyuanci_identity_maintenance", "public.identity_lookup_keys", "UPDATE", true},
 	} {
 		var allowed bool
-		if err = db.Raw("SELECT has_table_privilege(?, ?, ?)", check.role, check.table, check.privilege).Scan(&allowed).Error; err != nil || allowed != check.allowed {
+		if err = db.Raw("SELECT has_table_privilege(?, ?, ?)", check.role, check.table, check.privilege).
+			Scan(&allowed).
+			Error; err != nil || allowed != check.allowed {
 			t.Fatalf("权限矩阵不符：%s %s %s", check.role, check.table, check.privilege)
 		}
 	}

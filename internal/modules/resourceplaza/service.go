@@ -38,7 +38,8 @@ type Service struct {
 
 // New 验证依赖但不执行DDL或建立业务数据。
 func New(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, cfg Config) (*Service, error) {
-	if db == nil || log == nil || codec == nil || len(cfg.Key) != 32 || cfg.Command.Timeout <= 0 || cfg.Command.LockTimeout < time.Millisecond {
+	if db == nil || log == nil || codec == nil || len(cfg.Key) != 32 || cfg.Command.Timeout <= 0 ||
+		cfg.Command.LockTimeout < time.Millisecond {
 		return nil, command.ErrInvalid
 	}
 	cfg.Key = append([]byte(nil), cfg.Key...)
@@ -50,14 +51,33 @@ func (s *Service) done(op, rid string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	s.log.Info("资料请求完成", zap.String("operation", op), zap.String("request_id", rid), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.log.Info(
+		"资料请求完成",
+		zap.String("operation", op),
+		zap.String("request_id", rid),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 func normalizeError(e error) error {
 	if e == nil {
 		return nil
 	}
-	for _, v := range []error{command.ErrRetry, command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrVerificationRequired, command.ErrNotFound, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrConflict, command.ErrUnavailable, ErrCategoryInUse, ErrCategoryName} {
+	for _, v := range []error{
+		command.ErrRetry,
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrVerificationRequired,
+		command.ErrNotFound,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrConflict,
+		command.ErrUnavailable,
+		ErrCategoryInUse,
+		ErrCategoryName,
+	} {
 		if errors.Is(e, v) {
 			return v
 		}

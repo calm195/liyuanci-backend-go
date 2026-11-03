@@ -41,7 +41,9 @@ func TestFoundationBoundary(t *testing.T) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body)
 			}
 			entries := logs.FilterMessage("HTTP请求处理完成").All()
-			if len(entries) != 1 || entries[0].ContextMap()["status"] != int64(tc.status) || entries[0].ContextMap()["request_id"] != response.Header().Get("X-Request-ID") {
+			if len(entries) != 1 || entries[0].ContextMap()["status"] != int64(tc.status) ||
+				entries[0].ContextMap()["request_id"] != response.Header().
+					Get("X-Request-ID") {
 				t.Fatal("missing completion correlation")
 			}
 			if entries[0].ContextMap()["event"] != "http_request_completed" {

@@ -30,7 +30,13 @@ func accountPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discove
 	}
 	p = merge(p, tree)
 	var wishes []string
-	if err = db.Model(&entity.Wish{}).Where("owner_id=? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id=?) OR id IN (SELECT wish_id FROM public.matches WHERE requester_id=? OR helper_id=?)", id, id, id, id).Pluck("id", &wishes).Error; err != nil {
+	if err = db.Model(&entity.Wish{}).Where(
+		"owner_id=? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id=?) OR id IN (SELECT wish_id FROM public.matches WHERE requester_id=? OR helper_id=?)",
+		id,
+		id,
+		id,
+		id,
+	).Pluck("id", &wishes).Error; err != nil {
 		return
 	}
 	for _, wid := range wishes {
@@ -55,7 +61,10 @@ func accountPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discove
 	}{
 		{command.Asset, "SELECT id FROM public.assets WHERE owner_id=?"},
 		{command.IdentityReview, "SELECT id FROM public.identity_reviews WHERE account_id=?"},
-		{command.ModerationTask, `SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.author_id=? OR c.entity_id IN (SELECT id FROM public.wishes WHERE owner_id=?) OR c.entity_id IN (SELECT wish_id FROM public.matches WHERE helper_id=?)`},
+		{
+			command.ModerationTask,
+			`SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.author_id=? OR c.entity_id IN (SELECT id FROM public.wishes WHERE owner_id=?) OR c.entity_id IN (SELECT wish_id FROM public.matches WHERE helper_id=?)`,
+		},
 	} {
 		var ids []string
 		args := []any{id}
@@ -90,10 +99,21 @@ func equalPlan(a, b command.Discovery) bool {
 
 func hold(db *gorm.DB, kind, id string, required int64) error {
 	var epoch int64
-	if e := db.Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)+1").Where("target_kind=? AND target_id=?", kind, id).Scan(&epoch).Error; e != nil {
+	if e := db.Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)+1").Where(
+		"target_kind=? AND target_id=?",
+		kind,
+		id,
+	).Scan(&epoch).Error; e != nil {
 		return e
 	}
-	return db.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: kind, TargetID: id, HoldEpoch: epoch, RequiredContentVersion: required, Status: "active"}).Error
+	return db.Create(&entity.PrivacyHold{
+		ID:                     uuid.NewString(),
+		TargetKind:             kind,
+		TargetID:               id,
+		HoldEpoch:              epoch,
+		RequiredContentVersion: required,
+		Status:                 "active",
+	}).Error
 }
 
 // activateAccount 与deleting同提交全部屏障和六行矩阵，不依赖清理消费者是否在线。
@@ -106,7 +126,11 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	if a.Lifecycle == "deleting" {
 		return activateWhispers(ctx, db, id)
 	}
-	if e := db.Model(&entity.Account{}).Where("id=?", id).Updates(map[string]any{"lifecycle": "deleting", "auth_epoch": gorm.Expr("auth_epoch+1"), "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.Account{}).Where("id=?", id).Updates(map[string]any{
+		"lifecycle":  "deleting",
+		"auth_epoch": gorm.Expr("auth_epoch+1"),
+		"version":    gorm.Expr("version+1"),
+	}).Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.Session{}).Where("account_id=?", id).Update("revoked_at", tx.Now()).Error; e != nil {
@@ -128,7 +152,11 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 				return e
 			}
 		}
-		updates := map[string]any{"version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1"), "refresh_on_publish": false}
+		updates := map[string]any{
+			"version":            gorm.Expr("version+1"),
+			"restriction_epoch":  gorm.Expr("restriction_epoch+1"),
+			"refresh_on_publish": false,
+		}
 		if w.OwnerID == id {
 			updates["draft_deleted_at"] = tx.Now()
 			if w.State != "fulfilled" {
@@ -148,10 +176,14 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 			return e
 		}
 		// 所有历史公开候选与身份标签立即失效；原稿只有本人隐私重审路径能处理。
-		if e := db.Model(&entity.WishVersion{}).Where("wish_id=?", w.ID).Updates(map[string]any{"public_body": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).Error; e != nil {
+		if e := db.Model(&entity.WishVersion{}).Where("wish_id=?", w.ID).
+			Updates(map[string]any{"public_body": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).
+			Error; e != nil {
 			return e
 		}
-		if e := db.Model(&entity.StoryVersion{}).Where("wish_id=?", w.ID).Updates(map[string]any{"public_body": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).Error; e != nil {
+		if e := db.Model(&entity.StoryVersion{}).Where("wish_id=?", w.ID).
+			Updates(map[string]any{"public_body": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).
+			Error; e != nil {
 			return e
 		}
 	}
@@ -181,7 +213,9 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	if e := db.Model(&entity.ModerationTask{}).Where("content_id IN ?", contents).Pluck("id", &tasks).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.ModerationTask{}).Where("id IN ?", tasks).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.ModerationTask{}).Where("id IN ?", tasks).
+		Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
 	if e := db.Model(&entity.ContentRegistry{}).Where("id IN ?", contents).Update("status", "cancelled").Error; e != nil {
@@ -190,17 +224,26 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	if e := db.Model(&entity.Asset{}).Where("owner_id=?", id).Pluck("id", &assets).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.WorkItem{}).Where("(target_kind='moderation_task' AND target_id IN ?) OR (target_kind='asset' AND target_id IN ?)", tasks, assets).Pluck("id", &works).Error; e != nil {
+	if e := db.Model(&entity.WorkItem{}).Where(
+		"(target_kind='moderation_task' AND target_id IN ?) OR (target_kind='asset' AND target_id IN ?)",
+		tasks,
+		assets,
+	).Pluck("id", &works).Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.WorkItem{}).Where("id IN ?", works).Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.WorkItem{}).Where("id IN ?", works).
+		Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
-	if e := db.Model(&entity.OutboxEvent{}).Where("work_id IN ?", works).Updates(map[string]any{"superseded_at": tx.Now(), "lease_until": nil}).Error; e != nil {
+	if e := db.Model(&entity.OutboxEvent{}).Where("work_id IN ?", works).
+		Updates(map[string]any{"superseded_at": tx.Now(), "lease_until": nil}).
+		Error; e != nil {
 		return e
 	}
 	return nil
 }
+
 func emptyJSON() json.RawMessage { return json.RawMessage("{}") }
 
 func execSubject(db *gorm.DB, sql, id string) error {
@@ -216,8 +259,12 @@ func execSubject(db *gorm.DB, sql, id string) error {
 // activateEvidence 先阻断读取和投递，再由清理阶段永久清除；不触及原普通内容隔离。
 func activateEvidence(ctx context.Context, db *gorm.DB, id string) error {
 	db = db.WithContext(ctx)
-	if e := db.Model(&entity.EvidenceCase{}).Where("id=? AND status<>'deletion_pending'", id).Updates(map[string]any{"status": "deletion_pending", "version": gorm.Expr("version+1")}).Error; e != nil {
+	if e := db.Model(&entity.EvidenceCase{}).Where("id=? AND status<>'deletion_pending'", id).
+		Updates(map[string]any{"status": "deletion_pending", "version": gorm.Expr("version+1")}).
+		Error; e != nil {
 		return e
 	}
-	return db.Model(&entity.CrisisDelivery{}).Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE evidence_case_id=?) AND status IN ('pending','leased')", id).Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).Error
+	return db.Model(&entity.CrisisDelivery{}).Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE evidence_case_id=?) AND status IN ('pending','leased')", id).
+		Updates(map[string]any{"status": "cancelled", "lease_id": nil, "lease_until": nil}).
+		Error
 }

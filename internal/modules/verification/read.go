@@ -126,7 +126,14 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Case, 
 		if e = audit(db, actor, r.AccountID, "identity_review.detail", "allowed"); e != nil {
 			return e
 		}
-		out = Case{ID: r.ID, Version: r.Version, Status: r.Status, Name: m.Name, StudentNumber: m.StudentNumber, AssetID: r.AssetID}
+		out = Case{
+			ID:            r.ID,
+			Version:       r.Version,
+			Status:        r.Status,
+			Name:          m.Name,
+			StudentNumber: m.StudentNumber,
+			AssetID:       r.AssetID,
+		}
 		return nil
 	})
 	if err != nil {
@@ -199,7 +206,13 @@ func (s *Service) Card(ctx context.Context, token, rid, id string) (out []byte, 
 		return nil, command.ErrUnavailable
 	}
 	var image bytes.Buffer
-	if e = s.codec.DecryptObject(ctx, securedata.Binding{Purpose: "student_card", ObjectID: stored.ID, Version: 1}, env, &image, s.cfg.MaxCardBytes); e != nil {
+	if e = s.codec.DecryptObject(
+		ctx,
+		securedata.Binding{Purpose: "student_card", ObjectID: stored.ID, Version: 1},
+		env,
+		&image,
+		s.cfg.MaxCardBytes,
+	); e != nil {
 		return nil, e
 	}
 	defer func() {
@@ -237,9 +250,11 @@ func (s *Service) cursorMAC(actor, id string) string {
 	mac.Write([]byte("identity_review_queue\x00" + actor + "\x00" + id))
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
 func (s *Service) encodeCursor(actor, id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(id + "." + s.cursorMAC(actor, id)))
 }
+
 func (s *Service) decodeCursor(actor, cursor string) (string, error) {
 	if cursor == "" {
 		return "", nil

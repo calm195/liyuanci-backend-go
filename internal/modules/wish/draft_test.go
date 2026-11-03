@@ -74,7 +74,15 @@ func TestEditDraftPreparation(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := out.Transition.Next
-	if next.State != Draft || next.Version != current.Version+1 || next.ContentVersion != current.ContentVersion+1 || next.DurationDays != 30 || out.Content.DurationDays != 30 || !next.RefreshOnPublish || !next.ExpiresAt.Equal(*current.ExpiresAt) || !reflect.DeepEqual(next.Review, Review{}) || !out.Transition.InvalidateReview || !out.Transition.InvalidateApplications || out.Transition.EnqueueReview {
+	if next.State != Draft || next.Version != current.Version+1 || next.ContentVersion != current.ContentVersion+1 ||
+		next.DurationDays != 30 ||
+		out.Content.DurationDays != 30 ||
+		!next.RefreshOnPublish ||
+		!next.ExpiresAt.Equal(*current.ExpiresAt) ||
+		!reflect.DeepEqual(next.Review, Review{}) ||
+		!out.Transition.InvalidateReview ||
+		!out.Transition.InvalidateApplications ||
+		out.Transition.EnqueueReview {
 		t.Fatalf("编辑计划错误: %+v", out)
 	}
 	*next.ExpiresAt = at()

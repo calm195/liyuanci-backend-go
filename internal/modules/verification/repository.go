@@ -23,6 +23,7 @@ func latest(db *gorm.DB, account string) (entity.IdentityReview, error) {
 	}
 	return r, e
 }
+
 func review(db *gorm.DB, id string) (entity.IdentityReview, error) {
 	var r entity.IdentityReview
 	e := db.Where("id=?", id).Take(&r).Error
@@ -31,6 +32,7 @@ func review(db *gorm.DB, id string) (entity.IdentityReview, error) {
 	}
 	return r, e
 }
+
 func asset(db *gorm.DB, id, owner string) (entity.Asset, error) {
 	var a entity.Asset
 	e := db.Where("id=? AND owner_id=? AND purpose=?", id, owner, "student_card").Take(&a).Error
@@ -47,8 +49,15 @@ func asset(db *gorm.DB, id, owner string) (entity.Asset, error) {
 	}
 	return a, e
 }
+
 func audit(db *gorm.DB, actor, subject, purpose, outcome string) error {
-	return db.Create(&entity.AccessAudit{ID: uuid.NewString(), ActorID: actor, SubjectRef: subject, Purpose: purpose, Outcome: outcome}).Error
+	return db.Create(&entity.AccessAudit{
+		ID:         uuid.NewString(),
+		ActorID:    actor,
+		SubjectRef: subject,
+		Purpose:    purpose,
+		Outcome:    outcome,
+	}).Error
 }
 
 // authorize 在一个根事务内依次锁后台主体、业务账号、资源及会话，撤权和注销不能被缓存绕过。
@@ -121,12 +130,22 @@ func (s *Service) authorize(ctx context.Context, db *gorm.DB, token, kind string
 	}
 	return id, nil
 }
+
 func (s *Service) lockedCase(ctx context.Context, db *gorm.DB, token, id string) (string, entity.IdentityReview, error) {
 	r, e := review(db, id)
 	if e != nil {
 		return "", r, e
 	}
-	actor, e := s.authorize(ctx, db, token, "admin", command.Discovery{Accounts: []string{r.AccountID}, Resources: []command.Resource{{Kind: command.Asset, ID: r.AssetID}, {Kind: command.IdentityReview, ID: id}}})
+	actor, e := s.authorize(
+		ctx,
+		db,
+		token,
+		"admin",
+		command.Discovery{
+			Accounts:  []string{r.AccountID},
+			Resources: []command.Resource{{Kind: command.Asset, ID: r.AssetID}, {Kind: command.IdentityReview, ID: id}},
+		},
+	)
 	if e != nil {
 		return "", r, e
 	}
@@ -144,18 +163,24 @@ func (s *Service) lockedCase(ctx context.Context, db *gorm.DB, token, id string)
 }
 
 func createReview(db *gorm.DB, row *entity.IdentityReview) error { return db.Create(row).Error }
+
 func updateReview(db *gorm.DB, id string, updates map[string]any) error {
 	return db.Model(&entity.IdentityReview{}).Where("id=?", id).Updates(updates).Error
 }
+
 func setVerification(db *gorm.DB, account, status string) error {
 	return db.Model(&entity.Account{}).Where("id=?", account).Updates(map[string]any{"verification": status, "version": gorm.Expr("version+1")}).Error
 }
+
 func createName(db *gorm.DB, account string, cipher json.RawMessage) error {
 	return db.Create(&entity.IdentityName{AccountID: account, ContentVersion: 1, NameCipher: cipher}).Error
 }
+
 func listReviews(db *gorm.DB, after string, limit int) ([]entity.IdentityReview, error) {
 	var rows []entity.IdentityReview
-	q := db.Model(&entity.IdentityReview{}).Select("identity_reviews.id,identity_reviews.version,identity_reviews.status").Joins("JOIN public.accounts ON accounts.id=identity_reviews.account_id AND accounts.lifecycle='active'").Where("identity_reviews.data_cipher IS NOT NULL AND identity_reviews.status=?", "pending")
+	q := db.Model(&entity.IdentityReview{}).Select("identity_reviews.id,identity_reviews.version,identity_reviews.status").
+		Joins("JOIN public.accounts ON accounts.id=identity_reviews.account_id AND accounts.lifecycle='active'").
+		Where("identity_reviews.data_cipher IS NOT NULL AND identity_reviews.status=?", "pending")
 	if after != "" {
 		q = q.Where("identity_reviews.id > ?", after)
 	}

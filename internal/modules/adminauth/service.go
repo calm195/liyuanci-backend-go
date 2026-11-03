@@ -91,7 +91,8 @@ type Service struct {
 
 // New 拒绝外部事务和缺失的显式安全参数；构造不创建账号、迁移或修改凭据。
 func New(db *gorm.DB, limiter Limiter, logger *zap.Logger, c Config) (*Service, error) {
-	if db == nil || db.Statement == nil || limiter == nil || logger == nil || c.SessionTTL <= 0 || c.InitialPassword == "" || len(c.ReceiptKey) < 32 {
+	if db == nil || db.Statement == nil || limiter == nil || logger == nil || c.SessionTTL <= 0 || c.InitialPassword == "" ||
+		len(c.ReceiptKey) < 32 {
 		return nil, ErrInvalid
 	}
 	engine, err := command.New(db, logger, c.Command)
@@ -125,14 +126,30 @@ func (s *Service) complete(operation, requestID string, start time.Time, err err
 	}) {
 		requestID = ""
 	}
-	s.logger.Info("后台身份操作完成", zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	s.logger.Info(
+		"后台身份操作完成",
+		zap.String("operation", operation),
+		zap.String("request_id", requestID),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 func normalize(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalid, ErrUnauthenticated, ErrForbidden, ErrConflict, ErrRateLimited, command.ErrIdempotencyConflict, command.ErrVersionConflict, command.ErrNotFound, command.ErrInternal} {
+	for _, known := range []error{
+		ErrInvalid,
+		ErrUnauthenticated,
+		ErrForbidden,
+		ErrConflict,
+		ErrRateLimited,
+		command.ErrIdempotencyConflict,
+		command.ErrVersionConflict,
+		command.ErrNotFound,
+		command.ErrInternal,
+	} {
 		if errors.Is(err, known) {
 			return known
 		}
@@ -276,7 +293,11 @@ func (s *Service) Create(ctx context.Context, token, key, requestID string, inpu
 			return e
 		},
 	}
-	_, err = s.engine.Execute(ctx, definition, command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input})
+	_, err = s.engine.Execute(
+		ctx,
+		definition,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: input},
+	)
 	return out, err
 }
 
@@ -350,7 +371,8 @@ func (s *Service) Login(ctx context.Context, loginName, password, source, reques
 		if e := findByID(ctx, db, previous.ID, &current); e != nil {
 			return e
 		}
-		if len(current) != 1 || current[0].Status != "active" || current[0].PasswordHash != previous.PasswordHash || current[0].AuthEpoch != previous.AuthEpoch {
+		if len(current) != 1 || current[0].Status != "active" || current[0].PasswordHash != previous.PasswordHash ||
+			current[0].AuthEpoch != previous.AuthEpoch {
 			return ErrUnauthenticated
 		}
 		var now time.Time

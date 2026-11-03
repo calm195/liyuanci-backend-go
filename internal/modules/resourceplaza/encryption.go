@@ -34,7 +34,11 @@ func (s *Service) download(ctx context.Context, r entity.ResourceMaterial) (d do
 	if json.Unmarshal(r.DownloadCipher, &env) != nil {
 		return d, command.ErrUnavailable
 	}
-	b, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "resource_download", ObjectID: r.ID, Version: uint64(r.ContentVersion)}, env)
+	b, e := s.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "resource_download", ObjectID: r.ID, Version: uint64(r.ContentVersion)},
+		env,
+	)
 	if e != nil {
 		return d, e
 	}

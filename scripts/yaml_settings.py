@@ -6,7 +6,7 @@ import tempfile
 from config_comments import annotate
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / 'scripts/vendor'), str(ROOT / '.local/tools/python')]
+sys.path[: 0] = [str(ROOT / 'scripts/vendor'), str(ROOT / '.local/tools/python')]
 try:
     import yaml
 except ImportError:

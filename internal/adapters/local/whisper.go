@@ -27,7 +27,12 @@ func (p WhisperProvider) AnalyzeWhisper(ctx context.Context, kind, body string, 
 	if err = ctx.Err(); err != nil {
 		return
 	}
-	return moderation.WhisperAssessment{Body: body, Identity: identity, OrdinaryHit: true, DetectorVersion: "local-manual-v1"}, nil
+	return moderation.WhisperAssessment{
+		Body:            body,
+		Identity:        identity,
+		OrdinaryHit:     true,
+		DetectorVersion: "local-manual-v1",
+	}, nil
 }
 
 // ClassifyWhisperCapsule 将胶囊分类交人工处理，不替换正文。

@@ -21,7 +21,15 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 	if !in.Active {
 		access = command.Restricted
 	}
-	d := command.Definition{Kind: "whisper.hug.set", Method: "PUT", ResourcePath: "/api/v1/whispers/posts/" + id + "/hugs", ActorKind: "student", Access: access, RetainReceipt: true, RequiredExpectations: []string{"expected_post_version"}}
+	d := command.Definition{
+		Kind:                 "whisper.hug.set",
+		Method:               "PUT",
+		ResourcePath:         "/api/v1/whispers/posts/" + id + "/hugs",
+		ActorKind:            "student",
+		Access:               access,
+		RetainReceipt:        true,
+		RequiredExpectations: []string{"expected_post_version"},
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return interactionPlan(ctx, db, id, "")
 	}
@@ -63,12 +71,21 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 		}
 		if missing {
 			// 显式取消从未抱抱的对象也建立 false tombstone，阻断旧的 version=0 写入。
-			return id, tx.DB().WithContext(ctx).Exec("INSERT INTO public.whisper_hugs(post_id,actor_id,active,version) VALUES (?,?,?,1)", id, tx.Actor().ID, in.Active).Error
+			return id, tx.DB().WithContext(ctx).Exec(
+				"INSERT INTO public.whisper_hugs(post_id,actor_id,active,version) VALUES (?,?,?,1)",
+				id,
+				tx.Actor().ID,
+				in.Active,
+			).Error
 		}
 		if h.Active == in.Active {
 			return id, nil
 		}
-		return id, tx.DB().WithContext(ctx).Model(&entity.WhisperHug{}).Where("post_id=? AND actor_id=?", id, tx.Actor().ID).Updates(map[string]any{"active": in.Active, "version": h.Version + 1}).Error
+		return id, tx.DB().WithContext(ctx).Model(&entity.WhisperHug{}).
+			Where("post_id=? AND actor_id=?", id, tx.Actor().
+				ID).
+			Updates(map[string]any{"active": in.Active, "version": h.Version + 1}).
+			Error
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		c, e := s.resources(ctx)
@@ -89,6 +106,21 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 		out.MyHug = HugState{h.Active, h.Version}
 		return nil
 	}
-	_, err = s.execute(ctx, d, token, key, rid, in, 0, "", "hug", command.Expectation{Name: "expected_post_version", Target: command.Resource{Kind: command.WhisperPost, ID: id}, Value: in.ExpectedPostVersion})
+	_, err = s.execute(
+		ctx,
+		d,
+		token,
+		key,
+		rid,
+		in,
+		0,
+		"",
+		"hug",
+		command.Expectation{
+			Name:   "expected_post_version",
+			Target: command.Resource{Kind: command.WhisperPost, ID: id},
+			Value:  in.ExpectedPostVersion,
+		},
+	)
 	return
 }

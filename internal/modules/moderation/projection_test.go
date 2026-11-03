@@ -13,7 +13,11 @@ func TestGovernancePageProtocol(t *testing.T) {
 		value CursorPage[string]
 		want  string
 	}{
-		{"空扫描继续", CursorPage[string]{Items: []string{}, NextCursor: &cursor}, `{"items":[],"next_cursor":"opaque-cursor"}`},
+		{
+			"空扫描继续",
+			CursorPage[string]{Items: []string{}, NextCursor: &cursor},
+			`{"items":[],"next_cursor":"opaque-cursor"}`,
+		},
 		{"末页", CursorPage[string]{Items: []string{"result"}}, `{"items":["result"],"next_cursor":null}`},
 		{"零值", CursorPage[string]{}, `{"items":null,"next_cursor":null}`},
 	} {

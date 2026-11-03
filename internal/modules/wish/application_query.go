@@ -72,6 +72,7 @@ func (s *Service) Applications(ctx context.Context, token, rid, id string, q App
 	}
 	return s.applications(ctx, token, rid, id, q)
 }
+
 func (s *Service) applications(ctx context.Context, token, rid, id string, q ApplicationQuery) (out ApplicationPage, err error) {
 	defer func() {
 		if err != nil {

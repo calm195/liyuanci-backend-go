@@ -62,8 +62,14 @@ func (a *reviewAnalyzer) AnalyzeWhisper(ctx context.Context, kind, body string, 
 	if a.hook != nil {
 		a.hook()
 	}
-	return moderation.WhisperAssessment{Body: strings.ReplaceAll(body, "合成人名", "[已脱敏]"), Identity: i, DetectorVersion: "synthetic-public", OrdinaryHit: strings.Contains(body, "普通命中")}, ctx.Err()
+	return moderation.WhisperAssessment{
+		Body:            strings.ReplaceAll(body, "合成人名", "[已脱敏]"),
+		Identity:        i,
+		DetectorVersion: "synthetic-public",
+		OrdinaryHit:     strings.Contains(body, "普通命中"),
+	}, ctx.Err()
 }
+
 func (a *reviewAnalyzer) ClassifyWhisperCapsule(ctx context.Context, body string) (moderation.MessageAssessment, error) {
 	a.privateCalls++
 	if a.hook != nil {
@@ -72,7 +78,11 @@ func (a *reviewAnalyzer) ClassifyWhisperCapsule(ctx context.Context, body string
 	if a.privateFailure != nil {
 		return moderation.MessageAssessment{}, a.privateFailure
 	}
-	return moderation.MessageAssessment{DetectorVersion: "synthetic-private", CrisisHit: a.privateCrisis, OrdinaryHit: strings.Contains(body, "普通命中")}, ctx.Err()
+	return moderation.MessageAssessment{
+		DetectorVersion: "synthetic-private",
+		CrisisHit:       a.privateCrisis,
+		OrdinaryHit:     strings.Contains(body, "普通命中"),
+	}, ctx.Err()
 }
 
 // TestPostgresWhisperModeration 验证B04的真实角色、消费、治理和双版本栅栏；外部供应商仍为合成。
@@ -121,7 +131,12 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	for _, row := range [][2]string{{actor, token}, {other, otherToken}} {
 		must(admin.Exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成主体','verified')", row[0]).Error)
 		hash := sha256.Sum256([]byte(row[1]))
-		must(admin.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')", uuid.NewString(), row[0], hash[:]).Error)
+		must(admin.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
 	}
 	block, _ := aes.NewCipher(bytes.Repeat([]byte{9}, 32))
 	gcm, _ := cipher.NewGCM(block)
@@ -130,28 +145,57 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	catalog := &fixtureCatalog{value: whisper.CatalogSnapshot{Grades: whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "g1", Label: "合成年级"}}}}}
 	admission := &fixtureAdmission{}
 
-	cfg := whisper.Config{Enabled: true, Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: 24 * time.Hour, MaxAttempts: 3}, ReceiptKey: bytes.Repeat([]byte{2}, 32), CursorKey: bytes.Repeat([]byte{3}, 32)}
+	cfg := whisper.Config{
+		Enabled:    true,
+		Command:    command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: 24 * time.Hour, MaxAttempts: 3},
+		ReceiptKey: bytes.Repeat([]byte{2}, 32),
+		CursorKey:  bytes.Repeat([]byte{3}, 32),
+	}
 	service, e := whisper.NewService(api, log, codec, catalog, admission, moderation.WhisperReviewSink{Logger: log}, cfg)
 	must(e)
 	adminDB := open(testDSN + " options='-c role=liyuanci_admin_api'")
 	workerDB := open(testDSN + " options='-c role=liyuanci_domain_worker'")
 	crisisDB := open(testDSN + " options='-c role=liyuanci_crisis_api'")
-	reviews, e := moderation.New(adminDB, log, codec, moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100})
+	reviews, e := moderation.New(
+		adminDB,
+		log,
+		codec,
+		moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100},
+	)
 	must(e)
-	crises, e := moderation.New(crisisDB, log, codec, moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100})
+	crises, e := moderation.New(
+		crisisDB,
+		log,
+		codec,
+		moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100},
+	)
 	must(e)
-	student, e := moderation.New(api, log, codec, moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100})
+	student, e := moderation.New(
+		api,
+		log,
+		codec,
+		moderation.Config{Command: cfg.Command, CursorKey: bytes.Repeat([]byte{8}, 32), MaxEntries: 100},
+	)
 	must(e)
 	adminID, adminToken := uuid.NewString(), uuid.NewString()
 	hash := sha256.Sum256([]byte(adminToken))
 	credential := uuid.NewString()
 	must(admin.Create(&entity.AdminAccount{ID: adminID, CredentialRef: &credential}).Error)
 	must(admin.Create(&entity.AdminRoleBinding{AdminID: adminID, Role: "super_admin"}).Error)
-	must(admin.Exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), adminID, hash[:]).Error)
+	must(admin.Exec(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		uuid.NewString(),
+		adminID,
+		hash[:],
+	).Error)
 	for _, typ := range []string{"crisis", "school", "ordinary_violation"} {
 		id := uuid.NewString()
 		must(admin.Create(&entity.WordlistVersion{ID: id, Type: typ, Version: 1, Status: "published"}).Error)
-		must(admin.Exec("INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,1,?) ON CONFLICT(kind) DO UPDATE SET effective_id=EXCLUDED.effective_id", typ, id).Error)
+		must(admin.Exec(
+			"INSERT INTO public.wordlist_heads(kind,version,effective_id) VALUES (?,1,?) ON CONFLICT(kind) DO UPDATE SET effective_id=EXCLUDED.effective_id",
+			typ,
+			id,
+		).Error)
 		if typ == "ordinary_violation" {
 			must(admin.Create(&entity.WordlistEntry{ID: uuid.NewString(), VersionID: id, Entry: "普通命中", Action: "ordinary_violation"}).Error)
 		}
@@ -167,26 +211,65 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	journalRoot := open(journalDSN)
 	must(testconfig.RunJournal(ctx, journalRoot, log, "up"))
 	must(testconfig.RunJournal(ctx, journalRoot, log, "permissions"))
-	journal, e := privacy.NewJournal(ctx, open(journalDSN+" options='-c role=liyuanci_recovery_writer'"), open(journalDSN+" options='-c role=liyuanci_recovery_reader'"), codec, log, 5*time.Second)
+	journal, e := privacy.NewJournal(
+		ctx,
+		open(journalDSN+" options='-c role=liyuanci_recovery_writer'"),
+		open(journalDSN+" options='-c role=liyuanci_recovery_reader'"),
+		codec,
+		log,
+		5*time.Second,
+	)
 	must(e)
-	deletion, e := privacy.New(open(testDSN+" options='-c role=liyuanci_evidence_delete_api'"), journal, codec, nil, log, privacy.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{12}, 32), ReceiptTTL: 24 * time.Hour, RetryDelay: time.Second})
+	deletion, e := privacy.New(
+		open(testDSN+" options='-c role=liyuanci_evidence_delete_api'"),
+		journal,
+		codec,
+		nil,
+		log,
+		privacy.Config{
+			Command:    cfg.Command,
+			Key:        bytes.Repeat([]byte{12}, 32),
+			ReceiptTTL: 24 * time.Hour,
+			RetryDelay: time.Second,
+		},
+	)
 	must(e)
 	router := httpapi.New(log, nil)
 	must(httpapi.RegisterWhisperGovernance(router, reviews, crises, student, deletion))
 	samples := []map[string]any{}
 
-	legacySafety, e := safety.New(adminDB, log, codec, safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{10}, 32), MaxTextBytes: 2000})
+	legacySafety, e := safety.New(
+		adminDB,
+		log,
+		codec,
+		safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{10}, 32), MaxTextBytes: 2000},
+	)
 	must(e)
-	studentSafety, e := safety.New(api, log, codec, safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{10}, 32), MaxTextBytes: 2000})
+	studentSafety, e := safety.New(
+		api,
+		log,
+		codec,
+		safety.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{10}, 32), MaxTextBytes: 2000},
+	)
 	must(e)
-	careService, e := chat.New(api, log, codec, chat.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{13}, 32), MaxBodyBytes: 2000})
+	careService, e := chat.New(
+		api,
+		log,
+		codec,
+		chat.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{13}, 32), MaxBodyBytes: 2000},
+	)
 	must(e)
 	roleToken := func(role string) string {
 		id, tok, credential := uuid.NewString(), uuid.NewString(), uuid.NewString()
 		must(admin.Create(&entity.AdminAccount{ID: id, CredentialRef: &credential}).Error)
 		must(admin.Create(&entity.AdminRoleBinding{AdminID: id, Role: role}).Error)
 		hash := sha256.Sum256([]byte(tok))
-		must(admin.Exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), id, hash[:]).Error)
+		must(admin.Exec(
+			"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			id,
+			hash[:],
+		).Error)
 		return tok
 	}
 	reviewToken, crisisToken := roleToken("review_operator"), roleToken("crisis_operator")
@@ -210,7 +293,11 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			Data json.RawMessage `json:"data"`
 		}
 		must(json.Unmarshal(rec.Body.Bytes(), &raw))
-		samples = append(samples, map[string]any{"operation_id": op, "status": want, "response": json.RawMessage(append([]byte(nil), rec.Body.Bytes()...))})
+		samples = append(samples, map[string]any{
+			"operation_id": op,
+			"status":       want,
+			"response":     json.RawMessage(append([]byte(nil), rec.Body.Bytes()...)),
+		})
 		return raw.Data
 	}
 	t.Cleanup(func() {
@@ -222,32 +309,82 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 	})
 	// 已认证来源只有学号密文，不复制学生卡或实名资料。
-	env, e := codec.Encrypt(ctx, securedata.Binding{Purpose: "student_number", ObjectID: actor, Version: 1}, []byte("SYNTHETIC_STUDENT"))
+	env, e := codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_number", ObjectID: actor, Version: 1},
+		[]byte("SYNTHETIC_STUDENT"),
+	)
 	must(e)
 	identityRaw, _ := json.Marshal(env)
 	must(admin.Create(&entity.IdentityLookupKey{Purpose: "student_number", CurrentRef: "synthetic-lookup", Version: 1}).Error)
 	must(admin.Create(&entity.IdentitySecret{AccountID: actor, Purpose: "student_number", ContentVersion: 1, Envelope: identityRaw}).Error)
 	analyzer := &reviewAnalyzer{}
-	worker, e := moderation.NewWhisperWorker(workerDB, log, codec, analyzer, analyzer, moderation.WorkerConfig{AnalysisTimeout: time.Second, CrisisNotifier: reviewNotifier{}, Consumer: durable.ConsumerConfig{Timeout: 5 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}, Care: &moderation.CareResources{Version: "synthetic", Source: "合成资料", VerifiedAt: "2026-10-28", Hotline24Hours: "合成热线", Appointment: "合成预约", Notice: "合成资料非生产"}})
+	worker, e := moderation.NewWhisperWorker(
+		workerDB,
+		log,
+		codec,
+		analyzer,
+		analyzer,
+		moderation.WorkerConfig{
+			AnalysisTimeout: time.Second,
+			CrisisNotifier:  reviewNotifier{},
+			Consumer: durable.ConsumerConfig{
+				Timeout:     5 * time.Second,
+				LockTimeout: time.Second,
+				RetryDelay:  time.Millisecond,
+				MaxAttempts: 3,
+			},
+			Care: &moderation.CareResources{
+				Version:        "synthetic",
+				Source:         "合成资料",
+				VerifiedAt:     "2026-10-28",
+				Hotline24Hours: "合成热线",
+				Appointment:    "合成预约",
+				Notice:         "合成资料非生产",
+			},
+		},
+	)
 	must(e)
 	create := func(body string) whisper.OwnerPost {
 		t.Helper()
-		v, e := service.CreatePost(ctx, token, uuid.NewString(), "", whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}})
+		v, e := service.CreatePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		)
 		must(e)
-		v, e = service.ChangePost(ctx, token, uuid.NewString(), "", v.ID, "submit", whisper.PostInput{ExpectedVersion: v.Version})
+		v, e = service.ChangePost(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			v.ID,
+			"submit",
+			whisper.PostInput{ExpectedVersion: v.Version},
+		)
 		must(e)
 		return v
 	}
 	event := func(id string) durable.Event {
 		t.Helper()
 		var ev durable.Event
-		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC LIMIT 1`, id).Scan(&ev).Error)
+		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC LIMIT 1`, id).
+			Scan(&ev).
+			Error)
 		return ev
 	}
 	task := func(id string) entity.ModerationTask {
 		t.Helper()
 		var v entity.ModerationTask
-		must(admin.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.entity_id=?", id).Order("t.created_at DESC").Take(&v).Error)
+		must(admin.Table("public.moderation_tasks AS t").
+			Select("t.*").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Where("c.entity_id=?", id).
+			Order("t.created_at DESC").
+			Take(&v).
+			Error)
 		return v
 	}
 	t.Run("自动发布及持久重放", func(t *testing.T) {
@@ -279,18 +416,40 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if detail.Body != "普通命中 合成人名" {
 			t.Fatal(detail)
 		}
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", row.ID, moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 2, Decision: "approved"})
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			row.ID,
+			moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 2, Decision: "approved"},
+		)
 		if !errors.Is(e, command.ErrVersionConflict) {
 			t.Fatal(e)
 		}
-		out, e := reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", row.ID, moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		out, e := reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			row.ID,
+			moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 1, Decision: "approved"},
+		)
 		must(e)
 		if out.BusinessOutcome != "published" {
 			t.Fatal(out)
 		}
 		control, e := reviews.WhisperContent(ctx, adminToken, "", "whisper_post", v.ID)
 		must(e)
-		control, e = reviews.SetWhisperRestriction(ctx, adminToken, uuid.NewString(), "", "whisper_post", v.ID, moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: true, Reason: "合成违规"})
+		control, e = reviews.SetWhisperRestriction(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			"whisper_post",
+			v.ID,
+			moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: true, Reason: "合成违规"},
+		)
 		must(e)
 		if !control.Restricted {
 			t.Fatal(control)
@@ -299,7 +458,15 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
 		}
-		control, e = reviews.SetWhisperRestriction(ctx, adminToken, uuid.NewString(), "", "whisper_post", v.ID, moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: false, Reason: "合成解除"})
+		control, e = reviews.SetWhisperRestriction(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			"whisper_post",
+			v.ID,
+			moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: false, Reason: "合成解除"},
+		)
 		must(e)
 		if control.State != "scanning" {
 			t.Fatal(control)
@@ -310,7 +477,15 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	t.Run("分析期间撤回不放行", func(t *testing.T) {
 		v := create("普通命中 迟到分析")
 		analyzer.hook = func() {
-			_, e := service.ChangePost(ctx, token, uuid.NewString(), "", v.ID, "withdraw", whisper.PostInput{ExpectedVersion: v.Version})
+			_, e := service.ChangePost(
+				ctx,
+				token,
+				uuid.NewString(),
+				"",
+				v.ID,
+				"withdraw",
+				whisper.PostInput{ExpectedVersion: v.Version},
+			)
 			must(e)
 		}
 		defer func() { analyzer.hook = nil }()
@@ -329,18 +504,49 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		_, e := worker.Consume(ctx, event(v.ID))
 		must(e)
 		must(admin.Create(&entity.ReportType{Code: "synthetic", Label: "合成类型", Published: true}).Error)
-		ack, e := student.CreateWhisperReport(ctx, otherToken, uuid.NewString(), "", moderation.WhisperReportInput{Source: moderation.WhisperRef{Kind: "whisper_post", ID: v.ID, ContentVersion: 1}, TypeCode: "synthetic", Description: "合成说明"})
+		ack, e := student.CreateWhisperReport(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			moderation.WhisperReportInput{
+				Source:      moderation.WhisperRef{Kind: "whisper_post", ID: v.ID, ContentVersion: 1},
+				TypeCode:    "synthetic",
+				Description: "合成说明",
+			},
+		)
 		must(e)
 		detail, e := reviews.WhisperReport(ctx, adminToken, "", ack.ID)
 		must(e)
 		if detail.Description == nil || *detail.Description != "合成说明" {
 			t.Fatal(detail)
 		}
-		report, e := reviews.DecideWhisperReport(ctx, adminToken, uuid.NewString(), "", ack.ID, moderation.WhisperReportDecision{ExpectedVersion: 1, Decision: "confirmed", Reason: "合成确认"})
+		report, e := reviews.DecideWhisperReport(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			ack.ID,
+			moderation.WhisperReportDecision{ExpectedVersion: 1, Decision: "confirmed", Reason: "合成确认"},
+		)
 		must(e)
 		control, e := reviews.WhisperContent(ctx, adminToken, "", "whisper_post", v.ID)
 		must(e)
-		penalty, e := reviews.NewWhisperPenalty(ctx, adminToken, uuid.NewString(), "", "whisper_post", v.ID, moderation.WhisperPenaltyCommand{ExpectedVersion: control.Version, ReportID: ack.ID, ExpectedReportVersion: report.Version, Level: "minor", Reason: "合成警告"})
+		penalty, e := reviews.NewWhisperPenalty(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			"whisper_post",
+			v.ID,
+			moderation.WhisperPenaltyCommand{
+				ExpectedVersion:       control.Version,
+				ReportID:              ack.ID,
+				ExpectedReportVersion: report.Version,
+				Level:                 "minor",
+				Reason:                "合成警告",
+			},
+		)
 		must(e)
 		if penalty.Kind != "warning" {
 			t.Fatal(penalty)
@@ -351,7 +557,15 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if len(warnings.Items) != 1 {
 			t.Fatal(warnings)
 		}
-		_, e = studentSafety.Execute(ctx, token, uuid.NewString(), "", "appeal", "", safety.Input{PenaltyID: penalty.ID, Body: "合成申诉"})
+		_, e = studentSafety.Execute(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			"appeal",
+			"",
+			safety.Input{PenaltyID: penalty.ID, Body: "合成申诉"},
+		)
 		must(e)
 	})
 
@@ -370,25 +584,67 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			id, registryID, taskID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 			zero := int64(0)
 			must(admin.Transaction(func(db *gorm.DB) error {
-				if e := db.Create(&entity.ContentRegistry{ID: registryID, Kind: kind, EntityID: id, AuthorID: other, ContentVersion: 1, Status: "pending", SchoolDetectionVersion: "pending"}).Error; e != nil {
+				if e := db.Create(&entity.ContentRegistry{
+					ID:                     registryID,
+					Kind:                   kind,
+					EntityID:               id,
+					AuthorID:               other,
+					ContentVersion:         1,
+					Status:                 "pending",
+					SchoolDetectionVersion: "pending",
+				}).Error; e != nil {
 					return e
 				}
-				if e := db.Create(&entity.ModerationTask{ID: taskID, ContentID: registryID, ContentVersion: 1, SubjectEpoch: 1, RestrictionEpoch: &zero, Status: "pending"}).Error; e != nil {
+				if e := db.Create(&entity.ModerationTask{
+					ID:               taskID,
+					ContentID:        registryID,
+					ContentVersion:   1,
+					SubjectEpoch:     1,
+					RestrictionEpoch: &zero,
+					Status:           "pending",
+				}).Error; e != nil {
 					return e
 				}
 				if kind == "whisper_capsule" {
-					if e := db.Create(&entity.WhisperCapsule{ID: id, OwnerID: other, ContentRegistryID: registryID, BodyCipher: encrypt("whisper_capsule_body", id, body), UnlockAt: time.Now().Add(time.Hour).UTC().Truncate(time.Second), ReviewRound: 1, ReviewTaskID: &taskID}).Error; e != nil {
+					if e := db.Create(&entity.WhisperCapsule{
+						ID:                id,
+						OwnerID:           other,
+						ContentRegistryID: registryID,
+						BodyCipher:        encrypt("whisper_capsule_body", id, body),
+						UnlockAt:          time.Now().Add(time.Hour).UTC().Truncate(time.Second),
+						ReviewRound:       1,
+						ReviewTaskID:      &taskID,
+					}).Error; e != nil {
 						return e
 					}
 				} else {
-					if e := db.Create(&entity.WhisperComment{ID: id, AuthorID: other, PostID: &parent.ID, ParentContentVersion: 1, CommentsEpoch: 1, ReviewRound: 1}).Error; e != nil {
+					if e := db.Create(&entity.WhisperComment{
+						ID:                   id,
+						AuthorID:             other,
+						PostID:               &parent.ID,
+						ParentContentVersion: 1,
+						CommentsEpoch:        1,
+						ReviewRound:          1,
+					}).Error; e != nil {
 						return e
 					}
-					if e := db.Create(&entity.WhisperCommentVersion{CommentID: id, ContentVersion: 1, ContentRegistryID: registryID, BodyCipher: encrypt("whisper_comment_body", id, body), IdentityCipher: encrypt("whisper_comment_identity", id, whisper.IdentityInput{Mode: "anonymous"}), IdentityMode: "anonymous", ReviewTaskID: &taskID}).Error; e != nil {
+					if e := db.Create(&entity.WhisperCommentVersion{
+						CommentID:         id,
+						ContentVersion:    1,
+						ContentRegistryID: registryID,
+						BodyCipher:        encrypt("whisper_comment_body", id, body),
+						IdentityCipher:    encrypt("whisper_comment_identity", id, whisper.IdentityInput{Mode: "anonymous"}),
+						IdentityMode:      "anonymous",
+						ReviewTaskID:      &taskID,
+					}).Error; e != nil {
 						return e
 					}
 				}
-				return (moderation.WhisperReviewSink{Logger: log}).Append(ctx, db, whisper.ReviewSubmission{TaskID: taskID, ContentID: registryID, Kind: kind, ContentVersion: 1, Round: 1})
+				return (moderation.WhisperReviewSink{Logger: log}).Append(
+					ctx,
+					db,
+					whisper.ReviewSubmission{TaskID: taskID, ContentID: registryID, Kind: kind, ContentVersion: 1, Round: 1},
+				)
 			}))
 			return id, event(id)
 		}
@@ -406,7 +662,14 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if detail.Body != "普通命中 合成人名的私密胶囊" {
 			t.Fatal(detail)
 		}
-		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", row.ID, moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		_, e = reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			row.ID,
+			moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 1, Decision: "approved"},
+		)
 		must(e)
 		var after string
 		must(admin.Raw("SELECT body_cipher::text FROM public.whisper_capsules WHERE id=?", capsule).Scan(&after).Error)
@@ -418,7 +681,8 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if control.State != "locked" {
 			t.Fatal(control)
 		}
-		must(admin.Exec("UPDATE public.whisper_capsules SET unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule).Error)
+		must(admin.Exec("UPDATE public.whisper_capsules SET unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule).
+			Error)
 		control, e = reviews.WhisperContent(ctx, adminToken, "", "whisper_capsule", capsule)
 		must(e)
 		if control.State != "unlocked" {
@@ -434,7 +698,16 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 		// 暖评不要求学生认证；举报公开暖评也不能额外添加作者认证门槛。
 		must(admin.Exec("UPDATE public.accounts SET verification='unverified' WHERE id=?", other).Error)
-		_, e = student.CreateWhisperReport(ctx, token, uuid.NewString(), "", moderation.WhisperReportInput{Source: moderation.WhisperRef{Kind: "whisper_comment", ID: comment, ContentVersion: 1}, TypeCode: "synthetic"})
+		_, e = student.CreateWhisperReport(
+			ctx,
+			token,
+			uuid.NewString(),
+			"",
+			moderation.WhisperReportInput{
+				Source:   moderation.WhisperRef{Kind: "whisper_comment", ID: comment, ContentVersion: 1},
+				TypeCode: "synthetic",
+			},
+		)
 		must(e)
 		must(admin.Exec("UPDATE public.accounts SET verification='verified' WHERE id=?", other).Error)
 		comment, ev = seed("whisper_comment", "普通命中 迟到暖评")
@@ -442,7 +715,15 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			current, e := service.GetPost(ctx, token, "", parent.ID, true)
 			must(e)
 			v := current.(whisper.OwnerPost)
-			_, e = service.ChangePost(ctx, token, uuid.NewString(), "", parent.ID, "withdraw", whisper.PostInput{ExpectedVersion: v.Version})
+			_, e = service.ChangePost(
+				ctx,
+				token,
+				uuid.NewString(),
+				"",
+				parent.ID,
+				"withdraw",
+				whisper.PostInput{ExpectedVersion: v.Version},
+			)
 			must(e)
 		}
 		result, e := worker.Consume(ctx, ev)
@@ -463,13 +744,34 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		_, e = worker.Consume(ctx, event(b.ID))
 		must(e)
 		tb := task(b.ID)
-		request("whisperAdminReviewDecide", "POST", "/admin/whispers/reviews/"+tb.ID+"/decision", adminToken, map[string]any{"expected_version": tb.Version, "expected_content_version": 1, "decision": "approved"}, 200)
+		request(
+			"whisperAdminReviewDecide",
+			"POST",
+			"/admin/whispers/reviews/"+tb.ID+"/decision",
+			adminToken,
+			map[string]any{"expected_version": tb.Version, "expected_content_version": 1, "decision": "approved"},
+			200,
+		)
 		controlRaw := request("whisperAdminContentGet", "GET", "/admin/whispers/contents/whisper_post/"+b.ID, adminToken, nil, 200)
 		var control moderation.WhisperControl
 		must(json.Unmarshal(controlRaw, &control))
-		request("whisperAdminRestrictionSet", "PUT", "/admin/whispers/contents/whisper_post/"+b.ID+"/restriction", adminToken, map[string]any{"expected_version": control.Version, "restricted": true, "reason": "合成限制"}, 200)
+		request(
+			"whisperAdminRestrictionSet",
+			"PUT",
+			"/admin/whispers/contents/whisper_post/"+b.ID+"/restriction",
+			adminToken,
+			map[string]any{"expected_version": control.Version, "restricted": true, "reason": "合成限制"},
+			200,
+		)
 		// 普通任务由超管同时具有两个域权限后升格。
-		crisisRaw := request("whisperAdminReviewEscalate", "POST", "/admin/whispers/reviews/"+ta.ID+"/escalate", adminToken, map[string]any{"expected_version": ta.Version, "reason": "合成危机判断"}, 200)
+		crisisRaw := request(
+			"whisperAdminReviewEscalate",
+			"POST",
+			"/admin/whispers/reviews/"+ta.ID+"/escalate",
+			adminToken,
+			map[string]any{"expected_version": ta.Version, "reason": "合成危机判断"},
+			200,
+		)
 		var c moderation.WhisperCrisisSummary
 		must(json.Unmarshal(crisisRaw, &c))
 		request("whisperAdminCrisesList", "GET", "/admin/whispers/crises", adminToken, nil, 200)
@@ -479,35 +781,111 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if cd.StudentNumber == nil || *cd.StudentNumber != "SYNTHETIC_STUDENT" {
 			t.Fatal(cd)
 		}
-		request("whisperAdminCrisisAct", "POST", "/admin/whispers/crises/"+c.ID+"/actions", adminToken, map[string]any{"expected_version": c.Version, "action": "take_over", "reason": "合成接手"}, 200)
-		request("whisperAdminCrisisFalsePositive", "POST", "/admin/whispers/crises/"+c.ID+"/false-positive", adminToken, map[string]any{"expected_version": c.Version + 1, "reason": "合成误报"}, 200)
+		request(
+			"whisperAdminCrisisAct",
+			"POST",
+			"/admin/whispers/crises/"+c.ID+"/actions",
+			adminToken,
+			map[string]any{"expected_version": c.Version, "action": "take_over", "reason": "合成接手"},
+			200,
+		)
+		request(
+			"whisperAdminCrisisFalsePositive",
+			"POST",
+			"/admin/whispers/crises/"+c.ID+"/false-positive",
+			adminToken,
+			map[string]any{"expected_version": c.Version + 1, "reason": "合成误报"},
+			200,
+		)
 		public := create("公开举报来源")
 		_, e = worker.Consume(ctx, event(public.ID))
 		must(e)
-		ackRaw := request("whisperReportCreate", "POST", "/whispers/reports", otherToken, map[string]any{"source": moderation.WhisperRef{Kind: "whisper_post", ID: public.ID, ContentVersion: 1}, "type_code": "synthetic"}, 202)
+		ackRaw := request(
+			"whisperReportCreate",
+			"POST",
+			"/whispers/reports",
+			otherToken,
+			map[string]any{
+				"source":    moderation.WhisperRef{Kind: "whisper_post", ID: public.ID, ContentVersion: 1},
+				"type_code": "synthetic",
+			},
+			202,
+		)
 		var ack moderation.WhisperReportAck
 		must(json.Unmarshal(ackRaw, &ack))
 		request("whisperAdminReportsList", "GET", "/admin/whispers/reports", adminToken, nil, 200)
 		request("whisperAdminReportGet", "GET", "/admin/whispers/reports/"+ack.ID, adminToken, nil, 200)
-		request("whisperAdminReportDecide", "POST", "/admin/whispers/reports/"+ack.ID+"/decision", adminToken, map[string]any{"expected_version": 1, "decision": "confirmed", "reason": "合成确认"}, 200)
+		request(
+			"whisperAdminReportDecide",
+			"POST",
+			"/admin/whispers/reports/"+ack.ID+"/decision",
+			adminToken,
+			map[string]any{"expected_version": 1, "decision": "confirmed", "reason": "合成确认"},
+			200,
+		)
 		control, e = reviews.WhisperContent(ctx, adminToken, "", "whisper_post", public.ID)
 		must(e)
-		request("whisperAdminPenaltyCreate", "POST", "/admin/whispers/contents/whisper_post/"+public.ID+"/penalties", adminToken, map[string]any{"expected_version": control.Version, "report_id": ack.ID, "expected_report_version": 2, "level": "minor", "reason": "合成警告"}, 200)
+		request(
+			"whisperAdminPenaltyCreate",
+			"POST",
+			"/admin/whispers/contents/whisper_post/"+public.ID+"/penalties",
+			adminToken,
+			map[string]any{
+				"expected_version":        control.Version,
+				"report_id":               ack.ID,
+				"expected_report_version": 2,
+				"level":                   "minor",
+				"reason":                  "合成警告",
+			},
+			200,
+		)
 		public = create("另一公开举报来源")
 		_, e = worker.Consume(ctx, event(public.ID))
 		must(e)
-		ack, e = student.CreateWhisperReport(ctx, otherToken, uuid.NewString(), "", moderation.WhisperReportInput{Source: moderation.WhisperRef{Kind: "whisper_post", ID: public.ID, ContentVersion: 1}, TypeCode: "synthetic"})
+		ack, e = student.CreateWhisperReport(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			moderation.WhisperReportInput{
+				Source:   moderation.WhisperRef{Kind: "whisper_post", ID: public.ID, ContentVersion: 1},
+				TypeCode: "synthetic",
+			},
+		)
 		must(e)
 		escalationKey := uuid.NewString()
-		crisisRaw = request("whisperAdminReportEscalate", "POST", "/admin/whispers/reports/"+ack.ID+"/escalate", adminToken, map[string]any{"expected_version": 1, "reason": "合成升级"}, 200, escalationKey)
-		request("whisperAdminReportEscalate", "POST", "/admin/whispers/reports/"+ack.ID+"/escalate", adminToken, map[string]any{"expected_version": 1, "reason": "合成升级"}, 200, escalationKey)
+		crisisRaw = request(
+			"whisperAdminReportEscalate",
+			"POST",
+			"/admin/whispers/reports/"+ack.ID+"/escalate",
+			adminToken,
+			map[string]any{"expected_version": 1, "reason": "合成升级"},
+			200,
+			escalationKey,
+		)
+		request(
+			"whisperAdminReportEscalate",
+			"POST",
+			"/admin/whispers/reports/"+ack.ID+"/escalate",
+			adminToken,
+			map[string]any{"expected_version": 1, "reason": "合成升级"},
+			200,
+			escalationKey,
+		)
 		must(json.Unmarshal(crisisRaw, &c))
 		detailRaw = request("whisperAdminCrisisGet", "GET", "/admin/whispers/crises/"+c.ID, adminToken, nil, 200)
 		must(json.Unmarshal(detailRaw, &cd))
 
 		request("whisperAdminReviewGet", "GET", "/admin/whispers/reviews/"+tb.ID, crisisToken, nil, 403)
 		request("whisperAdminCrisisGet", "GET", "/admin/whispers/crises/"+c.ID, reviewToken, nil, 403)
-		request("whisperAdminReviewEscalate", "POST", "/admin/whispers/reviews/"+tb.ID+"/escalate", reviewToken, map[string]any{"expected_version": tb.Version, "reason": "越权尝试"}, 403)
+		request(
+			"whisperAdminReviewEscalate",
+			"POST",
+			"/admin/whispers/reviews/"+tb.ID+"/escalate",
+			reviewToken,
+			map[string]any{"expected_version": tb.Version, "reason": "越权尝试"},
+			403,
+		)
 		oldReviews, e := reviews.Cases(ctx, adminToken, "", "", 20)
 		must(e)
 		if len(oldReviews.Items) != 0 {
@@ -531,14 +909,35 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
 		}
-		_, e = deletion.DeleteEvidence(ctx, adminToken, uuid.NewString(), "", cd.EvidenceScopeID, privacy.EvidenceInput{ExpectedVersion: 1, Reason: "旧入口尝试"})
+		_, e = deletion.DeleteEvidence(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			cd.EvidenceScopeID,
+			privacy.EvidenceInput{ExpectedVersion: 1, Reason: "旧入口尝试"},
+		)
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
 		}
-		scopeRaw := request("whisperAdminEvidenceGet", "GET", "/admin/whispers/evidence/"+cd.EvidenceScopeID, adminToken, nil, 200)
+		scopeRaw := request(
+			"whisperAdminEvidenceGet",
+			"GET",
+			"/admin/whispers/evidence/"+cd.EvidenceScopeID,
+			adminToken,
+			nil,
+			200,
+		)
 		var scope moderation.WhisperEvidenceScope
 		must(json.Unmarshal(scopeRaw, &scope))
-		jobRaw := request("whisperAdminEvidenceDelete", "POST", "/admin/whispers/evidence/"+scope.ID+"/deletion-requests", adminToken, map[string]any{"expected_version": scope.Version, "confirmation": "DELETE_EVIDENCE_SCOPE", "reason": "合成删除证据"}, 202)
+		jobRaw := request(
+			"whisperAdminEvidenceDelete",
+			"POST",
+			"/admin/whispers/evidence/"+scope.ID+"/deletion-requests",
+			adminToken,
+			map[string]any{"expected_version": scope.Version, "confirmation": "DELETE_EVIDENCE_SCOPE", "reason": "合成删除证据"},
+			202,
+		)
 		var job struct {
 			ID string `json:"id"`
 		}
@@ -550,8 +949,16 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 		request("whisperAdminDeletionGet", "GET", "/admin/whispers/deletions/"+job.ID, adminToken, nil, 200)
 		// 严格字段校验发生在命令之前，错误不允许宽松解码为成功。
-		for _, body := range []string{`{"expected_version":1,"restricted":null,"reason":"x"}`, `{"expected_version":1,"restricted":true,"Reason":"x"}`, `{"expected_version":1,"expected_version":1,"restricted":true,"reason":"x"}`} {
-			req := httptest.NewRequest("PUT", "/api/v1/admin/whispers/contents/whisper_post/"+b.ID+"/restriction", strings.NewReader(body))
+		for _, body := range []string{
+			`{"expected_version":1,"restricted":null,"reason":"x"}`,
+			`{"expected_version":1,"restricted":true,"Reason":"x"}`,
+			`{"expected_version":1,"expected_version":1,"restricted":true,"reason":"x"}`,
+		} {
+			req := httptest.NewRequest(
+				"PUT",
+				"/api/v1/admin/whispers/contents/whisper_post/"+b.ID+"/restriction",
+				strings.NewReader(body),
+			)
 			req.Header.Set("Authorization", "Bearer "+adminToken)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", uuid.NewString())
@@ -566,7 +973,13 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	t.Run("昵称候选激活及历史快照撤销", func(t *testing.T) {
 		state, e := service.GetNickname(ctx, otherToken, "")
 		must(e)
-		_, e = service.SetNickname(ctx, otherToken, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: state.Version, Label: "合成昵称"})
+		_, e = service.SetNickname(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			whisper.NicknameInput{ExpectedVersion: state.Version, Label: "合成昵称"},
+		)
 		must(e)
 		result, e := worker.ProcessNext(ctx)
 		must(e)
@@ -578,22 +991,49 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		_, e = worker.Consume(ctx, ev)
 		must(e)
 		first := int64(1)
-		named, e := service.CreatePost(ctx, otherToken, uuid.NewString(), "", whisper.ContentInput{Body: "具名合成正文", Identity: whisper.IdentityInput{Mode: "named", NicknameVersion: &first}})
+		named, e := service.CreatePost(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			whisper.ContentInput{Body: "具名合成正文", Identity: whisper.IdentityInput{Mode: "named", NicknameVersion: &first}},
+		)
 		must(e)
-		_, e = service.ChangePost(ctx, otherToken, uuid.NewString(), "", named.ID, "submit", whisper.PostInput{ExpectedVersion: named.Version})
+		_, e = service.ChangePost(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			named.ID,
+			"submit",
+			whisper.PostInput{ExpectedVersion: named.Version},
+		)
 		must(e)
 		_, e = worker.Consume(ctx, event(named.ID))
 		must(e)
 		state, e = service.GetNickname(ctx, otherToken, "")
 		must(e)
-		_, e = service.SetNickname(ctx, otherToken, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: state.Version, Label: "普通命中新昵称"})
+		_, e = service.SetNickname(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			whisper.NicknameInput{ExpectedVersion: state.Version, Label: "普通命中新昵称"},
+		)
 		must(e)
 		var next entity.WhisperNicknameVersion
 		must(admin.Where("account_id=? AND nickname_version=2", other).Take(&next).Error)
 		_, e = worker.Consume(ctx, event(next.ContentRegistryID))
 		must(e)
 		row := task(next.ContentRegistryID)
-		out, e := reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", row.ID, moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 2, Decision: "approved"})
+		out, e := reviews.DecideWhisper(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			row.ID,
+			moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 2, Decision: "approved"},
+		)
 		must(e)
 		if out.BusinessOutcome != "nickname_activated" {
 			t.Fatal(out)
@@ -602,7 +1042,15 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		must(e)
 		control, e := reviews.WhisperContent(ctx, adminToken, "", "whisper_nickname", n.ContentRegistryID)
 		must(e)
-		_, e = reviews.SetWhisperRestriction(ctx, adminToken, uuid.NewString(), "", "whisper_nickname", n.ContentRegistryID, moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: true, Reason: "合成撤销历史昵称"})
+		_, e = reviews.SetWhisperRestriction(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			"whisper_nickname",
+			n.ContentRegistryID,
+			moderation.WhisperRestrictionCommand{ExpectedVersion: control.Version, Restricted: true, Reason: "合成撤销历史昵称"},
+		)
 		must(e)
 		_, e = service.GetPost(ctx, "", "", named.ID, false)
 		if !errors.Is(e, command.ErrNotFound) {
@@ -613,11 +1061,19 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		must(admin.Exec("UPDATE public.accounts SET verification='unverified' WHERE id=?", other).Error)
 		state, e := service.GetNickname(ctx, otherToken, "")
 		must(e)
-		n, e := service.SetNickname(ctx, otherToken, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: state.Version, Label: "危机命中"})
+		n, e := service.SetNickname(
+			ctx,
+			otherToken,
+			uuid.NewString(),
+			"",
+			whisper.NicknameInput{ExpectedVersion: state.Version, Label: "危机命中"},
+		)
 		must(e)
 		_ = n
 		var ev durable.Event
-		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind='whisper_nickname' AND c.author_id=? ORDER BY t.created_at DESC LIMIT 1`, other).Scan(&ev).Error)
+		must(admin.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind='whisper_nickname' AND c.author_id=? ORDER BY t.created_at DESC LIMIT 1`, other).
+			Scan(&ev).
+			Error)
 		_, e = worker.Consume(ctx, ev)
 		must(e)
 		page, e := crises.WhisperCrises(ctx, adminToken, "", "", 20)
@@ -653,22 +1109,71 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		if !errors.Is(e, command.ErrNotFound) {
 			t.Fatal(e)
 		}
-		detail, e = crises.ActOnWhisperCrisis(ctx, adminToken, uuid.NewString(), "", c.ID, moderation.CrisisCommand{ExpectedVersion: c.Version, Reason: "合成误报"}, true)
+		detail, e = crises.ActOnWhisperCrisis(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"",
+			c.ID,
+			moderation.CrisisCommand{ExpectedVersion: c.Version, Reason: "合成误报"},
+			true,
+		)
 		must(e)
 		if detail.Status != "false_positive" {
 			t.Fatal(detail)
 		}
 	})
 	t.Run("暖评抱抱通知真实闭环", func(t *testing.T) {
-		testWhisperInteractions(t, admin, api, service, worker, analyzer, actor, other, token, otherToken, careService, studentSafety, reviews, adminToken)
+		testWhisperInteractions(
+			t,
+			admin,
+			api,
+			service,
+			worker,
+			analyzer,
+			actor,
+			other,
+			token,
+			otherToken,
+			careService,
+			studentSafety,
+			reviews,
+			adminToken,
+		)
 	})
 
 	t.Run("本人时空胶囊真实闭环", func(t *testing.T) {
-		testWhisperCapsules(t, admin, workerDB, service, worker, analyzer, reviews, crises, other, otherToken, token, adminToken)
+		testWhisperCapsules(
+			t,
+			admin,
+			workerDB,
+			service,
+			worker,
+			analyzer,
+			reviews,
+			crises,
+			other,
+			otherToken,
+			token,
+			adminToken,
+		)
 	})
 
 	t.Run("匿名兼容与注销恢复真实闭环", func(t *testing.T) {
-		testWhisperPrivacy(t, admin, api, open(testDSN+" options='-c role=liyuanci_privacy_maintenance'"), service, worker, codec, journal, cfg, catalog, admission, analyzer)
+		testWhisperPrivacy(
+			t,
+			admin,
+			api,
+			open(testDSN+" options='-c role=liyuanci_privacy_maintenance'"),
+			service,
+			worker,
+			codec,
+			journal,
+			cfg,
+			catalog,
+			admission,
+			analyzer,
+		)
 	})
 
 }

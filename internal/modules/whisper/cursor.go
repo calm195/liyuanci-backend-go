@@ -52,7 +52,8 @@ func (s *Service) decodeCursor(value, scope string) (c cursor, err error) {
 		return c, command.ErrInvalid
 	}
 	expected := keyed(s.config.CursorKey, "whisper.cursor.signature", b)
-	if !hmac.Equal([]byte(expected), []byte(parts[1])) || json.Unmarshal(b, &c) != nil || c.Scope != scope || !ValidID(c.ID) || c.At.IsZero() {
+	if !hmac.Equal([]byte(expected), []byte(parts[1])) || json.Unmarshal(b, &c) != nil || c.Scope != scope || !ValidID(c.ID) ||
+		c.At.IsZero() {
 		return cursor{}, command.ErrInvalid
 	}
 	return c, nil

@@ -41,7 +41,8 @@ func RegisterPrivacy(r *gin.Engine, s PrivacyAPI) error {
 			return
 		}
 		var in privacy.DeletionInput
-		if !interactionJSON(c, []string{"confirmation", "expected_version"}, &in) || in.Confirmation != "delete_account" || in.ExpectedVersion < 1 {
+		if !interactionJSON(c, []string{"confirmation", "expected_version"}, &in) || in.Confirmation != "delete_account" ||
+			in.ExpectedVersion < 1 {
 			returnInvalid(c)
 			return
 		}
@@ -101,7 +102,9 @@ func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
 			return
 		}
 		var in privacy.EvidenceInput
-		if !interactionJSON(c, []string{"reason", "expected_version"}, &in) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 2000 {
+		if !interactionJSON(c, []string{"reason", "expected_version"}, &in) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) ||
+			strings.TrimSpace(in.Reason) == "" ||
+			len(in.Reason) > 2000 {
 			returnInvalid(c)
 			return
 		}
@@ -114,6 +117,7 @@ func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
 	})
 	return nil
 }
+
 func privacyHeaders(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.Header("Pragma", "no-cache")

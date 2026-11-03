@@ -16,6 +16,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	path := flag.String("config", "", "公共配置旁的私有环境YAML")
 	offline := flag.Bool("check-config", false, "只验证配置，不连接数据库或供应商")
@@ -25,5 +26,12 @@ func run() error {
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return app.RunWorker(ctx, app.WorkerOptions{ConfigFile: *path, Entry: "business", Kind: *kind, Check: *check, CheckConfig: *offline, Recover: *recoverOnly})
+	return app.RunWorker(ctx, app.WorkerOptions{
+		ConfigFile:  *path,
+		Entry:       "business",
+		Kind:        *kind,
+		Check:       *check,
+		CheckConfig: *offline,
+		Recover:     *recoverOnly,
+	})
 }

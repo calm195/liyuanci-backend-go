@@ -39,6 +39,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
 	defer func() { _ = log.Sync() }()
+	// 先完成各运行模式的配置投影与校验，离线诊断到此阶段不访问外部依赖。
 	var businessSettings *config.Business
 	if cfg.BusinessFile != "" {
 		settings, e := config.LoadBusiness(ctx, cfg.BusinessFile, cfg.Environment, "api")
@@ -74,6 +75,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		log.Info("业务配置诊断完成", zap.String("result", "success"))
 		return nil
 	}
+	// 从这里开始获取运行资源；后注册的业务依赖先关闭，共享资源最后释放。
 	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
 	resources, err := platform.Open(startup, cfg)
 	cancel()
@@ -156,6 +158,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 			return errors.New("树洞路由装配失败")
 		}
 	}
+	// 依赖诊断复用真实装配，但不绑定监听端口，也不进入服务循环。
 	if options.Check {
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -183,6 +186,11 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		WriteTimeout:      cfg.Server.WriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
+	return serveHTTP(ctx, server, cfg.Server.ShutdownTimeout, log)
+}
+
+// serveHTTP 绑定成功后才报告启动，收到取消后先排空请求再允许宿主释放业务依赖。
+func serveHTTP(ctx context.Context, server *http.Server, shutdownTimeout time.Duration, log *zap.Logger) error {
 	// 先绑定监听地址再记录启动成功，避免地址冲突时误报就绪。
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
@@ -206,7 +214,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	}
 	// 先等待 HTTP 请求结束，再由延迟清理逻辑关闭共享客户端。
 	log.Info("开始关闭服务")
-	shutdown, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := server.Shutdown(shutdown); err != nil {
 		_ = server.Close()

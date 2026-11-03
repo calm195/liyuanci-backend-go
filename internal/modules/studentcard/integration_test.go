@@ -54,6 +54,7 @@ func (keys) Wrap(_ context.Context, data []byte) (string, []byte, error) {
 	}
 	return "synthetic-card-wrap", append(nonce, gcm.Seal(nil, nonce, data, nil)...), nil
 }
+
 func (keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	if ref != "synthetic-card-wrap" || len(data) < 28 {
 		return nil, errors.New("SYNTHETIC_KMS_SECRET")
@@ -62,6 +63,7 @@ func (keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	gcm, _ := cipher.NewGCM(block)
 	return gcm.Open(nil, data[:12], data[12:], nil)
 }
+
 func (keys) Digest(_ context.Context, ref, purpose string, data []byte) ([]byte, error) {
 	return securedata.LookupDigest(bytes.Repeat([]byte{81}, 32), purpose, string(data))
 }
@@ -179,7 +181,20 @@ func TestPostgresStudentCards(t *testing.T) {
 		t.Fatal(e)
 	}
 	commandConfig := command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}
-	sessions, e := studentauth.New(apiDB, logger, exchanger{}, store, limiter, studentauth.Config{StudentCardAssets: true, SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{73}, 32), Command: commandConfig})
+	sessions, e := studentauth.New(
+		apiDB,
+		logger,
+		exchanger{},
+		store,
+		limiter,
+		studentauth.Config{
+			StudentCardAssets: true,
+			SessionTTL:        time.Hour,
+			ExchangeTTL:       time.Minute,
+			SessionKey:        bytes.Repeat([]byte{73}, 32),
+			Command:           commandConfig,
+		},
+	)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -196,7 +211,16 @@ func TestPostgresStudentCards(t *testing.T) {
 	}
 	bucket := &objects{data: map[string][]byte{}}
 	scan := &scanner{approved: true}
-	cfg := studentcard.Config{DecodeSlots: 2, MaxBytes: 4096, MaxPixels: 100, ReceiptKey: bytes.Repeat([]byte{42}, 32), Command: commandConfig, Lease: 10 * time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}
+	cfg := studentcard.Config{
+		DecodeSlots: 2,
+		MaxBytes:    4096,
+		MaxPixels:   100,
+		ReceiptKey:  bytes.Repeat([]byte{42}, 32),
+		Command:     commandConfig,
+		Lease:       10 * time.Second,
+		RetryDelay:  time.Millisecond,
+		MaxAttempts: 3,
+	}
 	api, e := studentcard.New(apiDB, logger, sessions, codec, bucket, scan, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -248,7 +272,14 @@ func TestPostgresStudentCards(t *testing.T) {
 	if _, e = api.Upload(ctx, first.Token, "invalid-mime", "card_mime", "image/jpeg", bytes.NewReader(imageA)); e != command.ErrInvalid {
 		t.Fatal("伪造MIME应拒绝", e)
 	}
-	if _, e = api.Upload(ctx, first.Token, "oversize", "card_size", "image/png", strings.NewReader(strings.Repeat("x", 4097))); e != command.ErrInvalid {
+	if _, e = api.Upload(
+		ctx,
+		first.Token,
+		"oversize",
+		"card_size",
+		"image/png",
+		strings.NewReader(strings.Repeat("x", 4097)),
+	); e != command.ErrInvalid {
 		t.Fatal("超限应拒绝", e)
 	}
 	var stored entity.StudentCardPayload
@@ -294,7 +325,10 @@ func TestPostgresStudentCards(t *testing.T) {
 		t.Fatal("终态工作重复外发", e)
 	}
 	var event durable.Event
-	if e = root.Model(&entity.OutboxEvent{}).Select("event_id,work_id AS correlation_id,aggregate_id,aggregate_version,event_type,created_at").Where("work_id=?", firstWork.ID).Take(&event).Error; e != nil {
+	if e = root.Model(&entity.OutboxEvent{}).Select("event_id,work_id AS correlation_id,aggregate_id,aggregate_version,event_type,created_at").
+		Where("work_id=?", firstWork.ID).
+		Take(&event).
+		Error; e != nil {
 		t.Fatal(e)
 	}
 	forged := event
@@ -399,7 +433,11 @@ func TestPostgresStudentCards(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
-		scan.hook = func() { close(started); <-release }
+		scan.hook = func() {
+
+			close(started)
+			<-release
+		}
 		finished := make(chan error, 1)
 		go func() {
 			got, e := worker.Process(ctx, concurrentWork.ID, "card_parallel_first")
@@ -505,7 +543,13 @@ func TestPostgresStudentCards(t *testing.T) {
 	}
 	for _, entry := range logs.All() {
 		data, _ := json.Marshal(entry.ContextMap())
-		for _, secret := range []string{first.Token, "SYNTHETIC_KMS_SECRET", "SYNTHETIC_STORAGE_SECRET", "SYNTHETIC_SCANNER_SECRET", "SYNTHETIC_CARD_OPENID"} {
+		for _, secret := range []string{
+			first.Token,
+			"SYNTHETIC_KMS_SECRET",
+			"SYNTHETIC_STORAGE_SECRET",
+			"SYNTHETIC_SCANNER_SECRET",
+			"SYNTHETIC_CARD_OPENID",
+		} {
 			if strings.Contains(entry.Message+string(data), secret) {
 				t.Fatal("日志泄漏敏感信息")
 			}
@@ -536,6 +580,7 @@ func TestPostgresStudentCards(t *testing.T) {
 
 	t.Log("学生卡真实PG/Redis/HTTP、加密暂存、租约/重试/取消/幂等通过；外部供应商为合成适配器，人工认证由独立模块测试")
 }
+
 func contains(values []string, value string) bool {
 	for _, entry := range values {
 		if entry == value {

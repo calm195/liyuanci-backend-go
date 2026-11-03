@@ -18,7 +18,11 @@ func TestApplicationProtocolValidation(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{"POST", "/api/v1/wishes/id/applications", `{"message":"x"}`},
 		{"POST", "/api/v1/wishes/id/applications", `{"message":"x","wish_content_version":0}`},
-		{"POST", "/api/v1/wishes/id/applications", `{"message":"x","wish_content_version":1,"author":"attacker"}`},
+		{
+			"POST",
+			"/api/v1/wishes/id/applications",
+			`{"message":"x","wish_content_version":1,"author":"attacker"}`,
+		},
 		{"POST", "/api/v1/wishes/id/applications", `{"message":"x","message":"y","wish_content_version":1}`},
 		{"POST", "/api/v1/wishes/id/applications", `{"message":null,"wish_content_version":1}`},
 		{"POST", "/api/v1/applications/id/withdraw", `{"Expected_version":1}`},
@@ -26,7 +30,11 @@ func TestApplicationProtocolValidation(t *testing.T) {
 		{"POST", "/api/v1/applications/id/accept", `{"expected_version":1}`},
 		{"POST", "/api/v1/applications/id/accept", `{"expected_version":1,"wish_expected_version":0}`},
 		{"POST", "/api/v1/wishes/id/rollback", `{"expected_version":1,"target":"matching"}`},
-		{"POST", "/api/v1/wishes/id/rollback", `{"expected_version":1,"target":"fulfilled","refresh_expiry":false}`},
+		{
+			"POST",
+			"/api/v1/wishes/id/rollback",
+			`{"expected_version":1,"target":"fulfilled","refresh_expiry":false}`,
+		},
 		{"GET", "/api/v1/me/applications?limit=0", ""},
 		{"GET", "/api/v1/me/applications?limit=1&limit=2", ""},
 		{"GET", "/api/v1/wishes/id/applications?status=pending_scan", ""},
@@ -62,7 +70,12 @@ func TestApplicationBusinessErrors(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
 		code string
-	}{{command.ErrActiveWishLimit, "ACTIVE_WISH_LIMIT"}, {command.ErrDuplicateApplication, "DUPLICATE_APPLICATION"}, {command.ErrBlockedInteraction, "BLOCKED_INTERACTION"}, {command.ErrReviewPending, "REVIEW_PENDING"}} {
+	}{
+		{command.ErrActiveWishLimit, "ACTIVE_WISH_LIMIT"},
+		{command.ErrDuplicateApplication, "DUPLICATE_APPLICATION"},
+		{command.ErrBlockedInteraction, "BLOCKED_INTERACTION"},
+		{command.ErrReviewPending, "REVIEW_PENDING"},
+	} {
 		t.Run(tc.code, func(t *testing.T) {
 			r := New(zap.NewNop(), nil)
 			r.GET("/failure", func(c *gin.Context) { adminError(c, tc.err) })

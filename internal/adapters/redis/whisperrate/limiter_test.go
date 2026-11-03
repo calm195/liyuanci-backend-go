@@ -34,7 +34,12 @@ func TestRedisWhisperAdmission(t *testing.T) {
 	}
 	var refs []string
 	var mu sync.Mutex
-	keep := func(ref string) { mu.Lock(); defer mu.Unlock(); refs = append(refs, ref) }
+	keep := func(ref string) {
+
+		mu.Lock()
+		defer mu.Unlock()
+		refs = append(refs, ref)
+	}
 	t.Cleanup(func() {
 		for _, ref := range refs {
 			if e := limiter.Release(ctx, ref); e != nil {
@@ -134,7 +139,11 @@ func TestRedisWhisperAdmission(t *testing.T) {
 		}
 		rolling = append(rolling, value)
 		for _, old := range rolling {
-			if e = client.ZAdd(ctx, old.Keys[0], redis.Z{Score: float64(time.Now().Add(-11 * time.Minute).UnixMilli()), Member: old.Token}).Err(); e != nil {
+			if e = client.ZAdd(
+				ctx,
+				old.Keys[0],
+				redis.Z{Score: float64(time.Now().Add(-11 * time.Minute).UnixMilli()), Member: old.Token},
+			).Err(); e != nil {
 				t.Fatal(e)
 			}
 		}

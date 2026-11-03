@@ -42,6 +42,7 @@ func (k fixtureKeys) Wrap(_ context.Context, b []byte) (string, []byte, error) {
 	}
 	return "synthetic-test", append(nonce, k.gcm.Seal(nil, nonce, b, nil)...), nil
 }
+
 func (k fixtureKeys) Unwrap(_ context.Context, ref string, b []byte) ([]byte, error) {
 	if ref != "synthetic-test" || len(b) < k.gcm.NonceSize() {
 		return nil, errors.New("测试密钥引用无效")
@@ -80,6 +81,7 @@ func (a *fixtureAdmission) Reserve(ctx context.Context, actor string, bucket str
 	}
 	return uuid.NewString(), nil
 }
+
 func (a *fixtureAdmission) Release(ctx context.Context, ref string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -94,7 +96,19 @@ func (a *fixtureAdmission) Release(ctx context.Context, ref string) error {
 type fixtureReview struct{ log *zap.Logger }
 
 func (r fixtureReview) Append(ctx context.Context, db *gorm.DB, v whisper.ReviewSubmission) error {
-	return durable.Append(ctx, db, r.log, durable.Route{Kind: "whisper_test_review", TargetKind: "moderation_task", EventType: "whisper.test_requested"}, durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: v.TaskID, AggregateVersion: v.ContentVersion})
+	return durable.Append(
+		ctx,
+		db,
+		r.log,
+		durable.Route{Kind: "whisper_test_review", TargetKind: "moderation_task", EventType: "whisper.test_requested"},
+		durable.Draft{
+			WorkID:           uuid.NewString(),
+			OperationID:      uuid.NewString(),
+			EventID:          uuid.NewString(),
+			AggregateID:      v.TaskID,
+			AggregateVersion: v.ContentVersion,
+		},
+	)
 }
 
 // TestPostgresWhisperText 真实验证 SQL 权限、回执、并发、加密和同步投影；供应商、资料与审核入口为显式合成适配。
@@ -143,7 +157,12 @@ func TestPostgresWhisperText(t *testing.T) {
 	for _, row := range [][2]string{{actor, token}, {other, otherToken}} {
 		must(admin.Exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成主体','verified')", row[0]).Error)
 		hash := sha256.Sum256([]byte(row[1]))
-		must(admin.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')", uuid.NewString(), row[0], hash[:]).Error)
+		must(admin.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
 	}
 	block, _ := aes.NewCipher(bytes.Repeat([]byte{9}, 32))
 	gcm, _ := cipher.NewGCM(block)
@@ -160,7 +179,12 @@ func TestPostgresWhisperText(t *testing.T) {
 		t.Log("文字命令准入连接真实隔离 Redis")
 	}
 
-	cfg := whisper.Config{Enabled: true, Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: 24 * time.Hour, MaxAttempts: 3}, ReceiptKey: bytes.Repeat([]byte{2}, 32), CursorKey: bytes.Repeat([]byte{3}, 32)}
+	cfg := whisper.Config{
+		Enabled:    true,
+		Command:    command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: 24 * time.Hour, MaxAttempts: 3},
+		ReceiptKey: bytes.Repeat([]byte{2}, 32),
+		CursorKey:  bytes.Repeat([]byte{3}, 32),
+	}
 	service, e := whisper.NewService(api, log, codec, catalog, admission, fixtureReview{log}, cfg)
 	must(e)
 	anonymous := whisper.ContentInput{Body: " 原文与空白\n", Identity: whisper.IdentityInput{Mode: "anonymous"}}
@@ -188,7 +212,15 @@ func TestPostgresWhisperText(t *testing.T) {
 	if !errors.Is(e, command.ErrNotFound) {
 		t.Fatal("跨主体访问", e)
 	}
-	sent, e := service.ChangePost(ctx, token, uuid.NewString(), "", draft.ID, "submit", whisper.PostInput{ExpectedVersion: 1})
+	sent, e := service.ChangePost(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		draft.ID,
+		"submit",
+		whisper.PostInput{ExpectedVersion: 1},
+	)
 	must(e)
 	if sent.Version != 2 || sent.Status != "scanning" {
 		t.Fatal("送审未推进", sent)
@@ -204,11 +236,27 @@ func TestPostgresWhisperText(t *testing.T) {
 	if !errors.Is(e, command.ErrIdempotencyConflict) {
 		t.Fatal("未拒绝同键不同输入", e)
 	}
-	_, e = service.ChangePost(ctx, token, uuid.NewString(), "", draft.ID, "withdraw", whisper.PostInput{ExpectedVersion: 1})
+	_, e = service.ChangePost(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		draft.ID,
+		"withdraw",
+		whisper.PostInput{ExpectedVersion: 1},
+	)
 	if !errors.Is(e, command.ErrVersionConflict) {
 		t.Fatal("未拒绝旧资源版本", e)
 	}
-	withdrawn, e := service.ChangePost(ctx, token, uuid.NewString(), "", draft.ID, "withdraw", whisper.PostInput{ExpectedVersion: 2})
+	withdrawn, e := service.ChangePost(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		draft.ID,
+		"withdraw",
+		whisper.PostInput{ExpectedVersion: 2},
+	)
 	must(e)
 	if withdrawn.Status != "withdrawn" || withdrawn.CommentsEpoch != 2 {
 		t.Fatal("撤回代次错误")
@@ -225,7 +273,15 @@ func TestPostgresWhisperText(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, e := service.ChangePost(ctx, token, uuid.NewString(), "", draft.ID, "update", whisper.PostInput{ExpectedVersion: 3, ContentInput: changed})
+			_, e := service.ChangePost(
+				ctx,
+				token,
+				uuid.NewString(),
+				"",
+				draft.ID,
+				"update",
+				whisper.PostInput{ExpectedVersion: 3, ContentInput: changed},
+			)
 			results <- e
 		}()
 	}
@@ -250,17 +306,29 @@ func TestPostgresWhisperText(t *testing.T) {
 		t.Fatal("正文版本未推进")
 	}
 	// 半匿名资料变更与隐藏设置即时降级；批准由隔离夹具显式构造，不运行真实审核。
-	semi := whisper.ContentInput{Body: "已审测试文字", Identity: whisper.IdentityInput{Mode: "semi", DictionaryVersion: &version, Tags: &whisper.Tags{Campus: "wushan", Grade: "g1", Gender: "undisclosed"}}}
+	semi := whisper.ContentInput{
+		Body: "已审测试文字",
+		Identity: whisper.IdentityInput{
+			Mode:              "semi",
+			DictionaryVersion: &version,
+			Tags:              &whisper.Tags{Campus: "wushan", Grade: "g1", Gender: "undisclosed"},
+		},
+	}
 	semiDraft, e := service.CreatePost(ctx, otherToken, uuid.NewString(), "", semi)
 	must(e)
 	approve := func(id string, identity whisper.PublicIdentity) {
 		t.Helper()
 		raw, _ := json.Marshal(identity)
 		must(admin.Transaction(func(db *gorm.DB) error {
-			if e := db.Exec("UPDATE public.whisper_post_versions SET review_state='approved',public_body='已审安全文字',public_identity=?,school_related=true,notice_codes='[\"UNVERIFIED_SCHOOL\"]' WHERE post_id=?", string(raw), id).Error; e != nil {
+			if e := db.Exec(
+				"UPDATE public.whisper_post_versions SET review_state='approved',public_body='已审安全文字',public_identity=?,school_related=true,notice_codes='[\"UNVERIFIED_SCHOOL\"]' WHERE post_id=?",
+				string(raw),
+				id,
+			).Error; e != nil {
 				return e
 			}
-			return db.Exec("UPDATE public.whisper_posts SET review_state='approved',publish_intent=true,published_content_version=current_content_version,published_at=date_trunc('second',clock_timestamp()) WHERE id=?", id).Error
+			return db.Exec("UPDATE public.whisper_posts SET review_state='approved',publish_intent=true,published_content_version=current_content_version,published_at=date_trunc('second',clock_timestamp()) WHERE id=?", id).
+				Error
 		}))
 	}
 	approve(semiDraft.ID, whisper.PublicIdentity{Mode: "semi", Label: "不可返回此输入标签", Tags: semi.Identity.Tags, IsAuthor: true})
@@ -305,20 +373,37 @@ func TestPostgresWhisperText(t *testing.T) {
 		t.Fatal("缺字典未关闭半匿名", e)
 	}
 	// 昵称候选经合成批准后才能被引用；新 active 不影响旧快照，撤销旧版本即时隐藏。
-	nick, e := service.SetNickname(ctx, token, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: 1, Label: "合成昵称"})
+	nick, e := service.SetNickname(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		whisper.NicknameInput{ExpectedVersion: 1, Label: "合成昵称"},
+	)
 	must(e)
 	if nick.Active != nil || nick.Candidate == nil || nick.Version != 2 {
 		t.Fatal("候选覆盖 active", nick)
 	}
-	must(admin.Exec("UPDATE public.whisper_nickname_versions SET review_state='approved',public_label='合成昵称' WHERE account_id=? AND nickname_version=1", actor).Error)
+	must(admin.Exec("UPDATE public.whisper_nickname_versions SET review_state='approved',public_label='合成昵称' WHERE account_id=? AND nickname_version=1", actor).
+		Error)
 	must(admin.Exec("UPDATE public.whisper_preferences SET active_nickname_version=1 WHERE account_id=?", actor).Error)
-	named := whisper.ContentInput{Body: "固定昵称测试", Identity: whisper.IdentityInput{Mode: "named", NicknameVersion: &version}}
+	named := whisper.ContentInput{
+		Body:     "固定昵称测试",
+		Identity: whisper.IdentityInput{Mode: "named", NicknameVersion: &version},
+	}
 	namedPost, e := service.CreatePost(ctx, token, uuid.NewString(), "", named)
 	must(e)
 	approve(namedPost.ID, whisper.PublicIdentity{Mode: "named", Label: "合成昵称", IsAuthor: true})
-	_, e = service.SetNickname(ctx, token, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: 2, Label: "合成新昵称"})
+	_, e = service.SetNickname(
+		ctx,
+		token,
+		uuid.NewString(),
+		"",
+		whisper.NicknameInput{ExpectedVersion: 2, Label: "合成新昵称"},
+	)
 	must(e)
-	must(admin.Exec("UPDATE public.whisper_nickname_versions SET review_state='approved',public_label='合成新昵称' WHERE account_id=? AND nickname_version=2", actor).Error)
+	must(admin.Exec("UPDATE public.whisper_nickname_versions SET review_state='approved',public_label='合成新昵称' WHERE account_id=? AND nickname_version=2", actor).
+		Error)
 	must(admin.Exec("UPDATE public.whisper_preferences SET active_nickname_version=2 WHERE account_id=?", actor).Error)
 	public, e = service.GetPost(ctx, "", "", namedPost.ID, false)
 	must(e)
@@ -346,7 +431,11 @@ func TestPostgresWhisperText(t *testing.T) {
 		t.Fatal("游标跨入口复用", e)
 	}
 	// 同步隐私屏障遮蔽所有公开读取与本人原稿，幂等回放也不能回放旧正文。
-	must(admin.Exec("INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'whisper_post',?,1,3)", uuid.NewString(), draft.ID).Error)
+	must(admin.Exec(
+		"INSERT INTO public.privacy_holds(id,target_kind,target_id,hold_epoch,required_content_version) VALUES (?,'whisper_post',?,1,3)",
+		uuid.NewString(),
+		draft.ID,
+	).Error)
 	replay, e = service.CreatePost(ctx, token, key, "", anonymous)
 	must(e)
 	if replay.Status != "privacy_hold" || replay.Body != nil || replay.IdentityInput != nil {
@@ -354,7 +443,13 @@ func TestPostgresWhisperText(t *testing.T) {
 	}
 	noReview, e := whisper.NewService(api, log, codec, catalog, admission, nil, cfg)
 	must(e)
-	_, e = noReview.SetNickname(ctx, otherToken, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: 1, Label: "无法送审"})
+	_, e = noReview.SetNickname(
+		ctx,
+		otherToken,
+		uuid.NewString(),
+		"",
+		whisper.NicknameInput{ExpectedVersion: 1, Label: "无法送审"},
+	)
 	if !errors.Is(e, command.ErrUnavailable) {
 		t.Fatal("缺审核适配仍接受", e)
 	}
@@ -388,11 +483,35 @@ func TestPostgresWhisperText(t *testing.T) {
 	wireID := created["id"].(string)
 	request("GET", "/api/v1/me/whispers/posts/"+wireID, "", "OwnerPostResponse", 200)
 	request("GET", "/api/v1/me/whispers/posts?limit=1", "", "OwnerPostPageResponse", 200)
-	request("PUT", "/api/v1/me/whispers/posts/"+wireID, `{"expected_version":1,"body":"HTTP 合成新稿","identity":{"mode":"anonymous"}}`, "OwnerPostResponse", 200)
-	request("POST", "/api/v1/me/whispers/posts/"+wireID+"/submit", `{"expected_version":2}`, "OwnerPostResponse", 202)
-	request("POST", "/api/v1/me/whispers/posts/"+wireID+"/withdraw", `{"expected_version":3}`, "OwnerPostResponse", 200)
+	request(
+		"PUT",
+		"/api/v1/me/whispers/posts/"+wireID,
+		`{"expected_version":1,"body":"HTTP 合成新稿","identity":{"mode":"anonymous"}}`,
+		"OwnerPostResponse",
+		200,
+	)
+	request(
+		"POST",
+		"/api/v1/me/whispers/posts/"+wireID+"/submit",
+		`{"expected_version":2}`,
+		"OwnerPostResponse",
+		202,
+	)
+	request(
+		"POST",
+		"/api/v1/me/whispers/posts/"+wireID+"/withdraw",
+		`{"expected_version":3}`,
+		"OwnerPostResponse",
+		200,
+	)
 	request("GET", "/api/v1/me/whispers/nickname", "", "NicknameStateResponse", 200)
-	request("PUT", "/api/v1/me/whispers/nickname", `{"expected_version":1,"label":"HTTP 合成昵称"}`, "NicknameStateResponse", 202)
+	request(
+		"PUT",
+		"/api/v1/me/whispers/nickname",
+		`{"expected_version":1,"label":"HTTP 合成昵称"}`,
+		"NicknameStateResponse",
+		202,
+	)
 	request("GET", "/api/v1/whispers/posts", "", "PublicPostPageResponse", 200)
 	visible := request("GET", "/api/v1/whispers/posts/"+semiDraft.ID, "", "PublicPostResponse", 200)
 	if visible["my_hug"] == nil {
@@ -408,14 +527,23 @@ func TestPostgresWhisperText(t *testing.T) {
 	retained, e := service.CreatePost(ctx, otherToken, retainedKey, "", anonymous)
 	must(e)
 	hash := sha256.Sum256([]byte(retainedKey))
-	must(admin.Exec("UPDATE public.command_receipts SET expires_at=clock_timestamp()-interval '1 day' WHERE actor_id=? AND key_hash=?", other, hash[:]).Error)
+	must(admin.Exec(
+		"UPDATE public.command_receipts SET expires_at=clock_timestamp()-interval '1 day' WHERE actor_id=? AND key_hash=?",
+		other,
+		hash[:],
+	).Error)
 	calls := admission.calls
 	again, e := service.CreatePost(ctx, otherToken, retainedKey, "", anonymous)
 	must(e)
 	if again.ID != retained.ID || admission.calls != calls {
 		t.Fatal("过期键重新执行")
 	}
-	must(admin.Exec("UPDATE public.command_receipts SET result_ref=? WHERE actor_id=? AND key_hash=?", uuid.NewString(), other, hash[:]).Error)
+	must(admin.Exec(
+		"UPDATE public.command_receipts SET result_ref=? WHERE actor_id=? AND key_hash=?",
+		uuid.NewString(),
+		other,
+		hash[:],
+	).Error)
 	_, e = service.CreatePost(ctx, otherToken, retainedKey, "", anonymous)
 	if !errors.Is(e, command.ErrNotFound) || admission.calls != calls {
 		t.Fatal("失效结果重新创建", e)
@@ -425,7 +553,13 @@ func TestPostgresWhisperText(t *testing.T) {
 	if !errors.Is(e, whisper.ErrVerificationRequired) {
 		t.Fatal("未认证仍可发帖", e)
 	}
-	_, e = service.SetNickname(ctx, otherToken, uuid.NewString(), "", whisper.NicknameInput{ExpectedVersion: 2, Label: "未认证合成昵称"})
+	_, e = service.SetNickname(
+		ctx,
+		otherToken,
+		uuid.NewString(),
+		"",
+		whisper.NicknameInput{ExpectedVersion: 2, Label: "未认证合成昵称"},
+	)
 	must(e)
 	must(admin.Exec("UPDATE public.accounts SET verification='verified' WHERE id=?", other).Error)
 	admission.failure = &whisper.RateError{Seconds: 7}

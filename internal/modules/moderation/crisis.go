@@ -39,6 +39,7 @@ func encryptEvidence(ctx context.Context, codec *securedata.Codec, purpose, id s
 	raw, e := json.Marshal(env)
 	return raw, env.KeyRef, e
 }
+
 func decryptEvidence(ctx context.Context, codec *securedata.Codec, purpose, id string, b json.RawMessage, out any) error {
 	var env securedata.Envelope
 	if json.Unmarshal(b, &env) != nil {
@@ -59,7 +60,8 @@ type crisisSubject struct {
 
 // capturable 拒绝已取消、撤回、换版或删除的普通内容升格为永久证据。
 func capturable(row current) bool {
-	if row.account.Lifecycle != "active" || !currentBinding(row) || row.wish.DraftDeletedAt != nil || row.task.Status == "obsolete" || row.task.Status == "cancelled" {
+	if row.account.Lifecycle != "active" || !currentBinding(row) || row.wish.DraftDeletedAt != nil || row.task.Status == "obsolete" ||
+		row.task.Status == "cancelled" {
 		return false
 	}
 	if row.message != nil && row.message.Status == "cancelled" {
@@ -101,7 +103,15 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 		if json.Unmarshal(secrets[0].Envelope, &env) != nil {
 			return "", command.ErrUnavailable
 		}
-		b, e := codec.Decrypt(ctx, securedata.Binding{Purpose: "student_number", ObjectID: row.account.ID, Version: uint64(secrets[0].ContentVersion)}, env)
+		b, e := codec.Decrypt(
+			ctx,
+			securedata.Binding{
+				Purpose:  "student_number",
+				ObjectID: row.account.ID,
+				Version:  uint64(secrets[0].ContentVersion),
+			},
+			env,
+		)
 		if e != nil {
 			return "", e
 		}
@@ -119,10 +129,39 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 	}
 	handoff := HandoffAt(now)
 	for _, v := range []any{
-		&entity.EvidenceCase{ID: evidenceID, Kind: "crisis", SourceRef: row.registry.ID, Status: "open", CreatedAt: now},
-		&entity.EvidenceCrisisCase{ID: caseID, EvidenceCaseID: evidenceID, ContentType: row.registry.Kind, Status: "pending_handling", DetectedAt: now, Version: 1, SourceTaskID: &row.task.ID, HandoffAt: &handoff},
-		&entity.EvidenceItem{ID: itemID, CaseID: evidenceID, SubjectCipher: identity, BodyCipher: body, KeyRef: key, CreatedAt: now},
-		&entity.ContentRestriction{ID: uuid.NewString(), ContentID: row.registry.ID, Kind: "crisis", SourceRef: caseID, Active: true, Version: 1},
+		&entity.EvidenceCase{
+			ID:        evidenceID,
+			Kind:      "crisis",
+			SourceRef: row.registry.ID,
+			Status:    "open",
+			CreatedAt: now,
+		},
+		&entity.EvidenceCrisisCase{
+			ID:             caseID,
+			EvidenceCaseID: evidenceID,
+			ContentType:    row.registry.Kind,
+			Status:         "pending_handling",
+			DetectedAt:     now,
+			Version:        1,
+			SourceTaskID:   &row.task.ID,
+			HandoffAt:      &handoff,
+		},
+		&entity.EvidenceItem{
+			ID:            itemID,
+			CaseID:        evidenceID,
+			SubjectCipher: identity,
+			BodyCipher:    body,
+			KeyRef:        key,
+			CreatedAt:     now,
+		},
+		&entity.ContentRestriction{
+			ID:        uuid.NewString(),
+			ContentID: row.registry.ID,
+			Kind:      "crisis",
+			SourceRef: caseID,
+			Active:    true,
+			Version:   1,
+		},
 		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "care", Status: "pending", NextAt: now},
 		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "operator", Status: "pending", NextAt: now},
 	} {
@@ -133,7 +172,11 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 	// 清除所有公开投影；已送达消息序号保留，由当前危机限制屏蔽正文。
 	switch row.registry.Kind {
 	case "wish":
-		if e = db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.registry.ContentVersion).Update("public_body", nil).Error; e != nil {
+		if e = db.Model(&entity.WishVersion{}).Where(
+			"wish_id=? AND content_version=?",
+			row.wish.ID,
+			row.registry.ContentVersion,
+		).Update("public_body", nil).Error; e != nil {
 			return "", e
 		}
 		updates := map[string]any{"version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}
@@ -142,7 +185,11 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 		}
 		e = db.Model(&entity.Wish{}).Where("id=?", row.wish.ID).Updates(updates).Error
 	case "story":
-		e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.registry.ContentVersion).Update("public_body", nil).Error
+		e = db.Model(&entity.StoryVersion{}).Where(
+			"wish_id=? AND story_version=?",
+			row.wish.ID,
+			row.registry.ContentVersion,
+		).Update("public_body", nil).Error
 	case "application":
 		e = db.Model(&entity.Application{}).Where("id=?", row.registry.EntityID).Update("public_message_cipher", nil).Error
 	}
@@ -156,6 +203,7 @@ func crisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) 
 	}
 	return
 }
+
 func evidenceItem(db *gorm.DB, caseID string) (v entity.EvidenceItem, err error) {
 	err = db.Where("case_id=?", caseID).Take(&v).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -163,11 +211,19 @@ func evidenceItem(db *gorm.DB, caseID string) (v entity.EvidenceItem, err error)
 	}
 	return
 }
+
 func crisisAction(ctx context.Context, db *gorm.DB, codec *securedata.Codec, c entity.EvidenceCrisisCase, actor, action, reason string, now time.Time) error {
 	id := uuid.NewString()
 	cipher, _, e := encryptEvidence(ctx, codec, "crisis_reason", id, reason)
 	if e != nil {
 		return e
 	}
-	return db.Create(&entity.EvidenceAction{ID: id, CaseID: c.EvidenceCaseID, Actor: actor, Action: action, At: now, ReasonCipher: cipher}).Error
+	return db.Create(&entity.EvidenceAction{
+		ID:           id,
+		CaseID:       c.EvidenceCaseID,
+		Actor:        actor,
+		Action:       action,
+		At:           now,
+		ReasonCipher: cipher,
+	}).Error
 }

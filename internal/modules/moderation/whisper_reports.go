@@ -53,6 +53,7 @@ func whisperReport(db *gorm.DB, id string) (v entity.Report, err error) {
 	err = db.Where("id=? AND target_kind IN ('whisper_post','whisper_comment')", id).Take(&v).Error
 	return v, missingWhisper(err)
 }
+
 func whisperReportSummary(db *gorm.DB, v entity.Report) (out WhisperReportSummary, err error) {
 	var c entity.ContentRegistry
 	if v.ContentID == nil {
@@ -71,8 +72,16 @@ func whisperReportSummary(db *gorm.DB, v entity.Report) (out WhisperReportSummar
 	if state == "processing" {
 		state = "pending"
 	}
-	return WhisperReportSummary{v.ID, v.Version, WhisperRef{c.Kind, c.EntityID, c.ContentVersion}, state, v.CreatedAt.UTC().Truncate(time.Second).Format(time.RFC3339), []string{}}, nil
+	return WhisperReportSummary{
+		v.ID,
+		v.Version,
+		WhisperRef{c.Kind, c.EntityID, c.ContentVersion},
+		state,
+		v.CreatedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+		[]string{},
+	}, nil
 }
+
 func whisperPublicBody(db *gorm.DB, r whisperSource) (string, error) {
 	var rows []struct{ Body string }
 	if e := db.Raw("SELECT body FROM public.whisper_public_report_body(?,?)", r.registry.Kind, r.ID).Scan(&rows).Error; e != nil {
@@ -87,10 +96,20 @@ func whisperPublicBody(db *gorm.DB, r whisperSource) (string, error) {
 // CreateWhisperReport 在本人会话及内容参与者锁内验证可见性，不允许自身或过期版本举报。
 func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid string, in WhisperReportInput) (out WhisperReportAck, err error) {
 	defer s.done("whisper.report.create", rid, time.Now(), &err)
-	if (in.Source.Kind != "whisper_post" && in.Source.Kind != "whisper_comment") || !validID(in.Source.ID) || in.Source.ContentVersion < 1 || !text(in.TypeCode, 32) || len([]rune(in.Description)) > 500 {
+	if (in.Source.Kind != "whisper_post" && in.Source.Kind != "whisper_comment") || !validID(in.Source.ID) ||
+		in.Source.ContentVersion < 1 ||
+		!text(in.TypeCode, 32) ||
+		len([]rune(in.Description)) > 500 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.report.create", Method: "POST", ResourcePath: "/api/v1/whispers/reports", ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
+	d := command.Definition{
+		Kind:          "whisper.report.create",
+		Method:        "POST",
+		ResourcePath:  "/api/v1/whispers/reports",
+		ActorKind:     "student",
+		Access:        command.Ordinary,
+		RetainReceipt: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		r, e := whisperTarget(ctx, db, in.Source.Kind, in.Source.ID)
 		if e != nil {
@@ -118,13 +137,30 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 		if n != 1 {
 			return "", command.ErrInvalid
 		}
-		if e = db.Raw(`SELECT (SELECT count(*) FROM public.penalties WHERE account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp()))+(SELECT count(*) FROM public.blocks WHERE (owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?))`, tx.Actor().ID, tx.Actor().ID, r.OwnerID, r.OwnerID, tx.Actor().ID).Scan(&n).Error; e != nil {
+		if e = db.Raw(
+			`SELECT (SELECT count(*) FROM public.penalties WHERE account_id=? AND action_kind IN ('mute','ban') AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp()))+(SELECT count(*) FROM public.blocks WHERE (owner_id=? AND target_id=?) OR (owner_id=? AND target_id=?))`,
+			tx.Actor().ID,
+			tx.Actor().ID,
+			r.OwnerID,
+			r.OwnerID,
+			tx.Actor().ID,
+		).Scan(&n).Error; e != nil {
 			return "", e
 		}
 		if n > 0 {
 			return "", command.ErrForbidden
 		}
-		v := entity.Report{ID: uuid.NewString(), Version: 1, ReporterID: tx.Actor().ID, ContentID: &r.registry.ID, TargetKind: r.registry.Kind, TargetID: r.ID, TypeCode: in.TypeCode, Status: "pending", CreatedAt: tx.Now()}
+		v := entity.Report{
+			ID:         uuid.NewString(),
+			Version:    1,
+			ReporterID: tx.Actor().ID,
+			ContentID:  &r.registry.ID,
+			TargetKind: r.registry.Kind,
+			TargetID:   r.ID,
+			TypeCode:   in.TypeCode,
+			Status:     "pending",
+			CreatedAt:  tx.Now(),
+		}
 		if in.Description != "" {
 			v.DescriptionCipher, _, e = encryptEvidence(ctx, s.codec, "report_description", v.ID, in.Description)
 			if e != nil {
@@ -144,7 +180,11 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 		out = WhisperReportAck{v.ID, "pending"}
 		return nil
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in)})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in)},
+	)
 	return
 }
 
@@ -249,7 +289,15 @@ func (s *Service) DecideWhisperReport(ctx context.Context, token, key, rid, id s
 	if !validID(id) || in.ExpectedVersion < 1 || !text(in.Reason, 500) || (in.Decision != "confirmed" && in.Decision != "dismissed") {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.report.decide", Method: "POST", ResourcePath: "/api/v1/admin/whispers/reports/" + id + "/decision", ActorKind: "admin", AllowedRoles: whisperGovernanceRoles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.report.decide",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/whispers/reports/" + id + "/decision",
+		ActorKind:            "admin",
+		AllowedRoles:         whisperGovernanceRoles,
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		v, e := whisperReport(db, id)
 		if e != nil {
@@ -280,7 +328,12 @@ func (s *Service) DecideWhisperReport(ctx context.Context, token, key, rid, id s
 		if _, e = whisperPublicBody(db, r); e != nil {
 			return "", e
 		}
-		return id, db.Model(&entity.Report{}).Where("id=?", id).Updates(map[string]any{"status": map[string]string{"confirmed": "resolved", "dismissed": "rejected"}[in.Decision], "decision_reason": in.Reason, "handler_id": tx.Actor().ID, "version": gorm.Expr("version+1")}).Error
+		return id, db.Model(&entity.Report{}).Where("id=?", id).Updates(map[string]any{
+			"status":          map[string]string{"confirmed": "resolved", "dismissed": "rejected"}[in.Decision],
+			"decision_reason": in.Reason,
+			"handler_id":      tx.Actor().ID,
+			"version":         gorm.Expr("version+1"),
+		}).Error
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		v, e := whisperReport(tx.DB().WithContext(ctx), ref)
@@ -290,6 +343,20 @@ func (s *Service) DecideWhisperReport(ctx context.Context, token, key, rid, id s
 		out, e = whisperReportSummary(tx.DB(), v)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Report, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.Report, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	return
 }

@@ -24,7 +24,11 @@ func RegisterAdminUsers(r *gin.Engine, service AdminUsersAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1/admin/users")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Next()
+	})
 	g.GET("", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {

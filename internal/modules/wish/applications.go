@@ -97,10 +97,17 @@ func (s *Service) Apply(ctx context.Context, token, key, rid, wishID string, in 
 		return out, command.ErrInvalid
 	}
 	id, registryID, taskID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	d := command.Definition{Kind: "application.create", Method: "POST", ResourcePath: "/api/v1/wishes/" + wishID + "/applications", ActorKind: "student", Access: command.Verified,
+	d := command.Definition{
+		Kind:         "application.create",
+		Method:       "POST",
+		ResourcePath: "/api/v1/wishes/" + wishID + "/applications",
+		ActorKind:    "student",
+		Access:       command.Verified,
+
 		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 			return DiscoverInteraction(ctx, db, wishID)
-		}}
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		a, e := readAggregate(ctx, tx.DB(), wishID, false)
 		if e != nil {
@@ -141,7 +148,12 @@ func (s *Service) Apply(ctx context.Context, token, key, rid, wishID string, in 
 			return "", e
 		}
 		var n int64
-		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).Where("wish_id=? AND applicant_id=? AND status IN ?", wishID, tx.Actor().ID, []string{"pending_scan", "pending_review", "active"}).Count(&n).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).Where(
+			"wish_id=? AND applicant_id=? AND status IN ?",
+			wishID,
+			tx.Actor().ID,
+			[]string{"pending_scan", "pending_review", "active"},
+		).Count(&n).Error; e != nil {
 			return "", e
 		}
 		if n > 0 {
@@ -151,21 +163,56 @@ func (s *Service) Apply(ctx context.Context, token, key, rid, wishID string, in 
 		if e != nil {
 			return "", e
 		}
-		row := entity.Application{ID: id, WishID: wishID, WishContentVersion: in.WishContentVersion, ApplicantID: tx.Actor().ID, MessageCipher: cipher, ContentVersion: 1, OwnerEpoch: &a.account.AuthEpoch}
+		row := entity.Application{
+			ID:                 id,
+			WishID:             wishID,
+			WishContentVersion: in.WishContentVersion,
+			ApplicantID:        tx.Actor().ID,
+			MessageCipher:      cipher,
+			ContentVersion:     1,
+			OwnerEpoch:         &a.account.AuthEpoch,
+		}
 		if e = tx.DB().WithContext(ctx).Create(&row).Error; e != nil {
 			return "", e
 		}
-		if e = tx.DB().WithContext(ctx).Create(&entity.ContentRegistry{ID: registryID, Kind: "application", EntityID: id, AuthorID: row.ApplicantID, ContentVersion: 1, SchoolDetectionVersion: "pending"}).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Create(&entity.ContentRegistry{
+			ID:                     registryID,
+			Kind:                   "application",
+			EntityID:               id,
+			AuthorID:               row.ApplicantID,
+			ContentVersion:         1,
+			SchoolDetectionVersion: "pending",
+		}).Error; e != nil {
 			return "", e
 		}
 		epoch := a.row.RestrictionEpoch
-		if e = tx.DB().WithContext(ctx).Create(&entity.ModerationTask{ID: taskID, ContentID: registryID, ContentVersion: 1, SubjectEpoch: tx.Actor().AuthEpoch, RestrictionEpoch: &epoch, HoldEpoch: a.snapshot.HoldEpoch, CreatedAt: tx.Now()}).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Create(&entity.ModerationTask{
+			ID:               taskID,
+			ContentID:        registryID,
+			ContentVersion:   1,
+			SubjectEpoch:     tx.Actor().AuthEpoch,
+			RestrictionEpoch: &epoch,
+			HoldEpoch:        a.snapshot.HoldEpoch,
+			CreatedAt:        tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
 		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).Where("id=?", id).Update("review_task_id", taskID).Error; e != nil {
 			return "", e
 		}
-		if e = durable.Append(ctx, tx.DB(), s.policy.logger, contentreview.Route(), durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: taskID, AggregateVersion: 1}); e != nil {
+		if e = durable.Append(
+			ctx,
+			tx.DB(),
+			s.policy.logger,
+			contentreview.Route(),
+			durable.Draft{
+				WorkID:           uuid.NewString(),
+				OperationID:      uuid.NewString(),
+				EventID:          uuid.NewString(),
+				AggregateID:      taskID,
+				AggregateVersion: 1,
+			},
+		); e != nil {
 			return "", e
 		}
 		return id, nil
@@ -181,7 +228,11 @@ func (s *Service) Apply(ctx context.Context, token, key, rid, wishID string, in 
 		out, e = s.applicationResult(ctx, tx.DB(), row, tx.Now(), false)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.applicationDigest(in)})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.applicationDigest(in)},
+	)
 	return
 }
 
@@ -196,9 +247,17 @@ func (s *Service) WithdrawApplication(ctx context.Context, token, key, rid, id s
 	if !validWishID(id) || !validCommandKey(key) || version < 1 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "application.withdraw", Method: "POST", ResourcePath: "/api/v1/applications/" + id + "/withdraw", ActorKind: "student", Access: command.Verified, RequiredExpectations: []string{"expected_version"}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return applicationPlan(ctx, db, id)
-	}}
+	d := command.Definition{
+		Kind:                 "application.withdraw",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/applications/" + id + "/withdraw",
+		ActorKind:            "student",
+		Access:               command.Verified,
+		RequiredExpectations: []string{"expected_version"},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			return applicationPlan(ctx, db, id)
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		row, e := readApplication(ctx, tx.DB(), id)
 		if e != nil {
@@ -241,7 +300,20 @@ func (s *Service) WithdrawApplication(ctx context.Context, token, key, rid, id s
 		out, e = s.applicationResult(ctx, tx.DB(), row, tx.Now(), false)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Application, ID: id}, Value: version}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.Application, ID: id},
+				Value:  version,
+			}},
+		},
+	)
 	return
 }
 
@@ -259,10 +331,17 @@ func (s *Service) AcceptApplication(ctx context.Context, token, key, rid, id str
 	}
 	var wishID string
 	matchID, conversationID := uuid.NewString(), uuid.NewString()
-	d := command.Definition{Kind: "application.accept", Method: "POST", ResourcePath: "/api/v1/applications/" + id + "/accept", ActorKind: "student", Access: command.Verified,
+	d := command.Definition{
+		Kind:         "application.accept",
+		Method:       "POST",
+		ResourcePath: "/api/v1/applications/" + id + "/accept",
+		ActorKind:    "student",
+		Access:       command.Verified,
+
 		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 			return applicationPlan(ctx, db, id)
-		}}
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		row, e := readApplication(ctx, tx.DB(), id)
 		if e != nil {
@@ -330,13 +409,24 @@ func (s *Service) AcceptApplication(ctx context.Context, token, key, rid, id str
 		if len(row.PublicMessageCipher) == 0 {
 			return "", command.ErrConflict
 		}
-		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).Where("id=?", id).Updates(map[string]any{"status": "accepted", "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Model(&entity.Application{}).
+			Where("id=?", id).
+			Updates(map[string]any{"status": "accepted", "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return "", e
 		}
 		if e = invalidateApplications(ctx, tx, wishID, "matched_elsewhere"); e != nil {
 			return "", e
 		}
-		if e = tx.DB().WithContext(ctx).Create(&entity.Match{ID: matchID, ApplicationID: &id, WishID: wishID, RequesterID: a.row.OwnerID, HelperID: row.ApplicantID, Version: 1, StartedAt: tx.Now()}).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Create(&entity.Match{
+			ID:            matchID,
+			ApplicationID: &id,
+			WishID:        wishID,
+			RequesterID:   a.row.OwnerID,
+			HelperID:      row.ApplicantID,
+			Version:       1,
+			StartedAt:     tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
 		if e = tx.DB().WithContext(ctx).Create(&entity.Conversation{ID: conversationID, MatchID: matchID, CreatedAt: tx.Now()}).Error; e != nil {
@@ -355,7 +445,13 @@ func (s *Service) AcceptApplication(ctx context.Context, token, key, rid, id str
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var m entity.Match
-		e := tx.DB().WithContext(ctx).Where("id=? AND application_id=? AND wish_id=? AND requester_id=? AND status='current'", ref, id, wishID, tx.Actor().ID).Take(&m).Error
+		e := tx.DB().WithContext(ctx).Where(
+			"id=? AND application_id=? AND wish_id=? AND requester_id=? AND status='current'",
+			ref,
+			id,
+			wishID,
+			tx.Actor().ID,
+		).Take(&m).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
 			return command.ErrConflict
 		}

@@ -46,6 +46,7 @@ func (testKeys) Wrap(_ context.Context, data []byte) (string, []byte, error) {
 	}
 	return "synthetic-wrap", append(n, g.Seal(nil, n, data, nil)...), nil
 }
+
 func (testKeys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	b, _ := aes.NewCipher(bytes.Repeat([]byte{41}, 32))
 	g, _ := cipher.NewGCM(b)
@@ -54,6 +55,7 @@ func (testKeys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, erro
 	}
 	return g.Open(nil, data[:g.NonceSize()], data[g.NonceSize():], nil)
 }
+
 func (testKeys) Digest(_ context.Context, ref, purpose string, data []byte) ([]byte, error) {
 	return securedata.LookupDigest(bytes.Repeat([]byte{42}, 32), purpose, string(data))
 }
@@ -76,8 +78,14 @@ func (a *analyzer) Analyze(ctx context.Context, input wish.Content) (moderation.
 	if ctx.Err() != nil || failure {
 		return moderation.Assessment{}, errors.New("SYNTHETIC_PROVIDER_SECRET")
 	}
-	return moderation.Assessment{Body: strings.ReplaceAll(input.Body, "合成个人姓名", "[已脱敏]"), Tags: input.IdentityTags, OrdinaryHit: strings.Contains(input.Body, "隐私命中"), DetectorVersion: "synthetic-v1"}, nil
+	return moderation.Assessment{
+		Body:            strings.ReplaceAll(input.Body, "合成个人姓名", "[已脱敏]"),
+		Tags:            input.IdentityTags,
+		OrdinaryHit:     strings.Contains(input.Body, "隐私命中"),
+		DetectorVersion: "synthetic-v1",
+	}, nil
 }
+
 func (a *analyzer) set(failure bool, hook func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -151,7 +159,9 @@ func TestModerationCore(t *testing.T) {
 	must(testconfig.ApplyDatabaseRoles(ctx, root, logger))
 	must(testconfig.ApplyDatabaseRoles(ctx, root, logger))
 	var missing int64
-	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
+	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).
+		Scan(&missing).
+		Error)
 	if missing != 0 {
 		t.Fatal("缺表字段中文注释")
 	}
@@ -160,22 +170,59 @@ func TestModerationCore(t *testing.T) {
 	codec, e := securedata.New(testKeys{}, logger)
 	must(e)
 	commandConfig := command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}
-	service, e := moderation.New(adminDB, logger, codec, moderation.Config{Command: commandConfig, CursorKey: bytes.Repeat([]byte{50}, 32), MaxEntries: 100})
+	service, e := moderation.New(
+		adminDB,
+		logger,
+		codec,
+		moderation.Config{Command: commandConfig, CursorKey: bytes.Repeat([]byte{50}, 32), MaxEntries: 100},
+	)
 	must(e)
-	wishes, e := wish.NewService(apiDB, logger, codec, nil, wish.ServiceConfig{Command: commandConfig, ReceiptKey: bytes.Repeat([]byte{51}, 32)})
+	wishes, e := wish.NewService(
+		apiDB,
+		logger,
+		codec,
+		nil,
+		wish.ServiceConfig{Command: commandConfig, ReceiptKey: bytes.Repeat([]byte{51}, 32)},
+	)
 	must(e)
 	provider := &analyzer{}
-	worker, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+	worker, e := moderation.NewWorker(
+		workerDB,
+		logger,
+		codec,
+		provider,
+		moderation.WorkerConfig{
+			AnalysisTimeout: 5 * time.Second,
+			Consumer: durable.ConsumerConfig{
+				Timeout:     10 * time.Second,
+				LockTimeout: time.Second,
+				RetryDelay:  time.Millisecond,
+				MaxAttempts: 3,
+			},
+		},
+	)
 	must(e)
 	admin, adminToken, owner, studentToken := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	credential := "synthetic-admin"
 	must(root.Create(&entity.AdminAccount{ID: admin, CredentialRef: &credential}).Error)
 	must(root.Create(&entity.AdminRoleBinding{AdminID: admin, Role: "review_operator"}).Error)
 	hash := sha256.Sum256([]byte(adminToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &admin, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &admin,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	must(root.Create(&entity.Account{ID: owner, Nickname: "合成作者", Verification: "verified"}).Error)
 	hash = sha256.Sum256([]byte(studentToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &owner, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AccountID: &owner,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	head := func(k string) entity.WordlistHead {
 		t.Helper()
 		out, e := service.Wordlists(ctx, adminToken, "heads", "", 100)
@@ -191,21 +238,50 @@ func TestModerationCore(t *testing.T) {
 	publish := func(k string, words []string) moderation.Wordlist {
 		t.Helper()
 		h := head(k)
-		draft, e := service.CreateWordlist(ctx, adminToken, uuid.NewString(), "create-rule", moderation.WordlistInput{Kind: k, Entries: words, ExpectedVersion: h.Version})
+		draft, e := service.CreateWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"create-rule",
+			moderation.WordlistInput{Kind: k, Entries: words, ExpectedVersion: h.Version},
+		)
 		must(e)
 		h = head(k)
-		out, e := service.PublishWordlist(ctx, adminToken, uuid.NewString(), "publish-rule", draft.ID, moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: h.Version})
+		out, e := service.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"publish-rule",
+			draft.ID,
+			moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: h.Version},
+		)
 		must(e)
 		return out
 	}
 	submit := func(body string) (wish.CreatedDraft, durable.Event) {
 		t.Helper()
-		draft, e := wishes.Create(ctx, studentToken, uuid.NewString(), "wish-create", wish.ContentInput{Category: "help", Campus: "wushan", Body: body})
+		draft, e := wishes.Create(
+			ctx,
+			studentToken,
+			uuid.NewString(),
+			"wish-create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: body},
+		)
 		must(e)
-		draft, e = wishes.Submit(ctx, studentToken, uuid.NewString(), "wish-submit", draft.ID, draft.Version, draft.ContentVersion)
+		draft, e = wishes.Submit(
+			ctx,
+			studentToken,
+			uuid.NewString(),
+			"wish-submit",
+			draft.ID,
+			draft.Version,
+			draft.ContentVersion,
+		)
 		must(e)
 		var event durable.Event
-		must(root.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND e.superseded_at IS NULL`, draft.ID).Scan(&event).Error)
+		must(root.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND e.superseded_at IS NULL`, draft.ID).
+			Scan(&event).
+			Error)
 		if event.EventID == "" {
 			t.Fatal("未持久化事件")
 		}
@@ -226,7 +302,11 @@ func TestModerationCore(t *testing.T) {
 	checkReceipt := func(event durable.Event) {
 		t.Helper()
 		var n int64
-		must(root.Model(&entity.ConsumerReceipt{}).Table("public.consumer_receipts AS r").Joins("JOIN public.work_items w ON w.operation_id=r.operation_id").Where("w.id=? AND r.consumer_kind='wish_review.scan'", event.CorrelationID).Count(&n).Error)
+		must(root.Model(&entity.ConsumerReceipt{}).Table("public.consumer_receipts AS r").
+			Joins("JOIN public.work_items w ON w.operation_id=r.operation_id").
+			Where("w.id=? AND r.consumer_kind='wish_review.scan'", event.CorrelationID).
+			Count(&n).
+			Error)
 		if n != 1 {
 			t.Fatal("结果与领域回执未唯一提交")
 		}
@@ -248,25 +328,64 @@ func TestModerationCore(t *testing.T) {
 	publish("crisis", []string{"危机标记"})
 	t.Run("双版本完整快照及旧基准拒绝", func(t *testing.T) {
 		h := head("ordinary_violation")
-		a, e := service.CreateWordlist(ctx, adminToken, "same-rule-key", "draft-a", moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中"}, ExpectedVersion: h.Version})
+		a, e := service.CreateWordlist(
+			ctx,
+			adminToken,
+			"same-rule-key",
+			"draft-a",
+			moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中"}, ExpectedVersion: h.Version},
+		)
 		must(e)
-		again, e := service.CreateWordlist(ctx, adminToken, "same-rule-key", "draft-replay", moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中"}, ExpectedVersion: h.Version})
+		again, e := service.CreateWordlist(
+			ctx,
+			adminToken,
+			"same-rule-key",
+			"draft-replay",
+			moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中"}, ExpectedVersion: h.Version},
+		)
 		must(e)
 		if a.ID != again.ID {
 			t.Fatal("重放新建了快照")
 		}
 		h = head(h.Kind)
-		b, e := service.CreateWordlist(ctx, adminToken, uuid.NewString(), "draft-b", moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中", "新增标记"}, ExpectedVersion: h.Version})
+		b, e := service.CreateWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"draft-b",
+			moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中", "新增标记"}, ExpectedVersion: h.Version},
+		)
 		must(e)
 		h = head(h.Kind)
-		_, e = service.PublishWordlist(ctx, adminToken, uuid.NewString(), "stale-version", b.ID, moderation.WordlistPublish{ExpectedVersion: 99, ExpectedHeadVersion: h.Version})
+		_, e = service.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"stale-version",
+			b.ID,
+			moderation.WordlistPublish{ExpectedVersion: 99, ExpectedHeadVersion: h.Version},
+		)
 		if e != command.ErrVersionConflict {
 			t.Fatal("草案版本未核验", e)
 		}
-		_, e = service.PublishWordlist(ctx, adminToken, uuid.NewString(), "publish-b", b.ID, moderation.WordlistPublish{ExpectedVersion: b.Version, ExpectedHeadVersion: h.Version})
+		_, e = service.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"publish-b",
+			b.ID,
+			moderation.WordlistPublish{ExpectedVersion: b.Version, ExpectedHeadVersion: h.Version},
+		)
 		must(e)
 		h = head(h.Kind)
-		_, e = service.PublishWordlist(ctx, adminToken, uuid.NewString(), "stale-base", a.ID, moderation.WordlistPublish{ExpectedVersion: a.Version, ExpectedHeadVersion: h.Version})
+		_, e = service.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"stale-base",
+			a.ID,
+			moderation.WordlistPublish{ExpectedVersion: a.Version, ExpectedHeadVersion: h.Version},
+		)
 		if e != command.ErrConflict {
 			t.Fatal("旧生效基准覆盖新规则", e)
 		}
@@ -275,7 +394,14 @@ func TestModerationCore(t *testing.T) {
 		if old.Status != "archived" {
 			t.Fatal("旧版未归档")
 		}
-		_, e = service.PublishWordlist(ctx, adminToken, uuid.NewString(), "archive-publish", old.ID, moderation.WordlistPublish{ExpectedVersion: old.Version, ExpectedHeadVersion: h.Version})
+		_, e = service.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"archive-publish",
+			old.ID,
+			moderation.WordlistPublish{ExpectedVersion: old.Version, ExpectedHeadVersion: h.Version},
+		)
 		if e != command.ErrConflict {
 			t.Fatal("归档可重新发布", e)
 		}
@@ -315,12 +441,26 @@ func TestModerationCore(t *testing.T) {
 		if !detail.SchoolRelated || detail.ContentVersion != 1 || detail.Version == 1 {
 			t.Fatal("案件版本或涉校判定不符")
 		}
-		outcome, e := service.Decide(ctx, adminToken, "approve-school", "decision", detail.ID, moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version})
+		outcome, e := service.Decide(
+			ctx,
+			adminToken,
+			"approve-school",
+			"decision",
+			detail.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version},
+		)
 		must(e)
 		if outcome.BusinessOutcome != "ready" {
 			t.Fatal("人工审核自动公开")
 		}
-		_, e = service.Decide(ctx, adminToken, "approve-school", "decision-replay", detail.ID, moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version})
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			"approve-school",
+			"decision-replay",
+			detail.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version},
+		)
 		must(e)
 		row := state(draft.ID)
 		_, e = wishes.Publish(ctx, studentToken, uuid.NewString(), "publish", row.ID, row.Version)
@@ -337,23 +477,59 @@ func TestModerationCore(t *testing.T) {
 		must(e)
 		detail, e := service.Case(ctx, adminToken, "detail", event.AggregateID)
 		must(e)
-		_, e = service.Decide(ctx, adminToken, uuid.NewString(), "missing-suggestion", detail.ID, moderation.Decision{Decision: "rejected", Reason: "原因", ExpectedVersion: detail.Version})
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"missing-suggestion",
+			detail.ID,
+			moderation.Decision{Decision: "rejected", Reason: "原因", ExpectedVersion: detail.Version},
+		)
 		if e != command.ErrInvalid {
 			t.Fatal("缺建议被接受")
 		}
-		_, e = service.Decide(ctx, adminToken, "reject", "reject", detail.ID, moderation.Decision{Decision: "rejected", Reason: "合成原因", RevisionSuggestion: "修改后重提", ExpectedVersion: detail.Version})
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			"reject",
+			"reject",
+			detail.ID,
+			moderation.Decision{
+				Decision:           "rejected",
+				Reason:             "合成原因",
+				RevisionSuggestion: "修改后重提",
+				ExpectedVersion:    detail.Version,
+			},
+		)
 		must(e)
 		if state(draft.ID).State != "rejected" || task(detail.ID).RevisionSuggestion == nil {
 			t.Fatal("驳回结果丢失")
 		}
 		row := state(draft.ID)
-		_, e = wishes.Update(ctx, studentToken, uuid.NewString(), "edit", row.ID, wish.UpdateInput{ContentInput: wish.ContentInput{Category: "help", Campus: "wushan", Body: "修改后的内容"}, ExpectedVersion: row.Version})
+		_, e = wishes.Update(
+			ctx,
+			studentToken,
+			uuid.NewString(),
+			"edit",
+			row.ID,
+			wish.UpdateInput{
+				ContentInput:    wish.ContentInput{Category: "help", Campus: "wushan", Body: "修改后的内容"},
+				ExpectedVersion: row.Version,
+			},
+		)
 		must(e)
 		_, e = service.Case(ctx, adminToken, "old-detail", detail.ID)
 		if e != command.ErrNotFound {
 			t.Fatal("旧案件可读取新正文", e)
 		}
-		_, e = service.Decide(ctx, adminToken, uuid.NewString(), "old-decision", detail.ID, moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version})
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"old-decision",
+			detail.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version},
+		)
 		if e != command.ErrVersionConflict {
 			t.Fatal("旧案件决定未拒绝", e)
 		}
@@ -377,7 +553,9 @@ func TestModerationCore(t *testing.T) {
 			}
 		}
 		var count int64
-		must(root.Model(&entity.ContentRestriction{}).Where("source_ref IN (SELECT id FROM evidence.crisis_cases WHERE source_task_id=?) AND kind='crisis' AND active", event.AggregateID).Count(&count).Error)
+		must(root.Model(&entity.ContentRestriction{}).Where("source_ref IN (SELECT id FROM evidence.crisis_cases WHERE source_task_id=?) AND kind='crisis' AND active", event.AggregateID).
+			Count(&count).
+			Error)
 		if count != 1 {
 			t.Fatal("危机未持久隔离")
 		}
@@ -391,7 +569,17 @@ func TestModerationCore(t *testing.T) {
 		}
 		provider.set(false, func() {
 			row := state(draft.ID)
-			_, e = wishes.Update(ctx, studentToken, uuid.NewString(), "concurrent-edit", row.ID, wish.UpdateInput{ContentInput: wish.ContentInput{Category: "help", Campus: "wushan", Body: "新正文"}, ExpectedVersion: row.Version})
+			_, e = wishes.Update(
+				ctx,
+				studentToken,
+				uuid.NewString(),
+				"concurrent-edit",
+				row.ID,
+				wish.UpdateInput{
+					ContentInput:    wish.ContentInput{Category: "help", Campus: "wushan", Body: "新正文"},
+					ExpectedVersion: row.Version,
+				},
+			)
 			if e != nil {
 				panic(e)
 			}
@@ -428,9 +616,18 @@ func TestModerationCore(t *testing.T) {
 		_, e := worker.Consume(ctx, event)
 		must(e)
 		row := task(event.AggregateID)
-		must(root.Exec("CREATE FUNCTION public.reject_moderation_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic audit failure'; END $$").Error)
-		must(root.Exec("CREATE TRIGGER reject_moderation_audit BEFORE INSERT ON public.access_audits FOR EACH ROW EXECUTE FUNCTION public.reject_moderation_audit()").Error)
-		_, e = service.Decide(ctx, adminToken, uuid.NewString(), "audit-failure", row.ID, moderation.Decision{Decision: "approved", ExpectedVersion: row.Version})
+		must(root.Exec("CREATE FUNCTION public.reject_moderation_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic audit failure'; END $$").
+			Error)
+		must(root.Exec("CREATE TRIGGER reject_moderation_audit BEFORE INSERT ON public.access_audits FOR EACH ROW EXECUTE FUNCTION public.reject_moderation_audit()").
+			Error)
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"audit-failure",
+			row.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: row.Version},
+		)
 		must(root.Exec("DROP TRIGGER reject_moderation_audit ON public.access_audits").Error)
 		must(root.Exec("DROP FUNCTION public.reject_moderation_audit()").Error)
 		if e == nil || task(row.ID).Version != row.Version || state(draft.ID).State != "pending_review" {
@@ -457,7 +654,13 @@ func TestModerationCore(t *testing.T) {
 			running.Add(1)
 			go func() {
 				defer running.Done()
-				_, e := service.CreateWordlist(ctx, adminToken, uuid.NewString(), "concurrent-draft", moderation.WordlistInput{Kind: "school", Entries: []string{"校务标记"}, ExpectedVersion: h.Version})
+				_, e := service.CreateWordlist(
+					ctx,
+					adminToken,
+					uuid.NewString(),
+					"concurrent-draft",
+					moderation.WordlistInput{Kind: "school", Entries: []string{"校务标记"}, ExpectedVersion: h.Version},
+				)
 				results <- e
 			}()
 		}
@@ -485,7 +688,14 @@ func TestModerationCore(t *testing.T) {
 			running.Add(1)
 			go func() {
 				defer running.Done()
-				_, e := service.Decide(ctx, adminToken, uuid.NewString(), "concurrent-decision", event.AggregateID, moderation.Decision{Decision: "approved", ExpectedVersion: v})
+				_, e := service.Decide(
+					ctx,
+					adminToken,
+					uuid.NewString(),
+					"concurrent-decision",
+					event.AggregateID,
+					moderation.Decision{Decision: "approved", ExpectedVersion: v},
+				)
 				decisions <- e
 			}()
 		}
@@ -535,8 +745,22 @@ func TestModerationCore(t *testing.T) {
 		_, e := worker.Consume(ctx, event)
 		must(e)
 		v := task(event.AggregateID).Version
-		must(root.Create(&entity.PrivacyHold{ID: uuid.NewString(), TargetKind: "wish", TargetID: draft.ID, HoldEpoch: 1, RequiredContentVersion: 2, Status: "active"}).Error)
-		_, e = service.Decide(ctx, adminToken, uuid.NewString(), "old-hold", event.AggregateID, moderation.Decision{Decision: "approved", ExpectedVersion: v})
+		must(root.Create(&entity.PrivacyHold{
+			ID:                     uuid.NewString(),
+			TargetKind:             "wish",
+			TargetID:               draft.ID,
+			HoldEpoch:              1,
+			RequiredContentVersion: 2,
+			Status:                 "active",
+		}).Error)
+		_, e = service.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"old-hold",
+			event.AggregateID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: v},
+		)
 		if e != command.ErrVersionConflict {
 			t.Fatal("旧屏障案件被放行", e)
 		}
@@ -549,7 +773,14 @@ func TestModerationCore(t *testing.T) {
 		must(e)
 		v = task(event.AggregateID).Version
 		must(root.Model(&entity.Account{}).Where("id=?", owner).Update("verification", "unverified").Error)
-		outcome, e := service.Decide(ctx, adminToken, uuid.NewString(), "qualification-revoked", event.AggregateID, moderation.Decision{Decision: "approved", ExpectedVersion: v})
+		outcome, e := service.Decide(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"qualification-revoked",
+			event.AggregateID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: v},
+		)
 		must(e)
 		if outcome.ContentDecision != "approved" || outcome.BusinessOutcome != "cancelled" || state(draft.ID).State != "pending_review" {
 			t.Fatal("旧资格审核复活业务")
@@ -600,7 +831,12 @@ func TestModerationCore(t *testing.T) {
 		_, e := worker.Consume(ctx, event)
 		must(e)
 		row := task(event.AggregateID)
-		body, _ := json.Marshal(moderation.Decision{Decision: "rejected", Reason: "合成原因", RevisionSuggestion: "合成建议", ExpectedVersion: row.Version})
+		body, _ := json.Marshal(moderation.Decision{
+			Decision:           "rejected",
+			Reason:             "合成原因",
+			RevisionSuggestion: "合成建议",
+			ExpectedVersion:    row.Version,
+		})
 		rec = request("POST", "/api/v1/admin/moderation-tasks/"+row.ID+"/decision", adminToken, body)
 		if rec.Code != 200 {
 			t.Fatal("正式审核HTTP失败", rec.Code)
@@ -610,11 +846,29 @@ func TestModerationCore(t *testing.T) {
 	// 下列生命周期用例使用同一真实运行权限与持久任务；供应商保持合成。
 	t.Run("数据库补偿分析预算独立", func(t *testing.T) {
 		// 隔离本用例待处理目标，避免历史失败夹具占用有界的一条候选。
-		must(root.Model(&entity.WorkItem{}).Where("kind=? AND status IN ?", contentreview.Route().Kind, []string{"pending", "retry_wait", "leased"}).Update("next_at", time.Now().Add(time.Hour)).Error)
+		must(root.Model(&entity.WorkItem{}).Where(
+			"kind=? AND status IN ?",
+			contentreview.Route().Kind,
+			[]string{"pending", "retry_wait", "leased"},
+		).Update("next_at", time.Now().Add(time.Hour)).Error)
 		draft, event := submit("普通命中 较慢合成分析")
 		provider.set(false, func() { time.Sleep(700 * time.Millisecond) })
 		defer provider.set(false, nil)
-		slow, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{AnalysisTimeout: 2 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 400 * time.Millisecond, LockTimeout: 100 * time.Millisecond, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+		slow, e := moderation.NewWorker(
+			workerDB,
+			logger,
+			codec,
+			provider,
+			moderation.WorkerConfig{
+				AnalysisTimeout: 2 * time.Second,
+				Consumer: durable.ConsumerConfig{
+					Timeout:     400 * time.Millisecond,
+					LockTimeout: 100 * time.Millisecond,
+					RetryDelay:  time.Millisecond,
+					MaxAttempts: 3,
+				},
+			},
+		)
 		must(e)
 		out, e := slow.ProcessNext(ctx)
 		must(e)

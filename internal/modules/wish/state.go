@@ -116,7 +116,13 @@ type PublicProjection struct {
 }
 
 func validSnapshot(s Snapshot) bool {
-	if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Matching, Realized, Fulfilled, Withdrawn, Expired}, s.State) || s.Version < 1 || s.ContentVersion < 1 || s.DurationDays < 1 || s.DurationDays > 30 || s.RestrictionEpoch < 1 || s.HoldEpoch < 0 {
+	if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Matching, Realized, Fulfilled, Withdrawn, Expired}, s.State) ||
+		s.Version < 1 ||
+		s.ContentVersion < 1 ||
+		s.DurationDays < 1 ||
+		s.DurationDays > 30 ||
+		s.RestrictionEpoch < 1 ||
+		s.HoldEpoch < 0 {
 		return false
 	}
 	if s.ExpiresAt != nil && s.ExpiresAt.IsZero() || s.PublishedAt != nil && s.PublishedAt.IsZero() {
@@ -127,7 +133,13 @@ func validSnapshot(s Snapshot) bool {
 
 func reviewReady(s Snapshot) bool {
 	r := s.Review
-	return r.Approved && r.ContentVersion == s.ContentVersion && r.RestrictionEpoch == s.RestrictionEpoch && r.HoldEpoch == s.HoldEpoch && r.DetectionCompleted && r.SchoolRelated != nil && (!*r.SchoolRelated || r.HumanReviewed) && utf8.ValidString(r.PublicBody) && strings.TrimSpace(r.PublicBody) != "" && utf8.RuneCountInString(r.PublicBody) <= 500
+	return r.Approved && r.ContentVersion == s.ContentVersion && r.RestrictionEpoch == s.RestrictionEpoch && r.HoldEpoch == s.HoldEpoch &&
+		r.DetectionCompleted &&
+		r.SchoolRelated != nil &&
+		(!*r.SchoolRelated || r.HumanReviewed) &&
+		utf8.ValidString(r.PublicBody) &&
+		strings.TrimSpace(r.PublicBody) != "" &&
+		utf8.RuneCountInString(r.PublicBody) <= 500
 }
 
 func ordinary(e Eligibility, s Snapshot) bool {
@@ -136,7 +148,8 @@ func ordinary(e Eligibility, s Snapshot) bool {
 
 // manageable允许隐私屏障下替换原稿并提交新审；公开及交互仍由ordinary拒绝。
 func manageable(e Eligibility, s Snapshot, a Action) bool {
-	return ordinary(e, s) || (s.PrivacyHeld && e.Active && e.Verified && !e.Restricted && !s.Restricted && (a == Edit || a == SubmitReview || a == DeleteDraft))
+	return ordinary(e, s) ||
+		(s.PrivacyHeld && e.Active && e.Verified && !e.Restricted && !s.Restricted && (a == Edit || a == SubmitReview || a == DeleteDraft))
 }
 
 func cloneSnapshot(s Snapshot) Snapshot {
@@ -181,7 +194,8 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 	out.Next = cloneSnapshot(current)
 	switch change.Action {
 	case Edit:
-		if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Withdrawn, Expired}, current.State) && !(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State)) {
+		if !slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Withdrawn, Expired}, current.State) &&
+			!(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State)) {
 			return out, command.ErrConflict
 		}
 		if change.DurationDays < 1 || change.DurationDays > 30 {
@@ -202,7 +216,8 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 		out.InvalidateReview = true
 		out.InvalidateApplications = current.State == Published
 	case SubmitReview:
-		if current.State != Draft && current.State != Rejected && !(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled, Withdrawn}, current.State)) {
+		if current.State != Draft && current.State != Rejected &&
+			!(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled, Withdrawn}, current.State)) {
 			return out, command.ErrConflict
 		}
 		if change.ExpectedContentVersion < 1 {

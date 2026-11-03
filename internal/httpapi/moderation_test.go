@@ -20,6 +20,7 @@ func (s *moderationStub) CreateWordlist(context.Context, string, string, string,
 	s.creates++
 	return moderation.Wordlist{ID: "synthetic-rule", Version: 1, Kind: "school", Status: "draft"}, nil
 }
+
 func (s *moderationStub) Wordlists(context.Context, string, string, string, int) (moderation.WordlistPage, error) {
 	return moderation.WordlistPage{Items: []moderation.Wordlist{}}, nil
 }
@@ -35,16 +36,48 @@ func TestModerationHTTPBoundary(t *testing.T) {
 		name, method, path, body, token, key string
 		status                               int
 	}{
-		{"正常创建", "POST", "/api/v1/admin/wordlists/versions", `{"kind":"school","entries":[],"expected_version":1}`, "token", "key", 201},
+		{
+			"正常创建",
+			"POST",
+			"/api/v1/admin/wordlists/versions",
+			`{"kind":"school","entries":[],"expected_version":1}`,
+			"token",
+			"key",
+			201,
+		},
 		{"缺令牌", "POST", "/api/v1/admin/wordlists/versions", `{}`, "", "key", 401},
 		{"缺幂等", "POST", "/api/v1/admin/wordlists/versions", `{}`, "token", "", 400},
-		{"重复键", "POST", "/api/v1/admin/wordlists/versions", `{"kind":"school","kind":"crisis"}`, "token", "key", 400},
-		{"非法UTF8", "POST", "/api/v1/admin/wordlists/versions", string([]byte{123, 34, 107, 105, 110, 100, 34, 58, 34, 255, 34, 125}), "token", "key", 400},
+		{
+			"重复键",
+			"POST",
+			"/api/v1/admin/wordlists/versions",
+			`{"kind":"school","kind":"crisis"}`,
+			"token",
+			"key",
+			400,
+		},
+		{
+			"非法UTF8",
+			"POST",
+			"/api/v1/admin/wordlists/versions",
+			string([]byte{123, 34, 107, 105, 110, 100, 34, 58, 34, 255, 34, 125}),
+			"token",
+			"key",
+			400,
+		},
 		{"字段大小写", "POST", "/api/v1/admin/wordlists/versions", `{"Kind":"school"}`, "token", "key", 400},
 		{"未知字段", "POST", "/api/v1/admin/wordlists/versions", `{"target":"forged"}`, "token", "key", 400},
 		{"显式空", "POST", "/api/v1/admin/wordlists/versions", `{"entries":null}`, "token", "key", 400},
 		{"尾随正文", "POST", "/api/v1/admin/wordlists/versions", `{} {}`, "token", "key", 400},
-		{"超大正文", "POST", "/api/v1/admin/wordlists/versions", `{"kind":"` + strings.Repeat("x", 1<<20) + `"}`, "token", "key", 400},
+		{
+			"超大正文",
+			"POST",
+			"/api/v1/admin/wordlists/versions",
+			`{"kind":"` + strings.Repeat("x", 1<<20) + `"}`,
+			"token",
+			"key",
+			400,
+		},
 		{"重复分页", "GET", "/api/v1/admin/wordlists?limit=1&limit=2", "", "token", "", 400},
 		{"未知查询", "GET", "/api/v1/admin/wordlists?body=forged", "", "token", "", 400},
 	} {

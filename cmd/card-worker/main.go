@@ -16,6 +16,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	path := flag.String("config", "", "私有应用YAML配置")
 	kind := flag.String("kind", "card", "执行工作职责")

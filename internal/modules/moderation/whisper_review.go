@@ -59,6 +59,7 @@ type WhisperReviewOutcome struct {
 func whisperRef(r whisperSource) WhisperRef {
 	return WhisperRef{r.registry.Kind, r.ID, r.ContentVersion}
 }
+
 func whisperSummary(r whisperSource) WhisperReviewSummary {
 	state := r.task.Status
 	if state == "human_required" {
@@ -67,16 +68,26 @@ func whisperSummary(r whisperSource) WhisperReviewSummary {
 	if state == "obsolete" {
 		state = "cancelled"
 	}
-	return WhisperReviewSummary{r.task.ID, r.task.Version, whisperRef(r), state, r.task.CreatedAt.UTC().Truncate(time.Second).Format(time.RFC3339), []string{}}
+	return WhisperReviewSummary{
+		r.task.ID,
+		r.task.Version,
+		whisperRef(r),
+		state,
+		r.task.CreatedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+		[]string{},
+	}
 }
+
 func (s *Service) whisperCursorActor(actor string) string {
 	m := hmac.New(sha256.New, s.cfg.CursorKey)
 	m.Write([]byte("whisper.cursor.actor:" + actor))
 	return hex.EncodeToString(m.Sum(nil))
 }
+
 func (s *Service) whisperAfter(actor, purpose, cursor string) (string, error) {
 	return s.after(s.whisperCursorActor(actor), "whisper."+purpose, cursor)
 }
+
 func (s *Service) whisperCursor(actor, purpose, id string) string {
 	return s.cursor(s.whisperCursorActor(actor), "whisper."+purpose, id)
 }
@@ -98,7 +109,10 @@ func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string,
 			return e
 		}
 		var ids []string
-		q := db.Table("public.moderation_tasks AS t").Select("t.id").Joins("JOIN public.content_registry c ON c.id=t.content_id").Joins("JOIN public.moderation_scans s ON s.task_id=t.id").Where("c.kind IN ? AND NOT s.crisis_hit AND (s.school_related OR s.ordinary_hit) AND t.status IN ('human_required','approved','rejected') AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c2 ON c2.id=x.content_id WHERE c2.kind=c.kind AND c2.entity_id=c.entity_id AND x.active AND x.kind='crisis')", []string{"whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"})
+		q := db.Table("public.moderation_tasks AS t").Select("t.id").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id").
+			Joins("JOIN public.moderation_scans s ON s.task_id=t.id").
+			Where("c.kind IN ? AND NOT s.crisis_hit AND (s.school_related OR s.ordinary_hit) AND t.status IN ('human_required','approved','rejected') AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c2 ON c2.id=x.content_id WHERE c2.kind=c.kind AND c2.entity_id=c.entity_id AND x.active AND x.kind='crisis')", []string{"whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"})
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
@@ -126,6 +140,7 @@ func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string,
 	}
 	return
 }
+
 func ordinaryWhisper(db *gorm.DB, r whisperSource) (scan entity.ModerationScan, err error) {
 	if !whisperCurrent(r) {
 		return scan, command.ErrNotFound
@@ -135,16 +150,25 @@ func ordinaryWhisper(db *gorm.DB, r whisperSource) (scan entity.ModerationScan, 
 		return scan, missingWhisper(err)
 	}
 	var n int64
-	err = db.Raw(`SELECT count(*) FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=? AND c.entity_id=? AND x.kind='crisis' AND x.active`, r.registry.Kind, r.registry.EntityID).Scan(&n).Error
+	err = db.Raw(
+		`SELECT count(*) FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=? AND c.entity_id=? AND x.kind='crisis' AND x.active`,
+		r.registry.Kind,
+		r.registry.EntityID,
+	).Scan(&n).Error
 	if err == nil && n > 0 {
 		err = command.ErrNotFound
 	}
 	return
 }
+
 func (s *Service) whisperPayload(ctx context.Context, db *gorm.DB, token string, r whisperSource) (string, error) {
 	hash := sha256.Sum256([]byte(token))
 	var raw []struct{ Body json.RawMessage }
-	if e := db.Raw("SELECT body FROM public.read_whisper_review_payload(decode(?,'hex'),?)", hex.EncodeToString(hash[:]), r.task.ID).Scan(&raw).Error; e != nil {
+	if e := db.Raw(
+		"SELECT body FROM public.read_whisper_review_payload(decode(?,'hex'),?)",
+		hex.EncodeToString(hash[:]),
+		r.task.ID,
+	).Scan(&raw).Error; e != nil {
 		return "", e
 	}
 	if len(raw) != 1 {
@@ -208,10 +232,22 @@ func (s *Service) WhisperReview(ctx context.Context, token, rid, id string) (out
 // DecideWhisper 将人工决定和自动审核使用同一资格栅栏，并保留生命周期幂等回执。
 func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string, in WhisperReviewCommand) (out WhisperReviewOutcome, err error) {
 	defer s.done("whisper.review.decide", rid, time.Now(), &err)
-	if !validID(id) || in.ExpectedVersion < 1 || in.ExpectedContentVersion < 1 || (in.Decision != "approved" && in.Decision != "rejected") || in.Decision == "rejected" && (!text(in.Reason, 500) || !text(in.RevisionSuggestion, 500)) || len(in.Reason) > 2000 || len(in.RevisionSuggestion) > 2000 {
+	if !validID(id) || in.ExpectedVersion < 1 || in.ExpectedContentVersion < 1 ||
+		(in.Decision != "approved" && in.Decision != "rejected") ||
+		in.Decision == "rejected" && (!text(in.Reason, 500) || !text(in.RevisionSuggestion, 500)) ||
+		len(in.Reason) > 2000 ||
+		len(in.RevisionSuggestion) > 2000 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.review.decide", Method: "POST", ResourcePath: "/api/v1/admin/whispers/reviews/" + id + "/decision", ActorKind: "admin", AllowedRoles: []string{"review_operator", "super_admin"}, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.review.decide",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/whispers/reviews/" + id + "/decision",
+		ActorKind:            "admin",
+		AllowedRoles:         []string{"review_operator", "super_admin"},
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return whisperPlan(ctx, db, id)
 	}
@@ -255,7 +291,14 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		} else {
 			status = "cancelled"
 		}
-		u := map[string]any{"status": status, "decision": in.Decision, "reviewer_id": tx.Actor().ID, "version": gorm.Expr("version+1"), "reason": nil, "revision_suggestion": nil}
+		u := map[string]any{
+			"status":              status,
+			"decision":            in.Decision,
+			"reviewer_id":         tx.Actor().ID,
+			"version":             gorm.Expr("version+1"),
+			"reason":              nil,
+			"revision_suggestion": nil,
+		}
 		if in.Decision == "rejected" {
 			u["reason"] = in.Reason
 			u["revision_suggestion"] = in.RevisionSuggestion
@@ -282,7 +325,12 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 				return e
 			}
 			if ok {
-				out.BusinessOutcome = map[string]string{"whisper_post": "published", "whisper_comment": "published", "whisper_nickname": "nickname_activated", "whisper_capsule": "capsule_locked"}[r.registry.Kind]
+				out.BusinessOutcome = map[string]string{
+					"whisper_post":     "published",
+					"whisper_comment":  "published",
+					"whisper_nickname": "nickname_activated",
+					"whisper_capsule":  "capsule_locked",
+				}[r.registry.Kind]
 				if r.registry.Kind == "whisper_nickname" {
 					out.BusinessOutcome = "nickname_activated"
 				}
@@ -293,6 +341,20 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		}
 		return nil
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.ModerationTask, ID: id}, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.ModerationTask, ID: id},
+				Value:  in.ExpectedVersion,
+			}},
+		},
+	)
 	return
 }

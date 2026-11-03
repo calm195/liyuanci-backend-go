@@ -18,7 +18,11 @@ func TestMasterKeyDerivation(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	load := func(environment, worker string) Config {
 		t.Helper()
-		path := fixture(t, "mode: foundation\n", "masterkey: "+base64.StdEncoding.EncodeToString(master)+"\nenvironment: "+environment+"\nworker:\n  kind: "+worker+"\nwhispers:\n  localtest: true\n")
+		path := fixture(
+			t,
+			"mode: foundation\n",
+			"masterkey: "+base64.StdEncoding.EncodeToString(master)+"\nenvironment: "+environment+"\nworker:\n  kind: "+worker+"\nwhispers:\n  localtest: true\n",
+		)
 		c, err := Load(path)
 		if err != nil {
 			t.Fatal(err)
@@ -26,7 +30,8 @@ func TestMasterKeyDerivation(t *testing.T) {
 		return c
 	}
 	first, restarted := load("development", "card"), load("development", "account")
-	if !reflect.DeepEqual(first.Development, restarted.Development) || !reflect.DeepEqual(first.Business, restarted.Business) || !reflect.DeepEqual(first.Whispers, restarted.Whispers) {
+	if !reflect.DeepEqual(first.Development, restarted.Development) || !reflect.DeepEqual(first.Business, restarted.Business) ||
+		!reflect.DeepEqual(first.Whispers, restarted.Whispers) {
 		t.Fatal("不同进程派生结果不一致")
 	}
 	// 固定公开测试向量，防止用途标签重命名导致历史数据静默换钥。
@@ -43,7 +48,9 @@ func TestMasterKeyDerivation(t *testing.T) {
 		t.Fatal("主密钥未影响派生值")
 	}
 	w, d := first.Whispers, first.Development
-	if !bytes.Equal(w.WrapKey, d.WrapKey) || !bytes.Equal(w.RecoveryWrapKey, d.RecoveryWrapKey) || !bytes.Equal(w.PrivacyKey, privacy.DeriveKey(d.WishKey)) || !bytes.Equal(w.SafetyKey, safety.DeriveKey(d.WishKey)) {
+	if !bytes.Equal(w.WrapKey, d.WrapKey) || !bytes.Equal(w.RecoveryWrapKey, d.RecoveryWrapKey) ||
+		!bytes.Equal(w.PrivacyKey, privacy.DeriveKey(d.WishKey)) ||
+		!bytes.Equal(w.SafetyKey, safety.DeriveKey(d.WishKey)) {
 		t.Fatal("组合应用未共享同领域密钥")
 	}
 	seen := map[string]bool{}
@@ -80,7 +87,12 @@ func TestMasterKeyDerivation(t *testing.T) {
 // TestMasterKeyValidation 拒绝缺失/无效主密钥及旧字段，错误中不能泄漏输入。
 func TestMasterKeyValidation(t *testing.T) {
 	base := "mode: development\ndatabase:\n  driver: postgres\n  host: 127.0.0.1\n  name: synthetic\n  user: application\n  password: synthetic\nredis:\n  enabled: true\n"
-	for _, value := range []string{"", "not-base64", base64.StdEncoding.EncodeToString(make([]byte, 31)), base64.StdEncoding.EncodeToString(make([]byte, 33))} {
+	for _, value := range []string{
+		"",
+		"not-base64",
+		base64.StdEncoding.EncodeToString(make([]byte, 31)),
+		base64.StdEncoding.EncodeToString(make([]byte, 33)),
+	} {
 		_, err := Load(fixture(t, base, "masterkey: '"+value+"'\n"))
 		if err == nil {
 			t.Fatal("接受缺失或无效主密钥")

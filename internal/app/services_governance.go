@@ -67,7 +67,9 @@ func (s *serviceSet) buildPrivacy(d ServiceDependencies, cfg ServiceConfig) erro
 		db  *gorm.DB
 		out **privacy.Service
 	}{
-		{cfg.Privacy, d.PrivacyDB, &s.accountDeletion}, {cfg.EvidenceDeletion, d.EvidenceDeletionDB, &s.evidenceDeletion},
+
+		{cfg.Privacy, d.PrivacyDB, &s.accountDeletion},
+		{cfg.EvidenceDeletion, d.EvidenceDeletionDB, &s.evidenceDeletion},
 	} {
 		if spec.cfg == nil {
 			continue

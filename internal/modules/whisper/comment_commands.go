@@ -16,14 +16,24 @@ import (
 func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, commentID string, in CommentInput) (out OwnerComment, err error) {
 	defer s.completed("comment_save", rid, time.Now(), &err)
 	create := commentID == ""
-	if (!create && (!ValidID(commentID) || in.ExpectedVersion < 1)) || (create && !ValidID(postID)) || in.ExpectedPostVersion < 1 || in.ExpectedCommentsEpoch < 1 || !validText(in.Body, 1, 500) || !identityShape(in.Identity) {
+	if (!create && (!ValidID(commentID) || in.ExpectedVersion < 1)) || (create && !ValidID(postID)) || in.ExpectedPostVersion < 1 ||
+		in.ExpectedCommentsEpoch < 1 ||
+		!validText(in.Body, 1, 500) ||
+		!identityShape(in.Identity) {
 		return out, command.ErrInvalid
 	}
 	method, path, kind := "PUT", "/api/v1/me/whispers/comments/"+commentID, "whisper.comment.update"
 	if create {
 		method, path, kind = "POST", "/api/v1/whispers/posts/"+postID+"/comments", "whisper.comment.create"
 	}
-	d := command.Definition{Kind: kind, Method: method, ResourcePath: path, ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
+	d := command.Definition{
+		Kind:          kind,
+		Method:        method,
+		ResourcePath:  path,
+		ActorKind:     "student",
+		Access:        command.Ordinary,
+		RetainReceipt: true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return interactionPlan(ctx, db, postID, commentID)
 	}
@@ -55,11 +65,19 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		}
 		postID = *c.PostID
 	}
-	checks := []command.Expectation{{Name: "expected_post_version", Target: command.Resource{Kind: command.WhisperPost, ID: postID}, Value: in.ExpectedPostVersion}}
+	checks := []command.Expectation{{
+		Name:   "expected_post_version",
+		Target: command.Resource{Kind: command.WhisperPost, ID: postID},
+		Value:  in.ExpectedPostVersion,
+	}}
 	d.RequiredExpectations = []string{"expected_post_version"}
 	if !create {
 		d.RequiredExpectations = append(d.RequiredExpectations, "expected_version")
-		checks = append(checks, command.Expectation{Name: "expected_version", Target: command.Resource{Kind: command.WhisperComment, ID: commentID}, Value: in.ExpectedVersion})
+		checks = append(checks, command.Expectation{
+			Name:   "expected_version",
+			Target: command.Resource{Kind: command.WhisperComment, ID: commentID},
+			Value:  in.ExpectedVersion,
+		})
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		parent, e := s.commentContext(ctx, tx.DB(), tx.Now(), postID, tx.Actor().ID, in.ExpectedCommentsEpoch)
@@ -72,7 +90,20 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		id, cv, round, hold, restriction := commentID, int64(1), int64(1), int64(0), int64(0)
 		if create {
 			id = uuid.NewString()
-			if e = insertRow(ctx, tx.DB(), &entity.WhisperComment{ID: id, PostID: &postID, AuthorID: tx.Actor().ID, ParentContentVersion: parent.post.CurrentContentVersion, CommentsEpoch: in.ExpectedCommentsEpoch, ReviewRound: round, CreatedAt: tx.Now(), UpdatedAt: tx.Now()}); e != nil {
+			if e = insertRow(
+				ctx,
+				tx.DB(),
+				&entity.WhisperComment{
+					ID:                   id,
+					PostID:               &postID,
+					AuthorID:             tx.Actor().ID,
+					ParentContentVersion: parent.post.CurrentContentVersion,
+					CommentsEpoch:        in.ExpectedCommentsEpoch,
+					ReviewRound:          round,
+					CreatedAt:            tx.Now(),
+					UpdatedAt:            tx.Now(),
+				},
+			); e != nil {
 				return "", e
 			}
 		} else {
@@ -87,7 +118,17 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 			if e = cancelCommentReviews(ctx, tx.DB(), id); e != nil {
 				return "", e
 			}
-			if e = tx.DB().WithContext(ctx).Model(&entity.WhisperComment{}).Where("id=?", id).Updates(map[string]any{"version": a.comment.Version + 1, "content_version": cv, "parent_content_version": parent.post.CurrentContentVersion, "comments_epoch": in.ExpectedCommentsEpoch, "review_state": "scanning", "review_round": round, "lifecycle": "active", "updated_at": tx.Now(), "published_at": nil}).Error; e != nil {
+			if e = tx.DB().WithContext(ctx).Model(&entity.WhisperComment{}).Where("id=?", id).Updates(map[string]any{
+				"version":                a.comment.Version + 1,
+				"content_version":        cv,
+				"parent_content_version": parent.post.CurrentContentVersion,
+				"comments_epoch":         in.ExpectedCommentsEpoch,
+				"review_state":           "scanning",
+				"review_round":           round,
+				"lifecycle":              "active",
+				"updated_at":             tx.Now(),
+				"published_at":           nil,
+			}).Error; e != nil {
 				return "", e
 			}
 		}
@@ -95,7 +136,10 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e != nil {
 			return "", e
 		}
-		if e = tx.DB().WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&entity.WhisperAlias{PostID: postID, ActorID: tx.Actor().ID, Label: label}).Error; e != nil {
+		if e = tx.DB().WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).
+			Create(&entity.WhisperAlias{PostID: postID, ActorID: tx.Actor().
+				ID, Label: label}).
+			Error; e != nil {
 			return "", e
 		}
 		body, e := s.encrypt(ctx, "whisper_comment_body", id, cv, in.Body)
@@ -114,7 +158,22 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e != nil {
 			return "", e
 		}
-		return id, insertRow(ctx, tx.DB(), &entity.WhisperCommentVersion{CommentID: id, ContentVersion: cv, ContentRegistryID: reg, BodyCipher: body, IdentityCipher: identity, IdentityMode: in.Identity.Mode, NicknameVersion: in.Identity.NicknameVersion, DictionaryVersion: in.Identity.DictionaryVersion, ReviewTaskID: &task, CreatedAt: tx.Now()})
+		return id, insertRow(
+			ctx,
+			tx.DB(),
+			&entity.WhisperCommentVersion{
+				CommentID:         id,
+				ContentVersion:    cv,
+				ContentRegistryID: reg,
+				BodyCipher:        body,
+				IdentityCipher:    identity,
+				IdentityMode:      in.Identity.Mode,
+				NicknameVersion:   in.Identity.NicknameVersion,
+				DictionaryVersion: in.Identity.DictionaryVersion,
+				ReviewTaskID:      &task,
+				CreatedAt:         tx.Now(),
+			},
+		)
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var e error
@@ -126,7 +185,8 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 }
 
 func cancelCommentReviews(ctx context.Context, db *gorm.DB, id string) error {
-	return db.WithContext(ctx).Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT id FROM public.content_registry WHERE kind='whisper_comment' AND entity_id=?)`, id).Error
+	return db.WithContext(ctx).Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT id FROM public.content_registry WHERE kind='whisper_comment' AND entity_id=?)`, id).
+		Error
 }
 
 // WithdrawComment 允许受罚本人撤回；回执只重查当前合法本人投影。
@@ -135,7 +195,15 @@ func (s *Service) WithdrawComment(ctx context.Context, token, key, rid, id strin
 	if !ValidID(id) || version < 1 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.comment.withdraw", Method: "POST", ResourcePath: "/api/v1/me/whispers/comments/" + id + "/withdraw", ActorKind: "student", Access: command.Restricted, RetainReceipt: true, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "whisper.comment.withdraw",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/me/whispers/comments/" + id + "/withdraw",
+		ActorKind:            "student",
+		Access:               command.Restricted,
+		RetainReceipt:        true,
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		return interactionPlan(ctx, db, "", id)
 	}
@@ -156,7 +224,10 @@ func (s *Service) WithdrawComment(ctx context.Context, token, key, rid, id strin
 		if e := s.clearHeldComment(ctx, tx.DB(), token, id); e != nil {
 			return "", e
 		}
-		e := tx.DB().WithContext(ctx).Model(&entity.WhisperComment{}).Where("id=?", id).Updates(map[string]any{"version": gorm.Expr("version+1"), "lifecycle": "withdrawn", "updated_at": tx.Now()}).Error
+		e := tx.DB().WithContext(ctx).Model(&entity.WhisperComment{}).
+			Where("id=?", id).
+			Updates(map[string]any{"version": gorm.Expr("version+1"), "lifecycle": "withdrawn", "updated_at": tx.Now()}).
+			Error
 		return id, e
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
@@ -164,7 +235,22 @@ func (s *Service) WithdrawComment(ctx context.Context, token, key, rid, id strin
 		out, e = s.ownerComment(ctx, tx.DB(), tx.Now(), ref, tx.Actor().ID)
 		return e
 	}
-	_, err = s.execute(ctx, d, token, key, rid, struct{ Version int64 }{version}, 0, "", "maintenance", command.Expectation{Name: "expected_version", Target: command.Resource{Kind: command.WhisperComment, ID: id}, Value: version})
+	_, err = s.execute(
+		ctx,
+		d,
+		token,
+		key,
+		rid,
+		struct{ Version int64 }{version},
+		0,
+		"",
+		"maintenance",
+		command.Expectation{
+			Name:   "expected_version",
+			Target: command.Resource{Kind: command.WhisperComment, ID: id},
+			Value:  version,
+		},
+	)
 	return
 }
 
@@ -183,10 +269,21 @@ func (s *Service) SetComments(ctx context.Context, token, key, rid, id string, v
 		if p.CommentsOpen == open {
 			return id, nil
 		}
-		if e := tx.DB().WithContext(ctx).Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT r.id FROM public.content_registry r JOIN public.whisper_comments c ON c.id=r.entity_id WHERE r.kind='whisper_comment' AND c.post_id=?)`, id).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT r.id FROM public.content_registry r JOIN public.whisper_comments c ON c.id=r.entity_id WHERE r.kind='whisper_comment' AND c.post_id=?)`, id).
+			Error; e != nil {
 			return "", e
 		}
-		return id, updatePost(ctx, tx.DB(), id, map[string]any{"comments_open": open, "comments_epoch": p.CommentsEpoch + 1, "version": p.Version + 1, "updated_at": tx.Now()})
+		return id, updatePost(
+			ctx,
+			tx.DB(),
+			id,
+			map[string]any{
+				"comments_open":  open,
+				"comments_epoch": p.CommentsEpoch + 1,
+				"version":        p.Version + 1,
+				"updated_at":     tx.Now(),
+			},
+		)
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var e error

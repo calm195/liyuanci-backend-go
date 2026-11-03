@@ -7,7 +7,26 @@ import (
 
 // TestWhisperResourceOrder 验证树洞父帖先于暖评和审核，既有业务资源相对锁序不变。
 func TestWhisperResourceOrder(t *testing.T) {
-	kinds := []ResourceKind{Asset, IdentityReview, Wish, Application, Match, Conversation, WhisperPost, WhisperNickname, WhisperCapsule, WhisperComment, ModerationTask, Message, Notification, Report, Penalty, Appeal, CrisisCase, EvidenceCase}
+	kinds := []ResourceKind{
+		Asset,
+		IdentityReview,
+		Wish,
+		Application,
+		Match,
+		Conversation,
+		WhisperPost,
+		WhisperNickname,
+		WhisperCapsule,
+		WhisperComment,
+		ModerationTask,
+		Message,
+		Notification,
+		Report,
+		Penalty,
+		Appeal,
+		CrisisCase,
+		EvidenceCase,
+	}
 	var resources []Resource
 	for _, kind := range kinds {
 		resources = append(resources, Resource{Kind: kind, ID: actorID})
@@ -40,7 +59,11 @@ func TestWhisperExpectations(t *testing.T) {
 	d.RequiredExpectations = []string{"expected_version", "expected_post_version", "expected_comments_epoch"}
 	in := input("synthetic-comment")
 	in.Expectations[0].Target.Kind = WhisperComment
-	in.Expectations = append(in.Expectations, Expectation{Name: "expected_post_version", Target: post, Value: 3}, Expectation{Name: "expected_comments_epoch", Target: post, Value: 8})
+	in.Expectations = append(
+		in.Expectations,
+		Expectation{Name: "expected_post_version", Target: post, Value: 3},
+		Expectation{Name: "expected_comments_epoch", Target: post, Value: 8},
+	)
 	if !validDefinition(d) {
 		t.Fatal("新并发字段未注册")
 	}

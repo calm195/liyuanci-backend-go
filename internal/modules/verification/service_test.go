@@ -18,7 +18,12 @@ func TestQueueCursor(t *testing.T) {
 	if got, e := s.decodeCursor(actor, cursor); e != nil || got != id {
 		t.Fatal("合法游标无法读取", e)
 	}
-	for _, item := range []struct{ actor, cursor string }{{id, cursor}, {actor, cursor[:len(cursor)-2] + "AA"}, {actor, "invalid"}, {actor, strings.Repeat("x", 256)}} {
+	for _, item := range []struct{ actor, cursor string }{
+		{id, cursor},
+		{actor, cursor[:len(cursor)-2] + "AA"},
+		{actor, "invalid"},
+		{actor, strings.Repeat("x", 256)},
+	} {
 		if _, e := s.decodeCursor(item.actor, item.cursor); !errors.Is(e, command.ErrInvalid) {
 			t.Fatal("非法游标未拒绝", e)
 		}
@@ -28,6 +33,7 @@ func TestQueueCursor(t *testing.T) {
 		t.Fatal("密钥变更后游标仍生效")
 	}
 }
+
 func TestReceiptDigest(t *testing.T) {
 	// T011/REQ-018：材料摘要使用独立HMAC，避免低熵姓名和学号被数据库离线猜测。
 	a := &Service{cfg: Config{ReceiptKey: bytes.Repeat([]byte{17}, 32)}}

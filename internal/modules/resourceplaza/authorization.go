@@ -86,7 +86,12 @@ func (s *Service) transaction(ctx context.Context, token string, admin, write bo
 				}
 				epoch = g.AuthEpoch
 			}
-			if e = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id=? AND revoked_at IS NULL AND expires_at>? AND auth_epoch=?", session.ID, now, epoch).Take(&session).Error; e != nil {
+			if e = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+				"id=? AND revoked_at IS NULL AND expires_at>? AND auth_epoch=?",
+				session.ID,
+				now,
+				epoch,
+			).Take(&session).Error; e != nil {
 				if errors.Is(e, gorm.ErrRecordNotFound) {
 					return command.ErrUnauthenticated
 				}
@@ -103,7 +108,12 @@ func (s *Service) transaction(ctx context.Context, token string, admin, write bo
 				}
 			} else {
 				var kinds []string
-				if e = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ('ban','mute') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", a.ID, now, now).Pluck("action_kind", &kinds).Error; e != nil {
+				if e = db.Model(&entity.Penalty{}).Where(
+					"account_id=? AND action_kind IN ('ban','mute') AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+					a.ID,
+					now,
+					now,
+				).Pluck("action_kind", &kinds).Error; e != nil {
 					return e
 				}
 				if slices.Contains(kinds, "ban") {

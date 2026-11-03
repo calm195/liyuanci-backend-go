@@ -38,6 +38,7 @@ type window struct {
 	Milliseconds int64
 	Limit        int
 }
+
 type lease struct {
 	Keys  []string
 	Token string
@@ -86,7 +87,12 @@ func (l *Limiter) completed(operation string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	l.logger.Info("树洞限频操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	l.logger.Info(
+		"树洞限频操作完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // Reserve 原子检查所有滚动窗口并预留；只有新业务 Apply 会调用。
@@ -131,7 +137,12 @@ func (l *Limiter) Release(ctx context.Context, ref string) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
-	if e := l.client.Eval(ctx, `for _,key in ipairs(KEYS) do redis.call('ZREM',key,ARGV[1]) end;return 0`, value.Keys, value.Token).Err(); e != nil {
+	if e := l.client.Eval(
+		ctx,
+		`for _,key in ipairs(KEYS) do redis.call('ZREM',key,ARGV[1]) end;return 0`,
+		value.Keys,
+		value.Token,
+	).Err(); e != nil {
 		return command.ErrUnavailable
 	}
 	return nil

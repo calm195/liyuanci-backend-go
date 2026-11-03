@@ -73,7 +73,17 @@ func (s *Service) ownerComment(ctx context.Context, db *gorm.DB, now time.Time, 
 		return out, e
 	}
 	c := a.comment
-	out = OwnerComment{ID: c.ID, Version: c.Version, ContentVersion: c.ContentVersion, Status: state, CreatedAt: timestamp(c.CreatedAt), UpdatedAt: timestamp(c.UpdatedAt), AllowedActions: []string{"whisperCommentWithdraw"}, PostID: c.PostID, ParentContentVersion: c.ParentContentVersion}
+	out = OwnerComment{
+		ID:                   c.ID,
+		Version:              c.Version,
+		ContentVersion:       c.ContentVersion,
+		Status:               state,
+		CreatedAt:            timestamp(c.CreatedAt),
+		UpdatedAt:            timestamp(c.UpdatedAt),
+		AllowedActions:       []string{"whisperCommentWithdraw"},
+		PostID:               c.PostID,
+		ParentContentVersion: c.ParentContentVersion,
+	}
 	if c.PublishedAt != nil {
 		v := timestamp(*c.PublishedAt)
 		out.PublishedAt = &v
@@ -145,7 +155,8 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 		return out, e
 	}
 	var identity PublicIdentity
-	if json.Unmarshal(a.version.PublicIdentity, &identity) != nil || identity.Mode != a.version.IdentityMode || !slices.Contains([]string{"anonymous", "semi", "named"}, identity.Mode) {
+	if json.Unmarshal(a.version.PublicIdentity, &identity) != nil || identity.Mode != a.version.IdentityMode ||
+		!slices.Contains([]string{"anonymous", "semi", "named"}, identity.Mode) {
 		return out, command.ErrNotFound
 	}
 	var alias entity.WhisperAlias
@@ -164,7 +175,20 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 	if identity.Mode != "semi" {
 		identity.Tags = nil
 	}
-	out = PublicComment{ID: id, Version: a.comment.Version, ContentVersion: a.comment.ContentVersion, Body: *a.version.PublicBody, Identity: identity, PublishedAt: timestamp(*a.comment.PublishedAt), SchoolRelated: *a.version.SchoolRelated, NoticeCodes: []string{}, ViewerIsAuthor: viewer.ID == a.comment.AuthorID, AllowedActions: []string{}, PostID: parent.post.ID, ParentContentVersion: a.comment.ParentContentVersion}
+	out = PublicComment{
+		ID:                   id,
+		Version:              a.comment.Version,
+		ContentVersion:       a.comment.ContentVersion,
+		Body:                 *a.version.PublicBody,
+		Identity:             identity,
+		PublishedAt:          timestamp(*a.comment.PublishedAt),
+		SchoolRelated:        *a.version.SchoolRelated,
+		NoticeCodes:          []string{},
+		ViewerIsAuthor:       viewer.ID == a.comment.AuthorID,
+		AllowedActions:       []string{},
+		PostID:               parent.post.ID,
+		ParentContentVersion: a.comment.ParentContentVersion,
+	}
 	if out.SchoolRelated {
 		out.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
 		v := "未经证实"

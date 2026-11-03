@@ -63,14 +63,18 @@ func NewJournal(ctx context.Context, writer, reader *gorm.DB, codec *securedata.
 		}
 		var valid bool
 		c, cancel := context.WithTimeout(ctx, timeout)
-		e := db.WithContext(c).Raw("SELECT to_regclass('public.recovery_delete_journal') IS NOT NULL AND to_regclass('public.accounts') IS NULL").Scan(&valid).Error
+		e := db.WithContext(c).Raw("SELECT to_regclass('public.recovery_delete_journal') IS NOT NULL AND to_regclass('public.accounts') IS NULL").
+			Scan(&valid).
+			Error
 		cancel()
 		if e != nil || !valid {
 			return nil, command.ErrUnavailable
 		}
 		var current location
 		c, cancel = context.WithTimeout(ctx, timeout)
-		e = db.WithContext(c).Raw("SELECT current_database() AS name,coalesce(inet_server_addr()::text,'local') AS host,coalesce(inet_server_port(),0) AS port,to_regclass('public.recovery_delete_journal')::oid AS table_id,pg_postmaster_start_time() AS started").Scan(&current).Error
+		e = db.WithContext(c).Raw("SELECT current_database() AS name,coalesce(inet_server_addr()::text,'local') AS host,coalesce(inet_server_port(),0) AS port,to_regclass('public.recovery_delete_journal')::oid AS table_id,pg_postmaster_start_time() AS started").
+			Scan(&current).
+			Error
 		cancel()
 		if e != nil {
 			return nil, command.ErrUnavailable
@@ -81,8 +85,15 @@ func NewJournal(ctx context.Context, writer, reader *gorm.DB, codec *securedata.
 			return nil, command.ErrInvalid
 		}
 	}
-	return &PostgresJournal{writer: writer.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), reader: reader.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}), codec: codec, logger: logger, timeout: timeout}, nil
+	return &PostgresJournal{
+		writer:  writer.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		reader:  reader.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		codec:   codec,
+		logger:  logger,
+		timeout: timeout,
+	}, nil
 }
+
 func (j *PostgresJournal) done(op string, start time.Time, err *error) {
 	if recover() != nil {
 		*err = command.ErrInternal
@@ -94,17 +105,29 @@ func (j *PostgresJournal) done(op string, start time.Time, err *error) {
 	if *err != nil {
 		result = "failure"
 	}
-	j.logger.Info("独立删除日志操作完成", zap.String("operation", op), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	j.logger.Info(
+		"独立删除日志操作完成",
+		zap.String("operation", op),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
+
 func validIntent(in Intent) bool {
-	return validID(in.ID) && validID(in.Target) && (in.Scope == "account" || in.Scope == "evidence") && (in.SourceModule == "" || in.SourceModule == "legacy" || in.Scope == "evidence" && in.SourceModule == "whispers")
+	return validID(in.ID) && validID(in.Target) && (in.Scope == "account" || in.Scope == "evidence") &&
+		(in.SourceModule == "" || in.SourceModule == "legacy" || in.Scope == "evidence" && in.SourceModule == "whispers")
 }
+
 func (j *PostgresJournal) decode(ctx context.Context, row entity.RecoveryDeleteJournal) (in Intent, err error) {
 	var env securedata.Envelope
 	if json.Unmarshal(row.EntryEnvelope, &env) != nil {
 		return in, command.ErrUnavailable
 	}
-	b, e := j.codec.Decrypt(ctx, securedata.Binding{Purpose: "recovery_delete_intent", ObjectID: row.IntentID, Version: 1}, env)
+	b, e := j.codec.Decrypt(
+		ctx,
+		securedata.Binding{Purpose: "recovery_delete_intent", ObjectID: row.IntentID, Version: 1},
+		env,
+	)
 	defer clear(b)
 	if e != nil || json.Unmarshal(b, &in) != nil || !validIntent(in) || in.ID != row.IntentID || in.Scope != row.DeletionScope {
 		return Intent{}, command.ErrUnavailable
@@ -134,7 +157,9 @@ func (j *PostgresJournal) Append(ctx context.Context, in Intent) (err error) {
 		return e
 	}
 	return j.writer.WithContext(ctx).Transaction(func(db *gorm.DB) error {
-		if e := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&entity.RecoveryDeleteJournal{IntentID: in.ID, DeletionScope: in.Scope, EntryEnvelope: raw}).Error; e != nil {
+		if e := db.Clauses(clause.OnConflict{DoNothing: true}).
+			Create(&entity.RecoveryDeleteJournal{IntentID: in.ID, DeletionScope: in.Scope, EntryEnvelope: raw}).
+			Error; e != nil {
 			return e
 		}
 		var row entity.RecoveryDeleteJournal
@@ -166,7 +191,11 @@ func (j *PostgresJournal) Pending(ctx context.Context, after string, limit int) 
 	ctx, cancel := context.WithTimeout(ctx, j.timeout)
 	defer cancel()
 	var rows []entity.RecoveryDeleteJournal
-	if err = j.reader.WithContext(ctx).Where("confirmed_at IS NULL AND intent_id::text>?", after).Order("intent_id").Limit(limit).Find(&rows).Error; err != nil {
+	if err = j.reader.WithContext(ctx).Where("confirmed_at IS NULL AND intent_id::text>?", after).
+		Order("intent_id").
+		Limit(limit).
+		Find(&rows).
+		Error; err != nil {
 		return
 	}
 	for _, row := range rows {
@@ -187,7 +216,9 @@ func (j *PostgresJournal) Confirm(ctx context.Context, id string) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, j.timeout)
 	defer cancel()
-	r := j.writer.WithContext(ctx).Model(&entity.RecoveryDeleteJournal{}).Where("intent_id=?", id).Update("confirmed_at", gorm.Expr("coalesce(confirmed_at,clock_timestamp())"))
+	r := j.writer.WithContext(ctx).Model(&entity.RecoveryDeleteJournal{}).
+		Where("intent_id=?", id).
+		Update("confirmed_at", gorm.Expr("coalesce(confirmed_at,clock_timestamp())"))
 	if r.Error != nil {
 		return r.Error
 	}

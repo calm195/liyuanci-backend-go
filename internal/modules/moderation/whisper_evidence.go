@@ -29,7 +29,9 @@ func (s *Service) WhisperEvidence(ctx context.Context, token, rid, id string) (o
 			return e
 		}
 		var c entity.EvidenceCase
-		if e := db.Where("id=? AND EXISTS(SELECT 1 FROM evidence.crisis_cases x WHERE x.evidence_case_id=evidence_cases.id AND x.content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule'))", id).Take(&c).Error; e != nil {
+		if e := db.Where("id=? AND EXISTS(SELECT 1 FROM evidence.crisis_cases x WHERE x.evidence_case_id=evidence_cases.id AND x.content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule'))", id).
+			Take(&c).
+			Error; e != nil {
 			return missingWhisper(e)
 		}
 		out = WhisperEvidenceScope{c.ID, c.Version, "retained", []string{"whisperAdminEvidenceDelete"}}

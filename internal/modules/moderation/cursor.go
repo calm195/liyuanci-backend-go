@@ -33,7 +33,8 @@ func (s *Service) after(actor, purpose, cursor string) (string, error) {
 	parts := strings.Split(string(payload), "|")
 	mac := hmac.New(sha256.New, s.cfg.CursorKey)
 	mac.Write(payload)
-	if raw[len(raw)-33] != '|' || len(parts) != 3 || parts[0] != actor || parts[1] != purpose || !validID(parts[2]) || !hmac.Equal(signature, mac.Sum(nil)) {
+	if raw[len(raw)-33] != '|' || len(parts) != 3 || parts[0] != actor || parts[1] != purpose || !validID(parts[2]) ||
+		!hmac.Equal(signature, mac.Sum(nil)) {
 		return "", command.ErrInvalid
 	}
 	return parts[2], nil

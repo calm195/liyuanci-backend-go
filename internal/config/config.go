@@ -69,7 +69,12 @@ func Load(path string) (Config, error) {
 	if c.Mode != "foundation" && (c.Database.Driver != "postgres" || c.Database.DSN == "" || !c.Redis.Enabled) {
 		return c, fmt.Errorf("业务模式必须配置database连接字段和Redis")
 	}
-	if c.Server.Address == "" || c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 || c.Database.MaxOpen < 1 || c.Database.MaxOpen > 100 || c.Database.MaxIdle < 0 || c.Database.MaxIdle > c.Database.MaxOpen || c.Database.MaxLifetime <= 0 {
+	if c.Server.Address == "" || c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 ||
+		c.Database.MaxOpen < 1 ||
+		c.Database.MaxOpen > 100 ||
+		c.Database.MaxIdle < 0 ||
+		c.Database.MaxIdle > c.Database.MaxOpen ||
+		c.Database.MaxLifetime <= 0 {
 		return c, fmt.Errorf("监听、期限或连接池预算无效")
 	}
 	if c.Environment == "production" && c.Redis.Password == "" {

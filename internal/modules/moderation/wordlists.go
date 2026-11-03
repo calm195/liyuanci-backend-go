@@ -52,6 +52,7 @@ type WordlistPublish struct {
 func wordlist(row entity.WordlistVersion) Wordlist {
 	return Wordlist{row.ID, row.Version, row.Type, row.Status, row.BaseEffectiveID}
 }
+
 func readList(db *gorm.DB, id string) (row entity.WordlistVersion, err error) {
 	err = db.Where("id=?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -59,6 +60,7 @@ func readList(db *gorm.DB, id string) (row entity.WordlistVersion, err error) {
 	}
 	return
 }
+
 func entries(db *gorm.DB, id string) ([]string, error) {
 	out := []string{}
 	e := db.Model(&entity.WordlistEntry{}).Where("version_id=?", id).Order("entry").Pluck("entry", &out).Error
@@ -142,6 +144,7 @@ func (s *Service) Wordlist(ctx context.Context, token, rid, id string) (out Word
 	})
 	return
 }
+
 func validateEntries(input WordlistInput, max int) error {
 	if !kind(input.Kind) || input.ExpectedVersion < 1 || input.Entries == nil || len(input.Entries) > max {
 		return command.ErrInvalid
@@ -183,6 +186,7 @@ func (s *Service) PublishWordlist(ctx context.Context, token, key, rid, id strin
 	}
 	return s.writeWordlist(ctx, token, key, rid, id, WordlistInput{}, input)
 }
+
 func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string, input WordlistInput, publish WordlistPublish) (out Wordlist, err error) {
 	op, path, request := "wordlist.create", "/api/v1/admin/wordlists/versions", any(input)
 	if id != "" {
@@ -190,9 +194,17 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 		path = "/api/v1/admin/wordlists/" + id + "/publish"
 		request = publish
 	}
-	d := command.Definition{Kind: op, Method: "POST", ResourcePath: path, ActorKind: "admin", AllowedRoles: []string{"super_admin", "review_operator"}, Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
-		return command.Discovery{}, nil
-	}, Authorize: func(context.Context, *command.Tx) error { return nil }}
+	d := command.Definition{
+		Kind:         op,
+		Method:       "POST",
+		ResourcePath: path,
+		ActorKind:    "admin",
+		AllowedRoles: []string{"super_admin", "review_operator"},
+		Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
+			return command.Discovery{}, nil
+		},
+		Authorize: func(context.Context, *command.Tx) error { return nil },
+	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
 		k := input.Kind
@@ -216,7 +228,13 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 			if head.Version != input.ExpectedVersion {
 				return "", command.ErrVersionConflict
 			}
-			row = entity.WordlistVersion{ID: uuid.NewString(), Type: k, Version: 1, Status: "draft", BaseEffectiveID: head.EffectiveID}
+			row = entity.WordlistVersion{
+				ID:              uuid.NewString(),
+				Type:            k,
+				Version:         1,
+				Status:          "draft",
+				BaseEffectiveID: head.EffectiveID,
+			}
 			if e := db.Create(&row).Error; e != nil {
 				return "", e
 			}
@@ -235,16 +253,22 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 				return "", command.ErrConflict
 			}
 			if head.EffectiveID != nil {
-				if e := db.Model(&entity.WordlistVersion{}).Where("id=? AND status='published'", *head.EffectiveID).Updates(map[string]any{"status": "archived", "version": gorm.Expr("version+1")}).Error; e != nil {
+				if e := db.Model(&entity.WordlistVersion{}).Where("id=? AND status='published'", *head.EffectiveID).
+					Updates(map[string]any{"status": "archived", "version": gorm.Expr("version+1")}).
+					Error; e != nil {
 					return "", e
 				}
 			}
-			if e := db.Model(&entity.WordlistVersion{}).Where("id=?", id).Updates(map[string]any{"status": "published", "version": gorm.Expr("version+1")}).Error; e != nil {
+			if e := db.Model(&entity.WordlistVersion{}).Where("id=?", id).
+				Updates(map[string]any{"status": "published", "version": gorm.Expr("version+1")}).
+				Error; e != nil {
 				return "", e
 			}
 			head.EffectiveID = &row.ID
 		}
-		if e := db.Model(&entity.WordlistHead{}).Where("kind=?", k).Updates(map[string]any{"version": head.Version + 1, "effective_id": head.EffectiveID}).Error; e != nil {
+		if e := db.Model(&entity.WordlistHead{}).Where("kind=?", k).
+			Updates(map[string]any{"version": head.Version + 1, "effective_id": head.EffectiveID}).
+			Error; e != nil {
 			return "", e
 		}
 		if e := audit(db, tx.Actor().ID, row.ID, op); e != nil {
@@ -257,7 +281,12 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 		out = wordlist(row)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(request)})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(request)},
+	)
 	return
 }
+
 func sameID(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }

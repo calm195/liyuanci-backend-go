@@ -14,9 +14,20 @@ func TestOriginalParticipants(t *testing.T) {
 	for _, tc := range []struct {
 		name, actor, lifecycle string
 		deleted, want          bool
-	}{{"原许愿人终结后", "owner", "active", false, true}, {"原应愿人终结后", "helper", "active", false, true}, {"新应愿人", "new", "active", false, false}, {"注销意图", "owner", "deleting", false, false}, {"目标删除", "helper", "active", true, false}} {
+	}{
+		{"原许愿人终结后", "owner", "active", false, true},
+		{"原应愿人终结后", "helper", "active", false, true},
+		{"新应愿人", "new", "active", false, false},
+		{"注销意图", "owner", "deleting", false, false},
+		{"目标删除", "helper", "active", true, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := Snapshot{Match: entity.Match{RequesterID: "owner", HelperID: "helper", Status: "ended"}, Wish: entity.Wish{OwnerID: "owner"}, Requester: entity.Account{ID: "owner", Lifecycle: "active"}, Helper: entity.Account{ID: "helper", Lifecycle: tc.lifecycle}}
+			s := Snapshot{
+				Match:     entity.Match{RequesterID: "owner", HelperID: "helper", Status: "ended"},
+				Wish:      entity.Wish{OwnerID: "owner"},
+				Requester: entity.Account{ID: "owner", Lifecycle: "active"},
+				Helper:    entity.Account{ID: "helper", Lifecycle: tc.lifecycle},
+			}
 			if tc.deleted {
 				now := time.Now()
 				s.Wish.DraftDeletedAt = &now
@@ -37,7 +48,14 @@ func TestBoundCursor(t *testing.T) {
 	if e != nil || c.Seq != 2 {
 		t.Fatal(c, e)
 	}
-	for _, tc := range []struct{ token, scope string }{{token, "messages/other/conversation"}, {token, "messages/actor/other"}, {token, "notifications/actor"}, {token + "x", scope}, {strings.Repeat("x", 2049), scope}, {s.encode(cursor{Scope: scope, Seq: -1}), scope}} {
+	for _, tc := range []struct{ token, scope string }{
+		{token, "messages/other/conversation"},
+		{token, "messages/actor/other"},
+		{token, "notifications/actor"},
+		{token + "x", scope},
+		{strings.Repeat("x", 2049), scope},
+		{s.encode(cursor{Scope: scope, Seq: -1}), scope},
+	} {
 		if _, e = s.decode(tc.token, tc.scope); e != command.ErrInvalid {
 			t.Fatal("无效游标未拒绝", e)
 		}

@@ -56,7 +56,13 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	must(os.Chmod(dir, 0700))
 	objects := filepath.Join(dir, "objects")
 	must(os.Mkdir(objects, 0700))
-	dc := DevelopmentSettings{LocalTest: true, DatabaseDSN: shared, JournalFile: filepath.Join(dir, "journal.json"), AdminPassword: "isolated-local-password", ObjectDirectory: objects}
+	dc := DevelopmentSettings{
+		LocalTest:       true,
+		DatabaseDSN:     shared,
+		JournalFile:     filepath.Join(dir, "journal.json"),
+		AdminPassword:   "isolated-local-password",
+		ObjectDirectory: objects,
+	}
 	devDoc := config.Defaults()
 	devDoc.MasterKey = bytes.Repeat([]byte{94}, 32)
 	devDoc.Mode = "development"
@@ -82,7 +88,9 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	must(os.WriteFile(path, []byte("environment: development\n"), 0600))
 	cfg, e = config.LoadWhispers(ctx, path, "integration")
 	must(e)
-	if !bytes.Equal(cfg.WrapKey, dc.WrapKey) || !bytes.Equal(cfg.RecoveryWrapKey, dc.RecoveryWrapKey) || !bytes.Equal(cfg.PrivacyKey, privacy.DeriveKey(dc.WishKey)) || !bytes.Equal(cfg.SafetyKey, safety.DeriveKey(dc.WishKey)) {
+	if !bytes.Equal(cfg.WrapKey, dc.WrapKey) || !bytes.Equal(cfg.RecoveryWrapKey, dc.RecoveryWrapKey) ||
+		!bytes.Equal(cfg.PrivacyKey, privacy.DeriveKey(dc.WishKey)) ||
+		!bytes.Equal(cfg.SafetyKey, safety.DeriveKey(dc.WishKey)) {
 		t.Fatal("本地组合API密钥不一致")
 	}
 	client := redis.NewClient(&redis.Options{Addr: redisAddress})
@@ -118,25 +126,65 @@ func TestPostgresLocalBusiness(t *testing.T) {
 		}
 	}
 	var admin struct{ Token string }
-	request("POST", "/admin/sessions", "", map[string]string{"login_name": "local-root", "password": dc.AdminPassword}, &admin, 200)
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]string{"login_name": "local-root", "password": dc.AdminPassword},
+		&admin,
+		200,
+	)
 	for _, a := range []struct {
 		name, role string
 		want       int
 	}{{"review", "review_operator", 403}, {"crisis", "crisis_operator", 200}} {
-		request("POST", "/admin/accounts", admin.Token, map[string]any{"login_name": a.name, "roles": []string{a.role}, "reason": "隔离测试岗位"}, nil, 201)
+		request(
+			"POST",
+			"/admin/accounts",
+			admin.Token,
+			map[string]any{"login_name": a.name, "roles": []string{a.role}, "reason": "隔离测试岗位"},
+			nil,
+			201,
+		)
 		var session struct{ Token string }
-		request("POST", "/admin/sessions", "", map[string]string{"login_name": a.name, "password": dc.AdminPassword}, &session, 200)
+		request(
+			"POST",
+			"/admin/sessions",
+			"",
+			map[string]string{"login_name": a.name, "password": dc.AdminPassword},
+			&session,
+			200,
+		)
 		request("GET", "/admin/crisis-cases", session.Token, nil, nil, a.want)
 	}
 	actor, token := uuid.NewString(), uuid.NewString()
 	must(root.Create(&entity.Account{ID: actor, Nickname: "本地合成账号", Verification: "verified"}).Error)
 	hash := sha256.Sum256([]byte(token))
-	must(root.Exec("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), actor, hash[:]).Error)
+	must(root.Exec(
+		"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		uuid.NewString(),
+		actor,
+		hash[:],
+	).Error)
 	request("GET", "/me", token, nil, nil, 200)
 	request("GET", "/admin/wordlists", token, nil, nil, 401)
 	var post whisper.OwnerPost
-	request("POST", "/me/whispers/posts", token, whisper.ContentInput{Body: "本地原文人工审核", Identity: whisper.IdentityInput{Mode: "anonymous"}}, &post, 201)
-	request("POST", "/me/whispers/posts/"+post.ID+"/submit", token, map[string]int64{"expected_version": post.Version}, &post, 202)
+	request(
+		"POST",
+		"/me/whispers/posts",
+		token,
+		whisper.ContentInput{Body: "本地原文人工审核", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		&post,
+		201,
+	)
+	request(
+		"POST",
+		"/me/whispers/posts/"+post.ID+"/submit",
+		token,
+		map[string]int64{"expected_version": post.Version},
+		&post,
+		202,
+	)
 	workCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- RunWhisperContent(workCtx, path, "integration", log) }()
@@ -168,10 +216,25 @@ func TestPostgresLocalBusiness(t *testing.T) {
 		t.Helper()
 		var task entity.ModerationTask
 		wait(func() bool {
-			return root.Table("moderation_tasks t").Select("t.*").Joins("JOIN content_registry c ON c.id=t.content_id").Where("c.kind=? AND c.entity_id=? AND t.status='human_required'", kind, id).Take(&task).Error == nil
+			return root.Table("moderation_tasks t").Select("t.*").Joins("JOIN content_registry c ON c.id=t.content_id").Where(
+				"c.kind=? AND c.entity_id=? AND t.status='human_required'",
+				kind,
+				id,
+			).Take(&task).Error == nil
 		})
 		request("GET", "/admin/whispers/reviews/"+task.ID, admin.Token, nil, nil, 200)
-		request("POST", "/admin/whispers/reviews/"+task.ID+"/decision", admin.Token, moderation.WhisperReviewCommand{ExpectedVersion: task.Version, ExpectedContentVersion: task.ContentVersion, Decision: "approved"}, nil, 200)
+		request(
+			"POST",
+			"/admin/whispers/reviews/"+task.ID+"/decision",
+			admin.Token,
+			moderation.WhisperReviewCommand{
+				ExpectedVersion:        task.Version,
+				ExpectedContentVersion: task.ContentVersion,
+				Decision:               "approved",
+			},
+			nil,
+			200,
+		)
 	}
 	approve("whisper_post", post.ID)
 	var public whisper.PublicPost
@@ -180,20 +243,39 @@ func TestPostgresLocalBusiness(t *testing.T) {
 		t.Fatal("人工审核改写了原文")
 	}
 	var capsule whisper.Capsule
-	request("POST", "/me/whispers/capsules", token, whisper.CapsuleInput{Body: "本人胶囊原文", UnlockAt: time.Now().UTC().Truncate(time.Second).Add(time.Hour), SafetyNoticeAccepted: true}, &capsule, 202)
+	request(
+		"POST",
+		"/me/whispers/capsules",
+		token,
+		whisper.CapsuleInput{
+			Body:                 "本人胶囊原文",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+		&capsule,
+		202,
+	)
 	request("GET", "/me/whispers/capsules/"+capsule.ID, token, nil, &capsule, 200)
 	if capsule.Body != nil {
 		t.Fatal("提前泄漏胶囊")
 	}
 	approve("whisper_capsule", capsule.ID)
-	must(root.Exec("UPDATE whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).Error)
+	must(root.Exec("UPDATE whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).
+		Error)
 	request("GET", "/me/whispers/capsules/"+capsule.ID, token, nil, &capsule, 200)
 	if capsule.Body == nil || *capsule.Body != "本人胶囊原文" {
 		t.Fatal("到期胶囊读取失败")
 	}
 	var account entity.Account
 	must(root.Where("id=?", actor).Take(&account).Error)
-	request("POST", "/me/deletion-requests", token, privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: account.Version}, nil, 202)
+	request(
+		"POST",
+		"/me/deletion-requests",
+		token,
+		privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: account.Version},
+		nil,
+		202,
+	)
 	request("GET", "/me", token, nil, nil, 401)
 	if e = app.Ready(ctx); e != nil {
 		t.Fatal("已装配API基础检查失败", e)

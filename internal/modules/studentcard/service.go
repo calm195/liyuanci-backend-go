@@ -75,7 +75,16 @@ type Service struct {
 
 // New 构造显式依赖，不运行迁移或启动后台任务。
 func New(db *gorm.DB, logger *zap.Logger, sessions Sessions, codec *securedata.Codec, objects Objects, scanner Scanner, cfg Config) (*Service, error) {
-	if logger == nil || sessions == nil || codec == nil || objects == nil || scanner == nil || cfg.DecodeSlots < 1 || cfg.DecodeSlots > 16 || cfg.MaxBytes < 1 || cfg.MaxBytes > int64(int(^uint(0)>>1))/4 || cfg.MaxPixels < 1 || len(cfg.ReceiptKey) < 32 || cfg.Lease < cfg.Command.Timeout || cfg.RetryDelay < time.Millisecond || cfg.MaxAttempts < 1 || cfg.MaxAttempts > 1000 {
+	if logger == nil || sessions == nil || codec == nil || objects == nil || scanner == nil || cfg.DecodeSlots < 1 ||
+		cfg.DecodeSlots > 16 ||
+		cfg.MaxBytes < 1 ||
+		cfg.MaxBytes > int64(int(^uint(0)>>1))/4 ||
+		cfg.MaxPixels < 1 ||
+		len(cfg.ReceiptKey) < 32 ||
+		cfg.Lease < cfg.Command.Timeout ||
+		cfg.RetryDelay < time.Millisecond ||
+		cfg.MaxAttempts < 1 ||
+		cfg.MaxAttempts > 1000 {
 		return nil, command.ErrInvalid
 	}
 	engine, e := command.New(db, logger, cfg.Command)
@@ -100,7 +109,13 @@ func New(db *gorm.DB, logger *zap.Logger, sessions Sessions, codec *securedata.C
 func Route() durable.Route {
 	return durable.Route{Kind: "student_card.scan", TargetKind: "asset", EventType: "student_card.scan_requested"}
 }
-func validID(id string) bool { parsed, e := uuid.Parse(id); return e == nil && parsed.String() == id }
+
+func validID(id string) bool {
+
+	parsed, e := uuid.Parse(id)
+	return e == nil && parsed.String() == id
+}
+
 func validKey(key string) bool {
 	return len(key) > 0 && len(key) <= 128 && !strings.ContainsAny(key, "\r\n")
 }
@@ -112,13 +127,24 @@ func safe(e error) error {
 	if e == nil {
 		return nil
 	}
-	for _, known := range []error{command.ErrInvalid, command.ErrUnauthenticated, command.ErrForbidden, command.ErrNotFound, command.ErrConflict, command.ErrVersionConflict, command.ErrIdempotencyConflict, command.ErrInternal, ErrBusy} {
+	for _, known := range []error{
+		command.ErrInvalid,
+		command.ErrUnauthenticated,
+		command.ErrForbidden,
+		command.ErrNotFound,
+		command.ErrConflict,
+		command.ErrVersionConflict,
+		command.ErrIdempotencyConflict,
+		command.ErrInternal,
+		ErrBusy,
+	} {
 		if errors.Is(e, known) {
 			return known
 		}
 	}
 	return command.ErrUnavailable
 }
+
 func (s *Service) complete(operation, requestID string, start time.Time, err error, fields ...zap.Field) {
 	result := "success"
 	if err != nil {
@@ -129,7 +155,12 @@ func (s *Service) complete(operation, requestID string, start time.Time, err err
 	}) {
 		requestID = ""
 	}
-	s.logger.Info("学生卡操作完成", append([]zap.Field{zap.String("operation", operation), zap.String("request_id", requestID), zap.String("result", result), zap.Duration("duration", time.Since(start))}, fields...)...)
+	s.logger.Info("学生卡操作完成", append([]zap.Field{
+		zap.String("operation", operation),
+		zap.String("request_id", requestID),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	}, fields...)...)
 }
 
 // Upload 只在根事务中持久化信封密文和工作；网络外发由worker在提交后执行。
@@ -171,7 +202,12 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 	_, _ = mac.Write(image)
 	digest := hex.EncodeToString(mac.Sum(nil))
 	id := uuid.NewString()
-	payload, e := s.codec.EncryptObject(ctx, securedata.Binding{Purpose: "student_card", ObjectID: id, Version: 1}, bytes.NewReader(image), s.config.MaxBytes)
+	payload, e := s.codec.EncryptObject(
+		ctx,
+		securedata.Binding{Purpose: "student_card", ObjectID: id, Version: 1},
+		bytes.NewReader(image),
+		s.config.MaxBytes,
+	)
 	if e != nil {
 		return out, e
 	}
@@ -180,7 +216,11 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 		return out, e
 	}
 	objectKey := uuid.NewString()
-	keyEnvelope, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "student_card_key", ObjectID: id, Version: 1}, []byte(objectKey))
+	keyEnvelope, e := s.codec.Encrypt(
+		ctx,
+		securedata.Binding{Purpose: "student_card_key", ObjectID: id, Version: 1},
+		[]byte(objectKey),
+	)
 	if e != nil {
 		return out, e
 	}
@@ -189,22 +229,47 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 		return out, e
 	}
 	definition := command.Definition{
-		Kind: "student_card.upload", Method: "POST", ResourcePath: "/api/v1/me/student-card-assets", ActorKind: "student", Access: command.Ordinary,
+
+		Kind:         "student_card.upload",
+		Method:       "POST",
+		ResourcePath: "/api/v1/me/student-card-assets",
+		ActorKind:    "student",
+		Access:       command.Ordinary,
+
 		Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 			return command.Discovery{}, nil
 		},
+
 		Authorize: func(context.Context, *command.Tx) error { return nil },
+
 		Apply: func(ctx context.Context, tx *command.Tx) (string, error) {
-			asset := entity.Asset{ID: id, OwnerID: tx.Actor().ID, Purpose: "student_card", EncryptedObjectKey: encodedKey, ObjectVersion: "pending", WrappedKeyRef: payload.KeyRef, Status: "pending", ScanStatus: "pending", Version: 1}
+			asset := entity.Asset{
+				ID:                 id,
+				OwnerID:            tx.Actor().ID,
+				Purpose:            "student_card",
+				EncryptedObjectKey: encodedKey,
+				ObjectVersion:      "pending",
+				WrappedKeyRef:      payload.KeyRef,
+				Status:             "pending",
+				ScanStatus:         "pending",
+				Version:            1,
+			}
 			if e := createAsset(ctx, tx.DB(), asset, encoded, "image/png"); e != nil {
 				return "", e
 			}
-			draft := durable.Draft{WorkID: uuid.NewString(), OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: id, AggregateVersion: 1}
+			draft := durable.Draft{
+				WorkID:           uuid.NewString(),
+				OperationID:      uuid.NewString(),
+				EventID:          uuid.NewString(),
+				AggregateID:      id,
+				AggregateVersion: 1,
+			}
 			if e := durable.Append(ctx, tx.DB(), s.logger, Route(), draft); e != nil {
 				return "", e
 			}
 			return id, nil
 		},
+
 		Resolve: func(ctx context.Context, tx *command.Tx, id string) error {
 			asset, e := readAsset(ctx, tx.DB(), id)
 			if e != nil {

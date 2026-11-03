@@ -40,18 +40,45 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 	if err = db.Where("wish_id=? AND content_version=?", id, out.row.CurrentContentVersion).Take(&out.content).Error; err != nil {
 		return out, err
 	}
-	if err = db.Where("kind='wish' AND entity_id=? AND content_version=? AND author_id=?", id, out.row.CurrentContentVersion, out.row.OwnerID).Take(&out.registry).Error; err != nil {
+	if err = db.Where(
+		"kind='wish' AND entity_id=? AND content_version=? AND author_id=?",
+		id,
+		out.row.CurrentContentVersion,
+		out.row.OwnerID,
+	).Take(&out.registry).Error; err != nil {
 		return out, err
 	}
-	out.snapshot = Snapshot{State: State(out.row.State), Version: out.row.Version, ContentVersion: out.row.CurrentContentVersion, DurationDays: int(out.row.DurationDays), ExpiresAt: out.row.ExpiresAt, PublishedAt: out.row.PublishedAt, RefreshOnPublish: out.row.RefreshOnPublish, RestrictionEpoch: out.row.RestrictionEpoch}
+	out.snapshot = Snapshot{
+		State:            State(out.row.State),
+		Version:          out.row.Version,
+		ContentVersion:   out.row.CurrentContentVersion,
+		DurationDays:     int(out.row.DurationDays),
+		ExpiresAt:        out.row.ExpiresAt,
+		PublishedAt:      out.row.PublishedAt,
+		RefreshOnPublish: out.row.RefreshOnPublish,
+		RestrictionEpoch: out.row.RestrictionEpoch,
+	}
 	var penalties int64
-	if err = db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())", out.row.OwnerID, []string{"mute", "ban"}).Count(&penalties).Error; err != nil {
+	if err = db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind IN ? AND revoked_at IS NULL AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())",
+		out.row.OwnerID,
+		[]string{"mute", "ban"},
+	).Count(&penalties).Error; err != nil {
 		return out, err
 	}
-	out.owner = Eligibility{Active: out.account.Lifecycle == "active", Verified: out.account.Verification == "verified", Restricted: penalties > 0, HideIdentityTags: out.account.HideIdentityTags}
+	out.owner = Eligibility{
+		Active:           out.account.Lifecycle == "active",
+		Verified:         out.account.Verification == "verified",
+		Restricted:       penalties > 0,
+		HideIdentityTags: out.account.HideIdentityTags,
+	}
 	// 检查全部历史精确版本上的有效限制，不能通过编辑生成新注册记录绕过旧限制。
 	var restrictions int64
-	if err = db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").Joins("JOIN public.content_registry c ON c.id=r.content_id").Where("c.kind='wish' AND c.entity_id=? AND r.active", id).Count(&restrictions).Error; err != nil {
+	if err = db.Model(&entity.ContentRestriction{}).Table("public.content_restrictions AS r").
+		Joins("JOIN public.content_registry c ON c.id=r.content_id").
+		Where("c.kind='wish' AND c.entity_id=? AND r.active", id).
+		Count(&restrictions).
+		Error; err != nil {
 		return out, err
 	}
 	out.snapshot.Restricted = restrictions > 0
@@ -67,11 +94,25 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 	}
 	if out.content.ReviewTaskID != nil {
 		var task entity.ModerationTask
-		if err = db.Where("id=? AND content_id=? AND content_version=?", *out.content.ReviewTaskID, out.registry.ID, out.content.ContentVersion).Take(&task).Error; err != nil {
+		if err = db.Where(
+			"id=? AND content_id=? AND content_version=?",
+			*out.content.ReviewTaskID,
+			out.registry.ID,
+			out.content.ContentVersion,
+		).Take(&task).Error; err != nil {
 			return out, err
 		}
 		out.task = &task
-		r := Review{ContentVersion: task.ContentVersion, HoldEpoch: task.HoldEpoch, Approved: task.Status == "approved" && task.Decision != nil && *task.Decision == "approved" && task.SubjectEpoch == out.account.AuthEpoch && out.registry.Status == "approved" && out.content.ModerationStatus == "approved", DetectionCompleted: out.content.SchoolDetectionState == "completed" && out.registry.SchoolDetectionState == "completed", SchoolRelated: out.content.SchoolRelated, HumanReviewed: task.ReviewerID != nil}
+		r := Review{
+			ContentVersion: task.ContentVersion,
+			HoldEpoch:      task.HoldEpoch,
+			Approved: task.Status == "approved" && task.Decision != nil && *task.Decision == "approved" && task.SubjectEpoch == out.account.AuthEpoch &&
+				out.registry.Status == "approved" &&
+				out.content.ModerationStatus == "approved",
+			DetectionCompleted: out.content.SchoolDetectionState == "completed" && out.registry.SchoolDetectionState == "completed",
+			SchoolRelated:      out.content.SchoolRelated,
+			HumanReviewed:      task.ReviewerID != nil,
+		}
 		if task.RestrictionEpoch != nil {
 			r.RestrictionEpoch = *task.RestrictionEpoch
 		}
@@ -82,7 +123,10 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 			return out, err
 		}
 		// 注册表和内容检测必须一致，检测器占位标识绝不视为已完成检测。
-		if out.content.SchoolDetectionVersion == "pending" || out.registry.SchoolDetectionVersion != out.content.SchoolDetectionVersion || out.registry.SchoolRelated == nil || r.SchoolRelated == nil || *out.registry.SchoolRelated != *r.SchoolRelated {
+		if out.content.SchoolDetectionVersion == "pending" || out.registry.SchoolDetectionVersion != out.content.SchoolDetectionVersion ||
+			out.registry.SchoolRelated == nil ||
+			r.SchoolRelated == nil ||
+			*out.registry.SchoolRelated != *r.SchoolRelated {
 			r.DetectionCompleted = false
 		}
 		out.snapshot.Review = r
@@ -102,7 +146,10 @@ func discoverWishBase(ctx context.Context, db *gorm.DB, id string) (plan command
 	plan.Accounts = []string{row.OwnerID}
 	plan.Resources = []command.Resource{{Kind: command.Wish, ID: id}}
 	var apps []entity.Application
-	if err = db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active", "accepted"}).Order("id").Find(&apps).Error; err != nil {
+	if err = db.Where("wish_id=? AND status IN ?", id, []string{"pending_scan", "pending_review", "active", "accepted"}).
+		Order("id").
+		Find(&apps).
+		Error; err != nil {
 		return plan, err
 	}
 	for _, a := range apps {
@@ -110,7 +157,14 @@ func discoverWishBase(ctx context.Context, db *gorm.DB, id string) (plan command
 		plan.Resources = append(plan.Resources, command.Resource{Kind: command.Application, ID: a.ID})
 	}
 	var tasks []entity.ModerationTask
-	if err = db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("(c.kind='wish' AND c.entity_id=?) OR (c.kind='application' AND c.entity_id IN (SELECT id FROM public.applications WHERE wish_id=?))", id, id).Order("t.id").Find(&tasks).Error; err != nil {
+	if err = db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").
+		Select("t.*").
+		Joins("JOIN public.content_registry c ON c.id=t.content_id").
+		Where(
+			"(c.kind='wish' AND c.entity_id=?) OR (c.kind='application' AND c.entity_id IN (SELECT id FROM public.applications WHERE wish_id=?))",
+			id,
+			id,
+		).Order("t.id").Find(&tasks).Error; err != nil {
 		return plan, err
 	}
 	for _, task := range tasks {
@@ -120,7 +174,19 @@ func discoverWishBase(ctx context.Context, db *gorm.DB, id string) (plan command
 }
 
 func saveState(ctx context.Context, tx *command.Tx, current aggregate, next Snapshot) error {
-	result := tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where("id=? AND version=? AND draft_deleted_at IS NULL", current.row.ID, current.row.Version).Updates(map[string]any{"state": next.State, "version": next.Version, "current_content_version": next.ContentVersion, "duration_days": next.DurationDays, "refresh_on_publish": next.RefreshOnPublish, "expires_at": next.ExpiresAt, "published_at": next.PublishedAt})
+	result := tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where(
+		"id=? AND version=? AND draft_deleted_at IS NULL",
+		current.row.ID,
+		current.row.Version,
+	).Updates(map[string]any{
+		"state":                   next.State,
+		"version":                 next.Version,
+		"current_content_version": next.ContentVersion,
+		"duration_days":           next.DurationDays,
+		"refresh_on_publish":      next.RefreshOnPublish,
+		"expires_at":              next.ExpiresAt,
+		"published_at":            next.PublishedAt,
+	})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -137,12 +203,18 @@ func obsoleteWork(ctx context.Context, tx *command.Tx, targetKind string, ids []
 	}
 	var rows []entity.WorkItem
 	db := tx.DB().WithContext(ctx)
-	if err := db.Where("target_kind=? AND target_id IN ?", targetKind, ids).Order("id").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; err != nil {
+	if err := db.Where("target_kind=? AND target_id IN ?", targetKind, ids).
+		Order("id").
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&rows).
+		Error; err != nil {
 		return err
 	}
 	for _, row := range rows {
 		if !slices.Contains([]string{"completed", "cancelled"}, row.Status) {
-			if err := db.Model(&entity.WorkItem{}).Where("id=?", row.ID).Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).Error; err != nil {
+			if err := db.Model(&entity.WorkItem{}).Where("id=?", row.ID).
+				Updates(map[string]any{"status": "cancelled", "lease_until": nil, "version": gorm.Expr("version+1")}).
+				Error; err != nil {
 				return err
 			}
 		}
@@ -164,13 +236,17 @@ func invalidate(ctx context.Context, tx *command.Tx, id string, applications boo
 	for _, t := range tasks {
 		taskIDs = append(taskIDs, t.ID)
 	}
-	if err := db.Model(&entity.ModerationTask{}).Where("id IN ?", taskIDs).Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).Error; err != nil {
+	if err := db.Model(&entity.ModerationTask{}).Where("id IN ?", taskIDs).
+		Updates(map[string]any{"status": "obsolete", "version": gorm.Expr("version+1")}).
+		Error; err != nil {
 		return err
 	}
 	if err := db.Model(&entity.ContentRegistry{}).Where("id IN ?", registryIDs).Update("status", "obsolete").Error; err != nil {
 		return err
 	}
-	if err := db.Model(&entity.WishVersion{}).Where("wish_id=?", id).Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil}).Error; err != nil {
+	if err := db.Model(&entity.WishVersion{}).Where("wish_id=?", id).
+		Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil}).
+		Error; err != nil {
 		return err
 	}
 	if err := obsoleteWork(ctx, tx, "moderation_task", taskIDs); err != nil {

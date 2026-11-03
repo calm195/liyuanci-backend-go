@@ -51,7 +51,19 @@ func TestInputValidation(t *testing.T) {
 		{"ack", id, Input{ExpectedVersion: 0}, false},
 		{"report_decision", id, Input{Decision: "confirmed", ExpectedVersion: 1, Reason: "合成"}, true},
 		{"appeal_decision", id, Input{Decision: "revoke", ExpectedVersion: 1}, false},
-		{"penalty", id, Input{ExpectedVersion: 1, ViolationRef: id, ContentRef: id, ContentVersion: 1, Level: "custom", Reason: "合成"}, false},
+		{
+			"penalty",
+			id,
+			Input{
+				ExpectedVersion: 1,
+				ViolationRef:    id,
+				ContentRef:      id,
+				ContentVersion:  1,
+				Level:           "custom",
+				Reason:          "合成",
+			},
+			false,
+		},
 		{"user_ban", id, Input{Reason: "合成理由", ExpectedVersion: 1}, true},
 		{"user_unban", id, Input{Reason: " ", ExpectedVersion: 1}, false},
 		{"user_mute", id, Input{Reason: "合成理由", ExpectedVersion: 0}, false},
@@ -75,7 +87,12 @@ func TestCursorScope(t *testing.T) {
 	if e != nil || !got.Equal(at) || rid != id {
 		t.Fatal("游标往返失败")
 	}
-	for _, args := range [][3]string{{"other", "reports", c}, {"actor", "appeals", c}, {"actor", "reports", c + "x"}, {"actor", "reports", strings.Repeat("x", 1025)}} {
+	for _, args := range [][3]string{
+		{"other", "reports", c},
+		{"actor", "appeals", c},
+		{"actor", "reports", c + "x"},
+		{"actor", "reports", strings.Repeat("x", 1025)},
+	} {
 		if _, _, e := s.after(args[0], args[1], args[2]); e == nil {
 			t.Fatal("错误游标通过")
 		}

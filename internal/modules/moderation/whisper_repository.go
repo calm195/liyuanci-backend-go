@@ -17,7 +17,12 @@ func loadWhisper(ctx context.Context, db *gorm.DB, taskID string) (r whisperSour
 	if err = db.Where("id=?", taskID).Take(&r.task).Error; err != nil {
 		return r, missingWhisper(err)
 	}
-	if err = db.Where("id=? AND content_version=? AND kind IN ?", r.task.ContentID, r.task.ContentVersion, []string{"whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"}).Take(&r.registry).Error; err != nil {
+	if err = db.Where(
+		"id=? AND content_version=? AND kind IN ?",
+		r.task.ContentID,
+		r.task.ContentVersion,
+		[]string{"whisper_post", "whisper_comment", "whisper_nickname", "whisper_capsule"},
+	).Take(&r.registry).Error; err != nil {
 		return r, missingWhisper(err)
 	}
 	task, registry := r.task, r.registry
@@ -58,12 +63,14 @@ func loadWhisper(ctx context.Context, db *gorm.DB, taskID string) (r whisperSour
 	err = db.Where("id=?", r.OwnerID).Take(&r.account).Error
 	return r, err
 }
+
 func missingWhisper(e error) error {
 	if errors.Is(e, gorm.ErrRecordNotFound) {
 		return command.ErrNotFound
 	}
 	return e
 }
+
 func whisperTarget(ctx context.Context, db *gorm.DB, kind, id string) (r whisperSource, err error) {
 	db = db.WithContext(ctx)
 	if !whisperKind(kind) || !validID(id) {
@@ -91,7 +98,9 @@ func countWhisperBarriers(ctx context.Context, db *gorm.DB, r whisperSource) (n 
  JOIN public.content_registry c ON c.id=x.content_id
  WHERE x.active AND c.kind=? AND (c.entity_id=? OR c.id=?))+(SELECT count(*)
  FROM public.privacy_holds
- WHERE target_kind=? AND target_id=? AND (status='active' OR hold_epoch>?))`, r.registry.Kind, r.OwnerID, r.registry.Kind, r.registry.EntityID, r.ID, r.registry.Kind, r.ID, r.task.HoldEpoch).Scan(&n).Error
+ WHERE target_kind=? AND target_id=? AND (status='active' OR hold_epoch>?))`, r.registry.Kind, r.OwnerID, r.registry.Kind, r.registry.EntityID, r.ID, r.registry.Kind, r.ID, r.task.HoldEpoch).
+		Scan(&n).
+		Error
 	return
 }
 
@@ -99,7 +108,9 @@ func countWhisperBarriers(ctx context.Context, db *gorm.DB, r whisperSource) (n 
 func countWhisperNicknameReferences(ctx context.Context, db *gorm.DB, r whisperSource) (n int64, err error) {
 	err = db.WithContext(ctx).Raw(`SELECT count(*)
  FROM public.whisper_preferences
- WHERE account_id=? AND (candidate_nickname_version=? OR active_nickname_version=? AND ?='approved')`, r.OwnerID, r.ContentVersion, r.ContentVersion, r.State).Scan(&n).Error
+ WHERE account_id=? AND (candidate_nickname_version=? OR active_nickname_version=? AND ?='approved')`, r.OwnerID, r.ContentVersion, r.ContentVersion, r.State).
+		Scan(&n).
+		Error
 	return
 }
 
@@ -134,7 +145,9 @@ func countCommentableWhisperParent(ctx context.Context, db *gorm.DB, r whisperSo
  WHERE x.active AND c.kind='whisper_post' AND c.entity_id=p.id)
  AND NOT EXISTS(SELECT 1
  FROM public.privacy_holds
- WHERE target_kind='whisper_post' AND target_id=p.id AND status='active')`, *r.ParentID, r.CommentsEpoch, r.ParentVersion, r.ParentVersion, r.OwnerID, r.OwnerID).Scan(&n).Error
+ WHERE target_kind='whisper_post' AND target_id=p.id AND status='active')`, *r.ParentID, r.CommentsEpoch, r.ParentVersion, r.ParentVersion, r.OwnerID, r.OwnerID).
+		Scan(&n).
+		Error
 	return
 }
 
@@ -145,9 +158,13 @@ func readWhisperCipher(ctx context.Context, db *gorm.DB, r whisperSource) (raw w
 	db = db.WithContext(ctx)
 	switch r.registry.Kind {
 	case "whisper_post":
-		err = db.Raw("SELECT body_cipher AS body,identity_cipher AS identity FROM public.whisper_post_versions WHERE content_registry_id=?", r.registry.ID).Scan(&raw).Error
+		err = db.Raw("SELECT body_cipher AS body,identity_cipher AS identity FROM public.whisper_post_versions WHERE content_registry_id=?", r.registry.ID).
+			Scan(&raw).
+			Error
 	case "whisper_comment":
-		err = db.Raw("SELECT body_cipher AS body,identity_cipher AS identity FROM public.whisper_comment_versions WHERE content_registry_id=?", r.registry.ID).Scan(&raw).Error
+		err = db.Raw("SELECT body_cipher AS body,identity_cipher AS identity FROM public.whisper_comment_versions WHERE content_registry_id=?", r.registry.ID).
+			Scan(&raw).
+			Error
 	case "whisper_nickname":
 		err = db.Raw("SELECT label_cipher AS body FROM public.whisper_nickname_versions WHERE content_registry_id=?", r.registry.ID).Scan(&raw).Error
 	case "whisper_capsule":
@@ -167,7 +184,9 @@ func readWhisperControlFlags(ctx context.Context, db *gorm.DB, r whisperSource) 
  JOIN public.content_registry c ON c.id=x.content_id
  WHERE c.kind=? AND c.entity_id=? AND x.active AND x.kind='crisis') AS isolated,EXISTS(SELECT 1
  FROM public.privacy_holds
- WHERE target_kind=? AND target_id=? AND status='active') AS privacy`, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.ID).Scan(&flags).Error
+ WHERE target_kind=? AND target_id=? AND status='active') AS privacy`, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.ID).
+		Scan(&flags).
+		Error
 	return
 }
 

@@ -73,19 +73,51 @@ func TestSafetyGovernance(t *testing.T) {
 	codec, e := securedata.New(testKeys{}, logger)
 	must(e)
 	cfg := command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 5}
-	wishes, e := wish.NewService(api, logger, codec, nil, wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))})
+	wishes, e := wish.NewService(
+		api,
+		logger,
+		codec,
+		nil,
+		wish.ServiceConfig{MaxStoryBytes: 65536, Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))},
+	)
 	must(e)
-	reviews, e := moderation.New(adminDB, logger, codec, moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100})
+	reviews, e := moderation.New(
+		adminDB,
+		logger,
+		codec,
+		moderation.Config{Command: cfg, CursorKey: []byte(strings.Repeat("b", 32)), MaxEntries: 100},
+	)
 	must(e)
 	provider := &analyzer{}
-	worker, e := moderation.NewWorker(workerDB, logger, codec, provider, moderation.WorkerConfig{MessageAnalyzer: privateAnalyzer{}, AnalysisTimeout: 5 * time.Second, Consumer: durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 3}})
+	worker, e := moderation.NewWorker(
+		workerDB,
+		logger,
+		codec,
+		provider,
+		moderation.WorkerConfig{
+			MessageAnalyzer: privateAnalyzer{},
+			AnalysisTimeout: 5 * time.Second,
+			Consumer: durable.ConsumerConfig{
+				Timeout:     10 * time.Second,
+				LockTimeout: time.Second,
+				RetryDelay:  time.Millisecond,
+				MaxAttempts: 3,
+			},
+		},
+	)
 	must(e)
 	admin, adminToken := uuid.NewString(), uuid.NewString()
 	credential := "synthetic-application-reviewer"
 	must(root.Create(&entity.AdminAccount{ID: admin, CredentialRef: &credential}).Error)
 	must(root.Create(&entity.AdminRoleBinding{AdminID: admin, Role: "review_operator"}).Error)
 	hash := sha256.Sum256([]byte(adminToken))
-	must(root.Create(&entity.Session{ID: uuid.NewString(), AdminID: &admin, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+	must(root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AdminID:   &admin,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error)
 	for _, item := range []struct{ kind, word string }{{"ordinary_violation", "普通命中"}, {"school", "学校命中"}, {"crisis", "危机命中"}} {
 		heads, e := reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -95,7 +127,13 @@ func TestSafetyGovernance(t *testing.T) {
 				v = h.Version
 			}
 		}
-		draft, e := reviews.CreateWordlist(ctx, adminToken, uuid.NewString(), "rules", moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v})
+		draft, e := reviews.CreateWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			moderation.WordlistInput{Kind: item.kind, Entries: []string{item.word}, ExpectedVersion: v},
+		)
 		must(e)
 		heads, e = reviews.Wordlists(ctx, adminToken, "rules", "", 100)
 		must(e)
@@ -104,7 +142,14 @@ func TestSafetyGovernance(t *testing.T) {
 				v = h.Version
 			}
 		}
-		_, e = reviews.PublishWordlist(ctx, adminToken, uuid.NewString(), "rules", draft.ID, moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v})
+		_, e = reviews.PublishWordlist(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rules",
+			draft.ID,
+			moderation.WordlistPublish{ExpectedVersion: draft.Version, ExpectedHeadVersion: v},
+		)
 		must(e)
 	}
 	student := func() (string, string) {
@@ -112,13 +157,23 @@ func TestSafetyGovernance(t *testing.T) {
 		id, token := uuid.NewString(), uuid.NewString()
 		must(root.Create(&entity.Account{ID: id, Nickname: "合成参与人", Verification: "verified"}).Error)
 		h := sha256.Sum256([]byte(token))
-		must(root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: h[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error)
+		must(root.Create(&entity.Session{
+			ID:        uuid.NewString(),
+			AccountID: &id,
+			TokenHash: h[:],
+			AuthEpoch: 1,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}).Error)
 		return id, token
 	}
 	event := func(kind, id string) durable.Event {
 		t.Helper()
 		var out durable.Event
-		must(root.Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`, kind, id).Scan(&out).Error)
+		must(root.Raw(
+			`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.outbox_events e JOIN public.moderation_tasks t ON t.id=e.aggregate_id JOIN public.content_registry c ON c.id=t.content_id WHERE c.kind=? AND c.entity_id=? AND e.superseded_at IS NULL ORDER BY t.created_at DESC LIMIT 1`,
+			kind,
+			id,
+		).Scan(&out).Error)
 		if out.EventID == "" {
 			t.Fatal("未原子创建审核工作")
 		}
@@ -134,7 +189,13 @@ func TestSafetyGovernance(t *testing.T) {
 	}
 	published := func(token string) wish.CreatedDraft {
 		t.Helper()
-		out, e := wishes.Create(ctx, token, uuid.NewString(), "create", wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"})
+		out, e := wishes.Create(
+			ctx,
+			token,
+			uuid.NewString(),
+			"create",
+			wish.ContentInput{Category: "help", Campus: "wushan", Body: "合成招募心愿"},
+		)
 		must(e)
 		out, e = wishes.Submit(ctx, token, uuid.NewString(), "submit", out.ID, out.Version, out.ContentVersion)
 		must(e)
@@ -162,22 +223,51 @@ func TestSafetyGovernance(t *testing.T) {
 	}
 	apply := func(token string, w wish.CreatedDraft, message string) wish.ApplicationResult {
 		t.Helper()
-		out, e := wishes.Apply(ctx, token, uuid.NewString(), "apply", w.ID, wish.ApplicationInput{Message: message, WishContentVersion: w.ContentVersion})
+		out, e := wishes.Apply(
+			ctx,
+			token,
+			uuid.NewString(),
+			"apply",
+			w.ID,
+			wish.ApplicationInput{Message: message, WishContentVersion: w.ContentVersion},
+		)
 		must(e)
 		return out
 	}
 	accept := func(owner string, w wish.CreatedDraft, app string) wish.MatchResult {
 		t.Helper()
 		a := appRow(app)
-		out, e := wishes.AcceptApplication(ctx, owner, uuid.NewString(), "accept", app, wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: wishRow(w.ID).Version})
+		out, e := wishes.AcceptApplication(
+			ctx,
+			owner,
+			uuid.NewString(),
+			"accept",
+			app,
+			wish.AcceptInput{ExpectedVersion: a.Version, WishExpectedVersion: wishRow(w.ID).Version},
+		)
 		must(e)
 		return out
 	}
-	chats, e := chat.New(api, logger, codec, chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 64 << 10})
+	chats, e := chat.New(
+		api,
+		logger,
+		codec,
+		chat.Config{Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 64 << 10},
+	)
 	must(e)
-	students, e := safety.New(api, logger, codec, safety.Config{Command: cfg, Key: []byte(strings.Repeat("s", 32)), MaxTextBytes: 65536})
+	students, e := safety.New(
+		api,
+		logger,
+		codec,
+		safety.Config{Command: cfg, Key: []byte(strings.Repeat("s", 32)), MaxTextBytes: 65536},
+	)
 	must(e)
-	admins, e := safety.New(adminDB, logger, codec, safety.Config{Command: cfg, Key: []byte(strings.Repeat("s", 32)), MaxTextBytes: 65536})
+	admins, e := safety.New(
+		adminDB,
+		logger,
+		codec,
+		safety.Config{Command: cfg, Key: []byte(strings.Repeat("s", 32)), MaxTextBytes: 65536},
+	)
 	must(e)
 	router := httpapi.New(logger, func(context.Context) error { return nil })
 	must(httpapi.RegisterSafety(router, students, admins))
@@ -217,13 +307,25 @@ func TestSafetyGovernance(t *testing.T) {
 	must(root.Create(&entity.ReportType{Code: "synthetic", Label: "合成举报类型", Published: true}).Error)
 	confirmed := func(reporter string, w wish.CreatedDraft) string {
 		t.Helper()
-		r := exec(students, reporter, "report", "", safety.Input{ID: w.ID, TargetKind: "wish", TypeCode: "synthetic", Description: "合成案件说明"}).(safety.Summary)
+		r := exec(
+			students,
+			reporter,
+			"report",
+			"",
+			safety.Input{ID: w.ID, TargetKind: "wish", TypeCode: "synthetic", Description: "合成案件说明"},
+		).(safety.Summary)
 		detail, e := admins.Detail(ctx, adminToken, "report", "report_detail", r.ID)
 		must(e)
 		if detail.(map[string]any)["body"] != "合成招募心愿" {
 			t.Fatalf("案件未提供限定正文: %v", detail)
 		}
-		exec(admins, adminToken, "report_decision", r.ID, safety.Input{Decision: "confirmed", Reason: "合成已核实", ExpectedVersion: r.Version})
+		exec(
+			admins,
+			adminToken,
+			"report_decision",
+			r.ID,
+			safety.Input{Decision: "confirmed", Reason: "合成已核实", ExpectedVersion: r.Version},
+		)
 		return r.ID
 	}
 	impose := func(ownerID, reportID, wid, level string) safety.Summary {
@@ -238,7 +340,20 @@ func TestSafetyGovernance(t *testing.T) {
 		if version != a.Version {
 			t.Fatal("用户详情版本与账号权威值不一致")
 		}
-		return exec(admins, adminToken, "penalty", ownerID, safety.Input{ViolationRef: reportID, ContentRef: c.ID, ContentVersion: c.ContentVersion, Level: level, Reason: "合成处置理由", ExpectedVersion: version}).(safety.Summary)
+		return exec(
+			admins,
+			adminToken,
+			"penalty",
+			ownerID,
+			safety.Input{
+				ViolationRef:    reportID,
+				ContentRef:      c.ID,
+				ContentVersion:  c.ContentVersion,
+				Level:           level,
+				Reason:          "合成处置理由",
+				ExpectedVersion: version,
+			},
+		).(safety.Summary)
 	}
 	t.Run("拉黑双向旧申请永久失效及幂等", func(t *testing.T) {
 		oi, ot := student()
@@ -253,7 +368,14 @@ func TestSafetyGovernance(t *testing.T) {
 		if appRow(a.ID).Status != "invalidated" {
 			t.Fatal("旧申请未失效")
 		}
-		_, e := wishes.Apply(ctx, ht, uuid.NewString(), "blocked", w.ID, wish.ApplicationInput{Message: "重申", WishContentVersion: 1})
+		_, e := wishes.Apply(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"blocked",
+			w.ID,
+			wish.ApplicationInput{Message: "重申", WishContentVersion: 1},
+		)
 		requireError(e, command.ErrBlockedInteraction)
 		call(ht, "DELETE", "/me/blocks/"+oi, uuid.NewString(), `{"expected_version":99}`, 409)
 		call(ht, "DELETE", "/me/blocks/"+oi, uuid.NewString(), `{"expected_version":2}`, 204)
@@ -264,7 +386,14 @@ func TestSafetyGovernance(t *testing.T) {
 		exec(students, ht, "block", "", safety.Input{TargetUserID: oi})
 		call(ht, "DELETE", "/me/blocks/"+oi, uuid.NewString(), `{"expected_version":2}`, 409)
 		exec(students, ht, "unblock", oi, safety.Input{ExpectedVersion: 3})
-		_, e = wishes.Apply(ctx, ht, uuid.NewString(), "blocked", w.ID, wish.ApplicationInput{Message: "重申", WishContentVersion: 1})
+		_, e = wishes.Apply(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"blocked",
+			w.ID,
+			wish.ApplicationInput{Message: "重申", WishContentVersion: 1},
+		)
 		requireError(e, command.ErrBlockedInteraction)
 		exec(students, ot, "unblock", hi, safety.Input{ExpectedVersion: 2})
 		apply(ht, w, "重新主动申请")
@@ -280,7 +409,11 @@ func TestSafetyGovernance(t *testing.T) {
 			target, _ := student()
 			call(token, "POST", "/me/blocks", uuid.NewString(), fmt.Sprintf(`{"target_user_id":%q}`, target), 200)
 		}
-		must(root.Exec("UPDATE public.blocks SET created_at=? WHERE owner_id=?", time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond), owner).Error)
+		must(root.Exec(
+			"UPDATE public.blocks SET created_at=? WHERE owner_id=?",
+			time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond),
+			owner,
+		).Error)
 		first := call(token, "GET", "/me/blocks?limit=1", "", "", 200)
 		cursor, ok := first["next_cursor"].(string)
 		if !ok || cursor == "" || len(first["items"].([]any)) != 1 {
@@ -322,10 +455,18 @@ func TestSafetyGovernance(t *testing.T) {
 		} {
 			call(request.token, "GET", request.path, "", "", 400)
 		}
-		call(token, "DELETE", "/me/blocks/"+entry["target_user_id"].(string), uuid.NewString(), fmt.Sprintf(`{"expected_version":%.0f}`, entry["version"]), 204)
+		call(
+			token,
+			"DELETE",
+			"/me/blocks/"+entry["target_user_id"].(string),
+			uuid.NewString(),
+			fmt.Sprintf(`{"expected_version":%.0f}`, entry["version"]),
+			204,
+		)
 		// 游标指向的条目被解除也不会重回首页；仍可从原位置向后读取。
 		afterDelete := call(token, "GET", "/me/blocks?limit=1&cursor="+url.QueryEscape(cursor), "", "", 200)
-		if len(afterDelete["items"].([]any)) != 1 || afterDelete["items"].([]any)[0].(map[string]any)["target_user_id"] == entry["target_user_id"] {
+		if len(afterDelete["items"].([]any)) != 1 ||
+			afterDelete["items"].([]any)[0].(map[string]any)["target_user_id"] == entry["target_user_id"] {
 			t.Fatal("历史位置游标恢复旧条目", afterDelete)
 		}
 		ownOther := call(otherToken, "GET", "/me/blocks", "", "", 200)
@@ -356,10 +497,12 @@ func TestSafetyGovernance(t *testing.T) {
 		if first != again["first_displayed_at"] {
 			t.Fatal("重进重置服务器起点")
 		}
-		must(root.Exec("UPDATE public.penalties SET first_displayed_at=statement_timestamp()-interval '29 seconds',confirmable_at=statement_timestamp()+interval '1 second' WHERE id=?", p.ID).Error)
+		must(root.Exec("UPDATE public.penalties SET first_displayed_at=statement_timestamp()-interval '29 seconds',confirmable_at=statement_timestamp()+interval '1 second' WHERE id=?", p.ID).
+			Error)
 		key = uuid.NewString()
 		call(ot, "POST", path, key, `{"expected_version":2}`, 409)
-		must(root.Exec("UPDATE public.penalties SET first_displayed_at=statement_timestamp()-interval '31 seconds',confirmable_at=statement_timestamp()-interval '1 second' WHERE id=?", p.ID).Error)
+		must(root.Exec("UPDATE public.penalties SET first_displayed_at=statement_timestamp()-interval '31 seconds',confirmable_at=statement_timestamp()-interval '1 second' WHERE id=?", p.ID).
+			Error)
 		call(ot, "POST", path, key, `{"expected_version":2}`, 200)
 		call(ot, "POST", path, key, `{"expected_version":2}`, 200)
 		// 轻微警告不剥夺发布权限，违规内容的限制独立保留。
@@ -384,7 +527,18 @@ func TestSafetyGovernance(t *testing.T) {
 		m := accept(ot, w, app.ID)
 		var conversation entity.Conversation
 		must(root.Where("id=?", m.ConversationID).Take(&conversation).Error)
-		msg, e := chats.Send(ctx, ht, uuid.NewString(), "message", m.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "待审合成消息", ExpectedWriteEpoch: conversation.WriteEpoch})
+		msg, e := chats.Send(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"message",
+			m.ConversationID,
+			chat.MessageInput{
+				ClientMessageID:    uuid.NewString(),
+				Body:               "待审合成消息",
+				ExpectedWriteEpoch: conversation.WriteEpoch,
+			},
+		)
 		must(e)
 		reportWish := published(ot)
 		violation := confirmed(rt, reportWish)
@@ -402,7 +556,18 @@ func TestSafetyGovernance(t *testing.T) {
 		if ms.Status != "cancelled" {
 			t.Fatal("待审消息未取消")
 		}
-		_, e = chats.Send(ctx, ht, uuid.NewString(), "message", m.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "受罚期间", ExpectedWriteEpoch: conversation.WriteEpoch})
+		_, e = chats.Send(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"message",
+			m.ConversationID,
+			chat.MessageInput{
+				ClientMessageID:    uuid.NewString(),
+				Body:               "受罚期间",
+				ExpectedWriteEpoch: conversation.WriteEpoch,
+			},
+		)
 		requireError(e, command.ErrForbidden)
 		a := exec(students, ot, "appeal", "", safety.Input{PenaltyID: p.ID, Body: "合成申诉正文"}).(safety.Appeal)
 		detail, e := admins.Detail(ctx, adminToken, "appeal", "appeal_detail", a.ID)
@@ -410,7 +575,13 @@ func TestSafetyGovernance(t *testing.T) {
 		if detail.(map[string]any)["body"] != "合成申诉正文" {
 			t.Fatal("申诉正文不可审阅")
 		}
-		exec(admins, adminToken, "appeal_decision", a.ID, safety.Input{Decision: "revoke", Reason: "合成解罚理由", ExpectedVersion: 1})
+		exec(
+			admins,
+			adminToken,
+			"appeal_decision",
+			a.ID,
+			safety.Input{Decision: "revoke", Reason: "合成解罚理由", ExpectedVersion: 1},
+		)
 		must(root.Where("id=?", msg.MessageID).Take(&ms).Error)
 		if ms.Status != "cancelled" {
 			t.Fatal("解罚复活旧消息")
@@ -440,7 +611,13 @@ func TestSafetyGovernance(t *testing.T) {
 		appealDetail, e := admins.Detail(ctx, adminToken, "appeal-version", "appeal_detail", a.ID)
 		must(e)
 		version := appealDetail.(map[string]any)["version"].(int64)
-		exec(admins, adminToken, "appeal_decision", a.ID, safety.Input{Decision: "revoke", Reason: "只撤对应处罚", ExpectedVersion: version})
+		exec(
+			admins,
+			adminToken,
+			"appeal_decision",
+			a.ID,
+			safety.Input{Decision: "revoke", Reason: "只撤对应处罚", ExpectedVersion: version},
+		)
 		detail = call(adminToken, "GET", "/admin/users/"+oi, "", "", 200)
 		if detail["restriction"] != "muted" || len(detail["active_penalties"].([]any)) != 1 {
 			t.Fatal("撤销一项错误解除全部禁言")
@@ -468,10 +645,24 @@ func TestSafetyGovernance(t *testing.T) {
 		a := exec(students, ot, "appeal", "", safety.Input{PenaltyID: p.ID, Body: "封禁本人申诉"}).(safety.Appeal)
 		_, e = students.List(ctx, ot, "appeals", "appeals", safety.Query{Limit: 20})
 		must(e)
-		_, e = students.Execute(ctx, rt, uuid.NewString(), "appeal", "appeal", "", safety.Input{PenaltyID: p.ID, Body: "他人申诉"})
+		_, e = students.Execute(
+			ctx,
+			rt,
+			uuid.NewString(),
+			"appeal",
+			"appeal",
+			"",
+			safety.Input{PenaltyID: p.ID, Body: "他人申诉"},
+		)
 		requireError(e, command.ErrNotFound)
 		call(ot, "POST", "/wishes/"+w.ID+"/exception-exit", uuid.NewString(), `{"expected_version":1}`, 403)
-		exec(admins, adminToken, "appeal_decision", a.ID, safety.Input{Decision: "uphold", Reason: "维持合成处置", ExpectedVersion: 1})
+		exec(
+			admins,
+			adminToken,
+			"appeal_decision",
+			a.ID,
+			safety.Input{Decision: "uphold", Reason: "维持合成处置", ExpectedVersion: 1},
+		)
 	})
 	t.Run("拉黑例外退出及已还愿拒绝", func(t *testing.T) {
 		oi, ot := student()
@@ -481,10 +672,25 @@ func TestSafetyGovernance(t *testing.T) {
 		scan("application", app.ID)
 		m := accept(ot, w, app.ID)
 		exec(students, ht, "block", "", safety.Input{TargetUserID: oi})
-		_, e := students.Execute(ctx, ot, uuid.NewString(), "exit", "exception_exit", w.ID, safety.Input{ExpectedVersion: wishRow(w.ID).Version})
+		_, e := students.Execute(
+			ctx,
+			ot,
+			uuid.NewString(),
+			"exit",
+			"exception_exit",
+			w.ID,
+			safety.Input{ExpectedVersion: wishRow(w.ID).Version},
+		)
 		requireError(e, command.ErrForbidden)
 		before := wishRow(w.ID)
-		out := call(ht, "POST", "/wishes/"+w.ID+"/exception-exit", uuid.NewString(), fmt.Sprintf(`{"expected_version":%d}`, before.Version), 200)
+		out := call(
+			ht,
+			"POST",
+			"/wishes/"+w.ID+"/exception-exit",
+			uuid.NewString(),
+			fmt.Sprintf(`{"expected_version":%d}`, before.Version),
+			200,
+		)
 		if out["current_state"] != "withdrawn" || out["content_version"] == nil || out["allowed_actions"] == nil {
 			t.Fatal("例外退出响应偏离心愿契约")
 		}
@@ -497,26 +703,91 @@ func TestSafetyGovernance(t *testing.T) {
 		if match.Status != "ended" {
 			t.Fatal("匹配未解除")
 		}
-		_, e = chats.Send(ctx, ht, uuid.NewString(), "after-exit", m.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "旧会话", ExpectedWriteEpoch: 1})
+		_, e = chats.Send(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"after-exit",
+			m.ConversationID,
+			chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "旧会话", ExpectedWriteEpoch: 1},
+		)
 		requireError(e, command.ErrForbidden)
 	})
 	t.Run("举报鉴权类型版本及角色重验", func(t *testing.T) {
 		oi, ot := student()
 		_, rt := student()
 		w := published(ot)
-		call(rt, "POST", "/reports", uuid.NewString(), fmt.Sprintf(`{"target_kind":"wish","id":%q,"type_code":"missing"}`, w.ID), 400)
+		call(
+			rt,
+			"POST",
+			"/reports",
+			uuid.NewString(),
+			fmt.Sprintf(`{"target_kind":"wish","id":%q,"type_code":"missing"}`, w.ID),
+			400,
+		)
 		r := exec(students, rt, "report", "", safety.Input{ID: w.ID, TargetKind: "wish", TypeCode: "synthetic"}).(safety.Summary)
 		call(ot, "GET", "/admin/reports", "", "", 401)
-		call(adminToken, "POST", "/admin/reports/"+r.ID+"/decision", uuid.NewString(), `{"decision":"confirmed","reason":"合成","expected_version":2}`, 409)
-		exec(admins, adminToken, "report_decision", r.ID, safety.Input{Decision: "confirmed", Reason: "合成", ExpectedVersion: 1})
+		call(
+			adminToken,
+			"POST",
+			"/admin/reports/"+r.ID+"/decision",
+			uuid.NewString(),
+			`{"decision":"confirmed","reason":"合成","expected_version":2}`,
+			409,
+		)
+		exec(
+			admins,
+			adminToken,
+			"report_decision",
+			r.ID,
+			safety.Input{Decision: "confirmed", Reason: "合成", ExpectedVersion: 1},
+		)
 		var c entity.ContentRegistry
 		must(root.Where("kind='wish' AND entity_id=?", w.ID).Take(&c).Error)
 		wrong, _ := student()
 		detail := call(adminToken, "GET", "/admin/users/"+oi, "", "", 200)
-		call(adminToken, "POST", "/admin/users/"+oi+"/penalties", uuid.NewString(), fmt.Sprintf(`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"版本冲突合成","expected_version":%.0f}`, r.ID, c.ID, detail["account_version"].(float64)+1), 409)
-		_, e := admins.Execute(ctx, adminToken, uuid.NewString(), "penalty", "penalty", wrong, safety.Input{ViolationRef: r.ID, ContentRef: c.ID, ContentVersion: 1, Level: "minor", Reason: "错主体", ExpectedVersion: 1})
+		call(
+			adminToken,
+			"POST",
+			"/admin/users/"+oi+"/penalties",
+			uuid.NewString(),
+			fmt.Sprintf(
+				`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"版本冲突合成","expected_version":%.0f}`,
+				r.ID,
+				c.ID,
+				detail["account_version"].(float64)+1,
+			),
+			409,
+		)
+		_, e := admins.Execute(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"penalty",
+			"penalty",
+			wrong,
+			safety.Input{
+				ViolationRef:    r.ID,
+				ContentRef:      c.ID,
+				ContentVersion:  1,
+				Level:           "minor",
+				Reason:          "错主体",
+				ExpectedVersion: 1,
+			},
+		)
 		requireError(e, command.ErrNotFound)
-		call(adminToken, "POST", "/admin/users/"+oi+"/penalties", uuid.NewString(), fmt.Sprintf(`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"合成","expected_version":1,"duration_days":1}`, r.ID, c.ID), 400)
+		call(
+			adminToken,
+			"POST",
+			"/admin/users/"+oi+"/penalties",
+			uuid.NewString(),
+			fmt.Sprintf(
+				`{"violation_ref":%q,"content_ref":%q,"content_version":1,"level":"general","reason":"合成","expected_version":1,"duration_days":1}`,
+				r.ID,
+				c.ID,
+			),
+			400,
+		)
 		must(root.Where("admin_id=?", admin).Delete(&entity.AdminRoleBinding{}).Error)
 		call(adminToken, "GET", "/admin/reports", "", "", 403)
 		must(root.Create(&entity.AdminRoleBinding{AdminID: admin, Role: "review_operator"}).Error)
@@ -524,12 +795,24 @@ func TestSafetyGovernance(t *testing.T) {
 	t.Run("内容普通限制解除不自动公开", func(t *testing.T) {
 		_, ot := student()
 		w := published(ot)
-		exec(admins, adminToken, "offline", w.ID, safety.Input{TargetKind: "wish", Reason: "合成下线", ExpectedVersion: w.Version})
+		exec(
+			admins,
+			adminToken,
+			"offline",
+			w.ID,
+			safety.Input{TargetKind: "wish", Reason: "合成下线", ExpectedVersion: w.Version},
+		)
 		row := wishRow(w.ID)
 		if row.State != "withdrawn" {
 			t.Fatal("下线未撤下")
 		}
-		out := exec(admins, adminToken, "release", w.ID, safety.Input{TargetKind: "wish", Reason: "合成解除", ExpectedVersion: row.Version}).(safety.Summary)
+		out := exec(
+			admins,
+			adminToken,
+			"release",
+			w.ID,
+			safety.Input{TargetKind: "wish", Reason: "合成解除", ExpectedVersion: row.Version},
+		).(safety.Summary)
 		if out.Status != "released" || wishRow(w.ID).State != "withdrawn" {
 			t.Fatal("解除自动上架")
 		}
@@ -601,10 +884,25 @@ func TestSafetyGovernance(t *testing.T) {
 		accept(ot, w, a.ID)
 		complete, e := wishes.Complete(ctx, ot, uuid.NewString(), "complete", w.ID, wishRow(w.ID).Version)
 		must(e)
-		_, e = wishes.SubmitStory(ctx, ot, uuid.NewString(), "story", w.ID, wish.StoryInput{Body: "合成还愿故事", WishExpectedVersion: complete.Version})
+		_, e = wishes.SubmitStory(
+			ctx,
+			ot,
+			uuid.NewString(),
+			"story",
+			w.ID,
+			wish.StoryInput{Body: "合成还愿故事", WishExpectedVersion: complete.Version},
+		)
 		must(e)
 		exec(students, ht, "block", "", safety.Input{TargetUserID: oi})
-		_, e = students.Execute(ctx, ht, uuid.NewString(), "exit", "exception_exit", w.ID, safety.Input{ExpectedVersion: wishRow(w.ID).Version})
+		_, e = students.Execute(
+			ctx,
+			ht,
+			uuid.NewString(),
+			"exit",
+			"exception_exit",
+			w.ID,
+			safety.Input{ExpectedVersion: wishRow(w.ID).Version},
+		)
 		requireError(e, command.ErrConflict)
 	})
 	t.Run("处罚通知失败整单回滚", func(t *testing.T) {
@@ -612,10 +910,26 @@ func TestSafetyGovernance(t *testing.T) {
 		_, rt := student()
 		w := published(ot)
 		r := confirmed(rt, w)
-		must(root.Exec(`CREATE FUNCTION public.reject_safety_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='penalty_notice' THEN RAISE EXCEPTION 'synthetic-notification-failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_safety_notice BEFORE INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.reject_safety_notice()`).Error)
+		must(root.Exec(`CREATE FUNCTION public.reject_safety_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='penalty_notice' THEN RAISE EXCEPTION 'synthetic-notification-failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_safety_notice BEFORE INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.reject_safety_notice()`).
+			Error)
 		var c entity.ContentRegistry
 		must(root.Where("kind='wish' AND entity_id=?", w.ID).Take(&c).Error)
-		_, e := admins.Execute(ctx, adminToken, uuid.NewString(), "rollback", "penalty", oi, safety.Input{ViolationRef: r, ContentRef: c.ID, ContentVersion: 1, Level: "general", Reason: "回滚合成", ExpectedVersion: 1})
+		_, e := admins.Execute(
+			ctx,
+			adminToken,
+			uuid.NewString(),
+			"rollback",
+			"penalty",
+			oi,
+			safety.Input{
+				ViolationRef:    r,
+				ContentRef:      c.ID,
+				ContentVersion:  1,
+				Level:           "general",
+				Reason:          "回滚合成",
+				ExpectedVersion: 1,
+			},
+		)
 		requireError(e, command.ErrUnavailable)
 		must(root.Exec("DROP TRIGGER reject_safety_notice ON public.notifications; DROP FUNCTION public.reject_safety_notice()").Error)
 		var n int64
@@ -642,12 +956,34 @@ func TestSafetyGovernance(t *testing.T) {
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
-				_, e := admins.Execute(ctx, adminToken, uuid.NewString(), "penalty-race", "penalty", oi, safety.Input{ViolationRef: r, ContentRef: c.ID, ContentVersion: 1, Level: "general", Reason: "并发处置", ExpectedVersion: 1})
+				_, e := admins.Execute(
+					ctx,
+					adminToken,
+					uuid.NewString(),
+					"penalty-race",
+					"penalty",
+					oi,
+					safety.Input{
+						ViolationRef:    r,
+						ContentRef:      c.ID,
+						ContentVersion:  1,
+						Level:           "general",
+						Reason:          "并发处置",
+						ExpectedVersion: 1,
+					},
+				)
 				errs <- e
 			}()
 			go func() {
 				defer wg.Done()
-				_, e := wishes.AcceptApplication(ctx, ot, uuid.NewString(), "accept-race", a.ID, wish.AcceptInput{ExpectedVersion: ar.Version, WishExpectedVersion: wr.Version})
+				_, e := wishes.AcceptApplication(
+					ctx,
+					ot,
+					uuid.NewString(),
+					"accept-race",
+					a.ID,
+					wish.AcceptInput{ExpectedVersion: ar.Version, WishExpectedVersion: wr.Version},
+				)
 				errs <- e
 			}()
 			wg.Wait()
@@ -686,13 +1022,21 @@ func TestSafetyGovernance(t *testing.T) {
 			}()
 			go func() {
 				defer wg.Done()
-				_, e := wishes.AcceptApplication(ctx, ot, uuid.NewString(), "accept-race", a.ID, wish.AcceptInput{ExpectedVersion: ar.Version, WishExpectedVersion: wr.Version})
+				_, e := wishes.AcceptApplication(
+					ctx,
+					ot,
+					uuid.NewString(),
+					"accept-race",
+					a.ID,
+					wish.AcceptInput{ExpectedVersion: ar.Version, WishExpectedVersion: wr.Version},
+				)
 				errs <- e
 			}()
 			wg.Wait()
 			close(errs)
 			for e := range errs {
-				if e != nil && !errors.Is(e, command.ErrConflict) && !errors.Is(e, command.ErrVersionConflict) && !errors.Is(e, command.ErrBlockedInteraction) {
+				if e != nil && !errors.Is(e, command.ErrConflict) && !errors.Is(e, command.ErrVersionConflict) &&
+					!errors.Is(e, command.ErrBlockedInteraction) {
 					t.Fatal(e)
 				}
 			}

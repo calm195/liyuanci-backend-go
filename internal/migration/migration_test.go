@@ -56,7 +56,8 @@ func TestPostgresMigrations(t *testing.T) {
 	if err = db.Exec(string(firstUp)).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Exec("CREATE TABLE public.schema_migrations(version bigint PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP)").Error; err != nil {
+	if err = db.Exec("CREATE TABLE public.schema_migrations(version bigint PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP)").
+		Error; err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Exec("INSERT INTO public.schema_migrations(version,checksum) VALUES (1,?)", hex.EncodeToString(firstSum[:])).Error; err != nil {
@@ -66,7 +67,11 @@ func TestPostgresMigrations(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Add(1)
-		go func() { defer wg.Done(); failures <- Run(ctx, db, log, "up") }()
+		go func() {
+
+			defer wg.Done()
+			failures <- Run(ctx, db, log, "up")
+		}()
 	}
 	wg.Wait()
 	close(failures)
@@ -169,7 +174,9 @@ func TestPostgresMigrations(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		var waiting int64
-		if err = db.Raw("SELECT count(*) FROM pg_locks WHERE relation = 'public.accounts'::regclass AND mode = 'AccessExclusiveLock' AND NOT granted").Scan(&waiting).Error; err != nil {
+		if err = db.Raw("SELECT count(*) FROM pg_locks WHERE relation = 'public.accounts'::regclass AND mode = 'AccessExclusiveLock' AND NOT granted").
+			Scan(&waiting).
+			Error; err != nil {
 			t.Fatal(err)
 		}
 		if waiting > 0 {

@@ -91,7 +91,9 @@ func TestViperLayersPreserveExplicitOverrides(t *testing.T) {
 	if err := ReadLayers(paths, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Database.DSN != "literal-$TOKEN" || result.Database.MaxOpen != 8 || result.Database.MaxIdle != 0 || len(result.Names) != 0 || result.Enabled || result.Password != "" {
+	if result.Database.DSN != "literal-$TOKEN" || result.Database.MaxOpen != 8 || result.Database.MaxIdle != 0 || len(result.Names) != 0 ||
+		result.Enabled ||
+		result.Password != "" {
 		t.Fatal("环境覆盖的空值、零值或数组含义改变")
 	}
 	// 后一层不能掩盖前一层未知字段，空映射也不能被Viper忽略。
@@ -108,10 +110,24 @@ func TestViperLayersPreserveExplicitOverrides(t *testing.T) {
 // TestViperStrictTypes 拒绝Viper默认支持的弱类型转换，避免口令、时长或数值静默变更。
 func TestViperStrictTypes(t *testing.T) {
 	for _, raw := range []string{
-		"password: 123456\n", "count: '3'\n", "count: 1.5\n", "timeout: 1000\n",
-		"key: [1, 2]\n", "key: invalid-base64\n", "password: null\n", "unknown: {}\n",
-		"password: &secret value\n", "password: *secret\n", "nested: {A: 1, a: 2}\n",
-		"nested:\n  <<: {value: one}\n", `nested: {"a":&secret value, "b":*secret}` + "\n", "# comment\n{password: value}\n",
+
+		"password: 123456\n",
+		"count: '3'\n",
+		"count: 1.5\n",
+		"timeout: 1000\n",
+
+		"key: [1, 2]\n",
+		"key: invalid-base64\n",
+		"password: null\n",
+		"unknown: {}\n",
+
+		"password: &secret value\n",
+		"password: *secret\n",
+		"nested: {A: 1, a: 2}\n",
+
+		"nested:\n  <<: {value: one}\n",
+		`nested: {"a":&secret value, "b":*secret}` + "\n",
+		"# comment\n{password: value}\n",
 	} {
 		var result struct {
 			Password string
@@ -136,7 +152,8 @@ func TestViperLiteralSecretsAndPEM(t *testing.T) {
 	if err := Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Password != "literal &anchor *alias <<: !tag $HOME # text" || result.CA != "---\n&anchor *alias <<: !tag\n...\n" || result.Number != 18014398509481985 {
+	if result.Password != "literal &anchor *alias <<: !tag $HOME # text" || result.CA != "---\n&anchor *alias <<: !tag\n...\n" ||
+		result.Number != 18014398509481985 {
 		t.Fatal("字面值改变")
 	}
 	encoded, err := Marshal(result)

@@ -40,7 +40,8 @@ func RegisterWhispers(r *gin.Engine, s WhisperService) error {
 			c.Header("Cache-Control", "no-store")
 			c.Header("Pragma", "no-cache")
 			ctx, rid := c.Request.Context(), c.GetString("request_id")
-			token, e := whisperBearer(c, strings.HasPrefix(op, "own") || slicesWhisper(op, "workspace", "create", "update", "submit", "withdraw", "nickname_get", "nickname_set"))
+			token, e := whisperBearer(c, strings.HasPrefix(op, "own") ||
+				slicesWhisper(op, "workspace", "create", "update", "submit", "withdraw", "nickname_get", "nickname_set"))
 			if e != nil {
 				whisperError(c, e)
 				return
@@ -91,7 +92,9 @@ func RegisterWhispers(r *gin.Engine, s WhisperService) error {
 						e = failure
 						break
 					}
-					if json.Unmarshal(fields["expected_version"], &input.ExpectedVersion) != nil || json.Unmarshal(fields["label"], &input.Label) != nil || input.ExpectedVersion < 1 || !whisperText(input.Label, 2, 20) {
+					if json.Unmarshal(fields["expected_version"], &input.ExpectedVersion) != nil || json.Unmarshal(fields["label"], &input.Label) != nil ||
+						input.ExpectedVersion < 1 ||
+						!whisperText(input.Label, 2, 20) {
 						e = command.ErrInvalid
 						break
 					}
@@ -127,11 +130,24 @@ func RegisterWhispers(r *gin.Engine, s WhisperService) error {
 		}
 	}
 	for _, route := range []struct{ method, path, op string }{
-		{"GET", "/whispers/config", "config"}, {"GET", "/whispers/help", "help"}, {"GET", "/me/whispers", "workspace"},
-		{"GET", "/whispers/posts", "public_list"}, {"GET", "/whispers/posts/:post_id", "public_get"},
-		{"GET", "/me/whispers/posts", "own_list"}, {"POST", "/me/whispers/posts", "create"}, {"GET", "/me/whispers/posts/:post_id", "own_get"},
-		{"PUT", "/me/whispers/posts/:post_id", "update"}, {"POST", "/me/whispers/posts/:post_id/submit", "submit"}, {"POST", "/me/whispers/posts/:post_id/withdraw", "withdraw"},
-		{"GET", "/me/whispers/nickname", "nickname_get"}, {"PUT", "/me/whispers/nickname", "nickname_set"},
+
+		{"GET", "/whispers/config", "config"},
+		{"GET", "/whispers/help", "help"},
+		{"GET", "/me/whispers", "workspace"},
+
+		{"GET", "/whispers/posts", "public_list"},
+		{"GET", "/whispers/posts/:post_id", "public_get"},
+
+		{"GET", "/me/whispers/posts", "own_list"},
+		{"POST", "/me/whispers/posts", "create"},
+		{"GET", "/me/whispers/posts/:post_id", "own_get"},
+
+		{"PUT", "/me/whispers/posts/:post_id", "update"},
+		{"POST", "/me/whispers/posts/:post_id/submit", "submit"},
+		{"POST", "/me/whispers/posts/:post_id/withdraw", "withdraw"},
+
+		{"GET", "/me/whispers/nickname", "nickname_get"},
+		{"PUT", "/me/whispers/nickname", "nickname_set"},
 	} {
 		r.Handle(route.method, "/api/v1"+route.path, handle(route.op))
 	}
@@ -302,11 +318,16 @@ func decodeWhisperPost(data []byte, action string) (out whisper.PostInput, err e
 			return out, e
 		}
 		out.Identity.Tags = &whisper.Tags{}
-		if json.Unmarshal(tags["campus"], &out.Identity.Tags.Campus) != nil || json.Unmarshal(tags["grade"], &out.Identity.Tags.Grade) != nil || json.Unmarshal(tags["gender"], &out.Identity.Tags.Gender) != nil || json.Unmarshal(identity["dictionary_version"], &out.Identity.DictionaryVersion) != nil || *out.Identity.DictionaryVersion < 1 {
+		if json.Unmarshal(tags["campus"], &out.Identity.Tags.Campus) != nil || json.Unmarshal(tags["grade"], &out.Identity.Tags.Grade) != nil ||
+			json.Unmarshal(tags["gender"], &out.Identity.Tags.Gender) != nil ||
+			json.Unmarshal(identity["dictionary_version"], &out.Identity.DictionaryVersion) != nil ||
+			*out.Identity.DictionaryVersion < 1 {
 			return out, command.ErrInvalid
 		}
 	case "named":
-		if len(identity) != 2 || identity["nickname_version"] == nil || json.Unmarshal(identity["nickname_version"], &out.Identity.NicknameVersion) != nil || *out.Identity.NicknameVersion < 1 {
+		if len(identity) != 2 || identity["nickname_version"] == nil ||
+			json.Unmarshal(identity["nickname_version"], &out.Identity.NicknameVersion) != nil ||
+			*out.Identity.NicknameVersion < 1 {
 			return out, command.ErrInvalid
 		}
 	default:

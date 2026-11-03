@@ -17,7 +17,14 @@ func (s *Service) CreateCapsule(ctx context.Context, token, key, rid string, in 
 	if !validText(in.Body, 1, 500) || !in.SafetyNoticeAccepted || in.UnlockAt.IsZero() || in.UnlockAt.Nanosecond() != 0 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "whisper.capsule.create", Method: "POST", ResourcePath: "/api/v1/me/whispers/capsules", ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
+	d := command.Definition{
+		Kind:          "whisper.capsule.create",
+		Method:        "POST",
+		ResourcePath:  "/api/v1/me/whispers/capsules",
+		ActorKind:     "student",
+		Access:        command.Ordinary,
+		RetainReceipt: true,
+	}
 	d.Discover = func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 		return command.Discovery{}, nil
 	}
@@ -28,7 +35,11 @@ func (s *Service) CreateCapsule(ctx context.Context, token, key, rid string, in 
 			return "", command.ErrInvalid
 		}
 		var count int64
-		if e := tx.DB().WithContext(ctx).Model(&entity.WhisperCapsule{}).Where("owner_id=? AND lifecycle='active' AND (review_state IN ('scanning','pending') OR (review_state='approved' AND unlock_at>?) OR EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_capsule' AND h.target_id=whisper_capsules.id AND h.status='active') OR EXISTS(SELECT 1 FROM public.content_restrictions x WHERE x.content_id=whisper_capsules.content_registry_id AND x.active))", tx.Actor().ID, tx.Now()).Count(&count).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Model(&entity.WhisperCapsule{}).Where(
+			"owner_id=? AND lifecycle='active' AND (review_state IN ('scanning','pending') OR (review_state='approved' AND unlock_at>?) OR EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_capsule' AND h.target_id=whisper_capsules.id AND h.status='active') OR EXISTS(SELECT 1 FROM public.content_restrictions x WHERE x.content_id=whisper_capsules.content_registry_id AND x.active))",
+			tx.Actor().ID,
+			tx.Now(),
+		).Count(&count).Error; e != nil {
 			return "", e
 		}
 		if count >= 20 {
@@ -46,7 +57,16 @@ func (s *Service) CreateCapsule(ctx context.Context, token, key, rid string, in 
 		if e != nil {
 			return "", e
 		}
-		c := entity.WhisperCapsule{ID: id, OwnerID: tx.Actor().ID, ContentRegistryID: reg, BodyCipher: body, UnlockAt: in.UnlockAt, ReviewRound: 1, ReviewTaskID: &task, CreatedAt: tx.Now().UTC().Truncate(time.Second)}
+		c := entity.WhisperCapsule{
+			ID:                id,
+			OwnerID:           tx.Actor().ID,
+			ContentRegistryID: reg,
+			BodyCipher:        body,
+			UnlockAt:          in.UnlockAt,
+			ReviewRound:       1,
+			ReviewTaskID:      &task,
+			CreatedAt:         tx.Now().UTC().Truncate(time.Second),
+		}
 		if e = insertRow(ctx, tx.DB(), &c); e != nil {
 			return "", e
 		}
@@ -72,7 +92,11 @@ func capsuleRow(ctx context.Context, db *gorm.DB, id string) (c entity.WhisperCa
 type capsuleFlags struct{ Privacy, Restricted bool }
 
 func capsuleBarriers(ctx context.Context, db *gorm.DB, id, registryID string) (f capsuleFlags, err error) {
-	err = db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_capsule' AND target_id=? AND status='active') AS privacy,EXISTS(SELECT 1 FROM public.content_restrictions WHERE content_id=? AND active) AS restricted`, id, registryID).Scan(&f).Error
+	err = db.WithContext(ctx).Raw(
+		`SELECT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_capsule' AND target_id=? AND status='active') AS privacy,EXISTS(SELECT 1 FROM public.content_restrictions WHERE content_id=? AND active) AS restricted`,
+		id,
+		registryID,
+	).Scan(&f).Error
 	return
 }
 
@@ -113,7 +137,15 @@ func (s *Service) capsule(ctx context.Context, db *gorm.DB, now time.Time, id, o
 		return out, e
 	}
 	state := capsuleStatus(c, flags, now)
-	out = Capsule{ID: id, Version: c.Version, Status: state, UnlockAt: timestamp(c.UnlockAt), ServerNow: timestamp(now), CreatedAt: timestamp(c.CreatedAt), AllowedActions: []string{}}
+	out = Capsule{
+		ID:             id,
+		Version:        c.Version,
+		Status:         state,
+		UnlockAt:       timestamp(c.UnlockAt),
+		ServerNow:      timestamp(now),
+		CreatedAt:      timestamp(c.CreatedAt),
+		AllowedActions: []string{},
+	}
 	if c.Lifecycle == "active" {
 		if now.Before(c.UnlockAt) {
 			out.AllowedActions = append(out.AllowedActions, "whisperCapsuleCancel")
@@ -229,7 +261,15 @@ func (s *Service) CloseCapsule(ctx context.Context, token, key, rid, id, action 
 		return out, command.ErrInvalid
 	}
 	target := command.Resource{Kind: command.WhisperCapsule, ID: id}
-	d := command.Definition{Kind: "whisper.capsule." + action, Method: "POST", ResourcePath: "/api/v1/me/whispers/capsules/" + id + "/" + action, ActorKind: "student", Access: command.Restricted, RetainReceipt: true, RequiredExpectations: []string{"expected_version"}}
+	d := command.Definition{
+		Kind:                 "whisper.capsule." + action,
+		Method:               "POST",
+		ResourcePath:         "/api/v1/me/whispers/capsules/" + id + "/" + action,
+		ActorKind:            "student",
+		Access:               command.Restricted,
+		RetainReceipt:        true,
+		RequiredExpectations: []string{"expected_version"},
+	}
 	d.Discover = func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
 		return command.Discovery{Resources: []command.Resource{target}}, nil
 	}
@@ -253,21 +293,35 @@ func (s *Service) CloseCapsule(ctx context.Context, token, key, rid, id, action 
 		if e != nil {
 			return "", e
 		}
-		if c.Lifecycle != "active" || action == "cancel" && !tx.Now().Before(c.UnlockAt) || action == "delete" && tx.Now().Before(c.UnlockAt) && c.ReviewState != "rejected" && !flags.Restricted && !flags.Privacy {
+		if c.Lifecycle != "active" || action == "cancel" && !tx.Now().
+			Before(c.UnlockAt) ||
+			action == "delete" && tx.Now().
+				Before(c.UnlockAt) && c.ReviewState != "rejected" && !flags.Restricted && !flags.Privacy {
 			return "", command.ErrConflict
 		}
 		terminal := "cancelled"
 		if action == "delete" {
 			terminal = "deleted"
 		}
-		if e = db.Model(&entity.WhisperCapsule{}).Where("id=?", id).Updates(map[string]any{"version": c.Version + 1, "lifecycle": terminal, "body_cipher": nil, "review_state": "cancelled", "review_task_id": nil}).Error; e != nil {
+		if e = db.Model(&entity.WhisperCapsule{}).Where("id=?", id).Updates(map[string]any{
+			"version":        c.Version + 1,
+			"lifecycle":      terminal,
+			"body_cipher":    nil,
+			"review_state":   "cancelled",
+			"review_task_id": nil,
+		}).Error; e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.ModerationTask{}).Where("content_id=? AND status IN ('pending','machine_passed','human_required')", c.ContentRegistryID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = db.Model(&entity.ModerationTask{}).Where("content_id=? AND status IN ('pending','machine_passed','human_required')", c.ContentRegistryID).
+			Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return "", e
 		}
 		// 人工理由可能引用原文；普通副本终结时移除原文引用；拒绝决定保留满足数据库约束的固定清理提示，独立证据域不在此范围。
-		if e = db.Model(&entity.ModerationTask{}).Where("content_id=?", c.ContentRegistryID).Updates(map[string]any{"reason": gorm.Expr("CASE WHEN decision='rejected' THEN ? ELSE NULL END", "普通副本已清理"), "revision_suggestion": gorm.Expr("CASE WHEN decision='rejected' THEN ? ELSE NULL END", "普通副本已清理")}).Error; e != nil {
+		if e = db.Model(&entity.ModerationTask{}).Where("content_id=?", c.ContentRegistryID).Updates(map[string]any{
+			"reason":              gorm.Expr("CASE WHEN decision='rejected' THEN ? ELSE NULL END", "普通副本已清理"),
+			"revision_suggestion": gorm.Expr("CASE WHEN decision='rejected' THEN ? ELSE NULL END", "普通副本已清理"),
+		}).Error; e != nil {
 			return "", e
 		}
 		if e = db.Model(&entity.ContentRegistry{}).Where("id=?", c.ContentRegistryID).Update("status", "cancelled").Error; e != nil {
@@ -283,6 +337,17 @@ func (s *Service) CloseCapsule(ctx context.Context, token, key, rid, id, action 
 		out, e = s.capsule(ctx, tx.DB(), tx.Now(), ref, tx.Actor().ID, false)
 		return e
 	}
-	_, err = s.execute(ctx, d, token, key, rid, struct{ Version int64 }{version}, 0, "", "maintenance", command.Expectation{Name: "expected_version", Target: target, Value: version})
+	_, err = s.execute(
+		ctx,
+		d,
+		token,
+		key,
+		rid,
+		struct{ Version int64 }{version},
+		0,
+		"",
+		"maintenance",
+		command.Expectation{Name: "expected_version", Target: target, Value: version},
+	)
 	return
 }

@@ -128,7 +128,12 @@ func (e *Engine) lock(ctx context.Context, db *gorm.DB, subject Subject, discove
 	if err := db.Exec("SELECT set_config('lock_timeout', ?, true)", strconv.FormatInt(e.config.LockTimeout.Milliseconds(), 10)+"ms").Error; err != nil {
 		return nil, err
 	}
-	tx := &Tx{db: db.WithContext(ctx), actor: Actor{Subject: subject}, guards: make(map[string]Guard), resources: make(map[Resource]Snapshot)}
+	tx := &Tx{
+		db:        db.WithContext(ctx),
+		actor:     Actor{Subject: subject},
+		guards:    make(map[string]Guard),
+		resources: make(map[Resource]Snapshot),
+	}
 	// 独立后台主体先于业务账号锁，所有参与者集合在初次只读发现时就确定。
 	for _, id := range discovery.Admins {
 		var guards []adminGuard
@@ -243,13 +248,21 @@ func (t *Tx) lockResources(resources []Resource) error {
 			WriteEpoch    int64
 			CommentsEpoch int64
 		}
-		if err := t.db.Model(model).Select(columns).Where(keyColumn+" = ?", ref.ID).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error; err != nil {
+		if err := t.db.Model(model).Select(columns).Where(keyColumn+" = ?", ref.ID).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Find(&rows).
+			Error; err != nil {
 			return err
 		}
 		if len(rows) != 1 {
 			return ErrNotFound
 		}
-		t.resources[ref] = Snapshot{Resource: ref, Version: rows[0].Version, WriteEpoch: rows[0].WriteEpoch, CommentsEpoch: rows[0].CommentsEpoch}
+		t.resources[ref] = Snapshot{
+			Resource:      ref,
+			Version:       rows[0].Version,
+			WriteEpoch:    rows[0].WriteEpoch,
+			CommentsEpoch: rows[0].CommentsEpoch,
+		}
 	}
 	return nil
 }
@@ -261,10 +274,15 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 		ExpiresAt time.Time
 		RevokedAt *time.Time
 	}
-	if err := db.Model(&entity.Session{}).Select("subject_id,auth_epoch,expires_at,revoked_at").Where("token_hash=? AND subject_kind=?", hash, d.ActorKind).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&sessions).Error; err != nil {
+	if err := db.Model(&entity.Session{}).Select("subject_id,auth_epoch,expires_at,revoked_at").Where(
+		"token_hash=? AND subject_kind=?",
+		hash,
+		d.ActorKind,
+	).Clauses(clause.Locking{Strength: "UPDATE"}).Find(&sessions).Error; err != nil {
 		return err
 	}
-	if len(sessions) != 1 || sessions[0].SubjectID != tx.actor.ID || sessions[0].RevokedAt != nil || !sessions[0].ExpiresAt.After(tx.now) || sessions[0].AuthEpoch != tx.actor.AuthEpoch {
+	if len(sessions) != 1 || sessions[0].SubjectID != tx.actor.ID || sessions[0].RevokedAt != nil || !sessions[0].ExpiresAt.After(tx.now) ||
+		sessions[0].AuthEpoch != tx.actor.AuthEpoch {
 		return ErrUnauthenticated
 	}
 	if d.ActorKind == "admin" {
@@ -293,7 +311,13 @@ func (e *Engine) authorize(db *gorm.DB, tx *Tx, d Definition, hash []byte) error
 	}
 	if d.Access != Restricted {
 		var count int64
-		if err := db.Model(&entity.Penalty{}).Where("account_id = ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?)", guard.ID, []string{"mute", "ban"}, tx.now, tx.now).Count(&count).Error; err != nil {
+		if err := db.Model(&entity.Penalty{}).Where(
+			"account_id = ? AND action_kind IN ? AND revoked_at IS NULL AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?)",
+			guard.ID,
+			[]string{"mute", "ban"},
+			tx.now,
+			tx.now,
+		).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 0 {

@@ -43,7 +43,12 @@ func OpenDatabase(ctx context.Context, scanner Scanner, logger *zap.Logger, inte
 	if scanner == nil || logger == nil || ctx.Err() != nil || interval < time.Millisecond || timeout <= 0 {
 		return nil, durable.ErrInvalid
 	}
-	return startWorker(scanner.ProcessNext, logger, Config{ScanInterval: interval, OperationTimeout: timeout}, maintenance(scanner)), nil
+	return startWorker(
+		scanner.ProcessNext,
+		logger,
+		Config{ScanInterval: interval, OperationTimeout: timeout},
+		maintenance(scanner),
+	), nil
 }
 
 func startWorker(scan func(context.Context) (durable.Consumption, error), logger *zap.Logger, cfg Config, maintain ...func(context.Context) error) *Worker {
@@ -53,7 +58,18 @@ func startWorker(scan func(context.Context) (durable.Consumption, error), logger
 	running.Add(1)
 	go func() {
 		defer running.Done()
-		poll(ctx, cfg.ScanInterval, cfg.OperationTimeout, logger, "scan", func(ctx context.Context) error { _, err := scan(ctx); return err })
+		poll(
+			ctx,
+			cfg.ScanInterval,
+			cfg.OperationTimeout,
+			logger,
+			"scan",
+			func(ctx context.Context) error {
+
+				_, err := scan(ctx)
+				return err
+			},
+		)
 	}()
 	for _, run := range maintain {
 		if run != nil {
@@ -64,7 +80,11 @@ func startWorker(scan func(context.Context) (durable.Consumption, error), logger
 			}()
 		}
 	}
-	go func() { running.Wait(); close(w.done) }()
+	go func() {
+
+		running.Wait()
+		close(w.done)
+	}()
 	return w
 }
 
@@ -101,7 +121,11 @@ func poll(ctx context.Context, interval, timeout time.Duration, logger *zap.Logg
 func (w *Worker) Close() (err error) {
 	start := time.Now()
 	defer func() { complete(w.logger, "close", start, err) }()
-	w.once.Do(func() { w.cancel(); <-w.done })
+	w.once.Do(func() {
+
+		w.cancel()
+		<-w.done
+	})
 	return nil
 }
 
@@ -111,5 +135,10 @@ func complete(logger *zap.Logger, operation string, start time.Time, err error) 
 		result = "failure"
 	}
 	// 不输出适配器原始错误，避免供应商地址、对象键及凭据越过日志边界。
-	logger.Info("领域工作调度完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	logger.Info(
+		"领域工作调度完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }

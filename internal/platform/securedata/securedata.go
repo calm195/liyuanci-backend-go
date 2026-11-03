@@ -69,7 +69,12 @@ func (c *Codec) completed(start time.Time, operation string, err *error) {
 		result = "failure"
 	}
 	// 供应商错误可能含凭据，只记录结果，不输出错误原文或对象身份。
-	c.logger.Info("敏感数据操作完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	c.logger.Info(
+		"敏感数据操作完成",
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
 // Encrypt 为每次写入生成独立数据密钥及 nonce；包裹失败时不返回可落库数据。
@@ -103,7 +108,13 @@ func (c *Codec) Encrypt(ctx context.Context, binding Binding, plaintext []byte) 
 	if _, err = rand.Read(nonce); err != nil {
 		return Envelope{}, errors.New("随机数生成失败")
 	}
-	out = Envelope{Algorithm: "AES-256-GCM/v1", KeyRef: ref, WrappedKey: append([]byte(nil), wrapped...), Nonce: nonce, Ciphertext: gcm.Seal(nil, nonce, plaintext, additional)}
+	out = Envelope{
+		Algorithm:  "AES-256-GCM/v1",
+		KeyRef:     ref,
+		WrappedKey: append([]byte(nil), wrapped...),
+		Nonce:      nonce,
+		Ciphertext: gcm.Seal(nil, nonce, plaintext, additional),
+	}
 	if err = ctx.Err(); err != nil {
 		return Envelope{}, err
 	}
@@ -120,7 +131,8 @@ func (c *Codec) Decrypt(ctx context.Context, binding Binding, envelope Envelope)
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if envelope.Algorithm != "AES-256-GCM/v1" || envelope.KeyRef == "" || len(envelope.WrappedKey) == 0 || len(envelope.Nonce) != 12 || len(envelope.Ciphertext) < 16 {
+	if envelope.Algorithm != "AES-256-GCM/v1" || envelope.KeyRef == "" || len(envelope.WrappedKey) == 0 || len(envelope.Nonce) != 12 ||
+		len(envelope.Ciphertext) < 16 {
 		return nil, errors.New("密文格式无效")
 	}
 	key, err := c.keys.Unwrap(ctx, envelope.KeyRef, envelope.WrappedKey)

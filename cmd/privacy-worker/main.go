@@ -16,6 +16,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	path := flag.String("config", "", "私有应用YAML配置")
 	recoverOnly := flag.Bool("recover", false, "显式恢复清理，完成前不开放业务")

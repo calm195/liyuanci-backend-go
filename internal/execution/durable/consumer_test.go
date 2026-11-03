@@ -70,12 +70,19 @@ func TestPostgresConsumer(t *testing.T) {
 			t.Fatal(failure)
 		}
 		var event Event
-		if failure := db.Raw("SELECT event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at FROM public.outbox_events WHERE event_id=?", d.EventID).Scan(&event).Error; failure != nil {
+		if failure := db.Raw("SELECT event_id,event_type,aggregate_id,aggregate_version,work_id AS correlation_id,created_at FROM public.outbox_events WHERE event_id=?", d.EventID).
+			Scan(&event).
+			Error; failure != nil {
 			t.Fatal(failure)
 		}
 		return event
 	}
-	config := ConsumerConfig{Timeout: 3 * time.Second, LockTimeout: time.Second, RetryDelay: time.Millisecond, MaxAttempts: 2}
+	config := ConsumerConfig{
+		Timeout:     3 * time.Second,
+		LockTimeout: time.Second,
+		RetryDelay:  time.Millisecond,
+		MaxAttempts: 2,
+	}
 	var calls atomic.Int32
 	definition := ConsumerDefinition{
 		ConsumerKind: "synthetic.consumer", Route: route(),
@@ -126,7 +133,12 @@ func TestPostgresConsumer(t *testing.T) {
 		failures := make(chan error, 8)
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
-			go func() { defer wg.Done(); _, failure := c.Consume(ctx, event); failures <- failure }()
+			go func() {
+
+				defer wg.Done()
+				_, failure := c.Consume(ctx, event)
+				failures <- failure
+			}()
 		}
 		wg.Wait()
 		close(failures)
@@ -135,7 +147,9 @@ func TestPostgresConsumer(t *testing.T) {
 				t.Fatal(failure)
 			}
 		}
-		if calls.Load() != 1 || scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 2 || scalar("SELECT count(*) FROM public.consumer_receipts") != 1 || status(event.CorrelationID) != "completed" {
+		if calls.Load() != 1 || scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 2 ||
+			scalar("SELECT count(*) FROM public.consumer_receipts") != 1 ||
+			status(event.CorrelationID) != "completed" {
 			t.Fatal("业务结果、终态及回执应只提交一次")
 		}
 		out, failure := c.Consume(ctx, event)
@@ -175,7 +189,8 @@ func TestPostgresConsumer(t *testing.T) {
 			return Complete, nil
 		}
 		out, failure := consumer(d).Consume(ctx, event)
-		if failure != nil || !out.Cancelled || scalar("SELECT count(*) FROM public.consumer_receipts") != 1 || status(event.CorrelationID) != "cancelled" {
+		if failure != nil || !out.Cancelled || scalar("SELECT count(*) FROM public.consumer_receipts") != 1 ||
+			status(event.CorrelationID) != "cancelled" {
 			t.Fatal("取消应幂等终结")
 		}
 	})
@@ -184,7 +199,8 @@ func TestPostgresConsumer(t *testing.T) {
 		event := makeEvent(53)
 		exec("UPDATE public.accounts SET verification='rejected' WHERE id=?", owner)
 		out, failure := consumer(definition).Consume(ctx, event)
-		if failure != nil || !out.Cancelled || scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 || status(event.CorrelationID) != "cancelled" {
+		if failure != nil || !out.Cancelled || scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 ||
+			status(event.CorrelationID) != "cancelled" {
 			t.Fatal("不能信任事件中的旧资格")
 		}
 	})
@@ -214,7 +230,8 @@ func TestPostgresConsumer(t *testing.T) {
 			if failure != ErrTemporary {
 				t.Fatal(failure)
 			}
-			if scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 || scalar("SELECT count(*) FROM public.consumer_receipts") != 0 {
+			if scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 ||
+				scalar("SELECT count(*) FROM public.consumer_receipts") != 0 {
 				t.Fatal("失败不得提交业务或回执")
 			}
 			if attempt == 1 {
@@ -243,7 +260,9 @@ func TestPostgresConsumer(t *testing.T) {
 		if _, failure := consumer(d).Consume(ctx, event); failure != ErrConfiguration {
 			t.Fatal(failure)
 		}
-		if scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 || scalar("SELECT count(*) FROM public.consumer_receipts") != 0 || status(event.CorrelationID) != "attention" {
+		if scalar("SELECT version FROM public.accounts WHERE id=?", owner) != 1 ||
+			scalar("SELECT count(*) FROM public.consumer_receipts") != 0 ||
+			status(event.CorrelationID) != "attention" {
 			t.Fatal("恢复不得提交部分业务")
 		}
 	})

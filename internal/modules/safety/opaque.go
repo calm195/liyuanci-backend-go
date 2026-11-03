@@ -13,7 +13,12 @@ import (
 // LegacyBlocks 先校验当前会话，再报告客户端升级，不读取目标映射。
 func (s *Service) LegacyBlocks(ctx context.Context, token string) (err error) {
 	defer s.done("blocks.compatibility", "", time.Now(), &err)
-	return s.read(ctx, token, false, func(db *gorm.DB, _ string, _ time.Time) error { return blockpolicy.Legacy(ctx, db) })
+	return s.read(
+		ctx,
+		token,
+		false,
+		func(db *gorm.DB, _ string, _ time.Time) error { return blockpolicy.Legacy(ctx, db) },
+	)
 }
 
 // DiscoverBlockEffects 发现双向限制的完整关系集合，调用方须由命令引擎重发现并取锁。

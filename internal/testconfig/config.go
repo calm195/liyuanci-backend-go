@@ -9,7 +9,9 @@ import (
 )
 
 var path = flag.String("integration-config", "", "隔离集成测试YAML；不读取环境变量")
+
 var once sync.Once
+
 var values map[string]string
 
 // Value 读取测试资源引用；显式文件错误必须失败，不能被误报为缺依赖跳过。

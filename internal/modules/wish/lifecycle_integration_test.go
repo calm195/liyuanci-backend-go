@@ -70,17 +70,25 @@ func lifecycleSetup(t *testing.T) *lifecycleFixture {
 		t.Fatal(e)
 	}
 	h := sha256.Sum256([]byte(f.token))
-	if e = root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &f.owner, TokenHash: h[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; e != nil {
+	if e = root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AccountID: &f.owner,
+		TokenHash: h[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
 	return f
 }
+
 func (f *lifecycleFixture) exec(q string, args ...any) {
 	f.t.Helper()
 	if e := f.root.Exec(q, args...).Error; e != nil {
 		f.t.Fatal(e)
 	}
 }
+
 func (f *lifecycleFixture) create() CreatedDraft {
 	f.t.Helper()
 	out, e := f.service.Create(context.Background(), f.token, uuid.NewString(), "create", draftInput())
@@ -101,14 +109,32 @@ func (f *lifecycleFixture) approve(id string, school bool) {
 		f.t.Fatal("未送审")
 	}
 	f.exec("UPDATE public.moderation_tasks SET status='approved',decision='approved' WHERE id=?", *a.content.ReviewTaskID)
-	f.exec("UPDATE public.content_registry SET status='approved',school_detection_state='completed',school_related=?,school_detection_version='synthetic-detector' WHERE id=?", school, a.registry.ID)
-	f.exec("UPDATE public.wish_versions SET moderation_status='approved',school_detection_state='completed',school_related=?,school_detection_version='synthetic-detector',public_body='合成已审正文',identity_tags='{}' WHERE wish_id=? AND content_version=?", school, id, a.content.ContentVersion)
+	f.exec(
+		"UPDATE public.content_registry SET status='approved',school_detection_state='completed',school_related=?,school_detection_version='synthetic-detector' WHERE id=?",
+		school,
+		a.registry.ID,
+	)
+	f.exec(
+		"UPDATE public.wish_versions SET moderation_status='approved',school_detection_state='completed',school_related=?,school_detection_version='synthetic-detector',public_body='合成已审正文',identity_tags='{}' WHERE wish_id=? AND content_version=?",
+		school,
+		id,
+		a.content.ContentVersion,
+	)
 	f.exec("UPDATE public.wishes SET state='ready',version=version+1 WHERE id=?", id)
 }
+
 func (f *lifecycleFixture) ready() CreatedDraft {
 	f.t.Helper()
 	out := f.create()
-	out, e := f.service.Submit(context.Background(), f.token, uuid.NewString(), "submit", out.ID, out.Version, out.ContentVersion)
+	out, e := f.service.Submit(
+		context.Background(),
+		f.token,
+		uuid.NewString(),
+		"submit",
+		out.ID,
+		out.Version,
+		out.ContentVersion,
+	)
 	if e != nil {
 		f.t.Fatal(e)
 	}
@@ -129,14 +155,36 @@ func TestPostgresLifecycle(t *testing.T) {
 	if _, e := readAggregate(ctx, s.db, out.ID, false); e != nil {
 		t.Fatal("读取聚合失败", e)
 	}
-	updated, e := s.Update(ctx, f.token, "edit", "edit", out.ID, UpdateInput{ContentInput: ContentInput{Category: "other", Campus: "wushan", Body: "新合成正文", DurationDays: pointer(30)}, ExpectedVersion: 1, RefreshExpiry: true})
+	updated, e := s.Update(
+		ctx,
+		f.token,
+		"edit",
+		"edit",
+		out.ID,
+		UpdateInput{
+			ContentInput:    ContentInput{Category: "other", Campus: "wushan", Body: "新合成正文", DurationDays: pointer(30)},
+			ExpectedVersion: 1,
+			RefreshExpiry:   true,
+		},
+	)
 	if e != nil || updated.Version != 2 || updated.ContentVersion != 2 || updated.State != Draft {
 		t.Fatal(updated, e)
 	}
 	if _, e = s.Update(ctx, f.token, "stale", "stale", out.ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: 1}); !errors.Is(e, command.ErrVersionConflict) {
 		t.Fatal(e)
 	}
-	if replay, e := s.Update(ctx, f.token, "edit", "replay", out.ID, UpdateInput{ContentInput: ContentInput{Category: "other", Campus: "wushan", Body: "新合成正文", DurationDays: pointer(30)}, ExpectedVersion: 1, RefreshExpiry: true}); e != nil || replay != updated {
+	if replay, e := s.Update(
+		ctx,
+		f.token,
+		"edit",
+		"replay",
+		out.ID,
+		UpdateInput{
+			ContentInput:    ContentInput{Category: "other", Campus: "wushan", Body: "新合成正文", DurationDays: pointer(30)},
+			ExpectedVersion: 1,
+			RefreshExpiry:   true,
+		},
+	); e != nil || replay != updated {
 		t.Fatal(replay, e)
 	}
 	var old entity.WishVersion
@@ -159,7 +207,14 @@ func TestPostgresLifecycle(t *testing.T) {
 	keys := s.codec
 	failedCodec, _ := securedata.New(&testKeys{failed: true}, zap.NewNop())
 	s.codec = failedCodec
-	if _, e := s.Update(ctx, f.token, "edit-fail", "edit", out.ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: 3}); !errors.Is(e, command.ErrUnavailable) {
+	if _, e := s.Update(
+		ctx,
+		f.token,
+		"edit-fail",
+		"edit",
+		out.ID,
+		UpdateInput{ContentInput: draftInput(), ExpectedVersion: 3},
+	); !errors.Is(e, command.ErrUnavailable) {
 		t.Fatal(e)
 	}
 	s.codec = keys
@@ -172,7 +227,14 @@ func TestPostgresLifecycle(t *testing.T) {
 		t.Fatal("工作取消未回滚", pending, e)
 	}
 	// 编辑待审内容会取消旧工作，旧task不能成为新版本的审批依据。
-	edited, e := s.Update(ctx, f.token, "edit-pending", "edit", out.ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: 3})
+	edited, e := s.Update(
+		ctx,
+		f.token,
+		"edit-pending",
+		"edit",
+		out.ID,
+		UpdateInput{ContentInput: draftInput(), ExpectedVersion: 3},
+	)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -289,14 +351,34 @@ func TestPostgresLifecycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	appID := uuid.NewString()
-	if e := f.root.Create(&entity.Application{ID: appID, WishID: published[1].ID, WishContentVersion: 1, ApplicantID: applicant, Status: "active", MessageCipher: []byte(`{}`)}).Error; e != nil {
+	if e := f.root.Create(&entity.Application{
+		ID:                 appID,
+		WishID:             published[1].ID,
+		WishContentVersion: 1,
+		ApplicantID:        applicant,
+		Status:             "active",
+		MessageCipher:      []byte(`{}`),
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
 	workID := uuid.NewString()
-	if e := f.root.Create(&entity.WorkItem{ID: workID, Kind: "application_scan", TargetKind: "application", TargetID: appID, OperationID: uuid.NewString()}).Error; e != nil {
+	if e := f.root.Create(&entity.WorkItem{
+		ID:          workID,
+		Kind:        "application_scan",
+		TargetKind:  "application",
+		TargetID:    appID,
+		OperationID: uuid.NewString(),
+	}).Error; e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.Update(ctx, f.token, "published-edit", "edit", published[1].ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: published[1].Version}); e != nil {
+	if _, e := s.Update(
+		ctx,
+		f.token,
+		"published-edit",
+		"edit",
+		published[1].ID,
+		UpdateInput{ContentInput: draftInput(), ExpectedVersion: published[1].Version},
+	); e != nil {
 		t.Fatal(e)
 	}
 	var app entity.Application
@@ -346,7 +428,14 @@ func TestPostgresLifecycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.db.Callback().Query().Remove(callback) })
-	if _, e := s.Update(ctx, f.token, uuid.NewString(), "authorize-failure", candidate.ID, UpdateInput{ContentInput: draftInput(), ExpectedVersion: candidate.Version}); !injected || !errors.Is(e, command.ErrUnavailable) {
+	if _, e := s.Update(
+		ctx,
+		f.token,
+		uuid.NewString(),
+		"authorize-failure",
+		candidate.ID,
+		UpdateInput{ContentInput: draftInput(), ExpectedVersion: candidate.Version},
+	); !injected || !errors.Is(e, command.ErrUnavailable) {
 		t.Fatal("授权故障映射错误", injected, e)
 	}
 

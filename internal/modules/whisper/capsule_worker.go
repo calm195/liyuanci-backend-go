@@ -16,12 +16,28 @@ import (
 
 // CapsuleUnlockRoute 固定预约工作和技术唤醒，不携带正文或账号。
 func CapsuleUnlockRoute() durable.Route {
-	return durable.Route{Kind: "whisper_capsule_unlock", TargetKind: "whisper_capsule", EventType: "whisper.capsule.unlock.requested"}
+	return durable.Route{
+		Kind:       "whisper_capsule_unlock",
+		TargetKind: "whisper_capsule",
+		EventType:  "whisper.capsule.unlock.requested",
+	}
 }
 
 func (s *Service) scheduleCapsule(ctx context.Context, db *gorm.DB, id string, at time.Time) error {
 	work := uuid.NewString()
-	if e := durable.Append(ctx, db, s.logger, CapsuleUnlockRoute(), durable.Draft{WorkID: work, OperationID: uuid.NewString(), EventID: uuid.NewString(), AggregateID: id, AggregateVersion: 1}); e != nil {
+	if e := durable.Append(
+		ctx,
+		db,
+		s.logger,
+		CapsuleUnlockRoute(),
+		durable.Draft{
+			WorkID:           work,
+			OperationID:      uuid.NewString(),
+			EventID:          uuid.NewString(),
+			AggregateID:      id,
+			AggregateVersion: 1,
+		},
+	); e != nil {
 		return e
 	}
 	if e := db.WithContext(ctx).Model(&entity.WorkItem{}).Where("id=?", work).Update("next_at", at).Error; e != nil {
@@ -33,20 +49,36 @@ func (s *Service) scheduleCapsule(ctx context.Context, db *gorm.DB, id string, a
 // ResumeCapsuleUnlock 在审核批准事务内唤醒已挂起的工作；不改动完成、取消或异常待办。
 // 调用者须持本人账号guard与胶囊资源锁，所有工作锁均在业务资源之后。
 func ResumeCapsuleUnlock(ctx context.Context, db *gorm.DB, id string) error {
-	return db.WithContext(ctx).Exec(`UPDATE public.work_items SET status='pending',version=version+1,next_at=GREATEST((SELECT unlock_at FROM public.whisper_capsules WHERE id=?),clock_timestamp()) WHERE kind='whisper_capsule_unlock' AND target_id=? AND status='waiting'`, id, id).Error
+	return db.WithContext(ctx).Exec(
+		`UPDATE public.work_items SET status='pending',version=version+1,next_at=GREATEST((SELECT unlock_at FROM public.whisper_capsules WHERE id=?),clock_timestamp()) WHERE kind='whisper_capsule_unlock' AND target_id=? AND status='waiting'`,
+		id,
+		id,
+	).Error
 }
 
 func cancelCapsuleWork(ctx context.Context, db *gorm.DB, c entity.WhisperCapsule, now time.Time) error {
 	db = db.WithContext(ctx)
-	if e := db.Exec(`UPDATE public.work_items SET status='cancelled',version=version+1,lease_until=NULL WHERE status<>'cancelled' AND ((kind='whisper_capsule_unlock' AND target_id=?) OR (kind='whisper_review' AND target_id IN (SELECT id FROM public.moderation_tasks WHERE content_id=?)))`, c.ID, c.ContentRegistryID).Error; e != nil {
+	if e := db.Exec(
+		`UPDATE public.work_items SET status='cancelled',version=version+1,lease_until=NULL WHERE status<>'cancelled' AND ((kind='whisper_capsule_unlock' AND target_id=?) OR (kind='whisper_review' AND target_id IN (SELECT id FROM public.moderation_tasks WHERE content_id=?)))`,
+		c.ID,
+		c.ContentRegistryID,
+	).Error; e != nil {
 		return e
 	}
-	if e := db.Exec(`UPDATE public.outbox_events SET superseded_at=?,lease_until=NULL WHERE superseded_at IS NULL AND work_id IN (SELECT id FROM public.work_items WHERE (kind='whisper_capsule_unlock' AND target_id=?) OR (kind='whisper_review' AND target_id IN (SELECT id FROM public.moderation_tasks WHERE content_id=?)))`, now, c.ID, c.ContentRegistryID).Error; e != nil {
+	if e := db.Exec(
+		`UPDATE public.outbox_events SET superseded_at=?,lease_until=NULL WHERE superseded_at IS NULL AND work_id IN (SELECT id FROM public.work_items WHERE (kind='whisper_capsule_unlock' AND target_id=?) OR (kind='whisper_review' AND target_id IN (SELECT id FROM public.moderation_tasks WHERE content_id=?)))`,
+		now,
+		c.ID,
+		c.ContentRegistryID,
+	).Error; e != nil {
 		return e
 	}
 	// 已送达通知亦只属普通副本，取消后不留可点击的旧胶囊提醒；限定危机证据不在此图中。
 	var ids []string
-	if e := db.Model(&entity.WhisperNotificationRef{}).Where("kind='whisper_capsule_unlocked' AND source_id=?", c.ID).Pluck("notification_id", &ids).Error; e != nil {
+	if e := db.Model(&entity.WhisperNotificationRef{}).
+		Where("kind='whisper_capsule_unlocked' AND source_id=?", c.ID).
+		Pluck("notification_id", &ids).
+		Error; e != nil {
 		return e
 	}
 	if len(ids) == 0 {
@@ -80,7 +112,10 @@ func NewCapsuleUnlockWorker(db *gorm.DB, logger *zap.Logger, cfg durable.Consume
 		if len(rows) == 0 {
 			return command.Discovery{}, nil
 		}
-		return command.Discovery{Accounts: []string{rows[0].OwnerID}, Resources: []command.Resource{{Kind: command.WhisperCapsule, ID: work.TargetID}}}, nil
+		return command.Discovery{
+			Accounts:  []string{rows[0].OwnerID},
+			Resources: []command.Resource{{Kind: command.WhisperCapsule, ID: work.TargetID}},
+		}, nil
 	}
 	def.Apply = func(ctx context.Context, tx *command.Tx, work durable.Work) (durable.Decision, error) {
 		db := tx.DB().WithContext(ctx)
@@ -115,10 +150,22 @@ func NewCapsuleUnlockWorker(db *gorm.DB, logger *zap.Logger, cfg durable.Consume
 			return durable.Complete, nil
 		}
 		id := uuid.NewString()
-		if e = db.Create(&entity.Notification{ID: id, RecipientID: c.OwnerID, Type: "whisper_capsule_unlocked", TargetRef: c.ID, CreatedAt: tx.Now()}).Error; e != nil {
+		if e = db.Create(&entity.Notification{
+			ID:          id,
+			RecipientID: c.OwnerID,
+			Type:        "whisper_capsule_unlocked",
+			TargetRef:   c.ID,
+			CreatedAt:   tx.Now(),
+		}).Error; e != nil {
 			return "", e
 		}
-		e = db.Create(&entity.WhisperNotificationRef{NotificationID: id, Kind: "whisper_capsule_unlocked", SourceID: c.ID, TargetKind: "capsule", TargetID: c.ID}).Error
+		e = db.Create(&entity.WhisperNotificationRef{
+			NotificationID: id,
+			Kind:           "whisper_capsule_unlocked",
+			SourceID:       c.ID,
+			TargetKind:     "capsule",
+			TargetID:       c.ID,
+		}).Error
 		return durable.Complete, e
 	}
 	c, e := durable.NewConsumer(db, logger, def, cfg)
@@ -137,12 +184,42 @@ func (w *CapsuleUnlockWorker) Consume(ctx context.Context, event durable.Event) 
 func (w *CapsuleUnlockWorker) ProcessNext(ctx context.Context) (out durable.Consumption, err error) {
 	start := time.Now()
 	defer func() {
-		w.logger.Info("胶囊解锁补偿完成", zap.Bool("success", err == nil), zap.Bool("applied", out.Applied), zap.Duration("duration", time.Since(start)))
+		w.logger.Info(
+			"胶囊解锁补偿完成",
+			zap.Bool("success", err == nil),
+			zap.Bool("applied", out.Applied),
+			zap.Duration("duration", time.Since(start)),
+		)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, w.timeout)
 	defer cancel()
 	var events []durable.Event
-	err = w.db.WithContext(ctx).Raw(`SELECT e.event_id,e.event_type,e.aggregate_id,e.aggregate_version,e.work_id AS correlation_id,e.created_at FROM public.work_items w JOIN public.outbox_events e ON e.work_id=w.id AND e.superseded_at IS NULL LEFT JOIN public.whisper_capsules c ON c.id=w.target_id WHERE w.kind='whisper_capsule_unlock' AND w.next_at<=clock_timestamp() AND (w.status IN ('pending','retry_wait') OR (w.status='leased' AND w.lease_until<=clock_timestamp()) OR (w.status='waiting' AND c.lifecycle='active' AND c.review_state='approved' AND c.unlock_at<=clock_timestamp() AND NOT EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_capsule' AND h.target_id=c.id AND h.status='active') AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.content_registry_id AND x.active))) ORDER BY w.next_at,w.id LIMIT 1`).Scan(&events).Error
+	// waiting 只在批准、到期且屏障解除后重入候选，避免轮询未获准读取的胶囊。
+	err = w.db.WithContext(ctx).Raw(`
+SELECT e.event_id, e.event_type, e.aggregate_id, e.aggregate_version,
+       e.work_id AS correlation_id, e.created_at
+FROM public.work_items w
+JOIN public.outbox_events e ON e.work_id = w.id AND e.superseded_at IS NULL
+LEFT JOIN public.whisper_capsules c ON c.id = w.target_id
+WHERE w.kind = 'whisper_capsule_unlock' AND w.next_at <= clock_timestamp()
+  AND (
+      w.status IN ('pending', 'retry_wait')
+      OR (w.status = 'leased' AND w.lease_until <= clock_timestamp())
+      OR (
+          w.status = 'waiting' AND c.lifecycle = 'active' AND c.review_state = 'approved'
+          AND c.unlock_at <= clock_timestamp()
+          AND NOT EXISTS (
+              SELECT 1 FROM public.privacy_holds h
+              WHERE h.target_kind = 'whisper_capsule' AND h.target_id = c.id AND h.status = 'active'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM public.content_restrictions x
+              WHERE x.content_id = c.content_registry_id AND x.active
+          )
+      )
+  )
+ORDER BY w.next_at, w.id
+LIMIT 1`).Scan(&events).Error
 	if err != nil {
 		return out, durable.ErrUnavailable
 	}

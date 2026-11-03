@@ -49,8 +49,17 @@ type WhisperPenaltyResult struct {
 var whisperGovernanceRoles = []string{"review_operator", "crisis_operator", "super_admin"}
 
 func whisperResource(r whisperSource) command.Resource {
-	return command.Resource{Kind: map[string]command.ResourceKind{"whisper_post": command.WhisperPost, "whisper_comment": command.WhisperComment, "whisper_nickname": command.WhisperNickname, "whisper_capsule": command.WhisperCapsule}[r.registry.Kind], ID: r.ID}
+	return command.Resource{
+		Kind: map[string]command.ResourceKind{
+			"whisper_post":     command.WhisperPost,
+			"whisper_comment":  command.WhisperComment,
+			"whisper_nickname": command.WhisperNickname,
+			"whisper_capsule":  command.WhisperCapsule,
+		}[r.registry.Kind],
+		ID: r.ID,
+	}
 }
+
 func whisperControl(ctx context.Context, db *gorm.DB, r whisperSource) (out WhisperControl, err error) {
 	out = WhisperControl{whisperRef(r), r.Version, false, r.State, []string{"whisperAdminRestrictionSet"}}
 	flags, err := readWhisperControlFlags(ctx, db, r)
@@ -111,6 +120,7 @@ func (s *Service) WhisperContent(ctx context.Context, token, rid, kind, id strin
 	}
 	return
 }
+
 func queueWhisper(ctx context.Context, db *gorm.DB, r whisperSource, loggerSink WhisperReviewSink, crisis bool, now time.Time) error {
 	// 仅从仍存在的当前资源创建新轮次；任何危机或隐私屏障仍由消费者失败关闭。
 	if r.Lifecycle != "active" || r.account.Lifecycle != "active" {
@@ -120,29 +130,60 @@ func queueWhisper(ctx context.Context, db *gorm.DB, r whisperSource, loggerSink 
 	if r.registry.Kind == "whisper_nickname" {
 		epoch = 0
 	}
-	t := entity.ModerationTask{ID: uuid.NewString(), ContentID: r.registry.ID, ContentVersion: r.ContentVersion, SubjectEpoch: r.account.AuthEpoch, HoldEpoch: r.PrivacyEpoch, RestrictionEpoch: &epoch, Status: "pending", CrisisRecheck: crisis, CreatedAt: now}
+	t := entity.ModerationTask{
+		ID:               uuid.NewString(),
+		ContentID:        r.registry.ID,
+		ContentVersion:   r.ContentVersion,
+		SubjectEpoch:     r.account.AuthEpoch,
+		HoldEpoch:        r.PrivacyEpoch,
+		RestrictionEpoch: &epoch,
+		Status:           "pending",
+		CrisisRecheck:    crisis,
+		CreatedAt:        now,
+	}
 	if e := db.Create(&t).Error; e != nil {
 		return e
 	}
 	var e error
 	switch r.registry.Kind {
 	case "whisper_post":
-		e = db.Model(&entity.WhisperPost{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1")}).Error
+		e = db.Model(&entity.WhisperPost{}).Where("id=?", r.ID).
+			Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1")}).
+			Error
 		if e == nil {
-			e = db.Model(&entity.WhisperPostVersion{}).Where("content_registry_id=?", r.registry.ID).Updates(map[string]any{"review_state": "scanning", "review_task_id": t.ID}).Error
+			e = db.Model(&entity.WhisperPostVersion{}).Where("content_registry_id=?", r.registry.ID).
+				Updates(map[string]any{"review_state": "scanning", "review_task_id": t.ID}).
+				Error
 		}
 	case "whisper_comment":
-		e = db.Model(&entity.WhisperComment{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1")}).Error
+		e = db.Model(&entity.WhisperComment{}).Where("id=?", r.ID).
+			Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1")}).
+			Error
 		if e == nil {
-			e = db.Model(&entity.WhisperCommentVersion{}).Where("content_registry_id=?", r.registry.ID).Updates(map[string]any{"review_state": "scanning", "review_task_id": t.ID}).Error
+			e = db.Model(&entity.WhisperCommentVersion{}).Where("content_registry_id=?", r.registry.ID).
+				Updates(map[string]any{"review_state": "scanning", "review_task_id": t.ID}).
+				Error
 		}
 	case "whisper_nickname":
-		e = db.Model(&entity.WhisperNicknameVersion{}).Where("content_registry_id=?", r.ID).Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1"), "review_task_id": t.ID}).Error
+		e = db.Model(&entity.WhisperNicknameVersion{}).Where("content_registry_id=?", r.ID).Updates(map[string]any{
+			"review_state":   "scanning",
+			"review_round":   gorm.Expr("review_round+1"),
+			"review_task_id": t.ID,
+		}).Error
 		if e == nil {
-			e = db.Model(&entity.WhisperPreference{}).Where("account_id=? AND (candidate_nickname_version=? OR candidate_nickname_version IS NULL AND active_nickname_version=?)", r.OwnerID, r.ContentVersion, r.ContentVersion).Updates(map[string]any{"candidate_nickname_version": r.ContentVersion, "version": gorm.Expr("version+1")}).Error
+			e = db.Model(&entity.WhisperPreference{}).Where(
+				"account_id=? AND (candidate_nickname_version=? OR candidate_nickname_version IS NULL AND active_nickname_version=?)",
+				r.OwnerID,
+				r.ContentVersion,
+				r.ContentVersion,
+			).Updates(map[string]any{"candidate_nickname_version": r.ContentVersion, "version": gorm.Expr("version+1")}).Error
 		}
 	case "whisper_capsule":
-		e = db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(map[string]any{"review_state": "scanning", "review_round": gorm.Expr("review_round+1"), "review_task_id": t.ID}).Error
+		e = db.Model(&entity.WhisperCapsule{}).Where("id=?", r.ID).Updates(map[string]any{
+			"review_state":   "scanning",
+			"review_round":   gorm.Expr("review_round+1"),
+			"review_task_id": t.ID,
+		}).Error
 	}
 	if e != nil {
 		return e
@@ -157,7 +198,15 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 		return out, command.ErrInvalid
 	}
 	var target command.Resource
-	d := command.Definition{Kind: "whisper.content.restriction", Method: "PUT", ResourcePath: "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/restriction", ActorKind: "admin", AllowedRoles: whisperGovernanceRoles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.content.restriction",
+		Method:               "PUT",
+		ResourcePath:         "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/restriction",
+		ActorKind:            "admin",
+		AllowedRoles:         whisperGovernanceRoles,
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		r, e := whisperTarget(ctx, db.WithContext(ctx), kind, id)
 		if e != nil {
@@ -167,7 +216,15 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 		return whisperPlan(ctx, db, r.task.ID)
 	}
 	// 期望资源在执行前解析为固定类型，不依赖回调时序。
-	target = command.Resource{Kind: map[string]command.ResourceKind{"whisper_post": command.WhisperPost, "whisper_comment": command.WhisperComment, "whisper_nickname": command.WhisperNickname, "whisper_capsule": command.WhisperCapsule}[kind], ID: id}
+	target = command.Resource{
+		Kind: map[string]command.ResourceKind{
+			"whisper_post":     command.WhisperPost,
+			"whisper_comment":  command.WhisperComment,
+			"whisper_nickname": command.WhisperNickname,
+			"whisper_capsule":  command.WhisperCapsule,
+		}[kind],
+		ID: id,
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		_, e := whisperTarget(ctx, tx.DB().WithContext(ctx), kind, id)
 		return e
@@ -184,7 +241,15 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 			if e != nil {
 				return "", e
 			}
-			x := entity.ContentRestriction{ID: restrictionID, ContentID: r.registry.ID, Kind: "violation", SourceRef: uuid.NewString(), Active: true, Version: 1, ReasonCipher: reason}
+			x := entity.ContentRestriction{
+				ID:           restrictionID,
+				ContentID:    r.registry.ID,
+				Kind:         "violation",
+				SourceRef:    uuid.NewString(),
+				Active:       true,
+				Version:      1,
+				ReasonCipher: reason,
+			}
 			if e = db.Create(&x).Error; e != nil {
 				return "", e
 			}
@@ -196,7 +261,9 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 		if e = hideWhisper(db, r, true, tx.Now()); e != nil {
 			return "", e
 		}
-		if e = db.Model(&entity.ModerationTask{}).Where("content_id=? AND status IN ('pending','human_required')", r.registry.ID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+		if e = db.Model(&entity.ModerationTask{}).Where("content_id=? AND status IN ('pending','human_required')", r.registry.ID).
+			Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).
+			Error; e != nil {
 			return "", e
 		}
 		if !in.Restricted {
@@ -214,21 +281,42 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 		out, e = whisperControl(ctx, tx.DB(), r)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}},
+		},
+	)
 	return
 }
 
 // NewWhisperPenalty 必须同时校验来源资源和举报版本，匿名来源作者仅在事务内解析。
 func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, id string, in WhisperPenaltyCommand) (out WhisperPenaltyResult, err error) {
 	defer s.done("whisper.penalty.create", rid, time.Now(), &err)
-	if (kind != "whisper_post" && kind != "whisper_comment") || !validID(id) || !validID(in.ReportID) || in.ExpectedVersion < 1 || in.ExpectedReportVersion < 1 || !text(in.Reason, 500) || map[string]string{"minor": "warning", "general": "mute", "severe": "ban"}[in.Level] == "" {
+	if (kind != "whisper_post" && kind != "whisper_comment") || !validID(id) || !validID(in.ReportID) || in.ExpectedVersion < 1 ||
+		in.ExpectedReportVersion < 1 ||
+		!text(in.Reason, 500) ||
+		map[string]string{"minor": "warning", "general": "mute", "severe": "ban"}[in.Level] == "" {
 		return out, command.ErrInvalid
 	}
 	target := command.Resource{Kind: command.WhisperPost, ID: id}
 	if kind == "whisper_comment" {
 		target.Kind = command.WhisperComment
 	}
-	d := command.Definition{Kind: "whisper.penalty.create", Method: "POST", ResourcePath: "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/penalties", ActorKind: "admin", AllowedRoles: whisperGovernanceRoles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
+	d := command.Definition{
+		Kind:                 "whisper.penalty.create",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/penalties",
+		ActorKind:            "admin",
+		AllowedRoles:         whisperGovernanceRoles,
+		RequiredExpectations: []string{"expected_version"},
+		RetainReceipt:        true,
+	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
 		r, e := whisperTarget(ctx, db, kind, id)
 		if e != nil {
@@ -255,7 +343,13 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 			return "", e
 		}
 		var report entity.Report
-		if e = db.Where("id=? AND target_kind=? AND target_id=? AND status='resolved' AND content_id=?", in.ReportID, kind, id, r.registry.ID).Take(&report).Error; e != nil {
+		if e = db.Where(
+			"id=? AND target_kind=? AND target_id=? AND status='resolved' AND content_id=?",
+			in.ReportID,
+			kind,
+			id,
+			r.registry.ID,
+		).Take(&report).Error; e != nil {
 			return "", missingWhisper(e)
 		}
 		if report.Version != in.ExpectedReportVersion {
@@ -270,7 +364,18 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 		if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return "", e
 		}
-		p := entity.Penalty{ID: uuid.NewString(), AccountID: r.OwnerID, Level: in.Level, ActionKind: action, ViolationRef: report.ID, ContentID: &r.registry.ID, ContentVersion: r.ContentVersion, StartsAt: tx.Now(), ReasonRef: uuid.NewString(), Version: 1}
+		p := entity.Penalty{
+			ID:             uuid.NewString(),
+			AccountID:      r.OwnerID,
+			Level:          in.Level,
+			ActionKind:     action,
+			ViolationRef:   report.ID,
+			ContentID:      &r.registry.ID,
+			ContentVersion: r.ContentVersion,
+			StartsAt:       tx.Now(),
+			ReasonRef:      uuid.NewString(),
+			Version:        1,
+		}
 		if action == "mute" {
 			end := tx.Now().Add(168 * time.Hour)
 			p.EndsAt = &end
@@ -282,7 +387,14 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 		if e = db.Create(&p).Error; e != nil {
 			return "", e
 		}
-		if e = db.Create(&entity.ContentRestriction{ID: uuid.NewString(), ContentID: r.registry.ID, Kind: "violation", SourceRef: report.ID, Active: true, Version: 1}).Error; e != nil {
+		if e = db.Create(&entity.ContentRestriction{
+			ID:        uuid.NewString(),
+			ContentID: r.registry.ID,
+			Kind:      "violation",
+			SourceRef: report.ID,
+			Active:    true,
+			Version:   1,
+		}).Error; e != nil {
 			return "", e
 		}
 		if e = hideWhisper(db, r, true, tx.Now()); e != nil {
@@ -310,10 +422,26 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 		}
 		return nil
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        s.digest(in),
+			Expectations:   []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}},
+		},
+	)
 	return
 }
 
 func whisperSubmission(t entity.ModerationTask, r whisperSource) whisper.ReviewSubmission {
-	return whisper.ReviewSubmission{TaskID: t.ID, ContentID: r.registry.ID, Kind: r.registry.Kind, ContentVersion: r.ContentVersion, Round: r.Round + 1}
+	return whisper.ReviewSubmission{
+		TaskID:         t.ID,
+		ContentID:      r.registry.ID,
+		Kind:           r.registry.Kind,
+		ContentVersion: r.ContentVersion,
+		Round:          r.Round + 1,
+	}
 }

@@ -79,6 +79,7 @@ type NotificationsPage struct {
 	Items      []Notification `json:"items"`
 	NextCursor *string        `json:"next_cursor"`
 }
+
 type cursor struct {
 	Scope string
 	ID    string
@@ -92,6 +93,7 @@ func (s *Service) encode(c cursor) string {
 	m.Write(b)
 	return base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
+
 func (s *Service) decode(value, scope string) (out cursor, err error) {
 	if value == "" {
 		return out, nil
@@ -111,14 +113,17 @@ func (s *Service) decode(value, scope string) (out cursor, err error) {
 	m := hmac.New(sha256.New, s.cfg.Key)
 	m.Write([]byte("chat.cursor\x00"))
 	m.Write(b)
-	if e != nil || !hmac.Equal(sig, m.Sum(nil)) || json.Unmarshal(b, &out) != nil || out.Scope != scope || out.Seq < 0 || out.ID != "" && !validID(out.ID) {
+	if e != nil || !hmac.Equal(sig, m.Sum(nil)) || json.Unmarshal(b, &out) != nil || out.Scope != scope || out.Seq < 0 ||
+		out.ID != "" && !validID(out.ID) {
 		return cursor{}, command.ErrInvalid
 	}
 	return out, nil
 }
+
 func validQuery(q Query) bool {
 	return q.Limit >= 1 && q.Limit <= 50 && (q.AfterSeq == nil || *q.AfterSeq >= 0) && !(q.Cursor != "" && q.AfterSeq != nil)
 }
+
 func (s *Service) read(ctx context.Context, token string, run func(*gorm.DB, string, time.Time) error) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
@@ -132,7 +137,11 @@ func (s *Service) read(ctx context.Context, token string, run func(*gorm.DB, str
 		}
 		h := sha256.Sum256([]byte(token))
 		var ids []string
-		if e := db.Table("public.sessions AS s").Select("a.id").Joins("JOIN public.accounts a ON a.id=s.account_id").Where("s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'", h[:], now).Scan(&ids).Error; e != nil {
+		if e := db.Table("public.sessions AS s").Select("a.id").Joins("JOIN public.accounts a ON a.id=s.account_id").Where(
+			"s.subject_kind='student' AND s.token_hash=? AND s.auth_epoch=a.auth_epoch AND s.revoked_at IS NULL AND s.expires_at>? AND a.lifecycle='active'",
+			h[:],
+			now,
+		).Scan(&ids).Error; e != nil {
 			return e
 		}
 		if len(ids) != 1 {
@@ -162,7 +171,16 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.Table("public.conversations AS c").Select("c.*").Joins("JOIN public.matches m ON m.id=c.match_id").Joins("JOIN public.accounts a ON a.id=m.requester_id AND a.lifecycle='active'").Joins("JOIN public.accounts b ON b.id=m.helper_id AND b.lifecycle='active'").Joins("JOIN public.wishes w ON w.id=m.wish_id AND w.draft_deleted_at IS NULL").Where("(m.requester_id=? OR m.helper_id=?)", actor, actor)
+		query := db.Table("public.conversations AS c").Select("c.*").
+			Joins("JOIN public.matches m ON m.id=c.match_id").
+			Joins("JOIN public.accounts a ON a.id=m.requester_id AND a.lifecycle='active'").
+			Joins("JOIN public.accounts b ON b.id=m.helper_id AND b.lifecycle='active'").
+			Joins("JOIN public.wishes w ON w.id=m.wish_id AND w.draft_deleted_at IS NULL").
+			Where(
+				"(m.requester_id=? OR m.helper_id=?)",
+				actor,
+				actor,
+			)
 		if after.ID != "" {
 			query = query.Where("c.id<?", after.ID)
 		}
@@ -225,7 +243,11 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 		out.NextAfterSeq = seq
 		out.Items = []DeliveredMessage{}
 		var rows []entity.Message
-		if e = db.Where("conversation_id=? AND status='delivered' AND delivery_seq>? AND EXISTS (SELECT 1 FROM public.content_registry approved WHERE approved.kind='message' AND approved.entity_id=messages.id AND approved.content_version=messages.content_version AND approved.status='approved') AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)", id, seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
+		if e = db.Where(
+			"conversation_id=? AND status='delivered' AND delivery_seq>? AND EXISTS (SELECT 1 FROM public.content_registry approved WHERE approved.kind='message' AND approved.entity_id=messages.id AND approved.content_version=messages.content_version AND approved.status='approved') AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)",
+			id,
+			seq,
+		).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
 			return e
 		}
 		for _, m := range rows {
@@ -316,8 +338,15 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 	})
 	return
 }
+
 func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (Notification, error) {
-	out := Notification{ID: row.ID, Version: row.Version, Kind: row.Type, Read: row.ReadAt != nil, Notice: "有新进展，请打开应用查看"}
+	out := Notification{
+		ID:      row.ID,
+		Version: row.Version,
+		Kind:    row.Type,
+		Read:    row.ReadAt != nil,
+		Notice:  "有新进展，请打开应用查看",
+	}
 	if row.Type == "crisis_care" {
 		var card entity.CareCard
 		e := db.WithContext(ctx).Where("id=? AND recipient_id=?", row.TargetRef, row.RecipientID).Take(&card).Error
@@ -426,20 +455,32 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	if !validID(id) || version < 1 {
 		return out, command.ErrInvalid
 	}
-	d := command.Definition{Kind: "notification.read", Method: "POST", ResourcePath: "/api/v1/me/notifications/" + id + "/read", ActorKind: "student", Access: command.Restricted, RequiredExpectations: []string{"expected_version"}, Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		var n int64
-		if e := db.WithContext(ctx).Model(&entity.Notification{}).Where("id=?", id).Count(&n).Error; e != nil {
-			return command.Discovery{}, e
-		}
-		p := command.Discovery{}
-		if n > 0 {
-			p.Resources = []command.Resource{{Kind: command.Notification, ID: id}}
-		}
-		return p, nil
-	}}
+	d := command.Definition{
+		Kind:                 "notification.read",
+		Method:               "POST",
+		ResourcePath:         "/api/v1/me/notifications/" + id + "/read",
+		ActorKind:            "student",
+		Access:               command.Restricted,
+		RequiredExpectations: []string{"expected_version"},
+		Discover: func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+			var n int64
+			if e := db.WithContext(ctx).Model(&entity.Notification{}).Where("id=?", id).Count(&n).Error; e != nil {
+				return command.Discovery{}, e
+			}
+			p := command.Discovery{}
+			if n > 0 {
+				p.Resources = []command.Resource{{Kind: command.Notification, ID: id}}
+			}
+			return p, nil
+		},
+	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var n int64
-		if e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", id, tx.Actor().ID).Count(&n).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where(
+			"id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')",
+			id,
+			tx.Actor().ID,
+		).Count(&n).Error; e != nil {
 			return e
 		}
 		if n != 1 {
@@ -460,26 +501,52 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 		return nil
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
-		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where("id=? AND read_at IS NULL", id).Updates(map[string]any{"read_at": tx.Now(), "version": gorm.Expr("version+1")}).Error
+		e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).
+			Where("id=? AND read_at IS NULL", id).
+			Updates(map[string]any{"read_at": tx.Now(), "version": gorm.Expr("version+1")}).
+			Error
 		return id, e
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var row entity.Notification
-		if e := tx.DB().WithContext(ctx).Where("id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", ref, tx.Actor().ID).Take(&row).Error; e != nil {
+		if e := tx.DB().WithContext(ctx).Where(
+			"id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')",
+			ref,
+			tx.Actor().ID,
+		).Take(&row).Error; e != nil {
 			return e
 		}
 		var e error
 		out, e = notification(ctx, tx.DB(), row)
 		return e
 	}
-	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: version, Expectations: []command.Expectation{{Name: "expected_version", Target: command.Resource{Kind: command.Notification, ID: id}, Value: version}}})
+	_, err = s.engine.Execute(
+		ctx,
+		d,
+		command.Input{
+			Token:          token,
+			IdempotencyKey: key,
+			RequestID:      rid,
+			Request:        version,
+			Expectations: []command.Expectation{{
+				Name:   "expected_version",
+				Target: command.Resource{Kind: command.Notification, ID: id},
+				Value:  version,
+			}},
+		},
+	)
 	return
 }
 
 // readChatAllowed 允许禁言账号读取历史，永久封禁只保留申诉及处置通知视图。
 func readChatAllowed(db *gorm.DB, actor string, now time.Time) error {
 	var n int64
-	if e := db.Model(&entity.Penalty{}).Where("account_id=? AND action_kind='ban' AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)", actor, now, now).Count(&n).Error; e != nil {
+	if e := db.Model(&entity.Penalty{}).Where(
+		"account_id=? AND action_kind='ban' AND revoked_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)",
+		actor,
+		now,
+		now,
+	).Count(&n).Error; e != nil {
 		return e
 	}
 	if n > 0 {

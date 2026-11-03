@@ -51,6 +51,7 @@ func (k *keys) Wrap(_ context.Context, data []byte) (string, []byte, error) {
 	}
 	return "synthetic-wrap", append(nonce, gcm.Seal(nil, nonce, data, nil)...), nil
 }
+
 func (k *keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error) {
 	if k.unavailable.Load() || ref != "synthetic-wrap" || len(data) < 28 {
 		return nil, errors.New("SYNTHETIC_KMS_SECRET")
@@ -59,6 +60,7 @@ func (k *keys) Unwrap(_ context.Context, ref string, data []byte) ([]byte, error
 	gcm, _ := cipher.NewGCM(block)
 	return gcm.Open(nil, data[:12], data[12:], nil)
 }
+
 func (k *keys) Digest(_ context.Context, ref, purpose string, data []byte) ([]byte, error) {
 	if k.unavailable.Load() {
 		return nil, errors.New("SYNTHETIC_KMS_SECRET")
@@ -136,7 +138,12 @@ func TestPostgresStudent(t *testing.T) {
 		t.Fatal(e)
 	}
 	exchanger := &exchange{}
-	cfg := studentauth.Config{SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{98}, 32), Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}}
+	cfg := studentauth.Config{
+		SessionTTL:  time.Hour,
+		ExchangeTTL: time.Minute,
+		SessionKey:  bytes.Repeat([]byte{98}, 32),
+		Command:     command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+	}
 	service, e := studentauth.New(restricted, logger, exchanger, store, limiter, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -161,7 +168,8 @@ func TestPostgresStudent(t *testing.T) {
 		t.Fatal(e)
 	}
 	safetyMe, e := safetyService.Current(ctx, first.Token, "safety-actions")
-	if e != nil || !slices.Contains(safetyMe.AllowedActions, "deleteMeBlocksTarget_Id") || slices.Contains(safetyMe.AllowedActions, "deleteMeBlocks") {
+	if e != nil || !slices.Contains(safetyMe.AllowedActions, "deleteMeBlocksTarget_Id") ||
+		slices.Contains(safetyMe.AllowedActions, "deleteMeBlocks") {
 		t.Fatal("解除动作未统一", safetyMe, e)
 	}
 	if slices.Contains(first.Me.AllowedActions, "deleteMeBlocksTarget_Id") {
@@ -192,7 +200,13 @@ func TestPostgresStudent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			out, e := service.Login(ctx, fmt.Sprintf("same-concurrent-%d", i), fmt.Sprintf("concurrent-%d", i), "source", "student_race")
+			out, e := service.Login(
+				ctx,
+				fmt.Sprintf("same-concurrent-%d", i),
+				fmt.Sprintf("concurrent-%d", i),
+				"source",
+				"student_race",
+			)
 			if e != nil {
 				failures <- e
 			} else {
@@ -285,7 +299,11 @@ func TestPostgresStudent(t *testing.T) {
 		}
 		return rec
 	}
-	for _, body := range []string{`{"openid":"fake"}`, `{"code":"a","client_request_id":"b","openid":"fake"}`, `{"code":"a","code":"b","client_request_id":"c"}`} {
+	for _, body := range []string{
+		`{"openid":"fake"}`,
+		`{"code":"a","client_request_id":"b","openid":"fake"}`,
+		`{"code":"a","code":"b","client_request_id":"c"}`,
+	} {
 		if rec := request("POST", "/api/v1/auth/wechat-sessions", "", "", body); rec.Code != 400 {
 			t.Fatal("客户端伪造身份字段应拒绝", rec.Code)
 		}
@@ -296,7 +314,13 @@ func TestPostgresStudent(t *testing.T) {
 	if rec := request("PUT", "/api/v1/me/profile", first.Token, "http-profile", `{"nickname":"新昵称","expected_version":2}`); rec.Code != 400 {
 		t.Fatal("缺布尔值须拒绝")
 	}
-	if rec := request("PUT", "/api/v1/me/profile", first.Token, "http-profile", `{"nickname":"新昵称","hide_identity_tags":false,"expected_version":2}`); rec.Code != 200 {
+	if rec := request(
+		"PUT",
+		"/api/v1/me/profile",
+		first.Token,
+		"http-profile",
+		`{"nickname":"新昵称","hide_identity_tags":false,"expected_version":2}`,
+	); rec.Code != 200 {
 		t.Fatal("资料HTTP失败", rec.Code)
 	}
 	// 身份已暂存后会话写失败，也不能留下孤立账号或返回token。
@@ -304,10 +328,12 @@ func TestPostgresStudent(t *testing.T) {
 	if e = db.Table("public.accounts").Count(&beforeAccounts).Error; e != nil {
 		t.Fatal(e)
 	}
-	if e = db.Exec("CREATE FUNCTION public.fail_student_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session failure'; END $$").Error; e != nil {
+	if e = db.Exec("CREATE FUNCTION public.fail_student_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session failure'; END $$").
+		Error; e != nil {
 		t.Fatal(e)
 	}
-	if e = db.Exec("CREATE TRIGGER fail_student_session BEFORE INSERT ON public.sessions FOR EACH ROW EXECUTE FUNCTION public.fail_student_session()").Error; e != nil {
+	if e = db.Exec("CREATE TRIGGER fail_student_session BEFORE INSERT ON public.sessions FOR EACH ROW EXECUTE FUNCTION public.fail_student_session()").
+		Error; e != nil {
 		t.Fatal(e)
 	}
 	failedSession, failure := service.Login(ctx, "session-failure", "session-failure", "source", "student_atomic_failure")
@@ -324,11 +350,18 @@ func TestPostgresStudent(t *testing.T) {
 		t.Fatal("会话失败未回滚身份", failure)
 	}
 	// 受罚会话保留读取/退出，普通资料写不绕过处罚。
-	if e = db.Exec("INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,reason_ref,starts_at) VALUES (?, ?, 'severe', 'ban', ?, 1, ?, clock_timestamp())", uuid.NewString(), first.Me.ID, uuid.NewString(), uuid.NewString()).Error; e != nil {
+	if e = db.Exec(
+		"INSERT INTO public.penalties(id,account_id,level,action_kind,violation_ref,content_version,reason_ref,starts_at) VALUES (?, ?, 'severe', 'ban', ?, 1, ?, clock_timestamp())",
+		uuid.NewString(),
+		first.Me.ID,
+		uuid.NewString(),
+		uuid.NewString(),
+	).Error; e != nil {
 		t.Fatal(e)
 	}
 	restrictedSafety, e := safetyService.Current(ctx, first.Token, "safety-restricted")
-	if e != nil || slices.Contains(restrictedSafety.AllowedActions, "deleteMeBlocksTarget_Id") || slices.Contains(restrictedSafety.AllowedActions, "postMeBlocks") {
+	if e != nil || slices.Contains(restrictedSafety.AllowedActions, "deleteMeBlocksTarget_Id") ||
+		slices.Contains(restrictedSafety.AllowedActions, "postMeBlocks") {
 		t.Fatal("受罚会话仍提示普通拉黑动作", restrictedSafety, e)
 	}
 	current, e := service.Current(ctx, first.Token, "student_restricted")
@@ -358,7 +391,8 @@ func TestPostgresStudent(t *testing.T) {
 		t.Fatal("旧代会话仍可用", e)
 	}
 	expired := login("expired")
-	if e = db.Exec("UPDATE public.sessions SET created_at=clock_timestamp()-interval '2 hours',expires_at=clock_timestamp()-interval '1 hour' WHERE account_id=?", expired.Me.ID).Error; e != nil {
+	if e = db.Exec("UPDATE public.sessions SET created_at=clock_timestamp()-interval '2 hours',expires_at=clock_timestamp()-interval '1 hour' WHERE account_id=?", expired.Me.ID).
+		Error; e != nil {
 		t.Fatal(e)
 	}
 	if _, e = service.Current(ctx, expired.Token, "student_expired"); e != command.ErrUnauthenticated {
@@ -420,7 +454,12 @@ func TestPostgresStudent(t *testing.T) {
 	if e = db.Exec("INSERT INTO public.admin_accounts(id,credential_ref) VALUES (?,'synthetic-admin-ref')", adminID).Error; e != nil {
 		t.Fatal(e)
 	}
-	if e = db.Exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), adminID, adminHash[:]).Error; e != nil {
+	if e = db.Exec(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		uuid.NewString(),
+		adminID,
+		adminHash[:],
+	).Error; e != nil {
 		t.Fatal(e)
 	}
 	if _, e = service.Current(ctx, adminToken, "student_admin_token"); e != command.ErrUnauthenticated {
@@ -429,7 +468,12 @@ func TestPostgresStudent(t *testing.T) {
 	if e = restricted.Raw("SELECT count(*) FROM public.sessions WHERE subject_kind='admin'").Scan(&count).Error; e != nil || count != 0 {
 		t.Fatal("身份组跨读后台会话")
 	}
-	if e = restricted.Exec("INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')", uuid.NewString(), adminID, bytes.Repeat([]byte{61}, 32)).Error; e == nil {
+	if e = restricted.Exec(
+		"INSERT INTO public.sessions(id,admin_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+		uuid.NewString(),
+		adminID,
+		bytes.Repeat([]byte{61}, 32),
+	).Error; e == nil {
 		t.Fatal("身份组跨写后台会话")
 	}
 	// 数据库持久内容不含明文code、OpenID或会话令牌。

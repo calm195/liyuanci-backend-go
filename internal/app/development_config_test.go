@@ -11,11 +11,26 @@ import (
 
 // TestSettingsRejectKeyReuse 验证单主密钥装配后领域仍拒绝错误注入共钥，文件拒绝半套微信凭据。
 func TestSettingsRejectKeyReuse(t *testing.T) {
-	cfg := DevelopmentSettings{DatabaseDSN: "shared", AdminPassword: "long-enough-password", ObjectDirectory: t.TempDir(), JournalFile: "/tmp/unit-journal.json"}
+	cfg := DevelopmentSettings{
+		DatabaseDSN:     "shared",
+		AdminPassword:   "long-enough-password",
+		ObjectDirectory: t.TempDir(),
+		JournalFile:     "/tmp/unit-journal.json",
+	}
 	path := filepath.Join(t.TempDir(), "business.yaml")
 	save := func() {
 		_ = os.WriteFile(filepath.Join(filepath.Dir(path), "common.yaml"), []byte("mode: foundation\n"), 0600)
-		data, _ := yamlconfig.Marshal(map[string]any{"masterkey": bytes.Repeat([]byte{93}, 32), "database": map[string]any{"driver": "postgres", "host": "127.0.0.1", "name": "synthetic", "user": "application", "password": "synthetic"}, "development": cfg})
+		data, _ := yamlconfig.Marshal(map[string]any{
+			"masterkey": bytes.Repeat([]byte{93}, 32),
+			"database": map[string]any{
+				"driver":   "postgres",
+				"host":     "127.0.0.1",
+				"name":     "synthetic",
+				"user":     "application",
+				"password": "synthetic",
+			},
+			"development": cfg,
+		})
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			t.Fatal(err)
 		}

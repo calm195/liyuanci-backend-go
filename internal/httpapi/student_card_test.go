@@ -22,6 +22,7 @@ func (f *cardsFixture) Upload(context.Context, string, string, string, string, i
 	f.called = true
 	return studentcard.Asset{}, f.failure
 }
+
 func (f *cardsFixture) Get(context.Context, string, string, string) (studentcard.Asset, error) {
 	f.called = true
 	return studentcard.Asset{}, f.failure
@@ -37,10 +38,41 @@ func TestStudentCardProtocol(t *testing.T) {
 	}{
 		{name: "no_token", method: "POST", path: "", status: 401},
 		{name: "no_key", method: "POST", path: "", token: "token", status: 400},
-		{name: "not_multipart", method: "POST", path: "", token: "token", key: "key", contentType: "application/json", status: 400},
-		{name: "status", method: "GET", path: "/00000000-0000-4000-8000-000000000001", token: "token", status: 200, called: true},
-		{name: "not_found", method: "GET", path: "/00000000-0000-4000-8000-000000000001", token: "token", status: 404, called: true, failure: command.ErrNotFound},
-		{name: "unauthenticated", method: "GET", path: "/00000000-0000-4000-8000-000000000001", token: "token", status: 401, called: true, failure: command.ErrUnauthenticated},
+		{
+			name:        "not_multipart",
+			method:      "POST",
+			path:        "",
+			token:       "token",
+			key:         "key",
+			contentType: "application/json",
+			status:      400,
+		},
+		{
+			name:   "status",
+			method: "GET",
+			path:   "/00000000-0000-4000-8000-000000000001",
+			token:  "token",
+			status: 200,
+			called: true,
+		},
+		{
+			name:    "not_found",
+			method:  "GET",
+			path:    "/00000000-0000-4000-8000-000000000001",
+			token:   "token",
+			status:  404,
+			called:  true,
+			failure: command.ErrNotFound,
+		},
+		{
+			name:    "unauthenticated",
+			method:  "GET",
+			path:    "/00000000-0000-4000-8000-000000000001",
+			token:   "token",
+			status:  401,
+			called:  true,
+			failure: command.ErrUnauthenticated,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := New(zap.NewNop(), func(context.Context) error { return nil })

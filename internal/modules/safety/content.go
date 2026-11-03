@@ -85,7 +85,11 @@ func (s *Service) caseBody(ctx context.Context, db *gorm.DB, c entity.ContentReg
 		if json.Unmarshal(a.PublicMessageCipher, &env) != nil {
 			return "", command.ErrUnavailable
 		}
-		raw, e := s.codec.Decrypt(ctx, securedata.Binding{Purpose: "application_approved", ObjectID: a.ID, Version: uint64(a.ContentVersion)}, env)
+		raw, e := s.codec.Decrypt(
+			ctx,
+			securedata.Binding{Purpose: "application_approved", ObjectID: a.ID, Version: uint64(a.ContentVersion)},
+			env,
+		)
 		defer clear(raw)
 		if e != nil {
 			return "", e
