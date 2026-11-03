@@ -136,7 +136,7 @@ func TestPostgresWhisperText(t *testing.T) {
 		}
 	}
 	must(migration.Run(ctx, admin, log, "up"))
-	must(migration.ApplyPermissions(ctx, admin, log))
+	must(testconfig.ApplyDatabaseRoles(ctx, admin, log))
 	api := open(testDSN + " options='-c role=liyuanci_api'")
 	actor, other := uuid.NewString(), uuid.NewString()
 	token, otherToken := uuid.NewString(), uuid.NewString()

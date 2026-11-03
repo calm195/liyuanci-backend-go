@@ -38,7 +38,7 @@ func TestBackgroundPlan(t *testing.T) {
 	if err = migration.Run(ctx, db, log, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成后台工作主体','verified')", id).Error; err != nil {

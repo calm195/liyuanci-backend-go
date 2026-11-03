@@ -71,7 +71,7 @@ func TestAdminUsersQuery(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	log := zap.New(core)
 	must(migration.Run(context.Background(), root, log, "up"))
-	must(migration.ApplyPermissions(context.Background(), root, log))
+	must(testconfig.ApplyDatabaseRoles(context.Background(), root, log))
 	api := open(dsn + " options='-c role=liyuanci_admin_api'")
 	codec, e := securedata.New(testKeys{}, log)
 	must(e)

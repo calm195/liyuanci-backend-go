@@ -144,12 +144,12 @@ func TestModerationCore(t *testing.T) {
 		}
 	}
 	must(migration.Run(ctx, root, logger, "up"))
-	must(migration.ApplyPermissions(ctx, root, logger))
+	must(testconfig.ApplyDatabaseRoles(ctx, root, logger))
 	// 空库上下行、权限重放与中文对象注释；原生集成入口退出时删除本轮临时集群。
 	must(migration.Run(ctx, root, logger, "down"))
 	must(migration.Run(ctx, root, logger, "up"))
-	must(migration.ApplyPermissions(ctx, root, logger))
-	must(migration.ApplyPermissions(ctx, root, logger))
+	must(testconfig.ApplyDatabaseRoles(ctx, root, logger))
+	must(testconfig.ApplyDatabaseRoles(ctx, root, logger))
 	var missing int64
 	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname IN ('public','evidence') AND c.relkind='r' AND (coalesce(obj_description(c.oid,'pg_class'),'')='' OR coalesce(col_description(c.oid,a.attnum),'')='')`).Scan(&missing).Error)
 	if missing != 0 {

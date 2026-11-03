@@ -70,7 +70,7 @@ func TestBusinessSchema(t *testing.T) {
 	if err := Run(ctx, db, log, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPermissions(ctx, db, log); err != nil {
+	if err := testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	// 专用迁移角色须确实能够回退和重建 schema，不依赖测试超级用户代执行。
@@ -215,7 +215,7 @@ func TestBusinessSchema(t *testing.T) {
 	if !db.Migrator().HasTable("public.messages") {
 		t.Fatal("失败回退不能移除其他空表")
 	}
-	if err = ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	must("INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?, ?, decode(repeat('01',32),'hex'), 1, CURRENT_TIMESTAMP+interval '1 hour')", uid(110), uid(1))
@@ -252,7 +252,7 @@ func TestBusinessSchema(t *testing.T) {
 	must("GRANT USAGE ON SCHEMA evidence TO liyuanci_api")
 	must("GRANT SELECT ON evidence.evidence_items TO liyuanci_api")
 	must("DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO liyuanci_api', current_database()); END $$")
-	if err = ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_api", "SELECT id FROM evidence.evidence_items") == nil {
@@ -263,26 +263,26 @@ func TestBusinessSchema(t *testing.T) {
 	}
 	// T005/REQ-018、019：权限重放必须恢复被关闭的 RLS，未知策略则失败且不擅自覆盖。
 	must("ALTER TABLE public.sessions DISABLE ROW LEVEL SECURITY")
-	if err = ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_api", "DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.sessions WHERE admin_id IS NOT NULL) THEN RAISE EXCEPTION '后台会话泄漏'; END IF; END $$") != nil {
 		t.Fatal("权限重放未恢复会话行级隔离")
 	}
 	must("CREATE POLICY unmanaged_scope ON public.sessions TO PUBLIC USING (true)")
-	if ApplyPermissions(ctx, db, log) == nil {
+	if testconfig.ApplyDatabaseRoles(ctx, db, log) == nil {
 		t.Fatal("未知策略必须拒绝而非保留或静默删除")
 	}
 	must("DROP POLICY unmanaged_scope ON public.sessions")
 	must("ALTER SCHEMA public OWNER TO liyuanci_api")
-	if ApplyPermissions(ctx, db, log) == nil {
+	if testconfig.ApplyDatabaseRoles(ctx, db, log) == nil {
 		t.Fatal("运行组拥有公共命名空间时必须拒绝")
 	}
 	must("ALTER SCHEMA public OWNER TO pg_database_owner")
-	if err = ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal("修复现场配置后应可重新应用", err)
 	}
-	if RunJournal(ctx, db, log, "up") == nil {
+	if testconfig.RunJournal(ctx, db, log, "up") == nil {
 		t.Fatal("业务库不得同时部署恢复日志")
 	}
 }
@@ -294,7 +294,7 @@ func TestRecoverySchema(t *testing.T) {
 	core, observed := observer.New(zap.InfoLevel)
 	log := zap.New(core)
 	for _, action := range []string{"up", "up", "permissions", "permissions"} {
-		if err := RunJournal(ctx, db, log, action); err != nil {
+		if err := testconfig.RunJournal(ctx, db, log, action); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -305,19 +305,19 @@ func TestRecoverySchema(t *testing.T) {
 	if err := db.Exec("ALTER SCHEMA public OWNER TO liyuanci_recovery_writer").Error; err != nil {
 		t.Fatal(err)
 	}
-	if RunJournal(ctx, db, log, "permissions") == nil {
+	if testconfig.RunJournal(ctx, db, log, "permissions") == nil {
 		t.Fatal("恢复运行组拥有命名空间时必须拒绝")
 	}
 	if err := db.Exec("ALTER SCHEMA public OWNER TO pg_database_owner").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := RunJournal(ctx, db, log, "permissions"); err != nil {
+	if err := testconfig.RunJournal(ctx, db, log, "permissions"); err != nil {
 		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_recovery_writer", "INSERT INTO public.recovery_delete_journal(intent_id,deletion_scope,entry_envelope) VALUES ('40000000-0000-0000-0000-000000000001','account','{}')") != nil {
 		t.Fatal("写入角色应能记录意图")
 	}
-	if RunJournal(ctx, db, log, "down") == nil {
+	if testconfig.RunJournal(ctx, db, log, "down") == nil {
 		t.Fatal("非空恢复日志必须拒绝回退")
 	}
 	if underRole(db, "liyuanci_recovery_writer", "DELETE FROM public.recovery_delete_journal") == nil {
@@ -342,7 +342,7 @@ func TestRecoverySchema(t *testing.T) {
 	if err := db.Exec("GRANT SELECT ON public.recovery_delete_journal TO liyuanci_api").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := RunJournal(ctx, db, log, "permissions"); err != nil {
+	if err := testconfig.RunJournal(ctx, db, log, "permissions"); err != nil {
 		t.Fatal(err)
 	}
 	if underRole(db, "liyuanci_api", "SELECT * FROM public.recovery_delete_journal") == nil {
@@ -352,7 +352,7 @@ func TestRecoverySchema(t *testing.T) {
 		t.Fatal("显式保留期维护角色应可删除已验收记录")
 	}
 	for _, action := range []string{"down", "down", "up"} {
-		if err := RunJournal(ctx, db, log, action); err != nil {
+		if err := testconfig.RunJournal(ctx, db, log, action); err != nil {
 			t.Fatal(err)
 		}
 	}

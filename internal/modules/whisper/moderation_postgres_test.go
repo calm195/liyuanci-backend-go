@@ -114,7 +114,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 	}
 	must(migration.Run(ctx, admin, log, "up"))
-	must(migration.ApplyPermissions(ctx, admin, log))
+	must(testconfig.ApplyDatabaseRoles(ctx, admin, log))
 	api := open(testDSN + " options='-c role=liyuanci_api'")
 	actor, other := uuid.NewString(), uuid.NewString()
 	token, otherToken := uuid.NewString(), uuid.NewString()
@@ -165,8 +165,8 @@ func TestPostgresWhisperModeration(t *testing.T) {
 	must(parent.Exec("CREATE DATABASE " + journalName).Error)
 	journalDSN := strings.Replace(dsn, needle, "dbname="+journalName+" ", 1)
 	journalRoot := open(journalDSN)
-	must(migration.RunJournal(ctx, journalRoot, log, "up"))
-	must(migration.RunJournal(ctx, journalRoot, log, "permissions"))
+	must(testconfig.RunJournal(ctx, journalRoot, log, "up"))
+	must(testconfig.RunJournal(ctx, journalRoot, log, "permissions"))
 	journal, e := privacy.NewJournal(ctx, open(journalDSN+" options='-c role=liyuanci_recovery_writer'"), open(journalDSN+" options='-c role=liyuanci_recovery_reader'"), codec, log, 5*time.Second)
 	must(e)
 	deletion, e := privacy.New(open(testDSN+" options='-c role=liyuanci_evidence_delete_api'"), journal, codec, nil, log, privacy.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{12}, 32), ReceiptTTL: 24 * time.Hour, RetryDelay: time.Second})

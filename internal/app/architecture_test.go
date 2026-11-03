@@ -123,7 +123,8 @@ var allowedInternalImports = map[string][]string{
 	"platform":            {"config", "execution/command"},
 	"platform/securedata": {},
 	"platform/yamlconfig": {},
-	"testconfig":          {"platform/yamlconfig"},
+	// 测试配置与隔离数据库夹具只供测试使用；实体用于日志表映射。
+	"testconfig": {"platform/yamlconfig", "entity"},
 }
 
 func allowedInternalImport(owner, target string) bool {

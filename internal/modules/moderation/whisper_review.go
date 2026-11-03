@@ -111,7 +111,7 @@ func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string,
 			out.NextCursor = &v
 		}
 		for _, id := range ids {
-			r, e := loadWhisper(db, id)
+			r, e := loadWhisper(ctx, db, id)
 			if e != nil {
 				return e
 			}
@@ -174,7 +174,7 @@ func (s *Service) WhisperReview(ctx context.Context, token, rid, id string) (out
 		if e != nil {
 			return e
 		}
-		r, e := loadWhisper(db, id)
+		r, e := loadWhisper(ctx, db, id)
 		if e != nil {
 			return e
 		}
@@ -216,7 +216,7 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		return whisperPlan(ctx, db, id)
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
-		r, e := loadWhisper(tx.DB().WithContext(ctx), id)
+		r, e := loadWhisper(ctx, tx.DB().WithContext(ctx), id)
 		if e != nil {
 			return e
 		}
@@ -225,7 +225,7 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
-		r, e := loadWhisper(db, id)
+		r, e := loadWhisper(ctx, db, id)
 		if e != nil {
 			return "", e
 		}
@@ -239,7 +239,7 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		if r.task.Status != "human_required" {
 			return "", command.ErrConflict
 		}
-		ok, e := whisperEligible(db, r)
+		ok, e := whisperEligible(ctx, db, r)
 		if e != nil {
 			return "", e
 		}
@@ -266,7 +266,7 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		return id, audit(db, tx.Actor().ID, r.OwnerID, "moderation.decision")
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
-		r, e := loadWhisper(tx.DB().WithContext(ctx), ref)
+		r, e := loadWhisper(ctx, tx.DB().WithContext(ctx), ref)
 		if e != nil {
 			return e
 		}
@@ -277,7 +277,7 @@ func (s *Service) DecideWhisper(ctx context.Context, token, key, rid, id string,
 		if r.task.Status == "rejected" {
 			out.BusinessOutcome = "rejected"
 		} else if r.task.Status == "approved" {
-			ok, e := whisperEligible(tx.DB(), r)
+			ok, e := whisperEligible(ctx, tx.DB(), r)
 			if e != nil {
 				return e
 			}

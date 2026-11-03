@@ -55,7 +55,7 @@ func lifecycleSetup(t *testing.T) *lifecycleFixture {
 	if e := migration.Run(context.Background(), root, log, "up"); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(context.Background(), root, log); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(context.Background(), root, log); e != nil {
 		t.Fatal(e)
 	}
 	codec, _ := securedata.New(&testKeys{}, log)

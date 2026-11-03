@@ -187,7 +187,7 @@ func testWhisperPrivacy(t *testing.T, admin, api, maintenance *gorm.DB, s *whisp
 			t.Fatal("无会话获得Workspace", e)
 		}
 	})
-	must(migration.ApplyPermissions(ctx, admin, log))
+	must(testconfig.ApplyDatabaseRoles(ctx, admin, log))
 	if e = admin.Exec("UPDATE public.interaction_block_policy SET opaque_enabled=false,switched_at=NULL").Error; e == nil {
 		t.Fatal("切换允许回退")
 	}

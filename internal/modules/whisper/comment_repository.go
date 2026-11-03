@@ -31,8 +31,10 @@ func loadComment(ctx context.Context, db *gorm.DB, id string) (a commentAggregat
 	if err = db.Where("id=?", a.comment.AuthorID).Take(&a.author).Error; err != nil {
 		return
 	}
-	var flags struct{ Privacy, Isolated, Restricted bool }
-	err = db.Raw(`SELECT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_comment' AND target_id=? AND status='active') AS privacy,EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind='whisper_comment' AND c.entity_id=? AND x.active AND x.kind='crisis') AS isolated,EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind='whisper_comment' AND c.entity_id=? AND x.active) AS restricted`, id, id, id).Scan(&flags).Error
+	flags, e := readContentFlags(ctx, db, "whisper_comment", id)
+	if e != nil {
+		return a, e
+	}
 	a.privacy, a.isolated, a.restricted = flags.Privacy, flags.Isolated, flags.Restricted
 	if err == nil && a.version.NicknameVersion != nil {
 		var n entity.WhisperNicknameVersion

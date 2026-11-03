@@ -7,7 +7,11 @@ BEGIN
        (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)) THEN
        RAISE EXCEPTION '应用账号不得拥有集群管理权限';
     END IF;
-    -- 已有分角色数据库需由管理员先把本库对象所有权转交应用账号；不隐式提权。
+    -- 业务库对象必须归属于应用账号；不隐式转交或提权。
+    IF EXISTS (SELECT 1 FROM pg_policies
+       WHERE schemaname IN ('public','evidence') AND policyname <> 'application_account') THEN
+       RAISE EXCEPTION '业务库存在未登记的行策略';
+    END IF;
     FOR item IN SELECT n.nspname, c.relname FROM pg_class c
        JOIN pg_namespace n ON n.oid=c.relnamespace
        WHERE n.nspname IN ('public','evidence') AND c.relkind='r' LOOP
@@ -22,19 +26,7 @@ BEGIN
        EXECUTE format('REVOKE ALL ON %I.%I FROM PUBLIC',item.nspname,item.relname);
     END LOOP;
 END $$;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA evidence FROM PUBLIC;
 REVOKE ALL ON SCHEMA evidence FROM PUBLIC;
-
--- 账号锁函数保留授权复核锁序，应用共用账号不需要额外数据库角色。
-CREATE OR REPLACE FUNCTION public.lock_command_admin(subject uuid)
-RETURNS TABLE(id uuid, status text, auth_epoch bigint)
-LANGUAGE sql VOLATILE SECURITY INVOKER SET search_path = pg_catalog
-AS $$ SELECT a.id, a.status, a.auth_epoch FROM public.admin_accounts a WHERE a.id = subject FOR UPDATE $$;
-COMMENT ON FUNCTION public.lock_command_admin(uuid) IS '锁定后台账号授权元数据，岗位权限由调用方在同一事务复核';
-CREATE OR REPLACE FUNCTION public.lock_command_account(subject uuid)
-RETURNS TABLE(id uuid, lifecycle text, verification text, auth_epoch bigint, version bigint)
-LANGUAGE sql VOLATILE SECURITY INVOKER SET search_path = pg_catalog
-AS $$ SELECT a.id, a.lifecycle, a.verification, a.auth_epoch, a.version FROM public.accounts a WHERE a.id = subject FOR UPDATE $$;
-COMMENT ON FUNCTION public.lock_command_account(uuid) IS '锁定学生账号状态及授权代次，不跨事务缓存授权结论';
-REVOKE ALL ON FUNCTION public.lock_command_admin(uuid),public.lock_command_account(uuid) FROM PUBLIC;

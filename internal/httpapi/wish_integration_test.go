@@ -61,7 +61,7 @@ func TestPostgresWishHTTP(t *testing.T) {
 	if err := migration.Run(context.Background(), root, logger, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err := migration.ApplyPermissions(context.Background(), root, logger); err != nil {
+	if err := testconfig.ApplyDatabaseRoles(context.Background(), root, logger); err != nil {
 		t.Fatal(err)
 	}
 	codec, _ := securedata.New(wishHTTPKeys{}, logger)

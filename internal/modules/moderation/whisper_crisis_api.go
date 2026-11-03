@@ -219,7 +219,7 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		if e != nil {
 			return "", e
 		}
-		r, e := whisperTarget(db, v.TargetKind, v.TargetID)
+		r, e := whisperTarget(ctx, db, v.TargetKind, v.TargetID)
 		if e != nil {
 			return "", e
 		}
@@ -256,7 +256,7 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		if e != nil {
 			return "", e
 		}
-		r, e := loadWhisper(db, tid)
+		r, e := loadWhisper(ctx, db, tid)
 		if e != nil {
 			return "", e
 		}
@@ -359,7 +359,7 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 				return "", e
 			}
 			if c.SourceTaskID != nil {
-				r, e := loadWhisper(db, *c.SourceTaskID)
+				r, e := loadWhisper(ctx, db, *c.SourceTaskID)
 				if e != nil && !errors.Is(e, command.ErrNotFound) {
 					return "", e
 				}

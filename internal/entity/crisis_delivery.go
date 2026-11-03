@@ -11,7 +11,7 @@ type CrisisDelivery struct {
 	CaseID     string     `gorm:"column:case_id;type:uuid;not null;comment:限定危机案件"`
 	Kind       string     `gorm:"column:kind;not null;comment:投递用途"`
 	Status     string     `gorm:"column:status;not null;default:pending;comment:持久投递状态"`
-	Attempts   int64      `gorm:"column:attempts;not null;comment:租约次数"`
+	Attempts   int64      `gorm:"column:attempts;not null;default:0;comment:租约次数"`
 	NextAt     time.Time  `gorm:"column:next_at;not null;default:CURRENT_TIMESTAMP;comment:下次尝试时间"`
 	LeaseID    *string    `gorm:"column:lease_id;type:uuid;comment:本次租约令牌"`
 	LeaseUntil *time.Time `gorm:"column:lease_until;comment:租约到期时间"`

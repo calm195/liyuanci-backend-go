@@ -436,7 +436,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var version int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&version).Error)
-	if version != 29 {
+	if version != 9 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
 	t.Logf("正式server/content-worker/privacy-worker、受限登录、TLS、Redis、数据库任务、禁用/重启/恢复门禁通过；供应商/KMS/清理为合成")

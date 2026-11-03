@@ -285,10 +285,10 @@ func TestPostgresIdentity(t *testing.T) {
 		t.Fatal("重加密不应改变身份值", err)
 	}
 	clear(plain)
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal("权限初始化应可重放", err)
 	}
 	for _, check := range []struct {

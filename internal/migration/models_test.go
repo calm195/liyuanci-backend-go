@@ -39,7 +39,7 @@ func TestEntityCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths = append(paths, "journal/0001_journal.up.sql", "../../migrations/integration/0001_probe.up.sql")
+	paths = append(paths, "../testconfig/sql/journal.up.sql", "../testconfig/sql/probe.sql")
 	columns := regexp.MustCompile(`COMMENT ON COLUMN ([a-z_.]+) IS`)
 	seen := map[string]bool{}
 	for _, path := range paths {

@@ -121,10 +121,10 @@ func TestPostgresVerification(t *testing.T) {
 	if e := migration.Run(ctx, root, log, "up"); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(ctx, root, log); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(ctx, root, log); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(ctx, root, log); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(ctx, root, log); e != nil {
 		t.Fatal(e)
 	}
 	studentDB, adminDB := open("liyuanci_identity_maintenance"), open("liyuanci_admin_api")

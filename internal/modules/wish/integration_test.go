@@ -52,7 +52,7 @@ func TestPostgresCreateDraft(t *testing.T) {
 	if err := migration.Run(ctx, root, logger, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err := migration.ApplyPermissions(ctx, root, logger); err != nil {
+	if err := testconfig.ApplyDatabaseRoles(ctx, root, logger); err != nil {
 		t.Fatal(err)
 	}
 	api := open("liyuanci_api")

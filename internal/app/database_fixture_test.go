@@ -55,7 +55,7 @@ func applicationDatabase(t *testing.T, adminDSN string) (*gorm.DB, string, strin
 		_ = p.Close()
 	})
 	ctx, log := context.Background(), zap.NewNop()
-	if migration.Run(ctx, db, log, "up") != nil || migration.ApplyApplicationPermissions(ctx, db, log) != nil {
+	if migration.RunApplication(ctx, db, log, "up") != nil {
 		t.Fatal("单应用账号迁移/权限配置失败")
 	}
 	return db, shared, databaseAdmin

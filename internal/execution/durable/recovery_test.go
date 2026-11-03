@@ -44,7 +44,7 @@ func TestPostgresRecovery(t *testing.T) {
 	if err = migration.Run(ctx, db, log, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	exec := func(query string, args ...any) {

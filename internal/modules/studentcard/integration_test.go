@@ -163,10 +163,10 @@ func TestPostgresStudentCards(t *testing.T) {
 	if e := migration.Run(ctx, root, logger, "up"); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(ctx, root, logger); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(ctx, root, logger); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(ctx, root, logger); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(ctx, root, logger); e != nil {
 		t.Fatal(e)
 	}
 	apiDB, workerDB := open(" options='-c role=liyuanci_identity_maintenance'"), open(" options='-c role=liyuanci_domain_worker'")

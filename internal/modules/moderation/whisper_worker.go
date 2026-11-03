@@ -111,14 +111,14 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		if work.Status == "completed" || work.Status == "cancelled" || work.Status == "attention" || work.NextAt.After(now) || work.Status == "leased" && work.LeaseUntil != nil && work.LeaseUntil.After(now) {
 			return nil
 		}
-		r, e = loadWhisper(db, event.AggregateID)
+		r, e = loadWhisper(ctx, db, event.AggregateID)
 		if errors.Is(e, command.ErrNotFound) {
 			return nil
 		}
 		if e != nil {
 			return e
 		}
-		ok, e := whisperEligible(db, r)
+		ok, e := whisperEligible(ctx, db, r)
 		if e != nil || !ok || r.task.Status != "pending" {
 			return e
 		}
@@ -191,14 +191,14 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 		return whisperPlan(ctx, db, work.TargetID)
 	}, Apply: func(ctx context.Context, tx *command.Tx, work durable.Work) (durable.Decision, error) {
 		db := tx.DB().WithContext(ctx)
-		r, e := loadWhisper(db, work.TargetID)
+		r, e := loadWhisper(ctx, db, work.TargetID)
 		if errors.Is(e, command.ErrNotFound) {
 			return durable.Obsolete, nil
 		}
 		if e != nil {
 			return "", e
 		}
-		ok, e := whisperEligible(db, r)
+		ok, e := whisperEligible(ctx, db, r)
 		if e != nil {
 			return "", e
 		}

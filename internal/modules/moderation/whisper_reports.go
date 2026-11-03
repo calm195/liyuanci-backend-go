@@ -92,7 +92,7 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 	}
 	d := command.Definition{Kind: "whisper.report.create", Method: "POST", ResourcePath: "/api/v1/whispers/reports", ActorKind: "student", Access: command.Ordinary, RetainReceipt: true}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		r, e := whisperTarget(db, in.Source.Kind, in.Source.ID)
+		r, e := whisperTarget(ctx, db, in.Source.Kind, in.Source.ID)
 		if e != nil {
 			return command.Discovery{}, e
 		}
@@ -101,7 +101,7 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error { return nil }
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
-		r, e := whisperTarget(db, in.Source.Kind, in.Source.ID)
+		r, e := whisperTarget(ctx, db, in.Source.Kind, in.Source.ID)
 		if e != nil {
 			return "", e
 		}
@@ -203,7 +203,7 @@ func (s *Service) WhisperReport(ctx context.Context, token, rid, id string) (out
 		if e != nil {
 			return e
 		}
-		r, e := whisperTarget(db, v.TargetKind, v.TargetID)
+		r, e := whisperTarget(ctx, db, v.TargetKind, v.TargetID)
 		if e != nil {
 			return e
 		}
@@ -255,7 +255,7 @@ func (s *Service) DecideWhisperReport(ctx context.Context, token, key, rid, id s
 		if e != nil {
 			return command.Discovery{}, e
 		}
-		r, e := whisperTarget(db, v.TargetKind, v.TargetID)
+		r, e := whisperTarget(ctx, db, v.TargetKind, v.TargetID)
 		if e != nil {
 			return command.Discovery{}, e
 		}
@@ -273,7 +273,7 @@ func (s *Service) DecideWhisperReport(ctx context.Context, token, key, rid, id s
 		if v.Status != "pending" {
 			return "", command.ErrConflict
 		}
-		r, e := whisperTarget(db, v.TargetKind, v.TargetID)
+		r, e := whisperTarget(ctx, db, v.TargetKind, v.TargetID)
 		if e != nil {
 			return "", e
 		}

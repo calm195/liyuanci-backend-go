@@ -67,10 +67,7 @@ func RunMigration(ctx context.Context, path, action string) error {
 	} else if action == "permissions" {
 		err = migration.ApplyApplicationPermissions(ctx, db, log)
 	} else {
-		err = migration.Run(ctx, db, log, action)
-		if err == nil && action == "up" {
-			err = migration.ApplyApplicationPermissions(ctx, db, log)
-		}
+		err = migration.RunApplication(ctx, db, log, action)
 	}
 	if err != nil {
 		log.Error("迁移执行失败，请核对版本、权限和数据约束")

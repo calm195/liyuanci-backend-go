@@ -52,7 +52,7 @@ func TestPostgresWhisperLocks(t *testing.T) {
 	if e := migration.Run(ctx, db, log, "up"); e != nil {
 		t.Fatal(e)
 	}
-	if e := migration.ApplyPermissions(ctx, db, log); e != nil {
+	if e := testconfig.ApplyDatabaseRoles(ctx, db, log); e != nil {
 		t.Fatal(e)
 	}
 	owner, post, comment, capsule, nickname := googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString()

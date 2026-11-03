@@ -18,7 +18,7 @@ SUITES = {
     'runtime': ('./internal/app', ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime')),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/modules/moderation', ('TestModerationCore',)),
-    'migration': ('./internal/migration', ('TestPostgresMigrations', 'TestBusinessSchema', 'TestRecoverySchema', 'TestPostgresStoryPublication', 'TestPostgresWhisperFoundation')),
+    'migration': ('./internal/migration', ('TestPostgresMigrations', 'TestPostgresApplicationMigrations', 'TestBusinessSchema', 'TestRecoverySchema', 'TestPostgresStoryPublication', 'TestPostgresWhisperFoundation')),
 }
 # 原地上下行/升级测试需要各自空库；只在本轮临时集群创建这些固定名称的数据库。
 MIGRATION_DATABASES = {

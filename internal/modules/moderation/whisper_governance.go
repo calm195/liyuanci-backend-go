@@ -48,29 +48,15 @@ type WhisperPenaltyResult struct {
 
 var whisperGovernanceRoles = []string{"review_operator", "crisis_operator", "super_admin"}
 
-func whisperTarget(db *gorm.DB, kind, id string) (r whisperSource, err error) {
-	if !whisperKind(kind) || !validID(id) {
-		return r, command.ErrNotFound
-	}
-	var t entity.ModerationTask
-	q := db.Table("public.moderation_tasks AS t").Select("t.*").Joins("JOIN public.content_registry c ON c.id=t.content_id").Where("c.kind=?", kind)
-	if kind == "whisper_nickname" {
-		q = q.Where("c.id=?", id)
-	} else {
-		q = q.Where("c.entity_id=?", id)
-	}
-	if err = q.Order("c.content_version DESC,t.created_at DESC,t.id DESC").Take(&t).Error; err != nil {
-		return r, missingWhisper(err)
-	}
-	return loadWhisper(db, t.ID)
-}
 func whisperResource(r whisperSource) command.Resource {
 	return command.Resource{Kind: map[string]command.ResourceKind{"whisper_post": command.WhisperPost, "whisper_comment": command.WhisperComment, "whisper_nickname": command.WhisperNickname, "whisper_capsule": command.WhisperCapsule}[r.registry.Kind], ID: r.ID}
 }
-func whisperControl(db *gorm.DB, r whisperSource) (out WhisperControl, err error) {
+func whisperControl(ctx context.Context, db *gorm.DB, r whisperSource) (out WhisperControl, err error) {
 	out = WhisperControl{whisperRef(r), r.Version, false, r.State, []string{"whisperAdminRestrictionSet"}}
-	var flags struct{ Restricted, Isolated, Privacy bool }
-	err = db.Raw(`SELECT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=? AND c.entity_id=? AND x.active) AS restricted,EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=? AND c.entity_id=? AND x.active AND x.kind='crisis') AS isolated,EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind=? AND target_id=? AND status='active') AS privacy`, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.registry.EntityID, r.registry.Kind, r.ID).Scan(&flags).Error
+	flags, err := readWhisperControlFlags(ctx, db, r)
+	if err != nil {
+		return out, err
+	}
 	out.Restricted = flags.Restricted
 	if r.State == "pending" {
 		out.State = "review_pending"
@@ -78,7 +64,7 @@ func whisperControl(db *gorm.DB, r whisperSource) (out WhisperControl, err error
 	if r.registry.Kind == "whisper_capsule" && r.State == "approved" {
 		out.State = "locked"
 		var unlocked bool
-		if err = db.Raw("SELECT ?<=clock_timestamp()", r.UnlockAt).Scan(&unlocked).Error; err != nil {
+		if unlocked, err = whisperUnlocked(ctx, db, r.UnlockAt); err != nil {
 			return
 		}
 		if unlocked {
@@ -113,11 +99,11 @@ func (s *Service) WhisperContent(ctx context.Context, token, rid, kind, id strin
 		if _, e := s.authorizeRoles(ctx, db, token, command.Discovery{}, whisperGovernanceRoles); e != nil {
 			return e
 		}
-		r, e := whisperTarget(db, kind, id)
+		r, e := whisperTarget(ctx, db, kind, id)
 		if e != nil {
 			return e
 		}
-		out, e = whisperControl(db, r)
+		out, e = whisperControl(ctx, db, r)
 		return e
 	})
 	if err != nil {
@@ -173,7 +159,7 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 	var target command.Resource
 	d := command.Definition{Kind: "whisper.content.restriction", Method: "PUT", ResourcePath: "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/restriction", ActorKind: "admin", AllowedRoles: whisperGovernanceRoles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		r, e := whisperTarget(db.WithContext(ctx), kind, id)
+		r, e := whisperTarget(ctx, db.WithContext(ctx), kind, id)
 		if e != nil {
 			return command.Discovery{}, e
 		}
@@ -183,12 +169,12 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 	// 期望资源在执行前解析为固定类型，不依赖回调时序。
 	target = command.Resource{Kind: map[string]command.ResourceKind{"whisper_post": command.WhisperPost, "whisper_comment": command.WhisperComment, "whisper_nickname": command.WhisperNickname, "whisper_capsule": command.WhisperCapsule}[kind], ID: id}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
-		_, e := whisperTarget(tx.DB().WithContext(ctx), kind, id)
+		_, e := whisperTarget(ctx, tx.DB().WithContext(ctx), kind, id)
 		return e
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
-		r, e := whisperTarget(db, kind, id)
+		r, e := whisperTarget(ctx, db, kind, id)
 		if e != nil {
 			return "", e
 		}
@@ -203,7 +189,7 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 				return "", e
 			}
 		} else {
-			if e = db.Exec(`UPDATE public.content_restrictions x SET active=false,version=x.version+1 FROM public.content_registry c WHERE c.id=x.content_id AND c.kind=? AND c.entity_id=? AND x.kind='violation' AND x.active`, kind, r.registry.EntityID).Error; e != nil {
+			if e = releaseWhisperRestrictions(ctx, db, kind, r.registry.EntityID); e != nil {
 				return "", e
 			}
 		}
@@ -221,11 +207,11 @@ func (s *Service) SetWhisperRestriction(ctx context.Context, token, key, rid, ki
 		return id, audit(db, tx.Actor().ID, r.OwnerID, "content.restrict")
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, _ string) error {
-		r, e := whisperTarget(tx.DB().WithContext(ctx), kind, id)
+		r, e := whisperTarget(ctx, tx.DB().WithContext(ctx), kind, id)
 		if e != nil {
 			return e
 		}
-		out, e = whisperControl(tx.DB(), r)
+		out, e = whisperControl(ctx, tx.DB(), r)
 		return e
 	}
 	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(in), Expectations: []command.Expectation{{Name: "expected_version", Target: target, Value: in.ExpectedVersion}}})
@@ -244,7 +230,7 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 	}
 	d := command.Definition{Kind: "whisper.penalty.create", Method: "POST", ResourcePath: "/api/v1/admin/whispers/contents/" + kind + "/" + id + "/penalties", ActorKind: "admin", AllowedRoles: whisperGovernanceRoles, RequiredExpectations: []string{"expected_version"}, RetainReceipt: true}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		r, e := whisperTarget(db, kind, id)
+		r, e := whisperTarget(ctx, db, kind, id)
 		if e != nil {
 			return command.Discovery{}, e
 		}
@@ -259,12 +245,12 @@ func (s *Service) NewWhisperPenalty(ctx context.Context, token, key, rid, kind, 
 		return p, e
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
-		_, e := whisperTarget(tx.DB().WithContext(ctx), kind, id)
+		_, e := whisperTarget(ctx, tx.DB().WithContext(ctx), kind, id)
 		return e
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
-		r, e := whisperTarget(db, kind, id)
+		r, e := whisperTarget(ctx, db, kind, id)
 		if e != nil {
 			return "", e
 		}

@@ -123,9 +123,9 @@ func TestPrivacyDeletion(t *testing.T) {
 	recoveryDSN = fresh(recoveryDSN, "journal_")
 	root, recoveryRoot := open(dsn), open(recoveryDSN)
 	must(migration.Run(ctx, root, log, "up"))
-	must(migration.ApplyPermissions(ctx, root, log))
-	must(migration.RunJournal(ctx, recoveryRoot, log, "up"))
-	must(migration.RunJournal(ctx, recoveryRoot, log, "permissions"))
+	must(testconfig.ApplyDatabaseRoles(ctx, root, log))
+	must(testconfig.RunJournal(ctx, recoveryRoot, log, "up"))
+	must(testconfig.RunJournal(ctx, recoveryRoot, log, "permissions"))
 	role := func(name string) *gorm.DB { return open(dsn + " options='-c role=" + name + "'") }
 	codec, e := securedata.New(testKeys{}, log)
 	must(e)

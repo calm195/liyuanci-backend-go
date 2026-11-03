@@ -47,7 +47,7 @@ func TestPostgresAdmin(t *testing.T) {
 	if err = migration.Run(ctx, db, logger, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, logger); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	// 有效用户为维护组而非superuser；每个连接都用同一启动参数，不依赖连接池碰巧复用SET ROLE。

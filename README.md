@@ -154,7 +154,7 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 微信Exchanger的HTTPS实现位于[gateway/wechat.go](internal/adapters/gateway/wechat.go)，登录Limiter的Redis实现位于[authrate](internal/adapters/redis/authrate/limiter.go)。领域只接收接口，app注入具体实现；架构检查拒绝Redis/Gin/Viper和直接YAML解析回流业务模块。删除账本保留在privacy的现有恢复边界内，锁、原子替换、fsync和历史意图协议不因目录调整改写。
 
-完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；恢复日志与探针不参与业务AutoMigrate。新增表同步模型、清单、版本SQL和中文对象注释。
+完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；实体清单仅用于字段存在性校验和整体空库回退保护，不执行AutoMigrate。64张业务表由9组版本SQL管理，技术账本独立定义。新增表同步模型、清单、版本SQL和中文对象注释，结构、权限与回退流程见[迁移说明](migrations/README.md)。
 
 应用装配从[services.go](internal/app/services.go)读取显式依赖与配置，按身份、互动、治理分别构造服务，再由[routes.go](internal/app/routes.go)注册HTTP。树洞的构造与注册分别位于[services_whisper.go](internal/app/services_whisper.go)和[routes_whisper.go](internal/app/routes_whisper.go)。[api_runtime.go](internal/app/api_runtime.go)统一API结构检查、共享依赖和两域恢复准入，完整业务与独立树洞入口组合这些组件；API、worker和初始化共用[resources.go](internal/app/resources.go)的资源构造规则。
 

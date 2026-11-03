@@ -2,8 +2,6 @@ package migration
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -13,9 +11,11 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-// whisperSchemaDB 为每个升级场景创建独立数据库，不使用日常开发数据。
+// whisperSchemaDB 为每个结构场景创建独立数据库，不使用日常开发数据。
 func whisperSchemaDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	parent := schemaDB(t, "whisper_schema_test_dsn")
@@ -44,40 +44,6 @@ func whisperSchemaDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// applyWhisperLegacy 建立真实历史SQL及原始校验账本，避免用新实体伪造旧库。
-func applyWhisperLegacy(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	if err := db.Exec("CREATE TABLE public.schema_migrations(version bigint PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP)").Error; err != nil {
-		t.Fatal(err)
-	}
-	entries, err := files.ReadDir("sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".up.sql") || name >= "0021" {
-			continue
-		}
-		up, _ := files.ReadFile("sql/" + name)
-		down, _ := files.ReadFile("sql/" + strings.TrimSuffix(name, ".up.sql") + ".down.sql")
-		sum := sha256.Sum256(append(append([]byte(nil), up...), down...))
-		version++
-		if err = db.Transaction(func(tx *gorm.DB) error {
-			if e := tx.Exec(string(up)).Error; e != nil {
-				return e
-			}
-			return tx.Exec("INSERT INTO public.schema_migrations(version,checksum) VALUES (?,?)", version, hex.EncodeToString(sum[:])).Error
-		}); err != nil {
-			t.Fatal("建立历史结构失败", name, err)
-		}
-	}
-	if version != 20 {
-		t.Fatal("历史迁移前缀不完整", version)
-	}
-}
-
 // TestPostgresWhisperFoundation 验证REQ-009–011、014、017–020的数据基础，不计领域接口已实现。
 func TestPostgresWhisperFoundation(t *testing.T) {
 	ctx, log := context.Background(), zap.NewNop()
@@ -85,8 +51,8 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		db := whisperSchemaDB(t)
 		for _, run := range []func() error{
 			func() error { return Run(ctx, db, log, "up") },
-			func() error { return ApplyPermissions(ctx, db, log) },
-			func() error { return ApplyPermissions(ctx, db, log) },
+			func() error { return testconfig.ApplyDatabaseRoles(ctx, db, log) },
+			func() error { return testconfig.ApplyDatabaseRoles(ctx, db, log) },
 		} {
 			if err := run(); err != nil {
 				t.Fatal(err)
@@ -122,7 +88,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			t.Fatal("挂起工作被破坏性回退")
 		}
 		var latest int64
-		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != 29 {
+		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != 9 {
 			t.Fatal("拒绝后账本改变", latest, e)
 		}
 		if e := db.Exec("DELETE FROM public.work_items WHERE id=?", id).Error; e != nil {
@@ -137,9 +103,11 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		assertComments(t, db)
 	})
 
-	t.Run("旧库关系原位升级及约束权限", func(t *testing.T) {
+	t.Run("匿名关系稳定性及约束权限", func(t *testing.T) {
 		db := whisperSchemaDB(t)
-		applyWhisperLegacy(t, db)
+		if err := Run(ctx, db, log, "up"); err != nil {
+			t.Fatal(err)
+		}
 		must := func(sql string, args ...any) {
 			t.Helper()
 			if e := db.Exec(sql, args...).Error; e != nil {
@@ -163,7 +131,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			Version int64
 		}
 		if err := db.Raw("SELECT block_id,version FROM public.blocks WHERE owner_id=?", owner).Scan(&block).Error; err != nil || block.Version != 7 || block.BlockID == owner || block.BlockID == peer || !validWhisperUUID(block.BlockID) {
-			t.Fatal("旧关系或版本丢失", err)
+			t.Fatal("匿名关系或版本丢失", err)
 		}
 		if err := Run(ctx, db, log, "up"); err != nil {
 			t.Fatal(err)
@@ -221,7 +189,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 		must("INSERT INTO evidence.evidence_cases(id,kind,source_ref) VALUES (?,'crisis',?)", evidence, post)
 		must("INSERT INTO evidence.crisis_cases(id,evidence_case_id,content_type,identity_status,source_entity_id,source_content_version) VALUES (?,?,'whisper_capsule','not_verified',?,1)", crisis, evidence, post)
 		reject("虚构身份状态", "UPDATE evidence.crisis_cases SET identity_status='assumed' WHERE id=?", crisis)
-		if e := ApplyPermissions(ctx, db, log); e != nil {
+		if e := testconfig.ApplyDatabaseRoles(ctx, db, log); e != nil {
 			t.Fatal(e)
 		}
 		assertComments(t, db)

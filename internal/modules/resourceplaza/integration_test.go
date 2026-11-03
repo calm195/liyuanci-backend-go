@@ -82,7 +82,7 @@ func TestPostgresHTTP(t *testing.T) {
 	}
 	root := open(dbdsn)
 	must(migration.Run(ctx, root, log, "up"))
-	must(migration.ApplyPermissions(ctx, root, log))
+	must(testconfig.ApplyDatabaseRoles(ctx, root, log))
 	api, adminDB := open(dbdsn+" options='-c role=liyuanci_api'"), open(dbdsn+" options='-c role=liyuanci_admin_api'")
 	var missingComments int64
 	must(root.Raw(`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relname IN ('resource_categories','resource_materials','resource_feedback','resource_audits') AND a.attnum>0 AND NOT a.attisdropped AND nullif(btrim(col_description(c.oid,a.attnum)),'') IS NULL`).Scan(&missingComments).Error)

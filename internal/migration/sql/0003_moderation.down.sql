@@ -1,0 +1,16 @@
+-- 仅由迁移器在锁定并确认全部业务表为空后执行。
+DROP TABLE public.access_audits,
+    public.appeals,
+    public.care_cards,
+    public.content_registry,
+    public.content_restrictions,
+    public.deletion_jobs,
+    public.moderation_scans,
+    public.moderation_tasks,
+    public.penalties,
+    public.privacy_holds,
+    public.report_types,
+    public.reports,
+    public.wordlist_entries,
+    public.wordlist_heads,
+    public.wordlist_versions;

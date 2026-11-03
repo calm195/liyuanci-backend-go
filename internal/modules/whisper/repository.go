@@ -62,14 +62,11 @@ func loadPost(ctx context.Context, db *gorm.DB, id string) (a aggregate, err err
 	if e := db.Where("id=?", a.post.OwnerID).Take(&a.owner).Error; e != nil {
 		return a, e
 	}
-	var flags struct{ Privacy, Isolated, Restricted bool }
-	e := db.Raw(`SELECT EXISTS(SELECT 1 FROM public.privacy_holds WHERE target_kind='whisper_post' AND target_id=? AND status='active') AS privacy, EXISTS(SELECT 1 FROM public.content_restrictions r JOIN public.content_registry cr ON cr.id=r.content_id WHERE cr.kind='whisper_post' AND cr.entity_id=? AND r.active AND r.kind='crisis') AS isolated, EXISTS(SELECT 1 FROM public.content_restrictions r JOIN public.content_registry cr ON cr.id=r.content_id WHERE cr.kind='whisper_post' AND cr.entity_id=? AND r.active) AS restricted`, id, id, id).Scan(&flags).Error
+	flags, e := readContentFlags(ctx, db, "whisper_post", id)
 	if e != nil {
 		return a, e
 	}
-	a.privacy = flags.Privacy
-	a.isolated = flags.Isolated
-	a.restricted = flags.Restricted
+	a.privacy, a.isolated, a.restricted = flags.Privacy, flags.Isolated, flags.Restricted
 	if a.version.NicknameVersion != nil {
 		n, e := nicknameRow(ctx, db, a.post.OwnerID, *a.version.NicknameVersion)
 		if e != nil {

@@ -6,7 +6,7 @@
 - cmd下8个命令只负责参数、信号和退出状态；internal/app按文件组织API、worker、初始化与显式迁移的依赖装配和生命周期，业务包不得反向导入app。配置加载放 internal/config，仅依赖platform/yamlconfig和platform/securedata等叶子能力，禁止导入业务服务；领域配置和资源投影由app显式转换，YAML读取/合并统一通过internal/platform/yamlconfig中的独立Viper实例，禁止业务代码直接调用go-yaml或绑定环境变量；日志与中间件客户端放 internal/platform，Gin 处理器/中间件放 internal/httpapi；领域按模块置于 internal/modules；事务、持久任务和调度统一在internal/execution，具体Redis业务适配在internal/adapters/redis；正式HTTPS供应商在 internal/adapters/gateway，本地运行适配在 internal/adapters/local，不依赖 config 或应用装配包。配置示例在 configs，专用 SQL 在 migrations 及 internal/migration/sql，测试靠近源文件。
 - 使用 Go 1.25+；依赖变化后 go mod tidy 并提交 go.mod/go.sum。make run 使用私有开发覆盖，纯健康入口显式选择 configs/common.yaml；make build 构建当前 Makefile 列出的进程。真实中间件往返用 make integration。
 - gofmt 使用 Tab；导入按标准库、第三方、本模块分组。多字段配置换行，顶层声明间留空行；包名小写，符号 MixedCaps。I/O 首参为 context.Context，显式注入依赖，避免可变全局客户端。HTTP 校验与状态映射在 handler，业务规则在 service，GORM 查询在 repository 并使用 WithContext；包装错误保留上下文，不向 HTTP 暴露凭据或内部错误。
-- 按用户2026-11-02要求，应用与运维配置只读YAML，口令、令牌、密钥和CA内联私有YAML；禁止恢复环境变量覆盖、业务JSON或独立秘密文件入口；不提交密钥、本地覆盖或生产 DSN。按用户2026-11-02简化要求，所有进程只使用 database 的 host/port/name/user/password/sslmode/timezone/connecttimeout 分项字段生成的唯一连接；禁止恢复可配置的dsn字段；应用账号拥有专用业务库，禁止集群管理权限。GORM AutoMigrate 仅在显式迁移入口执行，普通 API/worker 不隐式 DDL；业务权限由会话和岗位角色在领域函数中复核。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
+- 按用户2026-11-02要求，应用与运维配置只读YAML，口令、令牌、密钥和CA内联私有YAML；禁止恢复环境变量覆盖、业务JSON或独立秘密文件入口；不提交密钥、本地覆盖或生产 DSN。按用户2026-11-02简化要求，所有进程只使用 database 的 host/port/name/user/password/sslmode/timezone/connecttimeout 分项字段生成的唯一连接；禁止恢复可配置的dsn字段；应用账号拥有专用业务库，禁止集群管理权限。表结构统一由版本 SQL 管理，禁止调用 GORM AutoMigrate，普通 API/worker 不隐式 DDL；业务权限由会话和岗位角色在领域函数中复核。实体每表独立结构体，按模块分文件；PostgreSQL 专用约束、生成列、RLS、锁函数与权限继续版本 SQL 管理。
 - SQL 每表、每字段必须有中文数据库对象注释（COMMENT ON TABLE/COLUMN），含迁移账本与探针；SQL 行注释不能替代。迁移集成检查验证目录注释非空。已应用迁移不改写，通过新增迁移变更；未交付迁移首次验收前可补齐。
 - 注释默认中文，覆盖包、导出符号、关键逻辑和测试说明；导出注释以 Go 标识符开头。技术术语、工具指令如 //go:build 及生成代码保留原样；用户明确要求其他语言时遵循用户。
 - entity保持只含表模型的叶子包，显式业务实体清单放internal/migration；新增表时同步模型、注册清单和版本SQL，不把恢复库或集成探针注册到业务迁移。业务包、HTTP与适配器不得导入migration，跨域锁继续使用共享entity，避免引入业务循环依赖。资料广场和审核优先在原包内按职责分文件，不按文件行数创建子包。
@@ -44,3 +44,5 @@
 - 用户2026-11-03授权按模块与依赖顺序完成目录归组、装配职责整理及跨模块依赖收敛并逐步提交。internal一级目录固定为app、config、httpapi、modules、execution、platform、adapters、entity、migration、testconfig；modules和execution只作分类目录。完整包路径依赖白名单由app架构测试维护，新增协作边须说明用途；配置与叶子规则不能按父目录放宽。
 
 - 普通内容审核的任务映射和结果投影归modules/contentreview，历史wish_review及wish.review_requested标识保持兼容；跨域状态变化留在所属模块的显式事务协作函数。微信身份交换位于adapters/gateway，登录限流位于adapters/redis/authrate，业务模块禁止直接引入Redis/Gin/Viper或YAML解析器。app服务构造与HTTP注册按文件分开，完整业务和树洞API组合共享运行组件，资源关闭只执行一次并保留失败结果。
+
+- 用户2026-11-03明确项目尚未上线，不保留旧版数据库升级兼容；初始化 SQL 按账号、互动、审核、执行、树洞、资料、证据、函数和跨表关系九组重建。实体清单仅用于只读结构校验及整体空库回退保护；权限脚本不定义表或函数，结构与应用权限在同一事务完成。受限角色矩阵和数据库日志仅是internal/testconfig的隔离测试夹具，不参与运行装配。未来实际交付后再遵守追加迁移和已应用文件不改写规则。

@@ -157,10 +157,10 @@ func TestPostgresCommands(t *testing.T) {
 	if err = migration.Run(ctx, db, log, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
-	if err = migration.ApplyPermissions(ctx, db, log); err != nil {
+	if err = testconfig.ApplyDatabaseRoles(ctx, db, log); err != nil {
 		t.Fatal(err)
 	}
 	exec := func(query string, args ...any) {
@@ -521,7 +521,7 @@ func TestPostgresCommands(t *testing.T) {
 		reset()
 		exec("GRANT UPDATE (key_hash) ON public.command_receipts TO liyuanci_api")
 		exec("GRANT EXECUTE ON FUNCTION public.lock_command_admin(uuid) TO PUBLIC")
-		if failure := migration.ApplyPermissions(ctx, db, log); failure != nil {
+		if failure := testconfig.ApplyDatabaseRoles(ctx, db, log); failure != nil {
 			t.Fatal(failure)
 		}
 		asRole := func(role string, fn func(*gorm.DB) error) {

@@ -2,8 +2,8 @@ package migration
 
 import "github.com/calm195/liyuanci-backend-go/internal/entity"
 
-// businessModels 是显式迁移使用的业务实体清单；每次返回新实例，注册顺序保持稳定。
-// 恢复日志和集成探针由各自入口管理，不能随业务AutoMigrate混入业务库。
+// businessModels 是结构校验与空库回退保护使用的业务实体清单；每次返回新实例，注册顺序保持稳定。
+// 恢复日志和集成探针由各自入口管理，不能混入业务库结构校验；本清单不会创建或修改表结构。
 func businessModels() []any {
 	return []any{
 		&entity.Account{},

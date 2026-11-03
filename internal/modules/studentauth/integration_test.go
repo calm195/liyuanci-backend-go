@@ -110,10 +110,10 @@ func TestPostgresStudent(t *testing.T) {
 	if e = migration.Run(ctx, db, logger, "up"); e != nil {
 		t.Fatal(e)
 	}
-	if e = migration.ApplyPermissions(ctx, db, logger); e != nil {
+	if e = testconfig.ApplyDatabaseRoles(ctx, db, logger); e != nil {
 		t.Fatal(e)
 	}
-	if e = migration.ApplyPermissions(ctx, db, logger); e != nil {
+	if e = testconfig.ApplyDatabaseRoles(ctx, db, logger); e != nil {
 		t.Fatal(e)
 	}
 	// 启动参数强制每个连接使用窄身份，不依赖单次SET ROLE碰巧落在同一个池连接。
