@@ -226,7 +226,7 @@ COMMENT ON COLUMN public.whisper_notification_refs.source_id IS '首次公开评
 COMMENT ON COLUMN public.whisper_notification_refs.target_kind IS '受控跳转目标类型';
 COMMENT ON COLUMN public.whisper_notification_refs.target_id IS '目标实体随机标识，回流必须重验';
 COMMENT ON COLUMN public.whisper_notification_refs.comment_id IS '评论通知精确引用，胶囊通知为空';
-COMMENT ON COLUMN public.whisper_notification_refs.suppressed IS '隐私受理后抑制读取与投递，技术定位保留至外部清理确认';
+COMMENT ON COLUMN public.whisper_notification_refs.suppressed IS '隐私受理后抑制读取与投递，技术定位保留至数据库清理完成';
 
 CREATE TABLE public.whisper_post_versions (
     post_id uuid NOT NULL,

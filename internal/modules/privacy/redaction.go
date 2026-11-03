@@ -16,7 +16,7 @@ import (
 )
 
 // Redactor 由宿主显式注入个人及组合信息脱敏能力，不传注销人的身份。
-// 只返回保留作者自有语义的脱敏原稿，仍须普通扫描及人工审核；缺失/失败不降级为保留旧原稿。
+// 运行时移除原文并要求作者重新编辑，仍须词库及人工审核；缺失/失败不降级为保留旧原稿。
 type Redactor interface {
 	Redact(context.Context, string, string) (string, error)
 }

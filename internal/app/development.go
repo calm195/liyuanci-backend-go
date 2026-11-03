@@ -190,6 +190,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	})
 	privacyDB, evidenceDeletionDB := database, database
 	pc := developmentPrivacyConfig(cfg)
+	pc.Redactor = local.WhisperProvider{Logger: logger}
 	accountCfg, evidenceCfg := &pc, &pc
 	router, e = newServiceRouter(ServiceDependencies{
 		PrivacyDB: privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,

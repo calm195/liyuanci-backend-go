@@ -249,41 +249,6 @@ func cleanEvidence(db *gorm.DB, id string) error {
 	return nil
 }
 
-func (s *Service) objects(ctx context.Context, in Intent) (out []Object, err error) {
-	if in.Scope == "account" {
-		var rows []entity.Asset
-		err = s.db.WithContext(ctx).Where("owner_id=?", in.Target).Find(&rows).Error
-		for _, a := range rows {
-			out = append(out, Object{ID: a.ID, KeyCipher: a.EncryptedObjectKey, Version: a.ObjectVersion})
-		}
-		if err != nil {
-			return
-		}
-		// 把整张普通删除图的随机引用交给外部清理，覆盖幸存内容缓存、opaque回执和通知定位。
-		graph, e := collect(s.db.WithContext(ctx), in.Target)
-		if e != nil {
-			return nil, e
-		}
-		seen := map[string]bool{}
-		for _, v := range out {
-			seen[v.ID] = true
-		}
-		for _, ref := range graph.refs {
-			if !seen[ref] {
-				out = append(out, Object{ID: ref, ReferenceOnly: true})
-				seen[ref] = true
-			}
-		}
-	} else {
-		var rows []entity.EvidenceAsset
-		err = s.db.WithContext(ctx).Where("case_id=?", in.Target).Find(&rows).Error
-		for _, a := range rows {
-			out = append(out, Object{ID: a.ID, KeyCipher: a.EncryptedObjectKey, Version: a.ObjectVersion, Evidence: true})
-		}
-	}
-	return
-}
-
 // Reconcile 从独立日志重建丢失的受理事务。after为空开始扫描，返回空游标时该轮结束。
 // 宿主循环推进游标，避免未完成的旧意图阻塞超过一百项的新请求；游标不作为权威持久状态。
 func (s *Service) Reconcile(ctx context.Context, after string, limit int, scope string) (next string, err error) {
@@ -404,7 +369,7 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 			}
 		}
 		if in.Scope == "account" && exists == 0 {
-			// 恢复较新快照时主体已不存在，仍由适配器核实外部副本；不能因查无账号提前完成。
+			// 恢复较新快照时主体已不存在，仍建立工作完成恢复账本确认，避免遗漏持久意图。
 			return db.Create(&entity.DeletionJob{
 				JobID:     in.ID,
 				Scope:     in.Scope,
@@ -417,8 +382,8 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 	})
 }
 
-// ProcessNext 每次处理一个到期持久工作，外部清理先于普通行物理删除，失败保留所有重试定位。
-// 并发执行依赖适配器按Intent.ID幂等；最终事务再取主体/资源锁和工作锁，不接受旧状态复活。
+// ProcessNext 每次处理一个到期持久工作，脱敏后在事务中清理数据库，完成回执不涵盖外部对象及备份。
+// 最终事务重取主体/资源锁和工作锁，并复核持久意图，避免并发重复清理或旧状态复活。
 func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool, err error) {
 	defer s.done("cleanup.next", "", time.Now(), &err)
 	ctx, stop := context.WithTimeout(ctx, 3*s.cfg.Command.Timeout)
@@ -452,9 +417,6 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 	treeRedactions, e := s.prepareWhisperRedactions(ctx, in)
 	if e != nil {
 		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
-	}
-	if e := s.eraseObjects(ctx, in); e != nil {
-		return true, s.deferJob(ctx, in.ID, "external_cleanup_unavailable")
 	}
 	bounded, cancel = context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
@@ -549,21 +511,6 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 	return
 }
 
-// eraseObjects 在数据库清理前枚举并删除外部副本；适配器失败时保留原目标供下次重试。
-// 网络调用独立限时，不在持有业务行锁的最终清理事务内执行。
-func (s *Service) eraseObjects(ctx context.Context, in Intent) error {
-	objects, err := s.objects(ctx, in)
-	if err != nil {
-		return err
-	}
-	if s.eraser == nil {
-		return command.ErrUnavailable
-	}
-	call, stop := context.WithTimeout(ctx, s.cfg.Command.Timeout)
-	defer stop()
-	return eraseSafely(call, s.eraser, in, objects)
-}
-
 func (s *Service) finish(ctx context.Context, id string) error {
 	// 先确认恢复日志，再清空业务目标；两者之间崩溃由verifying工作继续，不提前报告完成。
 	if e := s.journal.Confirm(ctx, id); e != nil {
@@ -575,18 +522,6 @@ func (s *Service) finish(ctx context.Context, id string) error {
 		Where("job_id=? AND phase='verifying'", id).
 		Updates(map[string]any{"phase": "completed", "target_ref": nil, "error_code": nil}).
 		Error
-}
-
-func eraseSafely(ctx context.Context, e Eraser, in Intent, objects []Object) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = command.ErrUnavailable
-		}
-	}()
-	if err = e.Erase(ctx, in, objects); err == nil {
-		err = ctx.Err()
-	}
-	return
 }
 
 func (s *Service) deferJob(ctx context.Context, id, code string) error {

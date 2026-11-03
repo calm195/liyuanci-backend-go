@@ -7,15 +7,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// Scanner 仅由隔离开发宿主装配，模拟结论不代表真实内容审核。
+// Scanner 按无外部图片扫描服务的运行策略直接通过。
 type Scanner struct{ Logger *zap.Logger }
 
-// Scan 仅返回明确标记的开发模拟结论；生产宿主禁止装配。
+// Scan 直接通过图片安全扫描；解码、大小及归属校验仍由领域负责。
 func (s Scanner) Scan(ctx context.Context, _ []byte, _ string) (approved bool, err error) {
-	defer completed(s.Logger, "development_scan", time.Now(), &err)
+	defer completed(s.Logger, "image_scan_bypass", time.Now(), &err)
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}
-	s.Logger.Info("开发图片扫描模拟通过", zap.Bool("simulated", true), zap.String("result", "approved"))
+	s.Logger.Info("图片安全扫描按无服务策略通过", zap.Bool("external_service", false), zap.String("result", "approved"))
 	return true, nil
 }

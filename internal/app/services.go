@@ -42,7 +42,6 @@ type ServiceDependencies struct {
 	PrivacyDB          *gorm.DB
 	EvidenceDeletionDB *gorm.DB
 	DeletionJournal    privacy.Journal
-	Eraser             privacy.Eraser
 	CrisisDB           *gorm.DB
 	WishDB             *gorm.DB
 	Grades             wish.Grades

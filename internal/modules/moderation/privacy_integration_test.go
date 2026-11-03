@@ -38,7 +38,6 @@ import (
 type privacyDependencies struct {
 	fail, failAppend, lostAppend, failConfirm atomic.Bool
 	journal                                   *privacy.PostgresJournal
-	erasures                                  atomic.Int64
 }
 
 func (p *privacyDependencies) Append(ctx context.Context, in privacy.Intent) error {
@@ -67,14 +66,6 @@ func (p *privacyDependencies) Confirm(ctx context.Context, id string) error {
 	return p.journal.Confirm(ctx, id)
 }
 
-func (p *privacyDependencies) Erase(ctx context.Context, _ privacy.Intent, _ []privacy.Object) error {
-	p.erasures.Add(1)
-	if p.fail.Load() {
-		return errors.New("SYNTHETIC_ERASE_SECRET")
-	}
-	return ctx.Err()
-}
-
 func (p *privacyDependencies) Redact(ctx context.Context, _ string, body string) (string, error) {
 	if p.fail.Load() {
 		return "", errors.New("SYNTHETIC_REDACTION_SECRET")
@@ -85,7 +76,7 @@ func (p *privacyDependencies) Redact(ctx context.Context, _ string, body string)
 // TestPrivacyDeletion 验证T031/REQ-004/005/007/008/014/017/018/019真实事务与六行矩阵。
 // 中间件真实、身份及外部对象/脱敏合成，不作为正式全副本或90天恢复验收。
 func TestPrivacyDeletion(t *testing.T) {
-	dsn, recoveryDSN := testconfig.Value("moderation_test_dsn"), testconfig.Value("recovery_test_dsn")
+	dsn, recoveryDSN := testconfig.Value("moderation_test_dsn"), testconfig.Value("privacy_recovery_test_dsn")
 	if dsn == "" || recoveryDSN == "" {
 		t.Skip("需独立业务及恢复PostgreSQL，运行make integration")
 	}
@@ -153,11 +144,11 @@ func TestPrivacyDeletion(t *testing.T) {
 		Redactor:   deps,
 	}
 	privacyDB, purgeAPI, purgeWorker := role("liyuanci_privacy_maintenance"), role("liyuanci_evidence_delete_api"), role("liyuanci_evidence_purger")
-	service, e := privacy.New(privacyDB, deps, codec, deps, log, pc)
+	service, e := privacy.New(privacyDB, deps, codec, log, pc)
 	must(e)
-	evidence, e := privacy.New(purgeAPI, deps, codec, nil, log, pc)
+	evidence, e := privacy.New(purgeAPI, deps, codec, log, pc)
 	must(e)
-	purger, e := privacy.New(purgeWorker, deps, codec, deps, log, pc)
+	purger, e := privacy.New(purgeWorker, deps, codec, log, pc)
 	must(e)
 	api, adminDB, workerDB := role("liyuanci_api"), role("liyuanci_admin_api"), role("liyuanci_domain_worker")
 	wishes, e := wish.NewService(
@@ -474,28 +465,16 @@ func TestPrivacyDeletion(t *testing.T) {
 			t.Fatal("未物理删除")
 		}
 	})
-	t.Run("外部删除失败及独立确认失败保留处理中", func(t *testing.T) {
-		id, token := student()
+	t.Run("独立确认失败保留处理中", func(t *testing.T) {
+		_, token := student()
 		out := request(token)
 		job, _, _ := strings.Cut(out.Receipt, ".")
-		deps.fail.Store(true)
-		_, e := service.ProcessNext(ctx, "account")
-		if e == nil {
-			t.Fatal("外部失败仍完成")
-		}
-		deps.fail.Store(false)
-		status, e := service.Status(ctx, "receipt", out.Receipt)
-		must(e)
-		if status.Status != "processing" || count(root, "public.accounts", "id=?", id) != 1 {
-			t.Fatal("失败提前删除")
-		}
-		force(job)
 		deps.failConfirm.Store(true)
-		_, e = service.ProcessNext(ctx, "account")
+		_, e := service.ProcessNext(ctx, "account")
 		if e == nil {
 			t.Fatal("确认失败仍成功")
 		}
-		status, e = service.Status(ctx, "receipt", out.Receipt)
+		status, e := service.Status(ctx, "receipt", out.Receipt)
 		must(e)
 		if status.Status != "processing" {
 			t.Fatal("确认失败提前完成")
@@ -1039,22 +1018,15 @@ func TestPrivacyDeletion(t *testing.T) {
 			t.Fatal("受罚注销未完成")
 		}
 	})
-	t.Run("缺少清理适配器不声称完成", func(t *testing.T) {
+	t.Run("无外部清理服务仍完成数据库删除", func(t *testing.T) {
 		id, token := student()
-		blocked, e := privacy.New(privacyDB, deps, codec, nil, log, pc)
-		must(e)
 		out := request(token)
-		job, _, _ := strings.Cut(out.Receipt, ".")
-		if _, e = blocked.ProcessNext(ctx, "account"); e == nil {
-			t.Fatal("缺少适配器成功")
-		}
+		drain("account", service)
 		status, e := service.Status(ctx, "receipt", out.Receipt)
 		must(e)
-		if status.Status != "processing" || count(root, "public.accounts", "id=?", id) != 1 {
-			t.Fatal("缺适配器提前完成")
+		if status.Status != "completed" || count(root, "public.accounts", "id=?", id) != 0 {
+			t.Fatal("数据库清理依赖已退役服务", status)
 		}
-		force(job)
-		drain("account", service)
 	})
 	t.Run("并发注销只持久一份有效意图", func(t *testing.T) {
 		id, token := student()

@@ -60,22 +60,8 @@ func (r *privacyRedactor) Redact(ctx context.Context, kind, body string) (string
 	return "经过受控脱敏的自有内容", ctx.Err()
 }
 
-type privacyEraser struct {
-	calls int
-	refs  map[string]bool
-}
-
-func (e *privacyEraser) Erase(ctx context.Context, _ privacy.Intent, objects []privacy.Object) error {
-	e.refs = map[string]bool{}
-	for _, v := range objects {
-		e.refs[v.ID] = true
-	}
-	e.calls++
-	return ctx.Err()
-}
-
 // testWhisperPrivacy 覆盖B07的匿名切换、真实权限注销、幸存候选与独立日志恢复重删。
-// 分类、KMS、脱敏及外部副本清理均为显式合成适配器，不冒充生产全副本验收。
+// 分类、密钥及脱敏使用隔离测试适配；数据库删除不证明外部对象及备份已删除。
 func testWhisperPrivacy(
 	t *testing.T,
 	admin, api, maintenance *gorm.DB,
@@ -469,7 +455,6 @@ func testWhisperPrivacy(
 		snapshots[table] = raw
 	}
 	redactor := &privacyRedactor{fail: true}
-	eraser := &privacyEraser{}
 	pcfg := privacy.Config{
 		Command:    cfg.Command,
 		Key:        bytes.Repeat([]byte{17}, 32),
@@ -477,12 +462,12 @@ func testWhisperPrivacy(
 		RetryDelay: time.Millisecond,
 		Redactor:   redactor,
 	}
-	deletion, e := privacy.New(maintenance, journal, codec, nil, log, pcfg)
+	deletion, e := privacy.New(maintenance, journal, codec, log, pcfg)
 	must(e)
-	purger, e := privacy.New(maintenance, journal, codec, eraser, log, pcfg)
+	purger, e := privacy.New(maintenance, journal, codec, log, pcfg)
 	must(e)
 	var accepted privacy.Accepted
-	t.Run("同步屏障暂停脱敏与外部清理", func(t *testing.T) {
+	t.Run("同步屏障与脱敏失败保持处理中", func(t *testing.T) {
 		var a entity.Account
 		must(admin.Where("id=?", actor).Take(&a).Error)
 		accepted, e = deletion.Request(
@@ -515,8 +500,8 @@ func testWhisperPrivacy(
 			t.Fatal("抑制通知可重放", e)
 		}
 		processed, e := purger.ProcessNext(ctx, "account")
-		if !processed || !errors.Is(e, command.ErrUnavailable) || eraser.calls != 0 {
-			t.Fatal(processed, e, eraser.calls)
+		if !processed || !errors.Is(e, command.ErrUnavailable) {
+			t.Fatal(processed, e)
 		}
 		var pending int64
 		must(admin.Model(&entity.WorkItem{}).Where("target_id=? AND status<>'cancelled'", capsule.ID).Count(&pending).Error)
@@ -531,18 +516,6 @@ func testWhisperPrivacy(
 			t.Fatal(c)
 		}
 		redactor.fail = false
-		noExternal, e := privacy.New(maintenance, journal, codec, nil, log, pcfg)
-		must(e)
-		must(admin.Exec("UPDATE public.deletion_jobs SET next_at=clock_timestamp() WHERE scope='account'").Error)
-		_, e = noExternal.ProcessNext(ctx, "account")
-		if !errors.Is(e, command.ErrUnavailable) {
-			t.Fatal(e)
-		}
-		status, e := deletion.Status(ctx, "", accepted.Receipt)
-		must(e)
-		if status.Status != "processing" {
-			t.Fatal(status)
-		}
 	})
 	process := func() {
 		must(admin.Exec("UPDATE public.deletion_jobs SET next_at=clock_timestamp() WHERE scope='account'").Error)
@@ -571,11 +544,6 @@ func testWhisperPrivacy(
 		must(e)
 		if status.Status != "completed" {
 			t.Fatal(status)
-		}
-		for _, ref := range []string{parent.ID, survivor.ID, capsule.ID, peerNotice} {
-			if !eraser.refs[ref] {
-				t.Fatal("外部清理遗漏引用", ref)
-			}
 		}
 		var retained int64
 		must(admin.Model(&entity.EvidenceCase{}).Where("id=?", evidenceID).Count(&retained).Error)

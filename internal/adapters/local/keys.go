@@ -12,7 +12,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
-// Keys 使用持久随机本机密钥，兼容既有开发信封引用；重启不替换历史密钥。
+// Keys 使用从私有YAML主密钥派生的本机密钥，保留信封引用；重启不替换密钥。
 type Keys struct {
 	Key    []byte
 	Logger *zap.Logger
@@ -24,7 +24,7 @@ func done(log *zap.Logger, operation string, start time.Time, err *error) {
 		result = "failure"
 	}
 	log.Info(
-		"本地测试操作完成",
+		"本机密钥操作完成",
 		zap.String("operation", operation),
 		zap.String("result", result),
 		zap.Duration("duration", time.Since(start)),

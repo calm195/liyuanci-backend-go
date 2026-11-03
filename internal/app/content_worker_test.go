@@ -55,8 +55,8 @@ func TestContentWorkerBoundary(t *testing.T) {
 		{"生产拒绝", "production", "synthetic", false},
 		{"生产拒绝人工模式", "production", "manual", false},
 		{"默认不放行", "integration", "", true},
-		{"缺供应商", "integration", "unavailable", true},
-		{"显式合成", "integration", "synthetic", true},
+		{"缺供应商", "integration", "unavailable", false},
+		{"显式合成", "integration", "synthetic", false},
 		{"显式人工", "integration", "manual", true},
 		{"未知模式", "integration", "approve", false},
 	} {
@@ -73,35 +73,20 @@ func TestContentWorkerBoundary(t *testing.T) {
 	if RunContentWorker(context.Background(), "integration", cfg, ContentWorkerConfig{}, nil) != command.ErrInvalid {
 		t.Fatal("缺日志仍启动")
 	}
-	input := wish.Content{Body: "合成敏感正文"}
-	if out, err := (local.Analyzer{Logger: zap.NewNop()}).Analyze(context.Background(), input); err == nil || out.Body != "" {
-		t.Fatal("未配置供应商被放行")
-	}
-	a := local.Analyzer{Logger: zap.NewNop(), Synthetic: true}
-	out, err := a.Analyze(context.Background(), input)
-	if err != nil || out.Body == input.Body || out.DetectorVersion != "development-synthetic-v1" || out.Tags != (wish.IdentityTags{}) {
-		t.Fatal("合成模式泄漏原文或标签")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if out, err = a.Analyze(ctx, input); err == nil || out != (moderation.Assessment{}) {
-		t.Fatal("取消后产生结论")
-	}
-
 }
 
 // TestManualContentReview 验证原文和标签保留、公开文本及私聊均强制人工，取消后不产生候选。
 func TestManualContentReview(t *testing.T) {
 	campus := "east"
 	input := wish.Content{Body: "保留待人工检查的原始正文", IdentityTags: wish.IdentityTags{Campus: &campus}}
-	a := local.Analyzer{Logger: zap.NewNop(), Manual: true}
+	a := local.Analyzer{Logger: zap.NewNop()}
 	out, err := a.Analyze(context.Background(), input)
 	if err != nil || out.Body != input.Body || out.Tags.Campus == nil || *out.Tags.Campus != campus || !out.OrdinaryHit || out.CrisisHit ||
-		out.DetectorVersion != "development-manual-v1" {
+		out.DetectorVersion != "local-manual-v1" {
 		t.Fatal("人工候选未保留原文标签或没有强制复核")
 	}
 	message, err := a.AnalyzeMessage(context.Background(), input.Body)
-	if err != nil || !message.OrdinaryHit || message.CrisisHit || message.DetectorVersion != "development-manual-private-v1" {
+	if err != nil || !message.OrdinaryHit || message.CrisisHit || message.DetectorVersion != "local-manual-private-v1" {
 		t.Fatal("私聊未强制人工复核")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

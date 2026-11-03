@@ -67,26 +67,22 @@ bootstrap:
 worker:
   # 业务进程类型：card/content/whispers/account/evidence。
   kind: content
-  # 隔离开发分析器；可选manual/synthetic；空值或unavailable保持供应商不可用边界。
+  # 原文复核模式；空值或manual，词库命中与显式重审均交人工。
   contentanalyzer: manual
-# 正式供应商业务配置；业务权限通过账号会话、岗位及领域函数检查。
+# 完整业务配置；业务权限通过账号会话、岗位及领域函数检查。
 business:
-  # 业务任务、供应商、密钥与删除恢复的共用设置。
+  # 业务任务、外部对象存储与删除恢复的共用设置。
   runtime:
     # 显式启用当前配置块；关闭不会自动清理已有数据。
     enabled: false
-    # 正式供应商网关HTTPS地址；不得含账号、查询参数或片段。
+    # 可选外部对象网关HTTPS地址（具体供应商待确定）；不得含账号、查询参数或片段。
     gatewayurl: ''
     # 网关Bearer令牌，内联单行字符串；至少16字符，不记录到日志。
     gatewaytoken: ''
     # 可选私有CA的完整PEM；多行用 | 块。空值使用系统信任根。
     gatewayca: ''
-    # 供应商能力协议版本，须与网关实际返回一致。
+    # 对象服务协议版本；仅在配置对象服务时填写。
     providerversion: ''
-    # 当前加密用途的KMS引用列表；保留仍解密历史数据所需的引用。
-    keyrefs: []
-    # 恢复日志专用KMS引用，不能与业务用途重复。
-    recoverykeyrefs: []
     # 已核实公开资料的YAML路径；相对configs目录解析。
     catalogfile: resources.yaml
     # 业务事务期限、锁等待和幂等回执设置。
@@ -121,8 +117,6 @@ business:
     providertimeout: 5s
     # 加密删除意图账本；相对configs目录解析，父目录0700，不能随业务数据库一并回滚。
     journalfile: ../.local/data/deletions.json
-  # 身份检索专用KMS引用，不能与其他用途重复。
-  lookupkeyrefs: []
   # 真实小程序AppID；不使用示例用户绕过微信身份校验。
   wechatappid: ''
   # 原微信AppSecret，内联单行字符串；至少16字符。
@@ -155,7 +149,7 @@ business:
     retrydelay: 1m
     # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
     maxattempts: 3
-# 开发本地适配器，不代替真实微信、审核、通知或对象存储验收。
+# 开发本地适配器；正式业务对象存储仍使用外部接口。
 development:
   # 加密删除意图账本；相对configs目录解析，父目录0700，不能随业务数据库一并回滚。
   journalfile: ../.local/data/deletions.json

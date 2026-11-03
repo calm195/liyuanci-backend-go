@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// KeyService 隔离密钥供应商；实现须在外部包裹数据密钥，禁止将主密钥存入业务库。
+// KeyService 隔离密钥包裹实现；本机使用独立派生密钥，禁止将主密钥存入业务库。
 // Wrap 不得修改或保留输入切片；Unwrap 转交独立切片的所有权，调用方使用后清零。
 // 实现须响应取消并校验允许的历史密钥引用，不从密文动态选择任意供应商。
 type KeyService interface {

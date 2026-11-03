@@ -18,11 +18,6 @@ func testSettings() WhisperSettings {
 	cfg := WhisperSettings{
 		Enabled:          true,
 		DatabaseDSN:      "host=127.0.0.1 port=5432 dbname=synthetic user=application password=synthetic sslmode=disable",
-		GatewayURL:       "https://gateway.invalid/rpc",
-		GatewayToken:     "token",
-		ProviderVersion:  "test-v1",
-		KeyRefs:          []string{"business-v1"},
-		RecoveryKeyRefs:  []string{"journal-v1"},
 		CatalogFile:      "catalog",
 		JournalFile:      "/tmp/test-journal.json",
 		Command:          config.Command{Timeout: time.Second, LockTimeout: time.Millisecond, ReceiptTTL: time.Hour, MaxAttempts: 2},
@@ -39,6 +34,8 @@ func testSettings() WhisperSettings {
 	}
 	cfg.Worker.AnalysisTimeout = 100 * time.Millisecond
 	keys := []*[]byte{
+		&cfg.WrapKey,
+		&cfg.RecoveryWrapKey,
 		&cfg.ReceiptKey,
 		&cfg.CursorKey,
 		&cfg.RateKey,
@@ -82,8 +79,6 @@ func TestRuntimeConfiguration(t *testing.T) {
 		{"生产关闭", "production", func(c *WhisperSettings) { c.Enabled = false }, true},
 		{"生产开启拒绝", "production", func(*WhisperSettings) {}, false},
 		{"基础模式不装配", "foundation", func(*WhisperSettings) {}, false},
-		{"缺供应商", "integration", func(c *WhisperSettings) { c.ProviderVersion = "" }, false},
-		{"复用恢复密钥", "integration", func(c *WhisperSettings) { c.RecoveryKeyRefs = c.KeyRefs }, false},
 		{"无总时限", "integration", func(c *WhisperSettings) { c.OperationTimeout = 0 }, false},
 		{"预算无法覆盖扫描", "integration", func(c *WhisperSettings) { c.OperationTimeout = time.Millisecond }, false},
 		{"无日志库", "integration", func(c *WhisperSettings) { c.DatabaseDSN = "" }, false},

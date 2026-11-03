@@ -3,21 +3,15 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
-	"encoding/pem"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -87,8 +81,8 @@ func (p *runtimeProcess) stop(t *testing.T) {
 	})
 }
 
-// TestPostgresWhisperRuntime 验证B08真实二进制、受限登录身份、TLS供应商、Redis、数据库任务和恢复启动门禁。
-// TLS供应商、KMS、文本处理与全副本清理为隔离合成，不代表生产供应商及灾备验收。
+// TestPostgresWhisperRuntime 验证B08真实二进制、受限登录身份、本机密钥、Redis、数据库任务和恢复启动门禁。
+// 审核使用本机原文复核策略；不验证外部对象服务、真实微信、真机或灾备。
 func TestPostgresWhisperRuntime(t *testing.T) {
 	dsn := testconfig.Value("whisper_text_test_dsn")
 	redisAddress := testconfig.Value("whisper_redis_test_address")
@@ -126,98 +120,6 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		must(os.WriteFile(path, raw, 0600))
 		return path
 	}
-	var outage atomic.Bool
-	gatewayServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer synthetic-runtime-gateway-token" {
-			w.WriteHeader(401)
-			return
-		}
-		if outage.Load() {
-			w.WriteHeader(503)
-			return
-		}
-		var req struct {
-			Operation, Version string
-			Input              json.RawMessage
-		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Version != cfg.ProviderVersion {
-			w.WriteHeader(400)
-			return
-		}
-		respond := func(v any) {
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(v)
-		}
-		switch req.Operation {
-		case "health":
-			respond(map[string]any{
-				"Version":      cfg.ProviderVersion,
-				"Capabilities": []string{"wrap", "unwrap", "public_analysis", "private_classify", "redact", "erase", "notify"},
-			})
-		case "wrap", "unwrap":
-			var in struct {
-				Scope, KeyRef string
-				Key, Wrapped  []byte
-			}
-			if json.Unmarshal(req.Input, &in) != nil {
-				w.WriteHeader(400)
-				return
-			}
-			material := byte(101)
-			if in.Scope == "recovery" {
-				material = 102
-			}
-			block, _ := aes.NewCipher(bytes.Repeat([]byte{material}, 32))
-			gcm, _ := cipher.NewGCM(block)
-			if req.Operation == "wrap" {
-				nonce := make([]byte, gcm.NonceSize())
-				_, _ = rand.Read(nonce)
-				respond(map[string]any{"KeyRef": in.KeyRef, "Wrapped": append(nonce, gcm.Seal(nil, nonce, in.Key, nil)...)})
-				clear(in.Key)
-			} else {
-				if len(in.Wrapped) < gcm.NonceSize() {
-					w.WriteHeader(400)
-					return
-				}
-				key, e := gcm.Open(nil, in.Wrapped[:gcm.NonceSize()], in.Wrapped[gcm.NonceSize():], nil)
-				if e != nil {
-					w.WriteHeader(400)
-					return
-				}
-				respond(map[string]any{"Key": key})
-				clear(key)
-			}
-		case "public_analysis":
-			var in struct {
-				Kind, Body string
-				Identity   whisper.IdentityInput
-			}
-			_ = json.Unmarshal(req.Input, &in)
-			respond(map[string]any{
-				"Body":            strings.ReplaceAll(in.Body, "合成人名", "[已脱敏]"),
-				"Identity":        in.Identity,
-				"SchoolRelated":   false,
-				"OrdinaryHit":     false,
-				"CrisisHit":       false,
-				"DetectorVersion": "synthetic-runtime-public",
-			})
-		case "private_classify":
-			respond(map[string]any{"OrdinaryHit": false, "CrisisHit": false, "DetectorVersion": "synthetic-runtime-private"})
-		case "redact":
-			respond(map[string]any{"Body": "受控脱敏后的作者自有内容"})
-		case "erase":
-			respond(map[string]any{"Completed": true, "WriteBarrierConfirmed": true})
-		case "notify":
-			respond(map[string]any{"Completed": true})
-		default:
-			w.WriteHeader(400)
-		}
-	}))
-	defer gatewayServer.Close()
-	cfg.GatewayURL = gatewayServer.URL
-	cfg.GatewayToken = "synthetic-runtime-gateway-token"
-	cfg.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayServer.Certificate().Raw}))
 	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{
 		Version: "synthetic-runtime-resources-v1",
 		Catalog: whisper.CatalogSnapshot{
@@ -451,10 +353,8 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		t.Fatal("私密分类替换原文")
 	}
 
-	outage.Store(true)
-	checkHTTP("/readyz", 503)
+	checkHTTP("/readyz", 200)
 	checkHTTP("/healthz", 200)
-	outage.Store(false)
 	content.stop(t)
 	pending := createPost("停机期间受理的合成稿")
 	content = start(contentBin, "-config", appPath, "-kind", "whispers")
@@ -527,7 +427,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	if version != 9 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
-	t.Logf("正式server/content-worker/privacy-worker、受限登录、TLS、Redis、数据库任务、禁用/重启/恢复门禁通过；供应商/KMS/清理为合成")
+	t.Logf("server/content-worker/privacy-worker、本机密钥、Redis、数据库任务、禁用/重启/数据库删除恢复门禁通过；未使用外部审核、KMS或通知服务")
 }
 
 func mustJSON(t *testing.T, value any) []byte {

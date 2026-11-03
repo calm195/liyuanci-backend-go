@@ -6,16 +6,14 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
-// WhisperProvider 在词库命中或重审分支保留原文并强制人工审核，不借本地测试模式声称已完成外部扫描、通知或副本删除。
+// WhisperProvider 在词库命中或重审分支保留原文并强制人工审核，不调用外部分析、通知或副本删除服务。
 type WhisperProvider struct{ Logger *zap.Logger }
 
-// Ready 仅检查本地上下文，不代表外部供应商已就绪。
+// Ready 仅检查本机上下文，不检查外部审核服务。
 func (p WhisperProvider) Ready(ctx context.Context) error { return ctx.Err() }
 
 // Close 无需释放外部连接，本地供应商不拥有数据库。
@@ -51,28 +49,4 @@ func (p WhisperProvider) Redact(ctx context.Context, kind, body string) (out str
 		return
 	}
 	return "原内容已移除，请重新编辑后提交审核。", nil
-}
-
-// Erase 只允许没有外部实体的引用清理；存在对象时继续保持待办。
-func (p WhisperProvider) Erase(ctx context.Context, in privacy.Intent, objects []privacy.Object) (err error) {
-	defer finishWhisper(p.Logger, "local_cleanup", time.Now(), &err)
-	if err = ctx.Err(); err != nil {
-		return
-	}
-	// 无外部对象的纯数据库测试可以继续清理；存在学生卡等对象时保留processing。
-	for _, object := range objects {
-		if !object.ReferenceOnly {
-			return command.ErrUnavailable
-		}
-	}
-	return nil
-}
-
-// NotifyCrisis 明确返回外部通知未配置，不虚报通知完成。
-func (p WhisperProvider) NotifyCrisis(ctx context.Context, delivery, caseID string) (err error) {
-	defer finishWhisper(p.Logger, "local_notification_unconfigured", time.Now(), &err)
-	if err = ctx.Err(); err != nil {
-		return
-	}
-	return command.ErrUnavailable
 }

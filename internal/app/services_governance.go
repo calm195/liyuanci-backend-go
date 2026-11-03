@@ -101,7 +101,7 @@ func (s *serviceSet) buildPrivacy(d ServiceDependencies, cfg ServiceConfig) erro
 				return command.ErrInvalid
 			}
 		}
-		*spec.out, e = privacy.New(spec.db, d.DeletionJournal, d.Codec, d.Eraser, d.Logger, *spec.cfg)
+		*spec.out, e = privacy.New(spec.db, d.DeletionJournal, d.Codec, d.Logger, *spec.cfg)
 		if e != nil {
 			return e
 		}

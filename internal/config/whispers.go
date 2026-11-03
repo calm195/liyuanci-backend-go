@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,7 +23,6 @@ type Whispers struct {
 	DatabaseMaxOpen, DatabaseMaxIdle                                                  int           `json:"-"`
 	DatabaseMaxLifetime                                                               time.Duration `json:"-"`
 	GatewayURL, GatewayToken, GatewayCA, ProviderVersion                              string
-	KeyRefs, RecoveryKeyRefs                                                          []string
 	ReceiptKey, CursorKey, RateKey, GovernanceKey, PrivacyKey, EvidenceKey, SafetyKey []byte `json:"-"`
 	CatalogFile                                                                       string
 	Command                                                                           Command
@@ -80,18 +80,25 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 	if cfg.DatabaseDSN == "" || !filepath.IsAbs(cfg.JournalFile) {
 		return cfg, ErrInvalid
 	}
-	if cfg.LocalTest {
-		if strings.TrimSpace(cfg.DatabaseDSN) == "" || !filepath.IsAbs(cfg.JournalFile) || len(cfg.WrapKey) != 32 ||
-			len(cfg.RecoveryWrapKey) != 32 {
+	if len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 || bytes.Equal(cfg.WrapKey, cfg.RecoveryWrapKey) {
+		return cfg, ErrInvalid
+	}
+	if !cfg.LocalTest && strings.TrimSpace(cfg.CatalogFile) == "" {
+		return cfg, ErrInvalid
+	}
+	// 对象服务可暂未选定；只要配置其中一项就必须交付完整HTTPS参数。
+	if cfg.GatewayURL != "" || cfg.GatewayToken != "" || cfg.GatewayCA != "" || cfg.ProviderVersion != "" {
+		u, e := url.Parse(cfg.GatewayURL)
+		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimSpace(cfg.ProviderVersion) == "" {
 			return cfg, ErrInvalid
 		}
-	}
-	for _, v := range []string{cfg.CatalogFile, cfg.ProviderVersion, cfg.GatewayToken} {
-		if !cfg.LocalTest && strings.TrimSpace(v) == "" {
-			return cfg, ErrInvalid
+		if _, e = ValidateSecret(cfg.GatewayToken, 16); e != nil {
+			return cfg, e
 		}
 	}
 	keys := [][]byte{
+		cfg.WrapKey,
+		cfg.RecoveryWrapKey,
 		cfg.ReceiptKey,
 		cfg.CursorKey,
 		cfg.RateKey,
@@ -106,19 +113,6 @@ func validateWhispers(cfg Whispers, environment string, business bool) (Whispers
 		}
 		for _, prior := range keys[:i] {
 			if bytes.Equal(key, prior) {
-				return cfg, ErrInvalid
-			}
-		}
-	}
-	if !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) {
-		return cfg, ErrInvalid
-	}
-	for _, key := range cfg.KeyRefs {
-		if strings.TrimSpace(key) == "" {
-			return cfg, ErrInvalid
-		}
-		for _, other := range cfg.RecoveryKeyRefs {
-			if key == other {
 				return cfg, ErrInvalid
 			}
 		}

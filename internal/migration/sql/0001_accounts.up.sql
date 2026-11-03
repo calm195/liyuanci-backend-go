@@ -110,7 +110,7 @@ COMMENT ON COLUMN public.assets.owner_id IS '普通账号所有者，不级联�
 COMMENT ON COLUMN public.assets.purpose IS '普通对象仅学生卡，证据对象另存隔离域';
 COMMENT ON COLUMN public.assets.encrypted_object_key IS '私有对象键，保存信封密文而非明文';
 COMMENT ON COLUMN public.assets.object_version IS '外部对象版本，不使用公开下载地址';
-COMMENT ON COLUMN public.assets.wrapped_key_ref IS '外部包裹密钥引用，不保存主密钥';
+COMMENT ON COLUMN public.assets.wrapped_key_ref IS '本机包裹密钥引用，不保存主密钥';
 COMMENT ON COLUMN public.assets.status IS '对象处理状态';
 COMMENT ON COLUMN public.assets.created_at IS '创建时间，以带时区时间保存';
 COMMENT ON COLUMN public.assets.version IS '学生卡处理版本，用于锁后状态复核';
@@ -146,7 +146,7 @@ CREATE TABLE public.identity_lookup_claims (
 );
 COMMENT ON TABLE public.identity_lookup_claims IS '双代身份唯一占用映射，同一用途同一密钥摘要只能属于一个账号';
 COMMENT ON COLUMN public.identity_lookup_claims.purpose IS '用途域，学号与微信身份分别保持唯一';
-COMMENT ON COLUMN public.identity_lookup_claims.key_ref IS '计算该检索摘要的外部密钥引用';
+COMMENT ON COLUMN public.identity_lookup_claims.key_ref IS '计算该检索摘要的本机密钥引用';
 COMMENT ON COLUMN public.identity_lookup_claims.digest IS '独立检索密钥计算的用途隔离 HMAC-SHA256，禁止写日志';
 COMMENT ON COLUMN public.identity_lookup_claims.account_id IS '唯一占用账号，与对应密文同行生命周期清理';
 
@@ -163,7 +163,7 @@ CREATE TABLE public.identity_lookup_keys (
 );
 COMMENT ON TABLE public.identity_lookup_keys IS '身份检索密钥轮换状态，仅保存外部引用，最多同时使用两代';
 COMMENT ON COLUMN public.identity_lookup_keys.purpose IS '检索用途：学号或微信身份';
-COMMENT ON COLUMN public.identity_lookup_keys.current_ref IS '当前写入和回填的外部检索密钥引用';
+COMMENT ON COLUMN public.identity_lookup_keys.current_ref IS '当前写入和回填的本机检索密钥引用';
 COMMENT ON COLUMN public.identity_lookup_keys.previous_ref IS '轮换期间仍参与查重的旧代引用，回填完成前不得清除';
 COMMENT ON COLUMN public.identity_lookup_keys.version IS '轮换状态版本，初始化及每次状态切换递增';
 
@@ -226,7 +226,7 @@ COMMENT ON TABLE public.identity_secrets IS '按账号和用途保存身份字�
 COMMENT ON COLUMN public.identity_secrets.account_id IS '拥有该身份字段的普通账号，普通账号物理删除时清理';
 COMMENT ON COLUMN public.identity_secrets.purpose IS '身份字段用途，同时作为认证加密绑定及检索域';
 COMMENT ON COLUMN public.identity_secrets.content_version IS '密文内容版本，与认证加密附加数据一致';
-COMMENT ON COLUMN public.identity_secrets.envelope IS '算法、外部密钥引用、包裹数据密钥、随机数和认证密文';
+COMMENT ON COLUMN public.identity_secrets.envelope IS '算法、本机密钥引用、包裹数据密钥、随机数和认证密文';
 
 CREATE TABLE public.interaction_block_policy (
     singleton boolean DEFAULT true NOT NULL,

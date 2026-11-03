@@ -33,31 +33,12 @@ type Config struct {
 	RetryDelay time.Duration
 }
 
-// Eraser 必须幂等且响应context，覆盖目标在线对象全部版本、回收站及应用缓存。
-// 实现须先持久禁止目标及所列对象的迟到写入，再等待在途写入退出并清除全部版本；不得用单次Delete冒充已建立写屏障。
-// 调用发生于数据库事务之外；未确认或未配置时不得报告completed。备份按独立日志恢复重删。
-// 输入只含随机标识及加密对象元数据，适配器不得输出正文或身份到日志。
-type Eraser interface {
-	Erase(context.Context, Intent, []Object) error
-}
-
-// Object 是只供可信清理适配器解密的对象定位，不向HTTP返回。
-type Object struct {
-	// ReferenceOnly 只表示应用缓存/普通引用定位，不是可解密对象存储键；适配器必须抑制迟到写入并确认清除。
-	ReferenceOnly bool
-	ID            string
-	KeyCipher     json.RawMessage
-	Version       string
-	Evidence      bool
-}
-
-// Service 不拥有数据库、日志、密钥或外部清理适配器；不同权限池分别构造账号和证据实例。
+// Service 不拥有数据库、日志或密钥；完成回执仅覆盖数据库清理；不同权限池分别构造账号和证据实例。
 type Service struct {
 	db      *gorm.DB
 	engine  *command.Engine
 	journal Journal
 	codec   *securedata.Codec
-	eraser  Eraser
 	logger  *zap.Logger
 	cfg     Config
 }
@@ -67,8 +48,8 @@ func DeriveKey(root []byte) []byte {
 	return securedata.PrivacyReceiptKey(root)
 }
 
-// New 显式构造服务，缺失独立日志拒绝启用，缺失清理适配器允许受理但保持processing。
-func New(db *gorm.DB, journal Journal, codec *securedata.Codec, eraser Eraser, logger *zap.Logger, cfg Config) (*Service, error) {
+// New 显式构造服务，缺失独立日志拒绝启用。
+func New(db *gorm.DB, journal Journal, codec *securedata.Codec, logger *zap.Logger, cfg Config) (*Service, error) {
 	if journal == nil || codec == nil || logger == nil || len(cfg.Key) < 32 || cfg.ReceiptTTL < time.Minute ||
 		cfg.ReceiptTTL > 90*24*time.Hour ||
 		cfg.RetryDelay < time.Millisecond {
@@ -84,7 +65,6 @@ func New(db *gorm.DB, journal Journal, codec *securedata.Codec, eraser Eraser, l
 		engine:  engine,
 		journal: journal,
 		codec:   codec,
-		eraser:  eraser,
 		logger:  logger,
 		cfg:     cfg,
 	}, nil

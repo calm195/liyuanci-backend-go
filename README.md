@@ -187,7 +187,7 @@ make worker KIND=account
 make worker KIND=evidence
 ```
 
-开发图片扫描使用明确的本地模拟；普通内容默认人工模式；缺少真实微信、通知、清理供应商的能力保持不可用或待办。普通启动不迁移、不初始化账号、不重置任务或替换密钥。停止 API/worker 不停止 PostgreSQL、Redis。
+图片安全扫描与学校权威校验按无服务策略直接通过；内容使用三类已发布词库，未命中原文通过，命中或显式重审保留原文交人工。微信仍使用真实接口，外部危机通知与全副本删除服务已移除。普通启动不迁移、不初始化账号、不重置任务或替换密钥。停止 API/worker 不停止 PostgreSQL、Redis。
 
 ## 4. 检查与集成
 
@@ -209,7 +209,7 @@ make integration              # 真实、一次性的原生PG/Redis与实际Go�
 
 ### 制品配置与进程
 
-生产使用同一个 `configs/production.yaml`，包含唯一一组数据库分项配置、鉴权 Redis、微信、HTTPS 网关、一个应用 `masterkey`、外部 KMS 引用及独立删除账本路径。填写真实版本化资料；默认空秘密与未核验资源不能用于上线。网关实现见 [business.go](internal/adapters/gateway/business.go) 和 [gateway.go](internal/adapters/gateway/gateway.go)，涵盖身份检索、KMS、对象、学校规则、图片/文本分析、通知、脱敏及全副本清理。
+生产使用同一个 `configs/production.yaml`，包含唯一数据库、鉴权Redis、真实微信、应用 `masterkey` 和独立删除账本路径。密钥包裹与身份摘要在本机执行，按环境与用途派生密钥，不再配置外部KMS引用。外部对象存储供应商待定，现有HTTPS接口只保留密文上传与精确版本读取；未配置时对象读写不可用，不阻断其他模块启动。图片/学校无服务直接通过，内容词库命中或显式重审交原文复核。脱敏移除原文并要求重新编辑；账号/证据删除只确认数据库清理，不承诺删除外部对象或备份。站内危机案件、人工处置及关怀保留，外部通知与重试动作已移除。
 
 ```sh
 make check-config CONFIG=configs/production.yaml
@@ -237,7 +237,7 @@ bin/business-worker -config configs/production.yaml -kind account -recover
 bin/business-worker -config configs/production.yaml -kind evidence -recover
 ```
 
-恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和真实全副本删除仍需目标环境验收。本分支没有执行部署、服务管理器安装或生产迁移。
+恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和外部对象保留/删除规则仍待存储服务确定。本分支没有执行部署、服务管理器安装或生产迁移。
 
 ## 7. 代码组织与重构边界
 
@@ -254,7 +254,7 @@ internal/execution/workrunner/ # 扫描调度、取消和排空
 internal/platform/             # 数据库/Redis客户端、日志、心跳
 internal/platform/yamlconfig/  # 独立Viper实例、YAML读取与合并
 internal/platform/securedata/  # 加密、对象读取和兼容用途派生
-internal/adapters/gateway/     # 正式HTTPS供应商及微信身份交换
+internal/adapters/gateway/     # 外部对象接口及微信身份交换
 internal/adapters/local/       # 本地运行适配
 internal/adapters/redis/       # 登录及树洞限流接口的Redis实现
 internal/entity/               # 纯ORM表模型
@@ -287,4 +287,4 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 宿主拥有自己打开的数据库、Redis和供应商资源，借用服务不得自行关闭；停止时先排空请求和后台任务，再逆序释放。普通启动不执行DDL。命令参数、HTTP契约、YAML字段与相对路径规则、密钥派生标签、任务协议、删除账本和恢复门禁属于兼容边界。
 
-相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、resourceplaza、moderation、migration四类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。
+相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、resourceplaza、moderation、whisper_review、migration五类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。

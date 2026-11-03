@@ -10,13 +10,13 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-// TestDevelopmentSchoolRules 保留 T011/REQ-002/015/018：开发模拟、取消、日志脱敏和生产入口拒绝。
+// TestDevelopmentSchoolRules 保留 T011/REQ-002/015/018：无服务直接通过、取消与日志脱敏。
 func TestDevelopmentSchoolRules(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	Logger := zap.New(core)
 	rules := SchoolRules{Logger}
 	if err := rules.Validate(context.Background(), "PRIVATE_NUMBER", "PRIVATE_NAME"); err != nil {
-		t.Fatal("开发规则应模拟通过")
+		t.Fatal("无服务策略应直接通过")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -33,9 +33,9 @@ func TestDevelopmentSchoolRules(t *testing.T) {
 		if i == 1 {
 			want = "failure"
 		}
-		if fields["simulated"] != true || fields["result"] != want || fields["operation"] != "development_school_rules" ||
+		if fields["external_service"] != false || fields["result"] != want || fields["operation"] != "school_rules_bypass" ||
 			fields["duration"] == nil {
-			t.Fatal("模拟完成日志字段不完整")
+			t.Fatal("完成日志字段不完整")
 		}
 		for _, field := range entry.Context {
 			if strings.Contains(field.String, "PRIVATE_") {

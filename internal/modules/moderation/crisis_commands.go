@@ -210,7 +210,7 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 	}()
 	defer s.done("crisis.action", rid, time.Now(), &err)
 	if !validID(id) || in.ExpectedVersion < 1 || !text(in.Reason, 2000) ||
-		(!falsePositive && !slices.Contains([]string{"take_over", "follow_up", "resolve", "retry_notification"}, in.Action)) {
+		(!falsePositive && !slices.Contains([]string{"take_over", "follow_up", "resolve"}, in.Action)) {
 		return out, command.ErrInvalid
 	}
 	if e := s.crisisPreflight(ctx, token); e != nil {
@@ -274,12 +274,6 @@ func (s *Service) ActOnCrisis(ctx context.Context, token, key, rid, id string, i
 				status = "handling"
 			case "resolve":
 				status = "resolved"
-			case "retry_notification":
-				if e = db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending'", id).
-					Update("next_at", tx.Now()).
-					Error; e != nil {
-					return "", e
-				}
 			}
 		}
 		if e = crisisAction(ctx, db, s.codec, c, tx.Actor().ID, action, in.Reason, tx.Now()); e != nil {

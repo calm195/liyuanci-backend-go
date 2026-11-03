@@ -30,8 +30,8 @@ type Assessment struct {
 	DetectorVersion                       string
 }
 
-// Analyzer 对词库命中或需重审内容执行文本安全、个人及组合信息处理，允许重复调用且不能产生业务写入。
-// 本模块没有默认放行实现；缺少供应商时构造失败，外部故障保持待审。
+// Analyzer 对词库命中或需重审内容生成原文人工复核候选，允许重复调用且不能产生业务写入。
+// 本模块没有默认放行实现；缺少复核策略时构造失败，处理故障保持待审。
 type Analyzer interface {
 	Analyze(context.Context, wish.Content) (Assessment, error)
 }
@@ -49,9 +49,8 @@ type MessageAnalyzer interface {
 
 // WorkerConfig 限制外部分析和最终数据库事务；调度生命周期由宿主负责。
 type WorkerConfig struct {
-	// Care 与 CrisisNotifier 必须显式提供；缺失时持久待办继续重试。
+	// Care 是站内关怀资料；没有外部危机通知服务。
 	Care            *CareResources
-	CrisisNotifier  CrisisNotifier
 	MessageAnalyzer MessageAnalyzer
 	Consumer        durable.ConsumerConfig
 	AnalysisTimeout time.Duration

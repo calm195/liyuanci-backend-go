@@ -14,7 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
-// ContentWorkerConfig 显式选择隔离分析模式和总预算，缺省不提供放行能力，manual在词库命中/重审分支强制人工复核。
+// ContentWorkerConfig 选择开发原文复核模式；空值与manual均在词库命中或重审时交人工。
 // 工作持久化在数据库，数据库和供应商不归调度器所有。
 type ContentWorkerConfig struct {
 	Analyzer string
@@ -24,13 +24,13 @@ type ContentWorkerConfig struct {
 func ValidateContentWorker(environment string, cfg DevelopmentSettings, options ContentWorkerConfig) error {
 	if (environment != "integration" && environment != "development") || cfg.DatabaseDSN == "" || len(cfg.WrapKey) != 32 ||
 		len(cfg.LookupKey) != 32 ||
-		(options.Analyzer != "" && options.Analyzer != "unavailable" && options.Analyzer != "synthetic" && options.Analyzer != "manual") {
+		(options.Analyzer != "" && options.Analyzer != "manual") {
 		return command.ErrInvalid
 	}
 	return nil
 }
 
-// RunContentWorker 装配内容常驻进程；默认无供应商失败关闭，synthetic使用合成结果，manual在命中/重审分支保留原文并强制人工复核。
+// RunContentWorker 装配内容常驻进程；按词库筛选，命中/重审保留原文并强制人工复核。
 // 不发布规则、不迁移；词库缺失与分析故障由领域持久任务重试或转异常待办。
 // 取消后先关闭调度并等待处理结束，再关闭池，保证在途事务不会使用已释放依赖。
 func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSettings, options ContentWorkerConfig, logger *zap.Logger) (err error) {
@@ -59,11 +59,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if err != nil {
 		return err
 	}
-	analyzer := local.Analyzer{
-		Logger:    logger,
-		Synthetic: options.Analyzer == "synthetic",
-		Manual:    options.Analyzer == "manual",
-	}
+	analyzer := local.Analyzer{Logger: logger}
 	scanner, err := moderation.NewWorker(db, logger, codec, analyzer, moderation.WorkerConfig{
 		Care: careResources(cfg.Care),
 		Consumer: durable.ConsumerConfig{
@@ -89,8 +85,7 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	}()
 	logger.Info(
 		"开发内容工作进程启动完成",
-		zap.Bool("simulated", options.Analyzer == "synthetic"),
-		zap.Bool("manual_review", options.Analyzer == "manual"),
+		zap.Bool("manual_review", true),
 		zap.String("result", "success"),
 	)
 	<-ctx.Done()

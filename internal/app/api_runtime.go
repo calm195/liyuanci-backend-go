@@ -59,7 +59,7 @@ func openAPIRuntime(ctx context.Context, cfg WhisperSettings, client redis.Unive
 	return a, nil
 }
 
-// ready 复核共享数据库、Redis、结构、词库和供应商；模块另行复核自己的配置。
+// ready 复核共享数据库、Redis、结构、词库和本机身份摘要；模块另行复核自己的配置。
 func (a *apiRuntime) ready(ctx context.Context) error {
 	pool, e := a.database.DB()
 	if e != nil || pool.PingContext(ctx) != nil {

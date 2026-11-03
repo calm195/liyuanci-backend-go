@@ -3,10 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/pem"
@@ -86,152 +82,46 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		must(os.WriteFile(p, mustYAML(t, v), 0600))
 		return p
 	}
-	var outage, eraseFailure, imageFailure atomic.Bool
-	var imageCalls, eraseCalls atomic.Int64
+	var outage atomic.Bool
 	var objectsMu sync.Mutex
 	objects := map[string][]byte{}
-	providerVersion := c.Runtime.ProviderVersion
+	c.Runtime.ProviderVersion = "object-test-v1"
 	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if outage.Load() {
 			w.WriteHeader(503)
-			return
-		}
-		if r.Header.Get("Authorization") != "Bearer synthetic-business-gateway-token" {
-			w.WriteHeader(401)
 			return
 		}
 		var req struct {
 			Operation, Version string
 			Input              json.RawMessage
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Version != providerVersion {
+		if r.Header.Get("Authorization") != "Bearer synthetic-object-token" || json.NewDecoder(r.Body).Decode(&req) != nil {
 			w.WriteHeader(400)
 			return
 		}
-		respond := func(v any) {
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(v)
-		}
+		objectsMu.Lock()
+		defer objectsMu.Unlock()
 		switch req.Operation {
-		case "health":
-			respond(map[string]any{
-				"Version": providerVersion,
-				"Capabilities": []string{
-					"wrap",
-					"unwrap",
-					"public_analysis",
-					"private_classify",
-					"redact",
-					"erase",
-					"notify",
-					"identity_digest",
-					"object_put",
-					"object_open",
-					"image_scan",
-					"school_validate",
-					"content_analysis",
-				},
-			})
-		case "wrap", "unwrap":
-			var in struct {
-				Scope, KeyRef string
-				Key, Wrapped  []byte
-			}
-			_ = json.Unmarshal(req.Input, &in)
-			material := byte(101)
-			if in.Scope == "recovery" {
-				material = 102
-			}
-			block, _ := aes.NewCipher(bytes.Repeat([]byte{material}, 32))
-			gcm, _ := cipher.NewGCM(block)
-			if req.Operation == "wrap" {
-				nonce := make([]byte, gcm.NonceSize())
-				_, _ = rand.Read(nonce)
-				respond(map[string]any{"KeyRef": in.KeyRef, "Wrapped": append(nonce, gcm.Seal(nil, nonce, in.Key, nil)...)})
-				clear(in.Key)
-			} else {
-				if len(in.Wrapped) < gcm.NonceSize() {
-					w.WriteHeader(400)
-					return
-				}
-				key, e := gcm.Open(nil, in.Wrapped[:gcm.NonceSize()], in.Wrapped[gcm.NonceSize():], nil)
-				if e != nil {
-					w.WriteHeader(400)
-					return
-				}
-				respond(map[string]any{"Key": key})
-				clear(key)
-			}
-		case "identity_digest":
-			var in struct {
-				KeyRef, Purpose string
-				Value           []byte
-			}
-			_ = json.Unmarshal(req.Input, &in)
-			h := hmac.New(sha256.New, bytes.Repeat([]byte{103}, 32))
-			_, _ = h.Write([]byte(in.KeyRef + ":" + in.Purpose))
-			_, _ = h.Write(in.Value)
-			respond(map[string]any{"Digest": h.Sum(nil)})
 		case "object_put":
 			var in struct {
 				Key, SHA256 string
 				Data        []byte
 			}
 			_ = json.Unmarshal(req.Input, &in)
-			objectsMu.Lock()
-			defer objectsMu.Unlock()
-			if old, ok := objects[in.Key]; ok && !bytes.Equal(old, in.Data) {
-				w.WriteHeader(409)
-				return
-			}
-			objects[in.Key] = bytes.Clone(in.Data)
-			respond(map[string]any{"Version": "immutable-v1", "SHA256": in.SHA256})
+			objects[in.Key] = in.Data
+			_ = json.NewEncoder(w).Encode(map[string]any{"Version": "immutable-v1", "SHA256": in.SHA256})
 		case "object_open":
 			var in struct{ Key, Version string }
 			_ = json.Unmarshal(req.Input, &in)
-			objectsMu.Lock()
-			defer objectsMu.Unlock()
-			respond(map[string]any{"Version": "immutable-v1", "Data": objects[in.Key]})
-		case "image_scan":
-			imageCalls.Add(1)
-			if imageFailure.Load() {
-				w.WriteHeader(503)
-				return
-			}
-			respond(map[string]any{"Approved": true, "DetectorVersion": "synthetic-image-v1"})
-		case "school_validate":
-			respond(map[string]any{"Valid": true, "RulesVersion": "synthetic-school-v1"})
-		case "public_analysis":
-			var in struct {
-				Body     string
-				Identity whisper.IdentityInput
-			}
-			_ = json.Unmarshal(req.Input, &in)
-			respond(map[string]any{"Body": in.Body, "Identity": in.Identity, "DetectorVersion": "synthetic-public-v1"})
-		case "content_analysis":
-			var in struct {
-				Body         string
-				IdentityTags any
-			}
-			_ = json.Unmarshal(req.Input, &in)
-			respond(map[string]any{"Body": in.Body, "Tags": in.IdentityTags, "DetectorVersion": "synthetic-content-v1"})
-		case "private_classify":
-			respond(map[string]any{"DetectorVersion": "synthetic-private-v1"})
-		case "redact":
-			respond(map[string]any{"Body": "原内容已移除，请重新编辑。"})
-		case "erase":
-			eraseCalls.Add(1)
-			respond(map[string]any{"Completed": !eraseFailure.Load(), "WriteBarrierConfirmed": !eraseFailure.Load()})
-		case "notify":
-			respond(map[string]any{"Completed": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"Version": in.Version, "Data": objects[in.Key]})
 		default:
+			t.Errorf("不应调用已退役的外部能力: %s", req.Operation)
 			w.WriteHeader(400)
 		}
 	}))
 	t.Cleanup(tlsServer.Close)
 	c.Runtime.GatewayURL = tlsServer.URL
-	c.Runtime.GatewayToken = "synthetic-business-gateway-token"
+	c.Runtime.GatewayToken = "synthetic-object-token"
 	c.Runtime.GatewayCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw}))
 	version, verified := int64(1), "2026-10-31T00:00:00Z"
 	c.Runtime.CatalogFile = write("catalog.yaml", ResourcesFile{
@@ -288,7 +178,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		if (e == nil) != success {
 			t.Fatalf("命令结果不符 success=%v: %s", success, raw)
 		}
-		if bytes.Contains(raw, []byte("synthetic-business-gateway-token")) {
+		if bytes.Contains(raw, []byte("synthetic-object-token")) {
 			t.Fatal("凭据进入日志")
 		}
 	}
@@ -414,7 +304,6 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	upload.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 	upload.Header.Set("Authorization", "Bearer "+token)
 	upload.Header.Set("Idempotency-Key", uuid.NewString())
-	imageFailure.Store(databaseTasks)
 	response, e := client.Do(upload)
 	must(e)
 	var assetEnvelope struct{ Data studentcard.Asset }
@@ -424,23 +313,10 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		t.Fatal("学生卡上传", response.StatusCode)
 	}
 	asset := assetEnvelope.Data
-	if databaseTasks {
-		wait("图片供应商故障持久重试", func() bool {
-			var n int64
-			return root.Model(&entity.WorkItem{}).Where("target_id=? AND status='retry_wait' AND attempts>0", asset.AssetID).Count(&n).Error == nil &&
-				n == 1
-		}, card)
-		card.stop(t)
-		imageFailure.Store(false)
-		card = start(workerBin, "-config", workerApp("card"))
-	}
-	wait("真实工作进程调用图片供应商", func() bool {
+	wait("图片按无服务策略通过", func() bool {
 		request("GET", "/me/student-card-assets/"+asset.AssetID, token, nil, 200, &asset)
 		return asset.ScanStatus == "approved"
 	}, card)
-	if imageCalls.Load() == 0 {
-		t.Fatal("扫描未到达正式适配器")
-	}
 	var verificationResult verification.Result
 	request(
 		"POST",
@@ -483,6 +359,24 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		var n int64
 		return root.Model(&entity.Wish{}).Where("id=? AND state='ready'", draft.ID).Count(&n).Error == nil && n == 1
 	}, content)
+	// 正式worker只用词库：命中保留原文交人工，不再调用外部内容分析。
+	manualBody := "隔离违规词与隔离涉校词需要原文复核"
+	manual := draft
+	request("POST", "/wishes", peerToken, wish.ContentInput{Category: "help", Body: manualBody, Campus: "any"}, 201, &manual)
+	request("POST", "/wishes/"+manual.ID+"/submit-review", peerToken,
+		map[string]any{"expected_version": manual.Version, "content_version": manual.ContentVersion}, 202, &manual)
+	var manualTask string
+	wait("词库命中进入人工复核", func() bool {
+		return root.Raw(`SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND t.status='human_required'`, manual.ID).
+			Scan(&manualTask).Error == nil && manualTask != ""
+	}, content)
+	var detail struct {
+		Body string `json:"body"`
+	}
+	request("GET", "/admin/moderation-tasks/"+manualTask, session.Token, nil, 200, &detail)
+	if detail.Body != manualBody {
+		t.Fatal("词库命中未保留原文")
+	}
 	var module whisper.ModuleConfig
 	request("GET", "/whispers/config", "", nil, 200, &module)
 	if !module.Enabled || !module.SemiAvailable {
@@ -611,6 +505,21 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if capsule.Body == nil || *capsule.Body != "本人胶囊私密原文" {
 		t.Fatal("解锁内容错误")
 	}
+	var manualCapsule whisper.Capsule
+	request("POST", "/me/whispers/capsules", token, whisper.CapsuleInput{
+		Body:                 "私密胶囊命中隔离违规词",
+		UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+		SafetyNoticeAccepted: true,
+	}, 202, &manualCapsule)
+	wait("私密词库命中进入人工复核", func() bool {
+		var n int64
+		return root.Raw(`SELECT count(*) FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND t.status='human_required'`, manualCapsule.ID).
+			Scan(&n).Error == nil && n == 1
+	}, whispers)
+	request("GET", "/me/whispers/capsules/"+manualCapsule.ID, token, nil, 200, &manualCapsule)
+	if manualCapsule.Body != nil {
+		t.Fatal("待复核胶囊提前返回原文")
+	}
 	if databaseTasks {
 		var sent, receipts int64
 		must(root.Model(&entity.OutboxEvent{}).Where("sent_at IS NOT NULL").Count(&sent).Error)
@@ -620,8 +529,8 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		}
 	}
 	outage.Store(true)
-	if health("/readyz") != 503 || health("/healthz") != 200 {
-		t.Fatal("供应商故障未区分就绪与存活")
+	if health("/readyz") != 200 || health("/healthz") != 200 {
+		t.Fatal("对象服务故障不应阻断其他业务就绪")
 	}
 	outage.Store(false)
 	var account entity.Account
@@ -641,24 +550,12 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	content.stop(t)
 	whispers.stop(t)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	eraseFailure.Store(true)
-	oneShot(workerBin, false, "-config", workerApp("account"), "-recover")
-	var remaining int64
-	must(root.Model(&entity.DeletionJob{}).Where("phase<>'completed' AND scope='account'").Count(&remaining).Error)
-	if remaining == 0 {
-		t.Fatal("外部删除失败被误报完成")
-	}
-	eraseFailure.Store(false)
-	must(root.Exec("UPDATE public.deletion_jobs SET next_at=clock_timestamp() WHERE scope='account'").Error)
 	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	must(root.Create(&entity.Account{ID: actor, Nickname: "模拟恢复出的已注销主体"}).Error)
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
-	if eraseCalls.Load() == 0 {
-		t.Fatal("外部清理未调用")
-	}
 	bad := appDoc
 	bad.Database = databaseSettings(businessDSN)
 	must(os.WriteFile(apiPath, mustYAML(t, bad), 0600))
@@ -668,5 +565,5 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	if latest != 9 {
 		t.Fatal("运行入口改变迁移版本", latest)
 	}
-	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，外部依赖为隔离TLS合成", workerEnv)
+	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/学校按策略直接通过，对象存储为隔离TLS夹具", workerEnv)
 }

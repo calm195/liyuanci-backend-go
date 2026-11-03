@@ -3,18 +3,17 @@ package config
 import (
 	"bytes"
 	"context"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
 )
 
-// Business 是完整业务宿主的显式配置；不接受开发适配，按进程校验所需身份与凭据。
-// Runtime 复用树洞的密钥、供应商、恢复日志和角色边界，同一用途的历史引用必须保留。
+// Business 是完整业务宿主的显式配置；使用本机密钥与词库审核，按进程校验所需身份与凭据。
+// Runtime 复用树洞的密钥、对象服务、恢复日志和角色边界。
 type Business struct {
 	Runtime                                                            Whispers
 	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte `json:"-"`
-	LookupKeyRefs                                                      []string
+	LookupKey                                                          []byte `json:"-"`
 	WeChatAppID, WeChatSecret, AdminPassword                           string
 	SessionTTL, ExchangeTTL, AdminSessionTTL, LoginWindow              time.Duration
 	LoginLimit, MaxTextBytes                                           int
@@ -39,32 +38,19 @@ func LoadBusiness(ctx context.Context, path, environment, process string) (cfg B
 	return
 }
 
-// ValidateBusiness 按用途校验配置，生产不得借用本地密钥、对象或学校规则。
+// ValidateBusiness 按用途校验配置，业务密钥与微信凭据仍须显式提供。
 func ValidateBusiness(c Business, environment, process string) error {
 	if !slices.Contains([]string{"api", "card", "content", "whispers", "account", "evidence", "bootstrap"}, process) ||
 		c.Runtime.LocalTest ||
-		len(c.Runtime.WrapKey) > 0 ||
-		len(c.Runtime.RecoveryWrapKey) > 0 ||
 		c.Runtime.Contact != "" {
 		return ErrInvalid
 	}
 	if _, e := validateWhispers(c.Runtime, environment, true); e != nil {
 		return e
 	}
-	u, e := url.Parse(c.Runtime.GatewayURL)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return ErrInvalid
-	}
-	allRefs := []string{}
-	for _, group := range [][]string{c.Runtime.KeyRefs, c.Runtime.RecoveryKeyRefs, c.LookupKeyRefs} {
-		for _, ref := range group {
-			if strings.TrimSpace(ref) == "" || slices.Contains(allRefs, ref) {
-				return ErrInvalid
-			}
-			allRefs = append(allRefs, ref)
-		}
-	}
 	keys := [][]byte{
+		c.Runtime.WrapKey,
+		c.Runtime.RecoveryWrapKey,
 		c.Runtime.ReceiptKey,
 		c.Runtime.CursorKey,
 		c.Runtime.RateKey,
@@ -73,7 +59,7 @@ func ValidateBusiness(c Business, environment, process string) error {
 		c.Runtime.EvidenceKey,
 		c.Runtime.SafetyKey,
 	}
-	for _, key := range [][]byte{c.SessionKey, c.CardKey, c.VerificationKey, c.WishKey, c.AdminKey, c.CrisisKey} {
+	for _, key := range [][]byte{c.SessionKey, c.CardKey, c.VerificationKey, c.WishKey, c.AdminKey, c.CrisisKey, c.LookupKey} {
 		if len(key) == 0 {
 			continue
 		}
@@ -88,7 +74,7 @@ func ValidateBusiness(c Business, environment, process string) error {
 		keys = append(keys, key)
 	}
 	if process == "api" || process == "bootstrap" {
-		if c.Runtime.DatabaseDSN == "" || len(c.LookupKeyRefs) == 0 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 ||
+		if c.Runtime.DatabaseDSN == "" || len(c.LookupKey) != 32 || len(c.AdminKey) != 32 || c.AdminSessionTTL <= 0 || c.LoginWindow <= 0 ||
 			c.LoginLimit < 1 {
 			return ErrInvalid
 		}

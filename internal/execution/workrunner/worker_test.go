@@ -156,7 +156,7 @@ func (s maintainedScanner) Maintain(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// TestMaintenanceLifecycle 验证危机通知可独立阻塞而不阻止扫描，关闭同时取消并等待两种在途操作。
+// TestMaintenanceLifecycle 验证站内关怀补偿可独立阻塞而不阻止扫描，关闭同时取消并等待两种在途操作。
 func TestMaintenanceLifecycle(t *testing.T) {
 	s := maintainedScanner{
 		databaseScanner{make(chan struct{}), make(chan struct{})},

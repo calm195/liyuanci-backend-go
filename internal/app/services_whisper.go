@@ -76,13 +76,13 @@ func buildWhisperServices(ctx context.Context, runtime *apiRuntime) (out *whispe
 			return nil, err
 		}
 	}
-	a.deletion, err = privacy.New(priv, r.journal, r.codec, r.gateway, log, r.privacyConfig())
+	a.deletion, err = privacy.New(priv, r.journal, r.codec, log, r.privacyConfig())
 	if err != nil {
 		return nil, err
 	}
 	pcfg := r.privacyConfig()
 	pcfg.Key = cfg.EvidenceKey
-	a.evidence, err = privacy.New(evidence, r.journal, r.codec, r.gateway, log, pcfg)
+	a.evidence, err = privacy.New(evidence, r.journal, r.codec, log, pcfg)
 	if err != nil {
 		return nil, err
 	}

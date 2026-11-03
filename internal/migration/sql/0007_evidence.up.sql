@@ -75,15 +75,15 @@ CREATE TABLE evidence.crisis_deliveries (
     lease_id uuid,
     lease_until timestamp with time zone,
     CONSTRAINT crisis_deliveries_attempts_check CHECK ((attempts >= 0)),
-    CONSTRAINT crisis_deliveries_kind_check CHECK ((kind = ANY (ARRAY['care'::text, 'operator'::text]))),
+    CONSTRAINT crisis_deliveries_kind_check CHECK (kind = 'care'::text),
     CONSTRAINT crisis_deliveries_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'leased'::text, 'sent'::text, 'cancelled'::text]))),
     CONSTRAINT crisis_deliveries_case_id_kind_key UNIQUE (case_id, kind),
     CONSTRAINT crisis_deliveries_pkey PRIMARY KEY (id)
 );
-COMMENT ON TABLE evidence.crisis_deliveries IS '危机关怀和授权人员通知持久重试队列，不保存正文身份';
-COMMENT ON COLUMN evidence.crisis_deliveries.id IS '随机投递标识，也是外部通知去重键';
+COMMENT ON TABLE evidence.crisis_deliveries IS '危机站内关怀持久重试队列，不提供外部通知';
+COMMENT ON COLUMN evidence.crisis_deliveries.id IS '随机站内关怀投递标识';
 COMMENT ON COLUMN evidence.crisis_deliveries.case_id IS '限定危机案件';
-COMMENT ON COLUMN evidence.crisis_deliveries.kind IS '关怀或授权人员通知用途';
+COMMENT ON COLUMN evidence.crisis_deliveries.kind IS '仅站内关怀用途';
 COMMENT ON COLUMN evidence.crisis_deliveries.status IS '持久投递状态，失败不删除待办';
 COMMENT ON COLUMN evidence.crisis_deliveries.attempts IS '实际取得租约次数';
 COMMENT ON COLUMN evidence.crisis_deliveries.next_at IS '下次可尝试时间';
@@ -148,7 +148,7 @@ COMMENT ON COLUMN evidence.evidence_items.case_id IS '限定证据范围';
 COMMENT ON COLUMN evidence.evidence_items.subject_cipher IS '限定证据主体，保存信封密文而非明文';
 COMMENT ON COLUMN evidence.evidence_items.body_cipher IS '限定证据正文，保存信封密文而非明文';
 COMMENT ON COLUMN evidence.evidence_items.asset_ref IS '可选证据域对象标识';
-COMMENT ON COLUMN evidence.evidence_items.key_ref IS '证据外部密钥引用，不存密钥材料';
+COMMENT ON COLUMN evidence.evidence_items.key_ref IS '证据包裹密钥引用，不存密钥材料';
 COMMENT ON COLUMN evidence.evidence_items.created_at IS '创建时间，以带时区时间保存';
 
 CREATE INDEX crisis_deliveries_pending_idx ON evidence.crisis_deliveries USING btree (next_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'leased'::text]));

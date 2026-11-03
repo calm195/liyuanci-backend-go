@@ -41,7 +41,6 @@ type WhisperCrisisDetail struct {
 	EvidenceScopeID string            `json:"evidence_scope_id"`
 	Timeline        []WhisperTimeline `json:"timeline"`
 	CareDelivery    string            `json:"care_delivery"`
-	StaffDelivery   string            `json:"staff_delivery"`
 }
 
 func whisperCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
@@ -145,7 +144,6 @@ func (s *Service) whisperCrisisDetail(ctx context.Context, db *gorm.DB, actor st
 		EvidenceScopeID:      c.EvidenceCaseID,
 		Timeline:             []WhisperTimeline{},
 		CareDelivery:         "pending",
-		StaffDelivery:        "pending",
 	}
 	if c.IdentityStatus != nil {
 		out.IdentityStatus = *c.IdentityStatus
@@ -189,8 +187,6 @@ func (s *Service) whisperCrisisDetail(ctx context.Context, db *gorm.DB, actor st
 		}
 		if j.Kind == "care" {
 			out.CareDelivery = status
-		} else {
-			out.StaffDelivery = status
 		}
 	}
 	return out, crisisAction(ctx, db, s.codec, c, actor, "view", "案件授权查看", time.Now().UTC())
@@ -447,15 +443,6 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 				status = "handling"
 			case "resolve":
 				status = "resolved"
-			case "retry_notification":
-				result := db.Model(&entity.CrisisDelivery{}).Where("case_id=? AND kind='operator' AND status='pending' AND attempts>0", id).
-					Update("next_at", tx.Now())
-				if result.Error != nil {
-					return "", result.Error
-				}
-				if result.RowsAffected != 1 {
-					return "", command.ErrConflict
-				}
 			}
 		}
 		if e = crisisAction(ctx, db, s.codec, c, tx.Actor().ID, action, in.Reason, tx.Now()); e != nil {
@@ -495,5 +482,5 @@ func (s *Service) ActOnWhisperCrisis(ctx context.Context, token, key, rid, id st
 }
 
 func slicesCrisisAction(s string) bool {
-	return s == "take_over" || s == "follow_up" || s == "resolve" || s == "retry_notification"
+	return s == "take_over" || s == "follow_up" || s == "resolve"
 }

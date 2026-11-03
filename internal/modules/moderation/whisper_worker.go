@@ -312,7 +312,7 @@ func (w *WhisperWorker) ProcessNext(ctx context.Context) (out durable.Consumptio
 	return w.Consume(ctx, events[0])
 }
 
-// ProcessCrisisDelivery 复用持久租约投递，仍需要显式关怀资料及真实通知适配器。
+// ProcessCrisisDelivery 复用持久租约投递，仅需要显式站内关怀资料，不提供外部通知。
 func (w *WhisperWorker) ProcessCrisisDelivery(ctx context.Context) (bool, error) {
 	return (&Worker{db: w.db, logger: w.logger, codec: w.codec, cfg: w.cfg, whispersOnly: true}).ProcessCrisisDelivery(ctx)
 }

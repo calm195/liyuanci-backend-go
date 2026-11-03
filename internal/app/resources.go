@@ -2,14 +2,12 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -28,8 +26,6 @@ type provider interface {
 	AnalyzeWhisper(context.Context, string, string, whisper.IdentityInput) (moderation.WhisperAssessment, error)
 	ClassifyWhisperCapsule(context.Context, string) (moderation.MessageAssessment, error)
 	Redact(context.Context, string, string) (string, error)
-	Erase(context.Context, privacy.Intent, []privacy.Object) error
-	NotifyCrisis(context.Context, string, string) error
 }
 
 type recoveryJournal interface {
@@ -103,78 +99,27 @@ func (r *runtimeResources) pool(ctx context.Context) (*gorm.DB, error) {
 }
 
 func openRuntimeResources(ctx context.Context, cfg WhisperSettings, log *zap.Logger) (out *runtimeResources, err error) {
-	if log == nil || !cfg.LocalTest && (len(cfg.KeyRefs) == 0 || len(cfg.RecoveryKeyRefs) == 0) || cfg.ProviderTimeout <= 0 {
+	if log == nil || len(cfg.WrapKey) != 32 || len(cfg.RecoveryWrapKey) != 32 {
 		return nil, command.ErrInvalid
 	}
 	defer finish(log, "resources_open", time.Now(), &err)
-	if cfg.LocalTest {
-		r := &runtimeResources{cfg: cfg, log: log, gateway: local.WhisperProvider{Logger: log}}
-		r.codec, err = securedata.New(local.Keys{Key: cfg.WrapKey, Logger: log}, log)
-		if err != nil {
-			return nil, err
-		}
-		recovery, e := securedata.New(local.Keys{Key: cfg.RecoveryWrapKey, Logger: log}, log)
-		if e != nil {
-			return nil, e
-		}
-		r.journal, err = privacy.NewFileJournal(cfg.JournalFile, recovery, log)
-		if err != nil {
-			return nil, err
-		}
-		log.Info(
-			"本地运行依赖装配完成",
-			zap.Bool("manual_review", true),
-			zap.Bool("external_gateway", false),
-			zap.String("result", "success"),
-		)
-		return r, nil
-	}
-	g, e := gateway.New(gatewayConfig(cfg), log)
-	if e != nil {
-		return nil, e
-	}
-	r := &runtimeResources{cfg: cfg, log: log, gateway: g}
-	defer func() {
-		if err != nil {
-			_ = r.close()
-		}
-	}()
-	if err = g.Ready(ctx); err != nil {
+	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	r.codec, err = securedata.New(gateway.NewKeys(g, cfg.KeyRefs, "business"), log)
+	r := &runtimeResources{cfg: cfg, log: log, gateway: local.WhisperProvider{Logger: log}}
+	r.codec, err = securedata.New(local.Keys{Key: cfg.WrapKey, Logger: log}, log)
 	if err != nil {
 		return nil, err
 	}
-	recovery, e := securedata.New(gateway.NewKeys(g, cfg.RecoveryKeyRefs, "recovery"), log)
+	recovery, e := securedata.New(local.Keys{Key: cfg.RecoveryWrapKey, Logger: log}, log)
 	if e != nil {
 		return nil, e
-	}
-	// 启动时实际包裹/解包随机探针，核对业务与恢复用途；不持久化、不输出探针或密钥。
-	for _, codec := range []*securedata.Codec{r.codec, recovery} {
-		probe := make([]byte, 32)
-		if _, err = rand.Read(probe); err != nil {
-			clear(probe)
-			return nil, command.ErrUnavailable
-		}
-		binding := securedata.Binding{Purpose: "startup_probe", ObjectID: "runtime", Version: 1}
-		envelope, e := codec.Encrypt(ctx, binding, probe)
-		if e != nil {
-			clear(probe)
-			return nil, command.ErrUnavailable
-		}
-		plaintext, e := codec.Decrypt(ctx, binding, envelope)
-		equal := string(plaintext) == string(probe)
-		clear(plaintext)
-		clear(probe)
-		if e != nil || !equal {
-			return nil, command.ErrUnavailable
-		}
 	}
 	r.journal, err = privacy.NewFileJournal(cfg.JournalFile, recovery, log)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("本机密钥与词库审核依赖装配完成", zap.String("result", "success"))
 	return r, nil
 }
 

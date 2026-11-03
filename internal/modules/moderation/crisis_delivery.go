@@ -27,12 +27,6 @@ type CareResources struct {
 	Notice         string `json:"notice"`
 }
 
-// CrisisNotifier 仅接收稳定投递和案件标识，不传正文或身份；接收方必须以投递标识去重并鉴权打开案件。
-// 通知不等于人工接手；夜间照常通知，待办的人工窗口由HandoffAt描述。
-type CrisisNotifier interface {
-	NotifyCrisis(context.Context, string, string) error
-}
-
 // CareResourcesReady 核对正式关怀资料完整性；不提供任何内置联系资料。
 func CareResourcesReady(c *CareResources) bool { return c != nil && validateCare(c) }
 
@@ -49,8 +43,8 @@ func validateCare(c *CareResources) bool {
 	return e == nil
 }
 
-// ProcessCrisisDelivery 先持久取得有界租约，再在事务外通知，晚到结果只确认相同租约。
-// 未配置正式资料/通知方或发送失败保留pending和下一重试时刻，进程崩溃由到期租约恢复。
+// ProcessCrisisDelivery 使用有界租约创建站内关怀；不提供外部危机通知。
+// 未配置正式资料或创建失败保留pending和下一重试时刻，进程崩溃由到期租约恢复。
 func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err error) {
 	start := time.Now()
 	defer func() {
@@ -77,7 +71,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
 			return e
 		}
-		query := db.Where("(status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now)
+		query := db.Where("kind='care' AND (status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now)
 		predicate := "content_type NOT LIKE 'whisper_%'"
 		if w.whispersOnly {
 			predicate = "content_type LIKE 'whisper_%'"
@@ -108,24 +102,6 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 	}
 	processed = true
 	var sendErr error
-	if job.Kind == "operator" {
-		call, stop := context.WithTimeout(ctx, w.cfg.AnalysisTimeout)
-		sendErr = func() (e error) {
-			defer func() {
-				if recover() != nil {
-					e = command.ErrUnavailable
-				}
-			}()
-			if w.cfg.CrisisNotifier == nil {
-				return command.ErrUnavailable
-			}
-			return w.cfg.CrisisNotifier.NotifyCrisis(call, job.ID, job.CaseID)
-		}()
-		if sendErr == nil {
-			sendErr = call.Err()
-		}
-		stop()
-	}
 	finish, stop := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
 	defer stop()
 	err = w.db.WithContext(finish).Transaction(func(db *gorm.DB) error {
@@ -216,7 +192,7 @@ func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err
 	return processed, safe(sendErr)
 }
 
-// Maintain 由宿主调度独立补偿危机投递，不挤占正文扫描的外部分析预算。
+// Maintain 由宿主调度独立补偿危机投递，不挤占正文审核预算。
 func (w *Worker) Maintain(ctx context.Context) error {
 
 	_, e := w.ProcessCrisisDelivery(ctx)

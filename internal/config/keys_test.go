@@ -63,14 +63,14 @@ func TestMasterKeyDerivation(t *testing.T) {
 			key := v.Field(i).Bytes()
 			if len(key) == 0 {
 				continue
-			} // 正式环境的包裹/检索由外部KMS管理。
+			}
 			if len(key) != 32 || bytes.Equal(key, first.MasterKey) || seen[string(key)] {
 				t.Fatal("不同用途密钥未隔离")
 			}
 			seen[string(key)] = true
 		}
 	}
-	if len(seen) != 22 {
+	if len(seen) != 25 {
 		t.Fatal("遗漏领域密钥")
 	}
 	raw, err := yamlconfig.Marshal(first)

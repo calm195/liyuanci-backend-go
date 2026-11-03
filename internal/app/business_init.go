@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -51,14 +51,7 @@ func InitializeBusiness(
 			err = command.ErrUnavailable
 		}
 	}()
-	g, ok := r.gateway.(*gateway.Client)
-	if !ok {
-		return command.ErrInvalid
-	}
-	b := gateway.NewBusiness(g, c.LookupKeyRefs, 0)
-	if e = b.ReadyFor(ctx, "bootstrap"); e != nil {
-		return e
-	}
+	b := &local.IdentityKeys{WrapKey: c.Runtime.WrapKey, LookupKey: c.LookupKey, Logger: log}
 	db, e := r.pool(ctx)
 	if e != nil {
 		return e
@@ -68,7 +61,7 @@ func InitializeBusiness(
 		return e
 	}
 	for _, purpose := range []string{"openid", "student_number"} {
-		if e = store.Configure(ctx, purpose, c.LookupKeyRefs[0]); e != nil {
+		if e = store.Configure(ctx, purpose, "local-lookup-v1"); e != nil {
 			return e
 		}
 	}

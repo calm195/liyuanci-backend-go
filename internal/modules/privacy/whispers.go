@@ -94,7 +94,7 @@ func execSubjectScan(db *gorm.DB, sql, id string, dst any) error {
 }
 
 // activateWhispers 同受理事务建立整串屏障，保留受控脱敏所需密文但立即清空公开候选。
-// 不删除独立证据；缺少外部清理或脱敏适配器时这些屏障持续有效。
+// 不删除独立证据；脱敏失败时这些屏障持续有效。
 func activateWhispers(ctx context.Context, db *gorm.DB, id string) error {
 	db = db.WithContext(ctx)
 	var g cleanGraph
@@ -183,7 +183,7 @@ func activateWhispers(ctx context.Context, db *gorm.DB, id string) error {
 	).Pluck("notification_id", &notices).Error; e != nil {
 		return e
 	}
-	// 同步抑制读取与投递，但保留技术定位给外部缓存清理；物理行由最终图删除。
+	// 同步抑制读取与投递，保留最终数据库清理所需的引用；物理行由最终图删除。
 	return db.Model(&entity.WhisperNotificationRef{}).Where("notification_id IN ?", notices).Update("suppressed", true).Error
 }
 
@@ -225,7 +225,7 @@ func (s *Service) prepareWhisperRedactions(ctx context.Context, in Intent) (out 
 }
 
 // applyWhisperRedactions 只存受控安全候选，擦除所有历史原文、身份与审核片段。
-// 版本再次验证防止外部脱敏期间作者撤回或内容变化被旧结果覆盖；不重新公开旧串。
+// 版本再次验证防止事务外脱敏期间作者撤回或内容变化被旧结果覆盖；不重新公开旧串。
 func (s *Service) applyWhisperRedactions(ctx context.Context, db *gorm.DB, rows []whisperRedaction) error {
 	for _, r := range rows {
 		var c entity.WhisperComment

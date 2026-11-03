@@ -27,7 +27,7 @@ var ErrInactive = errors.New("身份账号不可登录")
 // ErrUnavailable 表示密钥、存储或身份状态不可用，调用方不能降级明文或绕过查重。
 var ErrUnavailable = errors.New("身份基础服务不可用")
 
-// DigestService 使用外部独立检索密钥执行用途隔离 HMAC-SHA256；返回值必须为32字节。
+// DigestService 使用本机独立派生检索密钥执行用途隔离 HMAC-SHA256；返回值必须为32字节。
 // 实现须验证授权引用、响应取消，不得记录或保留身份原文，不得与数据包裹密钥复用。
 type DigestService interface {
 	Digest(context.Context, string, string, []byte) ([]byte, error)
@@ -273,7 +273,7 @@ func (s *Store) FinishRotation(ctx context.Context, purpose string) error {
 }
 
 // Reencrypt 在维护权限下按批重加密指定用途的旧信封，不修改内容版本或唯一占用。
-// 目标引用必须与外部密钥服务实际包裹结果一致，防止配置漂移造成无限重加密。
+// 目标引用必须与本机密钥服务实际包裹结果一致，防止配置漂移造成无限重加密。
 func (s *Store) Reencrypt(ctx context.Context, purpose, targetRef string, limit int) (count int, err error) {
 	err = s.transaction(ctx, "reencrypt", purpose, func(tx *gorm.DB) error {
 		if targetRef == "" || limit < 1 || limit > 100 {

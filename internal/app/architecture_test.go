@@ -14,7 +14,7 @@ import (
 // allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
 // 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
 var allowedInternalImports = map[string][]string{
-	"adapters/gateway": {"execution/command", "modules/moderation", "modules/privacy", "modules/whisper", "modules/wish"},
+	"adapters/gateway": {"execution/command"},
 	"adapters/local": {
 		"execution/command",
 		"modules/moderation",

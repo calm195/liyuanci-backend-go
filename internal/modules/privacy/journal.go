@@ -26,7 +26,7 @@ type Intent struct {
 }
 
 // Journal 必须使用独立于业务恢复的持久资源；Append成功即授权恢复程序继续删除。
-// Pending不得漏过未确认意图，Confirm只在普通清理及外部副本适配器全部确认后调用。
+// Pending不得漏过未确认意图，Confirm只在数据库清理事务提交后调用。
 type Journal interface {
 	Append(context.Context, Intent) error
 	Pending(context.Context, string, int) ([]Intent, error)

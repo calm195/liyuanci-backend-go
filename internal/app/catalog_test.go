@@ -20,8 +20,6 @@ func TestLocalConfiguration(t *testing.T) {
 	cfg.GatewayToken = ""
 	cfg.ProviderVersion = ""
 	cfg.CatalogFile = ""
-	cfg.KeyRefs = nil
-	cfg.RecoveryKeyRefs = nil
 	loaded, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), "integration")
 	if e != nil {
 		t.Fatal(e)

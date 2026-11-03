@@ -45,12 +45,6 @@ func (l reviewSQLLogger) Trace(ctx context.Context, begin time.Time, fc func() (
 	}
 }
 
-type reviewNotifier struct{}
-
-func (reviewNotifier) NotifyCrisis(ctx context.Context, deliveryID, caseID string) error {
-	return ctx.Err()
-}
-
 type reviewAnalyzer struct {
 	hook           func()
 	privateCalls   int
@@ -224,7 +218,6 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		open(testDSN+" options='-c role=liyuanci_evidence_delete_api'"),
 		journal,
 		codec,
-		nil,
 		log,
 		privacy.Config{
 			Command:    cfg.Command,
@@ -327,7 +320,6 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		analyzer,
 		moderation.WorkerConfig{
 			AnalysisTimeout: time.Second,
-			CrisisNotifier:  reviewNotifier{},
 			Consumer: durable.ConsumerConfig{
 				Timeout:     5 * time.Second,
 				LockTimeout: time.Second,

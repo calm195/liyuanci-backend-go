@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
@@ -69,13 +69,12 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			err = command.ErrUnavailable
 		}
 	}()
-	g, ok := r.gateway.(*gateway.Client)
-	if !ok {
-		return command.ErrInvalid
-	}
-	b := gateway.NewBusiness(g, c.LookupKeyRefs, c.Card.MaxBytes*2+65536)
-	if e = b.ReadyFor(startup, kind); e != nil {
+	b, e := openObjectGateway(c.Runtime, c.Card.MaxBytes*2+65536, log)
+	if e != nil {
 		return e
+	}
+	if b != nil {
+		defer b.Close()
 	}
 	db, e := r.pool(startup)
 	if e != nil {
@@ -94,7 +93,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 	}
 	var scanner workrunner.Scanner
 	if kind == "card" {
-		s, e := studentcard.New(db, log, workerSessions{}, r.codec, b, b, businessCardConfig(c))
+		s, e := studentcard.New(db, log, workerSessions{}, r.codec, objectStore(b), local.Scanner{Logger: log}, businessCardConfig(c))
 		if e != nil {
 			return e
 		}
@@ -111,13 +110,12 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			db,
 			log,
 			r.codec,
-			b,
+			local.Analyzer{Logger: log},
 			moderation.WorkerConfig{
 				Consumer:        durable.ConsumerConfig(c.Runtime.Worker.Consumer),
 				AnalysisTimeout: c.Runtime.Worker.AnalysisTimeout,
 				Care:            catalog.Care,
-				CrisisNotifier:  b,
-				MessageAnalyzer: b,
+				MessageAnalyzer: local.Analyzer{Logger: log},
 			},
 		)
 		if e != nil {

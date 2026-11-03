@@ -57,27 +57,7 @@ func TestDeletionValidation(t *testing.T) {
 			t.Fatal("接受非法删除理由", e)
 		}
 	}
-	if _, e := New(nil, nil, nil, nil, zap.NewNop(), Config{}); !errors.Is(e, command.ErrInvalid) {
+	if _, e := New(nil, nil, nil, zap.NewNop(), Config{}); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal("缺失依赖未关闭")
 	}
 }
-
-// TestEraserFailureBoundary 外部panic与取消不允许变成清理完成。
-func TestEraserFailureBoundary(t *testing.T) {
-	if e := eraseSafely(context.Background(), panicEraser{}, Intent{}, nil); e == nil {
-		t.Fatal("panic被当作完成")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if e := eraseSafely(ctx, emptyEraser{}, Intent{}, nil); !errors.Is(e, context.Canceled) {
-		t.Fatal("取消被当作完成", e)
-	}
-}
-
-type panicEraser struct{}
-
-func (panicEraser) Erase(context.Context, Intent, []Object) error { panic("synthetic secret") }
-
-type emptyEraser struct{}
-
-func (emptyEraser) Erase(context.Context, Intent, []Object) error { return nil }

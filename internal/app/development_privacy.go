@@ -31,8 +31,7 @@ func openDevelopmentJournal(ctx context.Context, cfg DevelopmentSettings, logger
 	return journal, func() {}, e
 }
 
-// RunPrivacyWorker 只用于显式隔离开发环境；没有正式清理/脱敏适配器时保持待办，不模拟完成。
-// 生产宿主须显式注入privacy.Eraser/Redactor后调用Service.Run，不使用本地密钥适配器。
+// RunPrivacyWorker 用于开发数据库清理；使用本机脱敏策略，不提供外部副本删除。
 func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSettings, scope string, logger *zap.Logger) (err error) {
 	if logger == nil {
 		return command.ErrInvalid
@@ -63,7 +62,10 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	if e != nil {
 		return e
 	}
-	s, e := privacy.New(db, journal, codec, nil, logger, developmentPrivacyConfig(cfg))
+	policy := local.WhisperProvider{Logger: logger}
+	pcfg := developmentPrivacyConfig(cfg)
+	pcfg.Redactor = policy
+	s, e := privacy.New(db, journal, codec, logger, pcfg)
 	if e != nil {
 		return e
 	}

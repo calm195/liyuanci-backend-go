@@ -73,7 +73,6 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 			Consumer:        durable.ConsumerConfig(cfg.Worker.Consumer),
 			AnalysisTimeout: cfg.Worker.AnalysisTimeout,
 			Care:            resources.Care,
-			CrisisNotifier:  r.gateway,
 		},
 	)
 	if e != nil {
@@ -107,7 +106,7 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 }
 
 // RunWhisperPrivacy 按领域授权恢复全部删除意图；recoverOnly用于开放读取和外发前的显式恢复演练。
-// 任何供应商失败均保留processing，进程不把缺失供应商替换为成功。
+// 数据库、账本或脱敏失败均保留processing；完成回执仅覆盖数据库清理。
 func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, recoverOnly bool, log *zap.Logger) (err error) {
 	if log == nil {
 		return command.ErrInvalid
@@ -143,7 +142,7 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 	if scope == "evidence" {
 		pcfg.Key = cfg.EvidenceKey
 	}
-	service, e := privacy.New(db, r.journal, r.codec, r.gateway, log, pcfg)
+	service, e := privacy.New(db, r.journal, r.codec, log, pcfg)
 	if e != nil {
 		return e
 	}

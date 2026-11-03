@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -30,31 +29,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-// crisisNotifier 只记录稳定投递引用；失败不发送正文和身份。
-type crisisNotifier struct {
-	mu   sync.Mutex
-	fail bool
-	ids  map[string]int
-	hook func()
-}
-
-func (n *crisisNotifier) NotifyCrisis(ctx context.Context, id, caseID string) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.hook != nil {
-		n.hook()
-	}
-	if n.fail {
-		return errors.New("SYNTHETIC_NOTIFY_SECRET")
-	}
-	if n.ids == nil {
-		n.ids = map[string]int{}
-	}
-	n.ids[id]++
-	return ctx.Err()
-}
-
-// TestCrisisCare 验证T029/REQ-015/017/018/019的真实数据库、HTTP、持久待办与误报路径；所有资料和供应商合成。
+// TestCrisisCare 验证站内关怀、案件隔离与人工处置。
 func TestCrisisCare(t *testing.T) {
 	dsn := testconfig.Value("moderation_test_dsn")
 	if dsn == "" {
@@ -250,7 +225,6 @@ func TestCrisisCare(t *testing.T) {
 		AuthEpoch: 1,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}).Error)
-	notifier := &crisisNotifier{fail: true}
 	resources := &moderation.CareResources{
 		Version:        "synthetic-v1",
 		Source:         "synthetic://test-only",
@@ -268,7 +242,6 @@ func TestCrisisCare(t *testing.T) {
 			provider,
 			moderation.WorkerConfig{
 				Care:            care,
-				CrisisNotifier:  notifier,
 				MessageAnalyzer: privateAnalyzer{},
 				AnalysisTimeout: time.Second,
 				Consumer: durable.ConsumerConfig{
@@ -333,7 +306,7 @@ func TestCrisisCare(t *testing.T) {
 	c := findCase(w.ID)
 	t.Run("隔离证据原子持久与消费重放", func(t *testing.T) {
 		if count("evidence.evidence_items", "case_id=?", c.EvidenceCaseID) != 1 ||
-			count("evidence.crisis_deliveries", "case_id=?", c.ID) != 2 {
+			count("evidence.crisis_deliveries", "case_id=?", c.ID) != 1 {
 			t.Fatal("证据或双待办缺失")
 		}
 		out, e := worker.Consume(ctx, event("wish", w.ID))
@@ -391,12 +364,13 @@ func TestCrisisCare(t *testing.T) {
 	})
 	t.Run("缺依赖及失败不丢待办和隔离", func(t *testing.T) {
 		for i := 0; i < 2; i++ {
+			makeDue()
 			_, e := worker.ProcessCrisisDelivery(ctx)
 			if e == nil {
 				t.Fatal("缺依赖未报告失败")
 			}
 		}
-		if count("evidence.crisis_deliveries", "case_id=? AND status='pending' AND attempts=1", c.ID) != 2 {
+		if count("evidence.crisis_deliveries", "case_id=? AND status='pending' AND attempts=2", c.ID) != 1 {
 			t.Fatal("待办未保留")
 		}
 		if count("public.content_restrictions", "source_ref=? AND active", c.ID) != 1 {
@@ -405,10 +379,9 @@ func TestCrisisCare(t *testing.T) {
 	})
 	t.Run("重启及租约过期补偿与关怀本人投影", func(t *testing.T) {
 		worker = makeWorker(resources)
-		notifier.fail = false
 		makeDue()
 		must(root.Exec(
-			"UPDATE evidence.crisis_deliveries SET status='leased',lease_id=?,lease_until=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'",
+			"UPDATE evidence.crisis_deliveries SET status='leased',lease_id=?,lease_until=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='care'",
 			uuid.NewString(),
 			c.ID,
 		).Error)
@@ -416,7 +389,7 @@ func TestCrisisCare(t *testing.T) {
 			_, e := worker.ProcessCrisisDelivery(ctx)
 			must(e)
 		}
-		if count("evidence.crisis_deliveries", "case_id=? AND status='sent'", c.ID) != 2 {
+		if count("evidence.crisis_deliveries", "case_id=? AND status='sent'", c.ID) != 1 {
 			t.Fatal("补偿未完成")
 		}
 		chats, e := chat.New(
@@ -452,9 +425,7 @@ func TestCrisisCare(t *testing.T) {
 		if len(page.Items) != 0 {
 			t.Fatal("跨账号关怀")
 		}
-		if len(notifier.ids) != 1 {
-			t.Fatal("通知未使用稳定投递引用")
-		}
+
 	})
 	t.Run("幂等版本及误报新任务不直接公开", func(t *testing.T) {
 		input := moderation.CrisisCommand{Action: "take_over", Reason: "合成人工接手", ExpectedVersion: c.Version}
@@ -795,35 +766,10 @@ func TestCrisisCare(t *testing.T) {
 		}
 		must(root.Create(&entity.AdminRoleBinding{AdminID: operator, Role: "crisis_operator"}).Error)
 	})
-	t.Run("通知在途误报取消拒绝晚到恢复待办", func(t *testing.T) {
-		w := create("危机命中 晚到通知")
-		scan("wish", w.ID)
-		target := findCase(w.ID)
-		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()+interval '1 hour' WHERE status='pending'").Error)
-		must(root.Exec("UPDATE evidence.crisis_deliveries SET next_at=clock_timestamp()-interval '1 second' WHERE case_id=? AND kind='operator'", target.ID).
-			Error)
-		notifier.fail = true
-		var actionErr error
-		notifier.hook = func() {
-			_, actionErr = crisis.ActOnCrisis(
-				ctx,
-				operatorToken,
-				uuid.NewString(),
-				"late-notify",
-				target.ID,
-				moderation.CrisisCommand{ExpectedVersion: 1, Reason: "合成误报"},
-				true,
-			)
-		}
-		_, e := worker.ProcessCrisisDelivery(ctx)
-		if e == nil {
-			t.Fatal("通知失败未报告")
-		}
-		must(actionErr)
-		notifier.hook = nil
-		notifier.fail = false
-		if count("evidence.crisis_deliveries", "case_id=? AND status='cancelled'", target.ID) != 2 {
-			t.Fatal("晚到失败结果恢复了取消待办")
+	t.Run("无外部通知时拒绝重试通知动作", func(t *testing.T) {
+		_, e := crisis.ActOnCrisis(ctx, operatorToken, uuid.NewString(), "retired-notify", c.ID, moderation.CrisisCommand{ExpectedVersion: 1, Reason: "无外部服务", Action: "retry_notification"}, false)
+		if !errors.Is(e, command.ErrInvalid) {
+			t.Fatal("接受已退役的通知动作", e)
 		}
 	})
 	t.Run("注销状态不重建普通内容但限定证据仍可读", func(t *testing.T) {

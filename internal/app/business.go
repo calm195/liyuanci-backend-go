@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
@@ -37,10 +38,11 @@ type BusinessAPI struct {
 	Router     *gin.Engine
 	cfg        config.Business
 	gateway    *gateway.Business
+	keys       *local.IdentityKeys
 	identityDB *gorm.DB
 }
 
-// OpenBusiness 只装配真实适配器；全部配置、结构、恢复、资料及依赖检查通过后才返回可监听路由。
+// OpenBusiness 装配本机密钥、词库审核及显式外部对象适配器；全部配置、结构、恢复、资料及依赖检查通过后才返回可监听路由。
 func OpenBusiness(ctx context.Context, cfg config.Business, environment string, client redis.UniversalClient, log *zap.Logger) (out *BusinessAPI, err error) {
 	if log == nil || config.ValidateBusiness(cfg, environment, "api") != nil {
 		return nil, command.ErrInvalid
@@ -55,15 +57,26 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 			_ = a.close()
 		}
 	}()
-	g, ok := a.r.gateway.(*gateway.Client)
-	if !ok {
-		return nil, command.ErrInvalid
-	}
 	b := &BusinessAPI{
 		runtime:  a,
 		whispers: whispers,
 		cfg:      cfg,
-		gateway:  gateway.NewBusiness(g, cfg.LookupKeyRefs, cfg.Card.MaxBytes*2+65536),
+		keys: &local.IdentityKeys{
+			WrapKey:   cfg.Runtime.WrapKey,
+			LookupKey: cfg.LookupKey,
+			Logger:    log,
+		},
+	}
+	// 对象供应商尚未选定时允许启动；外部对象读写返回不可用，不制造存储成功。
+	b.gateway, e = openObjectGateway(cfg.Runtime, cfg.Card.MaxBytes*2+65536, log)
+	if e != nil {
+		return nil, e
+	}
+	if b.gateway != nil {
+		a.r.closes = append(a.r.closes, func() error {
+			b.gateway.Close()
+			return nil
+		})
 	}
 	student, e := a.r.pool(ctx)
 	if e != nil {
@@ -77,7 +90,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e = b.Ready(ctx); e != nil {
 		return nil, e
 	}
-	store, e := identity.New(student, a.r.codec, b.gateway, log)
+	store, e := identity.New(student, a.r.codec, b.keys, log)
 	if e != nil {
 		return nil, e
 	}
@@ -116,16 +129,15 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		EvidenceDeletionDB: a.database,
 
 		DeletionJournal: a.r.journal,
-		Eraser:          b.gateway,
 		Logger:          log,
 		Ready:           b.Ready,
 		Exchange:        exchange,
 		Identity:        store,
 		Limiter:         limiter,
 		Codec:           a.r.codec,
-		Objects:         b.gateway,
-		Scanner:         b.gateway,
-		Rules:           b.gateway,
+		Objects:         objectStore(b.gateway),
+		Scanner:         local.Scanner{Logger: log},
+		Rules:           local.SchoolRules{Logger: log},
 		Grades:          businessGrades{cfg.Runtime},
 	}, ServiceConfig{
 
@@ -185,7 +197,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	return b, nil
 }
 
-// Ready 检查结构、身份检索代次、正式资料和供应商能力，不以healthz替代业务就绪。
+// Ready 检查结构、身份检索代次、正式资料及本机身份检索能力，不以healthz替代业务就绪。
 func (b *BusinessAPI) Ready(ctx context.Context) error {
 	if e := b.runtime.ready(ctx); e != nil {
 		return e
@@ -199,10 +211,7 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 	if e := businessSchema(ctx, b.runtime.database); e != nil {
 		return e
 	}
-	if e := b.gateway.ReadyFor(ctx, "api"); e != nil {
-		return e
-	}
-	if e := lookupReady(ctx, b.identityDB, b.gateway); e != nil {
+	if e := lookupReady(ctx, b.identityDB, b.keys); e != nil {
 		return e
 	}
 	catalog, e := businessResources(ctx, b.cfg.Runtime)
@@ -238,7 +247,7 @@ func businessSchema(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-func lookupReady(ctx context.Context, db *gorm.DB, g *gateway.Business) error {
+func lookupReady(ctx context.Context, db *gorm.DB, g *local.IdentityKeys) error {
 	var rows []entity.IdentityLookupKey
 	if db.WithContext(ctx).Find(&rows).Error != nil || len(rows) != 2 {
 		return command.ErrUnavailable
@@ -252,7 +261,7 @@ func lookupReady(ctx context.Context, db *gorm.DB, g *gateway.Business) error {
 			refs = append(refs, *row.PreviousRef)
 		}
 		for _, ref := range refs {
-			if !g.HasLookupReference(ref) {
+			if ref != "local-lookup-v1" {
 				return command.ErrUnavailable
 			}
 			probe, e := g.Digest(ctx, ref, row.Purpose, []byte("runtime-readiness-probe"))

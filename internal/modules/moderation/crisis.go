@@ -163,7 +163,6 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 			Version:   1,
 		},
 		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "care", Status: "pending", NextAt: now},
-		&entity.CrisisDelivery{ID: uuid.NewString(), CaseID: caseID, Kind: "operator", Status: "pending", NextAt: now},
 	} {
 		if e = db.Create(v).Error; e != nil {
 			return "", e
