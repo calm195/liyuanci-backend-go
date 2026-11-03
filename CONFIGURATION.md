@@ -83,7 +83,7 @@ make worker KIND=content                    # 另一个终端
 make wordlists                              # API运行时显式发布词库
 ```
 
-生产设置 `CONFIG=configs/production.yaml`。按需将同样命令交给宿主服务管理器，服务退出使用 SIGTERM；普通停止只结束选中的 Go 进程。完整首次启动与恢复顺序见 [README](README.md#5-完整生产装配与上线流程)。
+生产设置 `CONFIG=configs/production.yaml`。按需将同样命令交给宿主服务管理器，服务退出使用 SIGTERM；普通停止只结束选中的 Go 进程。完整首次启动与恢复顺序见 [开发者指南](DEVELOPER_GUIDE.md#5-完整生产装配与上线流程)。
 
 ## 本次清理与验证边界
 
