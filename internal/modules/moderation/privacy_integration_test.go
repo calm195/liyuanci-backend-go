@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -34,10 +36,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-// privacyDependencies 只在隔离测试中模拟外部全版本删除与脱敏；持久日志仍往返独立PostgreSQL。
+// privacyDependencies 只在隔离测试中模拟外部全版本删除与脱敏；持久意图使用与运行装配一致的加密文件账本。
 type privacyDependencies struct {
 	fail, failAppend, lostAppend, failConfirm atomic.Bool
-	journal                                   *privacy.PostgresJournal
+	journal                                   *privacy.FileJournal
 }
 
 func (p *privacyDependencies) Append(ctx context.Context, in privacy.Intent) error {
@@ -76,9 +78,9 @@ func (p *privacyDependencies) Redact(ctx context.Context, _ string, body string)
 // TestPrivacyDeletion 验证T031/REQ-004/005/007/008/014/017/018/019真实事务与六行矩阵。
 // 中间件真实、身份及外部对象/脱敏合成，不作为正式全副本或90天恢复验收。
 func TestPrivacyDeletion(t *testing.T) {
-	dsn, recoveryDSN := testconfig.Value("moderation_test_dsn"), testconfig.Value("privacy_recovery_test_dsn")
-	if dsn == "" || recoveryDSN == "" {
-		t.Skip("需独立业务及恢复PostgreSQL，运行make integration")
+	dsn := testconfig.Value("moderation_test_dsn")
+	if dsn == "" {
+		t.Skip("需隔离PostgreSQL，运行make integration")
 	}
 	ctx := context.Background()
 	log := zap.NewNop()
@@ -116,23 +118,15 @@ func TestPrivacyDeletion(t *testing.T) {
 		return strings.Replace(dsn, "dbname="+database+" ", "dbname="+name+" ", 1)
 	}
 	dsn = fresh(dsn, "privacy_")
-	recoveryDSN = fresh(recoveryDSN, "journal_")
-	root, recoveryRoot := open(dsn), open(recoveryDSN)
+	root := open(dsn)
 	must(migration.Run(ctx, root, log, "up"))
 	must(testconfig.ApplyDatabaseRoles(ctx, root, log))
-	must(testconfig.RunJournal(ctx, recoveryRoot, log, "up"))
-	must(testconfig.RunJournal(ctx, recoveryRoot, log, "permissions"))
 	role := func(name string) *gorm.DB { return open(dsn + " options='-c role=" + name + "'") }
 	codec, e := securedata.New(testKeys{}, log)
 	must(e)
-	j, e := privacy.NewJournal(
-		ctx,
-		open(recoveryDSN+" options='-c role=liyuanci_recovery_writer'"),
-		open(recoveryDSN+" options='-c role=liyuanci_recovery_reader'"),
-		codec,
-		log,
-		time.Second*5,
-	)
+	directory := t.TempDir()
+	must(os.Chmod(directory, 0700))
+	j, e := privacy.NewFileJournal(filepath.Join(directory, "deletions.json"), codec, log)
 	must(e)
 	deps := &privacyDependencies{journal: j}
 	cc := command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 5}
@@ -423,7 +417,8 @@ func TestPrivacyDeletion(t *testing.T) {
 		if count(root, "public.accounts", "id=? AND lifecycle='active'", id) != 1 {
 			t.Fatal("日志失败推进注销")
 		}
-		before := count(recoveryRoot, "public.recovery_delete_journal", "true")
+		before, e := j.AllIntents(ctx, "", 1000)
+		must(e)
 		_, e = service.Request(
 			ctx,
 			token,
@@ -434,7 +429,9 @@ func TestPrivacyDeletion(t *testing.T) {
 		if !errors.Is(e, command.ErrVersionConflict) {
 			t.Fatal("旧版本未拒绝", e)
 		}
-		if count(recoveryRoot, "public.recovery_delete_journal", "true") != before {
+		after, e := j.AllIntents(ctx, "", 1000)
+		must(e)
+		if len(after) != len(before) {
 			t.Fatal("旧版本产生意图")
 		}
 	})

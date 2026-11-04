@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,21 +199,10 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		}
 	}
 
-	// 独立逻辑日志库验证持久删除受理；同一实例不代表物理故障域隔离。
-	journalName := name + "_journal"
-	must(parent.Exec("CREATE DATABASE " + journalName).Error)
-	journalDSN := strings.Replace(dsn, needle, "dbname="+journalName+" ", 1)
-	journalRoot := open(journalDSN)
-	must(testconfig.RunJournal(ctx, journalRoot, log, "up"))
-	must(testconfig.RunJournal(ctx, journalRoot, log, "permissions"))
-	journal, e := privacy.NewJournal(
-		ctx,
-		open(journalDSN+" options='-c role=liyuanci_recovery_writer'"),
-		open(journalDSN+" options='-c role=liyuanci_recovery_reader'"),
-		codec,
-		log,
-		5*time.Second,
-	)
+	// 使用正式加密文件账本验证受理与恢复；同机文件不代表独立故障域。
+	directory := t.TempDir()
+	must(os.Chmod(directory, 0700))
+	journal, e := privacy.NewFileJournal(filepath.Join(directory, "deletions.json"), codec, log)
 	must(e)
 	deletion, e := privacy.New(
 		open(testDSN+" options='-c role=liyuanci_evidence_delete_api'"),
