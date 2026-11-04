@@ -166,3 +166,13 @@ CI 须提前开通、绑定桶并创建审核策略。worker 在事务外提交�
 所有请求使用腾讯云官方 Go SDK 签名、HTTPS、显式超时和响应长度上限，拒绝重定向。专用代理只能通过私有YAML的HTTPS源站与内联CA显式设置。云端审核数据留存、访问权限和删除规则须另行确认；当前删除回执只覆盖数据库，不承诺清除COS对象、CI留存或备份。官方接口依据：[PUT Object](https://cloud.tencent.com/document/product/436/7749)、[图片批量审核](https://cloud.tencent.com/document/product/436/119479)。
 
 `configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。
+
+## 健康模式、上传与删除恢复边界
+
+公共 `common.yaml` 默认foundation，数据库驱动留空、Redis关闭，可以直接启动健康端点；开发和生产示例分别显式启用postgres及Redis。已有业务私有覆盖若曾继承公共驱动，须补 `database.driver: postgres`；本机私有开发覆盖已补齐，原主密钥和凭据保持不变。`-check-config` 仍只校验配置，不连接或读取状态账本。
+
+HTTP普通请求保持1MiB上限；已注册的学生卡上传路由由装配显式传入图片预算（开发1MiB，完整业务使用 `business.card.maxbytes`，最大8MiB），额外预留64KiB multipart头部与边界。图片服务仍校验原图和规范化图片大小、像素、类型及唯一file部分；不能通过改变Content-Type放宽其他入口。
+
+开发API与完整业务API共享两域历史删除门禁，扫描包含已确认意图。恢复快照带回账号或证据目标时，先运行 `worker -kind account -recover` 和 `worker -kind evidence -recover`，重删并检查通过后才启动API；只恢复一个域不能放行另一个域。普通初始化不代替恢复，不清空账本。
+
+加密文件账本的完整JSON快照上限为32MiB（包含编码末尾换行），读取和发布使用同一边界。临时快照编码后超限则拒绝原子替换，记录 `capacity_exceeded=true` 的失败完成日志，原账本和历史意图保留；本次新增删除意图未受理，业务事务回滚，不能提示注销成功。已受理意图的确认、读取与恢复仍可继续。容量边界已用本地精确32MiB、超限一字节、确认及重启读取回归验证，这不代表目标机吞吐或灾备验收。需要更多容量时先设计保留全部历史意图、原密钥、跨进程锁和fsync语义的显式分段迁移；当前不自动分段、截断或清理历史，也不将已有损坏/超限账本当作空账本。

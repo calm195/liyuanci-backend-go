@@ -148,6 +148,7 @@ func (s *Store) Bind(ctx context.Context, accountID, purpose string, value []byt
 }
 
 // BeginRotation 切换到受控双代状态；未完成的轮换禁止叠加第三代。
+// 当前应用未提供轮换命令；正式本机适配器仅支持固定引用，不能通过更换masterkey代替轮换。
 func (s *Store) BeginRotation(ctx context.Context, purpose, nextRef string) error {
 	return s.transaction(ctx, "rotation_begin", purpose, func(tx *gorm.DB) error {
 		current, err := state(tx, purpose)
@@ -274,6 +275,7 @@ func (s *Store) FinishRotation(ctx context.Context, purpose string) error {
 
 // Reencrypt 在维护权限下按批重加密指定用途的旧信封，不修改内容版本或唯一占用。
 // 目标引用必须与本机密钥服务实际包裹结果一致，防止配置漂移造成无限重加密。
+// 当前仅保留领域机制和测试；生产接入须先提供可同时解开旧信封及包裹新信封的密钥适配器。
 func (s *Store) Reencrypt(ctx context.Context, purpose, targetRef string, limit int) (count int, err error) {
 	err = s.transaction(ctx, "reencrypt", purpose, func(tx *gorm.DB) error {
 		if targetRef == "" || limit < 1 || limit > 100 {

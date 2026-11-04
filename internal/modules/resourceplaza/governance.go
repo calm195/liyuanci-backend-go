@@ -12,6 +12,7 @@ import (
 )
 
 // SetBarrier 是受控治理装配调用的内部入口，不注册任何学生举报或普通后台HTTP路由。
+// 当前仅集成测试调用；它不构成已交付的资料举报或后台治理操作。
 // 调用方必须持有治理服务能力；与编辑使用相同分类、资料锁，屏障改变使资料离线且增加资源版本。
 func (s *Service) SetBarrier(ctx context.Context, token, rid, key, id string, privacy, content bool) (err error) {
 	defer s.done("barrier", rid, time.Now(), &err)
