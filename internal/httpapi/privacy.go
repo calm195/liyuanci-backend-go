@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 )
 
 // PrivacyAPI 是本人注销及匿名回执的最小边界，不提供账号参数或普通数据导出。
@@ -18,7 +18,8 @@ type PrivacyAPI interface {
 	Status(context.Context, string, string) (privacy.Receipt, error)
 }
 
-// EvidenceDeletionAPI 只能使用独立证据删除池并在服务端复核超管。
+// EvidenceDeletionAPI 由领域服务复核当前超管会话，证据删除按独立清理域处理。
+// 当前装配共享应用连接池，不能用数据库连接身份代替岗位授权。
 type EvidenceDeletionAPI interface {
 	EvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
 	DeleteEvidence(context.Context, string, string, string, string, privacy.EvidenceInput) (privacy.EvidenceAccepted, error)
@@ -40,7 +41,8 @@ func RegisterPrivacy(r *gin.Engine, s PrivacyAPI) error {
 			return
 		}
 		var in privacy.DeletionInput
-		if !interactionJSON(c, []string{"confirmation", "expected_version"}, &in) || in.Confirmation != "delete_account" || in.ExpectedVersion < 1 {
+		if !interactionJSON(c, []string{"confirmation", "expected_version"}, &in) || in.Confirmation != "delete_account" ||
+			in.ExpectedVersion < 1 {
 			returnInvalid(c)
 			return
 		}
@@ -100,7 +102,9 @@ func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
 			return
 		}
 		var in privacy.EvidenceInput
-		if !interactionJSON(c, []string{"reason", "expected_version"}, &in) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 2000 {
+		if !interactionJSON(c, []string{"reason", "expected_version"}, &in) || in.ExpectedVersion < 1 || !utf8.ValidString(in.Reason) ||
+			strings.TrimSpace(in.Reason) == "" ||
+			len(in.Reason) > 2000 {
 			returnInvalid(c)
 			return
 		}
@@ -113,6 +117,7 @@ func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
 	})
 	return nil
 }
+
 func privacyHeaders(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.Header("Pragma", "no-cache")

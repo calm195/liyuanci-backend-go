@@ -1,5 +1,6 @@
 """词库显式初始化保留既有条目、完整快照及并发发布保护。"""
 import json
+import yaml_settings as yamlio
 from pathlib import Path
 import unittest
 
@@ -8,7 +9,7 @@ from init_wordlists import initialize
 
 class WordlistInitializationTests(unittest.TestCase):
     def test_merge_and_repeat_preserve_existing_versions(self):
-        seeds = json.loads((Path(__file__).resolve().parents[1] / 'configs/examples/moderation-wordlists.json').read_text())
+        seeds = yamlio.loads((Path(__file__).resolve().parents[1] / 'configs/wordlists.yaml').read_text())
         state = {kind: {'kind': kind, 'version': 3, 'effective_id': kind + '-old'} for kind in seeds}
         versions = {kind + '-old': {'entries': ['已有专属规则']} for kind in seeds}
         writes = []
@@ -17,7 +18,7 @@ class WordlistInitializationTests(unittest.TestCase):
             if method == 'GET' and path.startswith('/wordlists?'):
                 return {'heads': [dict(x) for x in state.values()]}
             if method == 'GET':
-                return versions[path.split('/')[-1]]
+                return versions[path.split('/')[ - 1]]
             writes.append((path, data))
             if path.endswith('/versions'):
                 head = state[data['kind']]
@@ -26,7 +27,7 @@ class WordlistInitializationTests(unittest.TestCase):
                 identifier = data['kind'] + '-new'
                 versions[identifier] = dict(data)
                 return {'id': identifier, 'version': 1}
-            identifier = path.split('/')[-2]
+            identifier = path.split('/')[ - 2]
             kind = versions[identifier]['kind']
             self.assertEqual(data['expected_head_version'], state[kind]['version'])
             state[kind]['version'] += 1

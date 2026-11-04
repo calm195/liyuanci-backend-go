@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/chat"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 )
 
 // ChatAPI 显式暴露聊天与站内通知，不提供消息枚举、编辑或删除能力。
@@ -28,7 +28,12 @@ func RegisterChat(r *gin.Engine, s ChatAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	for _, path := range []string{"/me/conversations", "/conversations/:id/messages", "/me/notifications"} {
 		route := path
 		g.GET(route, func(c *gin.Context) {
@@ -115,6 +120,7 @@ func RegisterChat(r *gin.Engine, s ChatAPI) error {
 	})
 	return nil
 }
+
 func chatQuery(c *gin.Context, messages bool) (q chat.Query, err error) {
 	q.Limit = 20
 	allowed := []string{"cursor", "limit"}

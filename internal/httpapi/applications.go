@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // ApplicationsAPI 只包含应愿、同意与普通回退，不接收客户端指定的关系或审核状态。
@@ -29,7 +29,12 @@ func RegisterApplications(r *gin.Engine, service ApplicationsAPI) error {
 		return command.ErrInvalid
 	}
 	group := r.Group("/api/v1")
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.POST("/wishes/:id/applications", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -67,7 +72,14 @@ func RegisterApplications(r *gin.Engine, service ApplicationsAPI) error {
 			returnInvalid(c)
 			return
 		}
-		out, e := service.WithdrawApplication(c.Request.Context(), token, key, c.GetString("request_id"), c.Param("id"), in.Version)
+		out, e := service.WithdrawApplication(
+			c.Request.Context(),
+			token,
+			key,
+			c.GetString("request_id"),
+			c.Param("id"),
+			in.Version,
+		)
 		if e != nil {
 			adminError(c, e)
 			return
@@ -84,7 +96,8 @@ func RegisterApplications(r *gin.Engine, service ApplicationsAPI) error {
 			return
 		}
 		var in wish.AcceptInput
-		if !interactionJSON(c, []string{"expected_version", "wish_expected_version"}, &in) || in.ExpectedVersion < 1 || in.WishExpectedVersion < 1 {
+		if !interactionJSON(c, []string{"expected_version", "wish_expected_version"}, &in) || in.ExpectedVersion < 1 ||
+			in.WishExpectedVersion < 1 {
 			returnInvalid(c)
 			return
 		}
@@ -105,7 +118,8 @@ func RegisterApplications(r *gin.Engine, service ApplicationsAPI) error {
 			return
 		}
 		var in wish.RollbackInput
-		if !interactionJSON(c, []string{"expected_version", "target", "refresh_expiry"}, &in) || in.ExpectedVersion < 1 || in.Target != wish.Matching && in.Target != wish.Published {
+		if !interactionJSON(c, []string{"expected_version", "target", "refresh_expiry"}, &in) || in.ExpectedVersion < 1 ||
+			in.Target != wish.Matching && in.Target != wish.Published {
 			returnInvalid(c)
 			return
 		}
@@ -145,6 +159,7 @@ func RegisterApplications(r *gin.Engine, service ApplicationsAPI) error {
 }
 
 func returnInvalid(c *gin.Context) { adminError(c, command.ErrInvalid) }
+
 func interactionJSON(c *gin.Context, names []string, target any) bool {
 	data, fields, e := readWishJSON(c, names)
 	if e != nil {
@@ -158,6 +173,7 @@ func interactionJSON(c *gin.Context, names []string, target any) bool {
 	}
 	return json.Unmarshal(data, target) == nil
 }
+
 func applicationQuery(c *gin.Context, own bool) (q wish.ApplicationQuery, err error) {
 	q.Limit = 20
 	allowed := []string{"cursor", "limit"}

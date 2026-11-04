@@ -9,9 +9,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
+)
+
+const (
+	studentCardUploadPath = "/api/v1/me/student-card-assets"
+	// studentCardMultipartOverhead 为multipart边界和头部预留有界空间，不计入图片字节预算。
+	studentCardMultipartOverhead int64 = 64 << 10
 )
 
 // StudentCards 是显式注入的学生卡服务，不替代学生会话与人工认证。
@@ -20,13 +26,18 @@ type StudentCards interface {
 	Get(context.Context, string, string, string) (studentcard.Asset, error)
 }
 
-// RegisterStudentCards 只注册本人上传/状态路由；默认server不开放合成外部服务。
-func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
-	if r == nil || service == nil {
+// RegisterStudentCards 按显式文件字节预算注册本人上传/状态路由；默认server不开放合成外部服务。
+func RegisterStudentCards(r *gin.Engine, service StudentCards, maxBytes int64) error {
+	if r == nil || service == nil || maxBytes < 1 || maxBytes > 8<<20 {
 		return command.ErrInvalid
 	}
-	group := r.Group("/api/v1/me/student-card-assets")
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group := r.Group(studentCardUploadPath)
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.POST("", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -36,6 +47,8 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
 		if !ok {
 			return
 		}
+		// 原始文件大小仍由服务校验；总请求另含有界multipart开销，避免合法边界图片被提前截断。
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+studentCardMultipartOverhead)
 		reader, e := c.Request.MultipartReader()
 		if e != nil {
 			adminError(c, command.ErrInvalid)
@@ -64,6 +77,9 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
 		}}
 		out, e := service.Upload(c.Request.Context(), token, key, c.GetString("request_id"), contentType, body)
 		if e != nil {
+			if studentCardImageError(c, e, maxBytes) {
+				return
+			}
 			if errors.Is(e, studentcard.ErrBusy) {
 				e = adminauth.ErrRateLimited
 			}
@@ -108,4 +124,27 @@ func (r *singlePart) Read(p []byte) (int, error) {
 		}
 	}
 	return n, e
+}
+
+// studentCardImageError 返回明确的图片限制错误；不向客户端暴露解码器或内部错误原文。
+func studentCardImageError(c *gin.Context, err error, maxBytes int64) bool {
+	code := ""
+	switch {
+	case errors.Is(err, studentcard.ErrImageInputTooLarge):
+		code = "STUDENT_CARD_IMAGE_TOO_LARGE"
+	case errors.Is(err, studentcard.ErrImageNormalizedTooLarge):
+		code = "STUDENT_CARD_NORMALIZED_IMAGE_TOO_LARGE"
+	case errors.Is(err, studentcard.ErrImagePixelsExceeded):
+		code = "STUDENT_CARD_PIXELS_EXCEEDED"
+	default:
+		return false
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"code":       http.StatusBadRequest,
+		"message":    "图片不符合上传限制",
+		"error_code": code,
+		"request_id": c.GetString("request_id"),
+		"max_bytes":  maxBytes,
+	})
+	return true
 }

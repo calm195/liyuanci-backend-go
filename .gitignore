@@ -42,7 +42,12 @@ go.work.sum
 .DS_Store
 Thumbs.db
 
-# 本机凭据、对象、日志及进程状态，禁止进入Git或镜像上下文。
+# 本机凭据、对象、日志及进程状态，禁止进入Git。
 .local/
 __pycache__/
 *.pyc
+
+# 私有环境覆盖，公共模板只保留example。
+/configs/development.yaml
+/configs/production.yaml
+/configs/integration.yaml

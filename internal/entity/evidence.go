@@ -59,7 +59,7 @@ type EvidenceItem struct {
 	SubjectCipher json.RawMessage `gorm:"column:subject_cipher;type:jsonb;not null;comment:限定证据主体，保存信封密文而非明文" json:"-"`
 	BodyCipher    json.RawMessage `gorm:"column:body_cipher;type:jsonb;not null;comment:限定证据正文，保存信封密文而非明文" json:"-"`
 	AssetRef      *string         `gorm:"column:asset_ref;type:uuid;comment:可选证据域对象标识" json:"-"`
-	KeyRef        string          `gorm:"column:key_ref;type:text;not null;comment:证据外部密钥引用，不存密钥材料" json:"-"`
+	KeyRef        string          `gorm:"column:key_ref;type:text;not null;comment:证据包裹密钥引用，不存密钥材料" json:"-"`
 	CreatedAt     time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 

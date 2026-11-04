@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from urllib import error, parse, request
 import uuid
+import yaml_settings as settings
 
 
 def merge_entries(current, seeds):
@@ -47,16 +48,18 @@ class NoRedirect(request.HTTPRedirectHandler):
 def main():
     """只连接显式本地API；不打印口令、令牌、词条或底层网络错误。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--api-url', default='http://127.0.0.1:18080')
-    parser.add_argument('--business-file', default='.local/local/business.host.json')
-    parser.add_argument('--seeds', default='configs/examples/moderation-wordlists.json')
-    parser.add_argument('--login', default='developer')
+    parser.add_argument('--config', default='configs/development.yaml')
     args = parser.parse_args()
-    endpoint = parse.urlsplit(args.api_url)
+    values = settings.layers(args.config)
+    api_url = 'http://' + values.get('server', {}).get('address', '127.0.0.1:8080')
+    endpoint = parse.urlsplit(api_url)
     if endpoint.scheme != 'http' or endpoint.hostname not in ('localhost', '127.0.0.1', '::1') or endpoint.username or endpoint.password or endpoint.path or endpoint.query or endpoint.fragment:
         raise ValueError('初始化仅允许本地HTTP入口')
-    cfg = json.loads(Path(args.business_file).read_text())
-    seeds = json.loads(Path(args.seeds).read_text())
+    cfg = values['business']
+    source = Path(values['bootstrap']['wordlistsfile'])
+    if not source.is_absolute():
+        source = Path(args.config).resolve().parent / source
+    seeds = settings.read(source)
     if set(seeds) != {'crisis', 'school', 'ordinary_violation'} or any(not isinstance(items, list) or not items or any(not isinstance(x, str) or not x.strip() for x in items) for items in seeds.values()):
         raise ValueError('三类种子词库格式无效')
     opener = request.build_opener(request.ProxyHandler({}), NoRedirect())
@@ -68,9 +71,9 @@ def main():
             headers['Authorization'] = 'Bearer ' + token
         if method != 'GET':
             headers['Idempotency-Key'] = str(uuid.uuid4())
-        req = request.Request(args.api_url + '/api/v1/admin' + path,
-                              data=json.dumps(data).encode() if data is not None else None,
-                              headers=headers, method=method)
+        req = request.Request(api_url + '/api/v1/admin' + path,
+                            data=json.dumps(data).encode() if data is not None else None,
+                            headers=headers, method=method)
         with opener.open(req, timeout=15) as response:
             if response.status == 204:
                 return None
@@ -79,7 +82,11 @@ def main():
                 raise ValueError('后台操作未完成')
             return body['data']
 
-    session = call('POST', '/sessions', {'login_name': args.login, 'password': cfg['AdminPassword']})
+    session = call(
+        'POST',
+        '/sessions',
+        {'login_name': values['bootstrap']['login'], 'password': cfg['adminpassword']}
+    )
     token = session['token']
     try:
         result = initialize(call, seeds)

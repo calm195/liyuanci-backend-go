@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 // StoriesAPI 显式提供完成、故事及分享接口，不接受客户端指定业务或审核状态。
@@ -28,7 +28,12 @@ func RegisterStories(r *gin.Engine, s StoriesAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	for _, path := range []string{"/wishes/:id/complete", "/wishes/:id/story/withdraw"} {
 		route := path
 		g.POST(route, func(c *gin.Context) {

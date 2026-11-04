@@ -14,6 +14,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 func TestInvalidDependencies(t *testing.T) {
@@ -24,10 +26,10 @@ func TestInvalidDependencies(t *testing.T) {
 }
 
 func TestPostgresMigrations(t *testing.T) {
-	// T005/REQ-020：只允许专用 Docker 测试库；普通单元检查不连接中间件。
-	dsn := os.Getenv("APP_MIGRATION_TEST_DSN")
+	// T005/REQ-020：只使用原生集成入口创建的专用测试库；普通单元检查不连接中间件。
+	dsn := testconfig.Value("migration_test_dsn")
 	if dsn == "" {
-		t.Skip("需显式专用 PostgreSQL；运行 按模块要求提供隔离依赖后运行相关集成测试")
+		t.Skip("需临时PostgreSQL；运行make integration INTEGRATION_SUITE=migration")
 	}
 	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
@@ -41,7 +43,7 @@ func TestPostgresMigrations(t *testing.T) {
 	core, observed := observer.New(zap.InfoLevel)
 	log := zap.New(core)
 	ctx := context.Background()
-	// T005/REQ-020：模拟已验收的旧版账本，只追加新版本，不改写旧文件及哈希。
+	// 部分初始化后继续执行其余模块，文件校验和必须保持一致。
 	firstUp, err := files.ReadFile("sql/0001_accounts.up.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +56,8 @@ func TestPostgresMigrations(t *testing.T) {
 	if err = db.Exec(string(firstUp)).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Exec("CREATE TABLE public.schema_migrations(version bigint PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP)").Error; err != nil {
+	if err = db.Exec("CREATE TABLE public.schema_migrations(version bigint PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP)").
+		Error; err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Exec("INSERT INTO public.schema_migrations(version,checksum) VALUES (1,?)", hex.EncodeToString(firstSum[:])).Error; err != nil {
@@ -64,7 +67,11 @@ func TestPostgresMigrations(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Add(1)
-		go func() { defer wg.Done(); failures <- Run(ctx, db, log, "up") }()
+		go func() {
+
+			defer wg.Done()
+			failures <- Run(ctx, db, log, "up")
+		}()
 	}
 	wg.Wait()
 	close(failures)
@@ -73,18 +80,23 @@ func TestPostgresMigrations(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	// T005/REQ-020：账本版本不变时也执行实体同步，补齐缺失常规字段及数据库注释。
+	// 结构漂移必须报错；重跑不能在没有新版本的情况下偷偷修改表。
 	if err = db.Exec("ALTER TABLE public.accounts DROP COLUMN hide_identity_tags").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = Run(ctx, db, log, "up"); err != nil {
+	if err = Run(ctx, db, log, "up"); err == nil {
+		t.Fatal("缺失字段必须拒绝，不能自动修复")
+	}
+	if db.Migrator().HasColumn("public.accounts", "hide_identity_tags") {
+		t.Fatal("重跑迁移意外修改结构")
+	}
+	// 恢复本用例故意破坏的字段，使用原始建表定义，不调用实体 DDL。
+	if err = db.Exec(`ALTER TABLE public.accounts ADD COLUMN hide_identity_tags boolean NOT NULL DEFAULT false;
+ COMMENT ON COLUMN public.accounts.hide_identity_tags IS '是否隐藏公开身份标签'`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !db.Migrator().HasColumn("public.accounts", "hide_identity_tags") {
-		t.Fatal("自动迁移未补齐实体字段")
-	}
 	// T005/REQ-020：数据库对象注释是强制规范，探针与迁移账本同样纳入验证。
-	probeSQL, err := os.ReadFile("../../migrations/integration/0001_probe.up.sql")
+	probeSQL, err := os.ReadFile("../testconfig/sql/probe.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +116,7 @@ func TestPostgresMigrations(t *testing.T) {
 		t.Fatalf("表或字段缺少数据库注释：%d，错误：%v", missingComments, err)
 	}
 	var count int64
-	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 29 {
+	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 9 {
 		t.Fatalf("迁移账本版本数量不符：%v", err)
 	}
 	for _, statement := range []string{
@@ -162,7 +174,9 @@ func TestPostgresMigrations(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		var waiting int64
-		if err = db.Raw("SELECT count(*) FROM pg_locks WHERE relation = 'public.accounts'::regclass AND mode = 'AccessExclusiveLock' AND NOT granted").Scan(&waiting).Error; err != nil {
+		if err = db.Raw("SELECT count(*) FROM pg_locks WHERE relation = 'public.accounts'::regclass AND mode = 'AccessExclusiveLock' AND NOT granted").
+			Scan(&waiting).
+			Error; err != nil {
 			t.Fatal(err)
 		}
 		if waiting > 0 {

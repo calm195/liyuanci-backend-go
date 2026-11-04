@@ -4,12 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"time"
 
-	rocketmq "github.com/apache/rocketmq-client-go/v2"
-	"github.com/apache/rocketmq-client-go/v2/primitive"
-	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -20,10 +16,8 @@ import (
 
 // Resources 管理可选中间件客户端及其生命周期。
 type Resources struct {
-	DB          *gorm.DB
-	Redis       *redis.Client
-	Producer    rocketmq.Producer
-	NameServers []string
+	DB    *gorm.DB
+	Redis *redis.Client
 }
 
 // Open 初始化已启用的客户端，失败时释放已创建的资源。
@@ -57,6 +51,7 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 	if c.Redis.Enabled {
 		r.Redis = redis.NewClient(&redis.Options{
 			Addr:         c.Redis.Address,
+			Username:     c.Redis.Username,
 			Password:     c.Redis.Password,
 			DB:           c.Redis.DB,
 			DialTimeout:  3 * time.Second,
@@ -67,34 +62,13 @@ func Open(ctx context.Context, c config.Config) (_ *Resources, err error) {
 			return nil, fmt.Errorf("Redis连接检查失败：%w", err)
 		}
 	}
-	if c.RocketMQ.Enabled {
-		r.NameServers, err = resolveNameServers(ctx, c.RocketMQ.NameServers, net.DefaultResolver)
-		if err != nil {
-			return nil, err
-		}
-		// SDK构造失败可返回含nil指针的interface。
-		// 仅在构造和Start都成功后接管Producer，避免失败清理再次panic并遮蔽原始错误。
-		client, createErr := rocketmq.NewProducer(
-			producer.WithNameServer(primitive.NamesrvAddr(r.NameServers)),
-			producer.WithGroupName(c.RocketMQ.Group),
-			producer.WithRetry(2),
-		)
-		if createErr != nil {
-			return nil, fmt.Errorf("创建生产者失败：%w", createErr)
-		}
-		if err = client.Start(); err != nil {
-			_ = client.Shutdown()
-			return nil, fmt.Errorf("启动生产者失败：%w", err)
-		}
-		r.Producer = client
-	}
 	return r, nil
 }
 
-// Ready 检查已启用的数据库和 Redis 连接是否可用。
+// Ready 要求数据库和Redis均已装配且连接可用；只有健康端点的进程不报告业务就绪。
 func (r *Resources) Ready(ctx context.Context) error {
 	// 缺少真实依赖时仅存活，不报告具备业务处理条件。
-	if r.DB == nil || r.Redis == nil || r.Producer == nil {
+	if r.DB == nil || r.Redis == nil {
 		return errors.New("必需的中间件不可用")
 	}
 	if r.DB != nil {
@@ -113,11 +87,9 @@ func (r *Resources) Ready(ctx context.Context) error {
 }
 
 // Close 按初始化的逆序释放客户端。
+// 宿主须先等待借用这些客户端的请求和任务退出，本方法不负责排空业务。
 func (r *Resources) Close() error {
 	var errs []error
-	if r.Producer != nil {
-		errs = append(errs, r.Producer.Shutdown())
-	}
 	if r.Redis != nil {
 		errs = append(errs, r.Redis.Close())
 	}

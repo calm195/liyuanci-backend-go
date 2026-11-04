@@ -1,0 +1,66 @@
+environment: production
+mode: business
+# 唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。
+masterkey: ''
+# 唯一数据库配置；API、后台任务、显式迁移使用同一账号。
+database:
+  # 业务模式显式启用PostgreSQL；公共基础配置不连接数据库。
+  driver: postgres
+  # PostgreSQL单个主机名或IP，不含端口；IPv6不加方括号，不支持多主机列表。
+  host: 127.0.0.1
+  # PostgreSQL端口，整数1至65535；默认5432。
+  port: 5432
+  # PostgreSQL数据库名；须由管理员预先创建。
+  name: ''
+  # 专用业务库账号，拥有本库对象；禁止超级用户、BYPASSRLS和集群管理权限。
+  user: ''
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+  # TLS模式：disable关闭；allow/prefer允许明文回退；require仅加密；verify-ca校验证书链；verify-full同时校验主机名，生产跨主机建议verify-full（系统信任根）。
+  sslmode: verify-full
+  # 数据库会话时区，默认UTC；也可填写Asia/Shanghai等有效时区。
+  timezone: Asia/Shanghai
+# 共享限流连接；正式业务必须启用鉴权。
+redis:
+  # 正式业务必须启用共享限流；公共配置默认关闭。
+  enabled: true
+  # 监听或连接地址（host:port）
+  address: 127.0.0.1:6379
+  # 命名ACL用户；空值使用default用户。
+  username: ''
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+# 完整业务配置；业务权限通过账号会话、岗位及领域函数检查。
+business:
+  # 真实小程序AppID；不使用示例用户绕过微信身份校验。
+  wechatappid: ''
+  # 原微信AppSecret，内联单行字符串；至少16字符。
+  wechatsecret: ''
+  # 后台初始化原口令，内联单行字符串；至少12字符，不自动重置账号。
+  adminpassword: ''
+  # 业务任务、外部对象存储与删除恢复的共用设置。
+  runtime:
+    # 仅控制树洞与胶囊模块，不关闭其他业务或持久任务。
+    enabled: true
+    # 腾讯云原生COS与数据万象CI；启用前填写私有覆盖，普通启动不创建云资源。
+    tencent:
+      # 完整填写后显式启用；未配置时正式图片扫描失败关闭。
+      enabled: true
+      # 专用私有桶完整名称（含APPID）；必须从未开启版本控制，禁止开启或暂停。
+      bucket: ''
+      # 桶所在地域，例如ap-shanghai。
+      region: ''
+      # 最小权限子账号SecretId；只写私有YAML。
+      secretid: ''
+      # 子账号SecretKey；只写私有YAML，不提交。
+      secretkey: ''
+      # 可选临时凭据Token；到期前须更新私有配置并重启。
+      sessiontoken: ''
+      # CI已开通并绑定该桶的审核策略标识，必须显式填写。
+      biztype: ''
+      # 可选COS专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      objecturl: ''
+      # 可选CI专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      imageurl: ''
+      # 可选代理CA完整PEM，直接内联私有YAML；空值使用系统信任根。
+      ca: ''

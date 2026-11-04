@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 // AdminUsersAPI 提供后台普通资料查询，与既有用户处罚POST共享路径但不共享写权限。
@@ -24,7 +24,11 @@ func RegisterAdminUsers(r *gin.Engine, service AdminUsersAPI) error {
 		return command.ErrInvalid
 	}
 	g := r.Group("/api/v1/admin/users")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Next()
+	})
 	g.GET("", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {

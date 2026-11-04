@@ -1,0 +1,206 @@
+package moderation
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+)
+
+// CareResources 由宿主注入已核验资料；没有内置热线或预约地址，来源与版本随关怀保存。
+type CareResources struct {
+	Version        string `json:"version"`
+	Source         string `json:"source"`
+	VerifiedAt     string `json:"verified_at"`
+	Hotline24Hours string `json:"hotline_24_hours"`
+	Appointment    string `json:"appointment"`
+	Notice         string `json:"notice"`
+}
+
+// CareResourcesReady 核对正式关怀资料完整性；不提供任何内置联系资料。
+func CareResourcesReady(c *CareResources) bool { return c != nil && validateCare(c) }
+
+func validateCare(c *CareResources) bool {
+	if c == nil {
+		return true
+	}
+	for _, v := range []string{c.Version, c.Source, c.VerifiedAt, c.Hotline24Hours, c.Appointment, c.Notice} {
+		if strings.TrimSpace(v) == "" || len(v) > 4096 {
+			return false
+		}
+	}
+	_, e := time.Parse("2006-01-02", c.VerifiedAt)
+	return e == nil
+}
+
+// ProcessCrisisDelivery 使用有界租约创建站内关怀；不提供外部危机通知。
+// 未配置正式资料或创建失败保留pending和下一重试时刻，进程崩溃由到期租约恢复。
+func (w *Worker) ProcessCrisisDelivery(ctx context.Context) (processed bool, err error) {
+	start := time.Now()
+	defer func() {
+		if recover() != nil {
+			err = command.ErrInternal
+		}
+		result := "success"
+		if err != nil {
+			result = "failure"
+		}
+		w.logger.Info(
+			"危机待办投递完成",
+			zap.String("result", result),
+			zap.Duration("duration", time.Since(start)),
+			zap.Bool("processed", processed),
+		)
+	}()
+	bounded, cancel := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
+	defer cancel()
+	var job entity.CrisisDelivery
+	lease := uuid.NewString()
+	err = w.db.WithContext(bounded).Transaction(func(db *gorm.DB) error {
+		var now time.Time
+		if e := db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
+			return e
+		}
+		query := db.Where("kind='care' AND (status='pending' OR (status='leased' AND lease_until<=?)) AND next_at<=?", now, now)
+		predicate := "content_type NOT LIKE 'whisper_%'"
+		if w.whispersOnly {
+			predicate = "content_type LIKE 'whisper_%'"
+		}
+		e := query.Where("case_id IN (SELECT id FROM evidence.crisis_cases WHERE " + predicate + ")").
+			Order("next_at,id").
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Take(&job).
+			Error
+		if errors.Is(e, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		if job.Attempts == math.MaxInt64 {
+			return command.ErrConflict
+		}
+		return db.Model(&entity.CrisisDelivery{}).Where("id=?", job.ID).Updates(map[string]any{
+			"status":      "leased",
+			"lease_id":    lease,
+			"lease_until": now.Add(w.cfg.AnalysisTimeout + 2*w.cfg.Consumer.Timeout),
+			"attempts":    gorm.Expr("attempts+1"),
+		}).Error
+	})
+	if err != nil || job.ID == "" {
+		return false, safe(err)
+	}
+	processed = true
+	var sendErr error
+	finish, stop := context.WithTimeout(ctx, w.cfg.Consumer.Timeout)
+	defer stop()
+	err = w.db.WithContext(finish).Transaction(func(db *gorm.DB) error {
+		// 与人工处置保持案件先于投递行的锁序；误报已取消的租约不会创建关怀。
+		c, e := deliveryCrisisRow(db, job.CaseID)
+		if e != nil {
+			return e
+		}
+		plan := command.Discovery{Resources: []command.Resource{{Kind: command.CrisisCase, ID: c.ID}}}
+		var subject crisisSubject
+		if job.Kind == "care" {
+			item, e := evidenceItem(db, c.EvidenceCaseID)
+			if e != nil {
+				return e
+			}
+			if e = decryptEvidence(finish, w.codec, "crisis_subject", item.ID, item.SubjectCipher, &subject); e != nil {
+				return e
+			}
+			var n int64
+			if e = db.Model(&entity.Account{}).Where("id=?", subject.AccountID).Count(&n).Error; e != nil {
+				return e
+			}
+			if n == 1 {
+				plan.Accounts = []string{subject.AccountID}
+			}
+		}
+		if _, e = command.LockPlan(finish, db, plan, w.cfg.Consumer.LockTimeout); e != nil {
+			return e
+		}
+		c, e = deliveryCrisisRow(db, job.CaseID)
+		if e != nil {
+			return e
+		}
+		var current entity.CrisisDelivery
+		if e = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id=?", job.ID).Take(&current).Error; e != nil {
+			return e
+		}
+		if current.Status != "leased" || current.LeaseID == nil || *current.LeaseID != lease {
+			return nil
+		}
+		status := "sent"
+		if c.Status == "false_positive" {
+			status = "cancelled"
+		} else if job.Kind == "care" {
+			if w.cfg.Care == nil {
+				sendErr = command.ErrUnavailable
+			} else {
+				var n int64
+				if e = db.Model(&entity.Account{}).Where("id=? AND lifecycle='active'", subject.AccountID).Count(&n).Error; e != nil {
+					return e
+				}
+				if n != 1 {
+					status = "cancelled"
+				} else {
+					resources, _ := json.Marshal(w.cfg.Care)
+					if e = db.Create(&entity.CareCard{ID: job.ID, RecipientID: subject.AccountID, Resources: resources}).Error; e != nil {
+						return e
+					}
+					if e = db.Create(&entity.Notification{
+						ID:          uuid.NewString(),
+						RecipientID: subject.AccountID,
+						Type:        "crisis_care",
+						TargetRef:   job.ID,
+					}).Error; e != nil {
+						return e
+					}
+				}
+			}
+		}
+		var now time.Time
+		if e = db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
+			return e
+		}
+		if sendErr != nil && status != "cancelled" {
+			status = "pending"
+		}
+		return db.Model(&entity.CrisisDelivery{}).Where("id=? AND lease_id=?", job.ID, lease).Updates(map[string]any{
+			"status":      status,
+			"next_at":     now.Add(w.cfg.Consumer.RetryDelay),
+			"lease_id":    nil,
+			"lease_until": nil,
+		}).Error
+	})
+	if err != nil {
+		return processed, safe(err)
+	}
+	// 缺依赖亦有失败完成日志；调用方继续独立扫描，不将待办重试错误吞成整体成功。
+	return processed, safe(sendErr)
+}
+
+// Maintain 由宿主调度独立补偿危机投递，不挤占正文审核预算。
+func (w *Worker) Maintain(ctx context.Context) error {
+
+	_, e := w.ProcessCrisisDelivery(ctx)
+	return e
+}
+
+// deliveryCrisisRow 仅供内部投递；跨域公开读取仍走各自的来源筛选。
+func deliveryCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
+	err = db.Where("id=?", id).Take(&c).Error
+	return c, err
+}

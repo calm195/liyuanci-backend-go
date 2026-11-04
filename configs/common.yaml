@@ -1,0 +1,169 @@
+# Viper读取公共配置后合并私有环境覆盖；秘密只填私有YAML，时长必须带单位。
+# 环境：development开发、production生产；不从环境变量推断。
+environment: development
+# foundation仅健康探针；development为开发装配；business为完整业务；whispers为开发独立树洞。
+mode: foundation
+# 唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。
+masterkey: ''
+# HTTP监听与生命周期；端口暴露范围由address决定。
+server:
+  # 监听或连接地址（host:port）；按当前配置块填写。
+  address: 127.0.0.1:8080
+  # 读取HTTP请求的总超时，带单位，例如15s。
+  readtimeout: 15s
+  # 写入HTTP响应的总超时，带单位，例如30s。
+  writetimeout: 30s
+  # 收到TERM后等待请求结束的上限，必须为正。
+  shutdowntimeout: 15s
+# 技术日志设置；不得把正文、口令或DSN写入日志。
+log:
+  # 日志等级，例如info、warn、error。
+  level: info
+# 唯一数据库配置；API、后台任务、显式迁移使用同一账号。
+database:
+  # 数据库驱动只支持postgres；foundation未启用数据库时可省略。
+  driver: ''
+  # PostgreSQL单个主机名或IP，不含端口；IPv6不加方括号，不支持多主机列表。
+  host: ''
+  # PostgreSQL端口，整数1至65535；默认5432。
+  port: 5432
+  # PostgreSQL数据库名；须由管理员预先创建。
+  name: ''
+  # 专用业务库账号，拥有本库对象；禁止超级用户、BYPASSRLS和集群管理权限。
+  user: ''
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+  # TLS模式：disable关闭；allow/prefer允许明文回退；require仅加密；verify-ca校验证书链；verify-full同时校验主机名，生产跨主机建议verify-full（系统信任根）。
+  sslmode: disable
+  # 数据库会话时区，默认UTC；也可填写Asia/Shanghai等有效时区。
+  timezone: UTC
+  # 数据库建立连接超时，1s至60s的整秒时长；区别于连接复用寿命。
+  connecttimeout: 5s
+  # 该连接池最大连接数；原生小规格实例建议2。
+  maxopen: 10
+  # 最大空闲连接数，不能大于maxopen。
+  maxidle: 2
+  # 连接复用寿命，默认30m。
+  maxlifetime: 30m
+# 共享限流连接；正式业务必须启用鉴权。
+redis:
+  # 显式启用当前配置块；关闭不会自动清理已有数据。
+  enabled: false
+  # 监听或连接地址（host:port）；按当前配置块填写。
+  address: 127.0.0.1:6379
+  # 命名ACL用户；空值使用default用户。
+  username: ''
+  # 原口令直接写入私有YAML，建议加引号；不读取口令文件或环境变量。
+  password: ''
+  # Redis数据库编号，默认0；不同环境仍须独立实例。
+  db: 0
+# 仅显式初始化使用；普通API/worker启动不迁移、不建账号。
+bootstrap:
+  # 首次初始化的后台登录名；修改此值不会自动重置已有账号。
+  login: admin
+  # 初始化词库数据YAML；相对configs目录解析，普通启动不发布。
+  wordlistsfile: wordlists.yaml
+# 当前进程的默认任务职责。
+worker:
+  # 业务进程类型：card/content/whispers/account/evidence。
+  kind: content
+# 完整业务配置；业务权限通过账号会话、岗位及领域函数检查。
+business:
+  # 业务任务、外部对象存储与删除恢复的共用设置。
+  runtime:
+    # 腾讯云原生COS与数据万象CI；启用前填写私有覆盖，普通启动不创建云资源。
+    tencent:
+      # 完整填写后显式启用；未配置时正式图片扫描失败关闭。
+      enabled: false
+      # 专用私有桶完整名称（含APPID）；必须从未开启版本控制，禁止开启或暂停。
+      bucket: ''
+      # 桶所在地域，例如ap-shanghai。
+      region: ''
+      # 最小权限子账号SecretId；只写私有YAML。
+      secretid: ''
+      # 子账号SecretKey；只写私有YAML，不提交。
+      secretkey: ''
+      # 可选临时凭据Token；到期前须更新私有配置并重启。
+      sessiontoken: ''
+      # CI已开通并绑定该桶的审核策略标识，必须显式填写。
+      biztype: ''
+      # 可选COS专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      objecturl: ''
+      # 可选CI专用HTTPS代理源站；空值使用官方桶域名，无路径或查询参数。
+      imageurl: ''
+      # 可选代理CA完整PEM，直接内联私有YAML；空值使用系统信任根。
+      ca: ''
+    # 仅控制树洞与胶囊模块，不关闭其他业务或持久任务。
+    enabled: false
+    # 已核实公开资料的YAML路径；相对configs目录解析。
+    resourcesfile: resources.yaml
+    # 业务事务期限、锁等待和幂等回执设置。
+    command:
+      # 单次事务/操作总超时；时长必须带单位，例如5s。
+      timeout: 5s
+      # 数据库锁等待上限；不得大于该事务Timeout。
+      locktimeout: 1s
+      # 幂等回执保留期，示例168h（7天）。
+      receiptttl: 168h
+      # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
+      maxattempts: 3
+    # 数据库持久任务的扫描、消费、分析和整次处理预算。
+    tasks:
+      # 任务扫描/调度间隔；带单位，例如1s。
+      scaninterval: 1s
+      # 整次工作处理上限；应大于内部事务与供应商调用预算。
+      operationtimeout: 1m
+      # 消费者事务和重试边界；失败任务仍受持久状态约束。
+      consumer:
+        # 单次事务/操作总超时；时长必须带单位，例如5s。
+        timeout: 5s
+        # 数据库锁等待上限；不得大于该事务Timeout。
+        locktimeout: 1s
+        # 重试前等待时长；带单位，例如1m。
+        retrydelay: 1m
+        # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
+        maxattempts: 3
+      # 一次内容分析调用超时；需容纳在外层操作期限内。
+      analysistimeout: 5s
+    # 一次供应商HTTP调用超时；带单位。
+    providertimeout: 5s
+    # 加密删除意图账本；相对configs目录解析，父目录0700，不能随业务数据库一并回滚。
+    journalfile: ../.local/data/deletions.json
+    # 隔离集成使用的本地对象目录；development环境仍使用真实供应商。
+    objectdirectory: ../.local/data/objects
+  # 真实小程序AppID；不使用示例用户绕过微信身份校验。
+  wechatappid: ''
+  # 原微信AppSecret，内联单行字符串；至少16字符。
+  wechatsecret: ''
+  # 后台初始化原口令，内联单行字符串；至少12字符，不自动重置账号。
+  adminpassword: ''
+  # 学生会话有效期；必须带单位，例如24h。
+  sessionttl: 24h
+  # 微信交换临时凭证有效期；例如1m。
+  exchangettl: 1m
+  # 后台账号会话有效期；例如8h。
+  adminsessionttl: 8h
+  # 共享登录限流时间窗口；例如1m。
+  loginwindow: 1m
+  # 一个窗口内允许的登录尝试次数。
+  loginlimit: 30
+  # 业务文本字节上限，不是字符数。
+  maxtextbytes: 65536
+  # 学生卡图片解码、工作租约及重试约束。
+  card:
+    # 上传图片最大字节数；最高8MiB。
+    maxbytes: 1048576
+    # 图片最大像素总数；限制解码内存。
+    maxpixels: 4000000
+    # 单进程并发解码槽位；原生小规格建议1。
+    decodeslots: 2
+    # 工作租约时长；须大于数据库命令预算，并为最终确认预留该预算。
+    lease: 30s
+    # 重试前等待时长；带单位，例如1m。
+    retrydelay: 1m
+    # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
+    maxattempts: 3
+# 开发独立树洞设置；正式业务读取business.runtime。
+whispers:
+  # 显式启用当前配置块；关闭不会自动清理已有数据。
+  enabled: false

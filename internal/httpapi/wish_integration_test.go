@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -18,12 +17,13 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
-	"github.com/calm195/liyuanci-backend-go/internal/securedata"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
 // wishHTTPKeys 仅用于合成夹具，不模拟真实KMS已交付或生产安全性。
@@ -32,13 +32,14 @@ type wishHTTPKeys struct{}
 func (wishHTTPKeys) Wrap(_ context.Context, key []byte) (string, []byte, error) {
 	return "synthetic-only", append([]byte(nil), key...), nil
 }
+
 func (wishHTTPKeys) Unwrap(_ context.Context, _ string, key []byte) ([]byte, error) {
 	return append([]byte(nil), key...), nil
 }
 
 // TestPostgresWishHTTP 追溯 T014/REQ-003/004/005/018：HTTP到实际PG事务；不含前端或真实供应商联调。
 func TestPostgresWishHTTP(t *testing.T) {
-	dsn := os.Getenv("APP_WISH_HTTP_TEST_DSN")
+	dsn := testconfig.Value("wish_http_test_dsn")
 	if dsn == "" {
 		t.Skip("需显式隔离PostgreSQL：按模块要求提供隔离依赖后运行相关集成测试")
 	}
@@ -61,12 +62,14 @@ func TestPostgresWishHTTP(t *testing.T) {
 	if err := migration.Run(context.Background(), root, logger, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err := migration.ApplyPermissions(context.Background(), root, logger); err != nil {
+	if err := testconfig.ApplyDatabaseRoles(context.Background(), root, logger); err != nil {
 		t.Fatal(err)
 	}
 	codec, _ := securedata.New(wishHTTPKeys{}, logger)
 	service, err := wish.NewService(open("liyuanci_api"), logger, codec, nil, wish.ServiceConfig{
-		Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}, ReceiptKey: bytes.Repeat([]byte{58}, 32),
+
+		Command:    command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+		ReceiptKey: bytes.Repeat([]byte{58}, 32),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +79,13 @@ func TestPostgresWishHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := sha256.Sum256([]byte(token))
-	if err := root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &id, TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil {
+	if err := root.Create(&entity.Session{
+		ID:        uuid.NewString(),
+		AccountID: &id,
+		TokenHash: hash[:],
+		AuthEpoch: 1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	router := New(logger, func(context.Context) error { return nil })
@@ -104,7 +113,8 @@ func TestPostgresWishHTTP(t *testing.T) {
 			State string `json:"current_state"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(first.Body.Bytes(), &a) != nil || json.Unmarshal(replay.Body.Bytes(), &b) != nil || a.Data.ID == "" || a != b || a.Data.State != "draft" {
+	if json.Unmarshal(first.Body.Bytes(), &a) != nil || json.Unmarshal(replay.Body.Bytes(), &b) != nil || a.Data.ID == "" || a != b ||
+		a.Data.State != "draft" {
 		t.Fatal("重放结果错误")
 	}
 	if request("key", strings.Replace(body, "合成私有正文", "其他正文", 1)).Code != 409 {
@@ -141,7 +151,13 @@ func TestPostgresWishHTTP(t *testing.T) {
 		return rec
 	}
 	path := "/api/v1/wishes/" + a.Data.ID
-	updated := perform("PUT", path+"/content", "edit", `{"category":"help","body":"新正文","campus":"any","refresh_expiry":false,"expected_version":1}`, false)
+	updated := perform(
+		"PUT",
+		path+"/content",
+		"edit",
+		`{"category":"help","body":"新正文","campus":"any","refresh_expiry":false,"expected_version":1}`,
+		false,
+	)
 	if updated.Code != 200 {
 		t.Fatal(updated.Code, updated.Body.String())
 	}
@@ -161,7 +177,13 @@ func TestPostgresWishHTTP(t *testing.T) {
 	if result := perform("GET", "/api/v1/wishes?limit=1", "", "", true); result.Code != 200 || strings.Contains(result.Body.String(), "新正文") {
 		t.Fatal(result.Code, result.Body.String())
 	}
-	if result := perform("PUT", path+"/content", "edit-again", `{"category":"help","body":"删除前正文","campus":"any","refresh_expiry":false,"expected_version":3}`, false); result.Code != 200 {
+	if result := perform(
+		"PUT",
+		path+"/content",
+		"edit-again",
+		`{"category":"help","body":"删除前正文","campus":"any","refresh_expiry":false,"expected_version":3}`,
+		false,
+	); result.Code != 200 {
 		t.Fatal(result.Code, result.Body.String())
 	}
 	for range 2 {
@@ -174,8 +196,21 @@ func TestPostgresWishHTTP(t *testing.T) {
 	}
 
 	// Me只在显式装配且当前认证/交互资格满足时提示postWishes，Current不调用微信供应商。
-	authConfig := studentauth.Config{Wishes: true, SessionTTL: time.Hour, ExchangeTTL: time.Minute, SessionKey: bytes.Repeat([]byte{69}, 32), Command: command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3}}
-	authService, err := studentauth.New(open("liyuanci_identity_maintenance"), logger, wishUnusedAuth{}, wishUnusedAuth{}, wishUnusedAuth{}, authConfig)
+	authConfig := studentauth.Config{
+		Wishes:      true,
+		SessionTTL:  time.Hour,
+		ExchangeTTL: time.Minute,
+		SessionKey:  bytes.Repeat([]byte{69}, 32),
+		Command:     command.Config{Timeout: 5 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+	}
+	authService, err := studentauth.New(
+		open("liyuanci_identity_maintenance"),
+		logger,
+		wishUnusedAuth{},
+		wishUnusedAuth{},
+		wishUnusedAuth{},
+		authConfig,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +220,14 @@ func TestPostgresWishHTTP(t *testing.T) {
 	}
 
 	authConfig.Wishes = false
-	disabled, err := studentauth.New(open("liyuanci_identity_maintenance"), logger, wishUnusedAuth{}, wishUnusedAuth{}, wishUnusedAuth{}, authConfig)
+	disabled, err := studentauth.New(
+		open("liyuanci_identity_maintenance"),
+		logger,
+		wishUnusedAuth{},
+		wishUnusedAuth{},
+		wishUnusedAuth{},
+		authConfig,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +251,9 @@ type wishUnusedAuth struct{}
 func (wishUnusedAuth) Exchange(context.Context, string) ([]byte, error) {
 	panic("不应交换微信身份")
 }
+
 func (wishUnusedAuth) ResolveOpenID(context.Context, *gorm.DB, []byte) (string, error) {
 	panic("不应访问外部身份")
 }
+
 func (wishUnusedAuth) Allow(context.Context, string) (bool, error) { panic("不应调用登录限流") }

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 )
 
 // StudentService 由装配方显式注入；不把后台身份服务或合成供应商自动用于学生。
@@ -26,7 +26,12 @@ func RegisterStudent(r *gin.Engine, service StudentService) error {
 		return adminauth.ErrInvalid
 	}
 	group := r.Group("/api/v1")
-	noStore := func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() }
+	noStore := func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	}
 	fail := func(c *gin.Context, err error) {
 		if errors.Is(err, studentauth.ErrRateLimited) {
 			adminError(c, adminauth.ErrRateLimited)
@@ -72,7 +77,8 @@ func RegisterStudent(r *gin.Engine, service StudentService) error {
 			return
 		}
 		var input studentauth.ProfileInput
-		if strictJSON(c, &input) != nil || strings.TrimSpace(input.Nickname) == "" || input.HideIdentityTags == nil || input.ExpectedVersion < 1 {
+		if strictJSON(c, &input) != nil || strings.TrimSpace(input.Nickname) == "" || input.HideIdentityTags == nil ||
+			input.ExpectedVersion < 1 {
 			adminError(c, adminauth.ErrInvalid)
 			return
 		}

@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 type interactionBlockStub struct{ calls int }
@@ -17,10 +17,12 @@ func (s *interactionBlockStub) CreateBlock(context.Context, string, string, stri
 	s.calls++
 	return whisper.BlockAck{Accepted: true}, nil
 }
+
 func (s *interactionBlockStub) ListBlocks(context.Context, string, string, whisper.Query) (whisper.Page[whisper.BlockEntry], error) {
 	s.calls++
 	return whisper.Page[whisper.BlockEntry]{}, nil
 }
+
 func (s *interactionBlockStub) DeleteBlock(context.Context, string, string, string, string, int64) error {
 	s.calls++
 	return nil
@@ -35,7 +37,13 @@ func TestInteractionBlockProtocol(t *testing.T) {
 		{"目标账号注入", "POST", "", `{"source":{"kind":"public_profile","id":"a"},"target_user_id":"b"}`, 400},
 		{"来源多字段", "POST", "", `{"source":{"kind":"public_profile","id":"a","target_user_id":"b"}}`, 400},
 		{"主页版本", "POST", "", `{"source":{"kind":"public_profile","id":"a","content_version":1}}`, 400},
-		{"匿名别名", "POST", "", `{"source":{"kind":"whisper_post","id":"a","alias":"b","content_version":1}}`, 400},
+		{
+			"匿名别名",
+			"POST",
+			"",
+			`{"source":{"kind":"whisper_post","id":"a","alias":"b","content_version":1}}`,
+			400,
+		},
 		{"缺正文版本", "POST", "", `{"source":{"kind":"whisper_post","id":"a"}}`, 400},
 		{"空来源", "POST", "", `{"source":null}`, 400},
 		{"重复来源", "POST", "", `{"source":{},"source":{}}`, 400},

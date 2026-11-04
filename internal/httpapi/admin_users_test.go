@@ -12,8 +12,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 type usersStub struct {
@@ -28,10 +28,12 @@ func (s *usersStub) UsersList(_ context.Context, _, _ string, q safety.UsersQuer
 	s.q = q
 	return safety.UserPage{Items: []safety.UserSummary{}}, s.failure
 }
+
 func (s *usersStub) UserDetailRead(context.Context, string, string, string) (safety.UserDetail, error) {
 	s.called = true
 	return safety.UserDetail{}, s.failure
 }
+
 func (s *usersStub) UserPenalties(_ context.Context, _, _, _ string, q safety.UsersQuery) (safety.UserPenaltyPage, error) {
 	s.called = true
 	s.q = q
@@ -46,12 +48,37 @@ func TestAdminUsersHTTP(t *testing.T) {
 		status  int
 		failure error
 	}{
-		{"", 200, nil}, {"?nickname=", 200, nil}, {"?nickname=%E3%80%80LiFish%25_", 200, nil},
-		{"?limit=", 400, nil}, {"?cursor=", 400, nil}, {"?user_id=", 400, nil}, {"?limit=0", 400, nil}, {"?limit=51", 400, nil}, {"?limit=%2B1", 400, nil},
-		{"?limit=1&limit=1", 400, nil}, {"?nickname=a&nickname=a", 400, nil}, {"?unknown=x", 400, nil}, {"?verification=all", 400, nil}, {"?nickname=%zz", 400, nil}, {"?a;b=c", 400, nil},
+
+		{"", 200, nil},
+		{"?nickname=", 200, nil},
+		{"?nickname=%E3%80%80LiFish%25_", 200, nil},
+
+		{"?limit=", 400, nil},
+		{"?cursor=", 400, nil},
+		{"?user_id=", 400, nil},
+		{"?limit=0", 400, nil},
+		{"?limit=51", 400, nil},
+		{"?limit=%2B1", 400, nil},
+
+		{"?limit=1&limit=1", 400, nil},
+		{"?nickname=a&nickname=a", 400, nil},
+		{"?unknown=x", 400, nil},
+		{"?verification=all", 400, nil},
+		{"?nickname=%zz", 400, nil},
+		{"?a;b=c", 400, nil},
+
 		{"?nickname=" + url.QueryEscape(strings.Repeat("鲤", 51)), 400, nil},
-		{"/invalid", 400, nil}, {"/" + id + "?nickname=a", 400, nil}, {"/" + id + "/penalties?nickname=", 400, nil},
-		{"/" + id + "/penalties?limit=1", 200, nil}, {"", 401, command.ErrUnauthenticated}, {"", 403, command.ErrForbidden}, {"/" + id, 404, command.ErrNotFound}, {"", 500, command.ErrInternal}, {"", 503, command.ErrUnavailable},
+
+		{"/invalid", 400, nil},
+		{"/" + id + "?nickname=a", 400, nil},
+		{"/" + id + "/penalties?nickname=", 400, nil},
+
+		{"/" + id + "/penalties?limit=1", 200, nil},
+		{"", 401, command.ErrUnauthenticated},
+		{"", 403, command.ErrForbidden},
+		{"/" + id, 404, command.ErrNotFound},
+		{"", 500, command.ErrInternal},
+		{"", 503, command.ErrUnavailable},
 	} {
 		t.Run(tc.path+string(rune(tc.status)), func(t *testing.T) {
 			core, logs := observer.New(zap.InfoLevel)

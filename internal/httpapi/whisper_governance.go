@@ -8,24 +8,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/moderation"
-	"github.com/calm195/liyuanci-backend-go/internal/privacy"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
-// WhisperEvidenceDeletionAPI 使用独立证据删除池并隔离旧后台回执。
+// WhisperEvidenceDeletionAPI 由领域服务复核超管会话，并将树洞证据与旧后台回执隔离。
 type WhisperEvidenceDeletionAPI interface {
 	WhisperEvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
 	DeleteWhisperEvidence(context.Context, string, string, string, string, privacy.EvidenceInput) (privacy.EvidenceAccepted, error)
 }
 
+// whisperGovernanceServices 将普通审核、危机与证据读取依赖保持为显式独立边界。
+type whisperGovernanceServices struct {
+	review   *moderation.Service
+	crisis   *moderation.Service
+	evidence WhisperEvidenceDeletionAPI
+}
+
 // RegisterWhisperGovernance 显式装配独立树洞后台和举报投影；生产总装配仍须通过隐私验收。
-// 证据删除复用独立删除身份的持久框架，受理成功仅表示进入清理队列。
+// 证据删除复用独立清理域的持久框架，受理成功仅表示进入清理队列。
 func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *moderation.Service, student *moderation.Service, evidence WhisperEvidenceDeletionAPI) error {
 	if r == nil || s == nil || crisis == nil || student == nil || evidence == nil {
 		return command.ErrInvalid
 	}
+	services := whisperGovernanceServices{review: s, crisis: crisis, evidence: evidence}
 	handle := func(op string) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			c.Header("Cache-Control", "no-store")
@@ -54,36 +62,7 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 			var out any
 			status := http.StatusOK
 			if c.Request.Method == http.MethodGet {
-				switch op {
-				case "reviews", "reports", "crises":
-					q, failure := whisperQuery(c)
-					if failure != nil {
-						e = failure
-						break
-					}
-					switch op {
-					case "reviews":
-						out, e = s.WhisperReviews(ctx, token, rid, q.Cursor, q.Limit)
-					case "reports":
-						out, e = s.WhisperReports(ctx, token, rid, q.Cursor, q.Limit)
-					case "crises":
-						out, e = crisis.WhisperCrises(ctx, token, rid, q.Cursor, q.Limit)
-					}
-				case "review":
-					out, e = s.WhisperReview(ctx, token, rid, id)
-				case "report":
-					out, e = s.WhisperReport(ctx, token, rid, id)
-				case "content":
-					out, e = s.WhisperContent(ctx, token, rid, kind, id)
-				case "crisis":
-					out, e = crisis.WhisperCrisis(ctx, token, rid, id)
-				case "evidence":
-					out, e = crisis.WhisperEvidence(ctx, token, rid, id)
-				case "deletion":
-					var v privacy.Receipt
-					v, e = evidence.WhisperEvidenceStatus(ctx, token, rid, id)
-					out = whisperDeletion(id, v.Status)
-				}
+				out, e = services.read(c, op, token, rid, id, kind)
 			} else {
 				key := c.GetHeader("Idempotency-Key")
 				if !whisper.ValidKey(key) || len(c.Request.Header.Values("Idempotency-Key")) != 1 {
@@ -95,25 +74,19 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 					whisperError(c, failure)
 					return
 				}
-				decode := func(target any, required []string, allowed ...string) error {
-					if !strictWhisperUnicode(raw) {
-						return command.ErrInvalid
-					}
-					fields, e := wishObject(raw, allowed)
-					if e != nil {
-						return e
-					}
-					for _, name := range required {
-						if _, ok := fields[name]; !ok {
-							return command.ErrInvalid
-						}
-					}
-					return json.Unmarshal(raw, target)
-				}
+				decode := governanceDecoder(raw)
 				switch op {
 				case "decide":
 					var v moderation.WhisperReviewCommand
-					e = decode(&v, []string{"expected_version", "expected_content_version", "decision"}, "expected_version", "expected_content_version", "decision", "reason", "revision_suggestion")
+					e = decode(
+						&v,
+						[]string{"expected_version", "expected_content_version", "decision"},
+						"expected_version",
+						"expected_content_version",
+						"decision",
+						"reason",
+						"revision_suggestion",
+					)
 					if e == nil {
 						out, e = s.DecideWhisper(ctx, token, key, rid, id, v)
 					}
@@ -125,7 +98,15 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 					}
 				case "penalty":
 					var v moderation.WhisperPenaltyCommand
-					e = decode(&v, []string{"expected_version", "report_id", "expected_report_version", "level", "reason"}, "expected_version", "report_id", "expected_report_version", "level", "reason")
+					e = decode(
+						&v,
+						[]string{"expected_version", "report_id", "expected_report_version", "level", "reason"},
+						"expected_version",
+						"report_id",
+						"expected_report_version",
+						"level",
+						"reason",
+					)
 					if e == nil {
 						out, e = s.NewWhisperPenalty(ctx, token, key, rid, kind, id, v)
 					}
@@ -173,8 +154,16 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 						Confirmation    string `json:"confirmation"`
 						Reason          string `json:"reason"`
 					}
-					e = decode(&v, []string{"expected_version", "confirmation", "reason"}, "expected_version", "confirmation", "reason")
-					if e == nil && (v.Confirmation != "DELETE_EVIDENCE_SCOPE" || v.ExpectedVersion < 1 || strings.TrimSpace(v.Reason) == "" || len([]rune(v.Reason)) > 500) {
+					e = decode(
+						&v,
+						[]string{"expected_version", "confirmation", "reason"},
+						"expected_version",
+						"confirmation",
+						"reason",
+					)
+					if e == nil &&
+						(v.Confirmation != "DELETE_EVIDENCE_SCOPE" || v.ExpectedVersion < 1 || strings.TrimSpace(v.Reason) == "" ||
+							len([]rune(v.Reason)) > 500) {
 						e = command.ErrInvalid
 					}
 					if e == nil {
@@ -182,7 +171,14 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 					}
 					if e == nil {
 						var accepted privacy.EvidenceAccepted
-						accepted, e = evidence.DeleteWhisperEvidence(ctx, token, key, rid, id, privacy.EvidenceInput{Reason: v.Reason, ExpectedVersion: v.ExpectedVersion})
+						accepted, e = evidence.DeleteWhisperEvidence(
+							ctx,
+							token,
+							key,
+							rid,
+							id,
+							privacy.EvidenceInput{Reason: v.Reason, ExpectedVersion: v.ExpectedVersion},
+						)
 						out = whisperDeletion(accepted.ID, "processing")
 						status = http.StatusAccepted
 					}
@@ -217,6 +213,60 @@ func RegisterWhisperGovernance(r *gin.Engine, s *moderation.Service, crisis *mod
 	r.GET(base+"/deletions/:id", handle("deletion"))
 	return nil
 }
+
+// read 按操作选择已有领域读取，分页解析只对列表生效；授权仍由各领域服务逐次复核。
+func (s whisperGovernanceServices) read(c *gin.Context, op, token, rid, id, kind string) (out any, err error) {
+	ctx := c.Request.Context()
+	switch op {
+	case "reviews", "reports", "crises":
+		q, failure := whisperQuery(c)
+		if failure != nil {
+			return nil, failure
+		}
+		switch op {
+		case "reviews":
+			return s.review.WhisperReviews(ctx, token, rid, q.Cursor, q.Limit)
+		case "reports":
+			return s.review.WhisperReports(ctx, token, rid, q.Cursor, q.Limit)
+		case "crises":
+			return s.crisis.WhisperCrises(ctx, token, rid, q.Cursor, q.Limit)
+		}
+	case "review":
+		return s.review.WhisperReview(ctx, token, rid, id)
+	case "report":
+		return s.review.WhisperReport(ctx, token, rid, id)
+	case "content":
+		return s.review.WhisperContent(ctx, token, rid, kind, id)
+	case "crisis":
+		return s.crisis.WhisperCrisis(ctx, token, rid, id)
+	case "evidence":
+		return s.crisis.WhisperEvidence(ctx, token, rid, id)
+	case "deletion":
+		v, failure := s.evidence.WhisperEvidenceStatus(ctx, token, rid, id)
+		return whisperDeletion(id, v.Status), failure
+	}
+	return nil, nil
+}
+
+// governanceDecoder 为当前请求绑定严格字段白名单，不接受非法 Unicode、未知字段或缺失必填字段。
+func governanceDecoder(raw []byte) func(any, []string, ...string) error {
+	return func(target any, required []string, allowed ...string) error {
+		if !strictWhisperUnicode(raw) {
+			return command.ErrInvalid
+		}
+		fields, err := wishObject(raw, allowed)
+		if err != nil {
+			return err
+		}
+		for _, name := range required {
+			if _, ok := fields[name]; !ok {
+				return command.ErrInvalid
+			}
+		}
+		return json.Unmarshal(raw, target)
+	}
+}
+
 func whisperDeletion(id, status string) any {
 	return struct {
 		ID             string   `json:"id"`

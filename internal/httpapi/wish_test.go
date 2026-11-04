@@ -11,8 +11,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 type wishCreatorFixture struct {
@@ -31,7 +31,12 @@ func (f *wishCreatorFixture) Create(_ context.Context, token, key, requestID str
 	if f.panicCreate {
 		panic("SYNTHETIC_PRIVATE_BODY")
 	}
-	return wish.CreatedDraft{ID: "6c500000-0000-4000-8000-000000000001", Version: 1, ContentVersion: 1, State: wish.Draft}, f.failure
+	return wish.CreatedDraft{
+		ID:             "6c500000-0000-4000-8000-000000000001",
+		Version:        1,
+		ContentVersion: 1,
+		State:          wish.Draft,
+	}, f.failure
 }
 
 // TestWishCreationProtocol 追溯 T014/REQ-003/004/005/018：正式0.2.0创建形状与HTTP失败协议；服务为显式合成夹具。
@@ -45,30 +50,73 @@ func TestWishCreationProtocol(t *testing.T) {
 		noToken, noKey      bool
 	}{
 		{name: "created", body: valid, status: 201, called: true},
-		{name: "full", body: `{"category":"help","body":"SYNTHETIC_PRIVATE_BODY","campus":"any","identity_tags":{"gender":"undisclosed"},"reward_method":"sincere_thanks","duration_days":30}`, status: 201, called: true},
+		{
+			name:   "full",
+			body:   `{"category":"help","body":"SYNTHETIC_PRIVATE_BODY","campus":"any","identity_tags":{"gender":"undisclosed"},"reward_method":"sincere_thanks","duration_days":30}`,
+			status: 201,
+			called: true,
+		},
 		{name: "no_token", body: valid, status: 401, noToken: true},
 		{name: "no_key", body: valid, status: 400, noKey: true},
 		{name: "unknown", body: `{"category":"help","body":"x","campus":"any","owner_id":"x"}`, status: 400},
 		{name: "missing", body: `{"category":"help","body":"x"}`, status: 400},
-		{name: "null", body: `{"category":"help","body":"x","campus":"any","duration_days":null}`, status: 400},
+		{
+			name:   "null",
+			body:   `{"category":"help","body":"x","campus":"any","duration_days":null}`,
+			status: 400,
+		},
 		{name: "duplicate", body: `{"category":"help","body":"x","body":"y","campus":"any"}`, status: 400},
 		{name: "trailing", body: valid + `{}`, status: 400},
 		{name: "capitalization", body: `{"Category":"help","body":"x","campus":"any"}`, status: 400},
-		{name: "tag_null", body: `{"category":"help","body":"x","campus":"any","identity_tags":{"gender":null}}`, status: 400},
-		{name: "tag_duplicate", body: `{"category":"help","body":"x","campus":"any","identity_tags":{"gender":"male","gender":"female"}}`, status: 400},
-		{name: "tag_unknown", body: `{"category":"help","body":"x","campus":"any","identity_tags":{"name":"x"}}`, status: 400},
-		{name: "tag_array", body: `{"category":"help","body":"x","campus":"any","identity_tags":[]}`, status: 400},
-		{name: "fraction", body: `{"category":"help","body":"x","campus":"any","duration_days":1.5}`, status: 400},
+		{
+			name:   "tag_null",
+			body:   `{"category":"help","body":"x","campus":"any","identity_tags":{"gender":null}}`,
+			status: 400,
+		},
+		{
+			name:   "tag_duplicate",
+			body:   `{"category":"help","body":"x","campus":"any","identity_tags":{"gender":"male","gender":"female"}}`,
+			status: 400,
+		},
+		{
+			name:   "tag_unknown",
+			body:   `{"category":"help","body":"x","campus":"any","identity_tags":{"name":"x"}}`,
+			status: 400,
+		},
+		{
+			name:   "tag_array",
+			body:   `{"category":"help","body":"x","campus":"any","identity_tags":[]}`,
+			status: 400,
+		},
+		{
+			name:   "fraction",
+			body:   `{"category":"help","body":"x","campus":"any","duration_days":1.5}`,
+			status: 400,
+		},
 		{name: "wrong_type", body: `{"category":"help","body":1,"campus":"any"}`, status: 400},
 		{name: "array", body: `[]`, status: 400},
-		{name: "bad_utf8", body: strings.Replace(valid, "SYNTHETIC_PRIVATE_BODY", string([]byte{0xff}), 1), status: 400},
-		{name: "too_large", body: strings.Replace(valid, "SYNTHETIC_PRIVATE_BODY", strings.Repeat("a", 1<<20), 1), status: 400},
+		{
+			name:   "bad_utf8",
+			body:   strings.Replace(valid, "SYNTHETIC_PRIVATE_BODY", string([]byte{0xff}), 1),
+			status: 400,
+		},
+		{
+			name:   "too_large",
+			body:   strings.Replace(valid, "SYNTHETIC_PRIVATE_BODY", strings.Repeat("a", 1<<20), 1),
+			status: 400,
+		},
 		{name: "invalid", body: valid, failure: command.ErrInvalid, status: 400, called: true},
 		{name: "unauthenticated", body: valid, failure: command.ErrUnauthenticated, status: 401, called: true},
 		{name: "forbidden", body: valid, failure: command.ErrForbidden, status: 403, called: true},
 		{name: "not_found", body: valid, failure: command.ErrNotFound, status: 404, called: true},
 		{name: "conflict", body: valid, failure: command.ErrIdempotencyConflict, status: 409, called: true},
-		{name: "unavailable", body: valid, failure: errors.New("SYNTHETIC_PRIVATE_BODY"), status: 503, called: true},
+		{
+			name:    "unavailable",
+			body:    valid,
+			failure: errors.New("SYNTHETIC_PRIVATE_BODY"),
+			status:  503,
+			called:  true,
+		},
 		{name: "panic", body: valid, status: 500, called: true, panicCreate: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -114,10 +162,13 @@ func TestWishCreationProtocol(t *testing.T) {
 				if err := json.Unmarshal(rec.Body.Bytes(), &wire); err != nil {
 					t.Fatal(err)
 				}
-				if wire.Data.State != "draft" || wire.Data.Version != 1 || wire.Data.ContentVersion != 1 || wire.Data.ID == "" || wire.Data.Actions == nil || len(wire.Data.Actions) != 0 {
+				if wire.Data.State != "draft" || wire.Data.Version != 1 || wire.Data.ContentVersion != 1 || wire.Data.ID == "" ||
+					wire.Data.Actions == nil ||
+					len(wire.Data.Actions) != 0 {
 					t.Fatal("创建投影不符合契约", wire)
 				}
-				if tc.name == "created" && (fixture.input.DurationDays != nil || fixture.input.RewardMethod != nil || fixture.input.IdentityTags != nil) {
+				if tc.name == "created" &&
+					(fixture.input.DurationDays != nil || fixture.input.RewardMethod != nil || fixture.input.IdentityTags != nil) {
 					t.Fatal("省略字段被HTTP层填充")
 				}
 				if tc.name == "full" && (*fixture.input.DurationDays != 30 || *fixture.input.IdentityTags.Gender != "undisclosed") {

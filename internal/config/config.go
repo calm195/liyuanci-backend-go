@@ -2,122 +2,112 @@ package config
 
 import (
 	"fmt"
-	"strings"
+	"path/filepath"
 	"time"
 
-	"github.com/spf13/viper"
+	"github.com/calm195/liyuanci-backend-go/internal/platform/yamlconfig"
 )
 
-// Config 保存服务设置及可选中间件配置。
+// Config 是所有进程共用的配置；database 中的独立字段组成唯一数据库连接。
 type Config struct {
-	Environment  string
-	DevAppFile   string
-	WhispersFile string
-	AdminAuth    struct {
-		Enabled                                                   bool
-		DSN, InitialPasswordFile, ReceiptKeyFile                  string
-		SessionTTL, Timeout, LockTimeout, ReceiptTTL, LoginWindow time.Duration
-		LoginLimit, MaxAttempts                                   int
-	}
-	Server struct {
+	Environment, Mode string
+	// MasterKey 是唯一可配置的应用主密钥；各领域子密钥只在内存派生。
+	MasterKey []byte
+	Business  Business
+	Whispers  Runtime
+	Worker    struct{ Kind string }
+	Bootstrap struct{ Login, WordlistsFile string }
+	Server    struct {
 		Address                                    string
 		ReadTimeout, WriteTimeout, ShutdownTimeout time.Duration
 	}
 	Log      struct{ Level string }
-	Database struct {
-		Driver, DSN      string
-		MaxOpen, MaxIdle int
-		MaxLifetime      time.Duration
-	}
-	Redis struct {
-		Enabled           bool
-		Address, Password string
-		DB                int
-	}
-	RocketMQ struct {
-		Enabled     bool
-		NameServers []string
-		Group       string
+	Database Database
+	Redis    struct {
+		Enabled                     bool
+		Address, Username, Password string
+		DB                          int
 	}
 }
 
-// Load 加载配置，环境变量优先于 YAML 配置。
+// Load 按 common.yaml、指定环境覆盖 YAML 的顺序深度合并；数组整体替换。
+// 所有进程使用相同文件组合；不读取环境变量，不自动选择生产配置，不写回凭据。
 func Load(path string) (Config, error) {
-	v := viper.New()
-	v.SetDefault("environment", "foundation")
-	v.SetDefault("devappfile", "")
-	v.SetDefault("whispersfile", "")
-	v.SetDefault("adminauth.enabled", false)
-	v.SetDefault("adminauth.dsn", "")
-	v.SetDefault("adminauth.initialpasswordfile", "")
-	v.SetDefault("adminauth.receiptkeyfile", "")
-	for _, key := range []string{"sessionttl", "timeout", "locktimeout", "receiptttl", "loginwindow"} {
-		v.SetDefault("adminauth."+key, "0s")
+	c := Defaults()
+	if path == "" {
+		path = "configs/development.yaml"
 	}
-	v.SetDefault("adminauth.loginlimit", 0)
-	v.SetDefault("adminauth.maxattempts", 0)
-	v.SetDefault("server.address", "127.0.0.1:8080")
-	v.SetDefault("server.readtimeout", "5s")
-	v.SetDefault("server.writetimeout", "10s")
-	v.SetDefault("server.shutdowntimeout", "10s")
-	v.SetDefault("log.level", "info")
-	v.SetDefault("database.driver", "")
-	v.SetDefault("database.dsn", "")
-	v.SetDefault("database.maxopen", 20)
-	v.SetDefault("database.maxidle", 5)
-	v.SetDefault("database.maxlifetime", "30m")
-	v.SetDefault("redis.enabled", false)
-	v.SetDefault("redis.address", "localhost:6379")
-	v.SetDefault("redis.password", "")
-	v.SetDefault("redis.db", 0)
-	v.SetDefault("rocketmq.enabled", false)
-	v.SetDefault("rocketmq.nameservers", []string{"localhost:9876"})
-	v.SetDefault("rocketmq.group", "liyuanci-api")
-	v.SetEnvPrefix("APP")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-	if path != "" {
-		v.SetConfigFile(path)
-		if err := v.ReadInConfig(); err != nil {
-			return Config{}, fmt.Errorf("读取配置失败：%w", err)
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return c, yamlconfig.ErrInvalid
+	}
+	common := filepath.Join(filepath.Dir(absolute), "common.yaml")
+	paths := []string{common}
+	if absolute != common {
+		paths = append(paths, absolute)
+	}
+	if err := yamlconfig.ReadLayers(paths, &c); err != nil {
+		return c, err
+	}
+	if c.Environment != "development" && c.Environment != "integration" && c.Environment != "production" {
+		return c, fmt.Errorf("环境只允许development或production，integration保留给隔离测试")
+	}
+	if c.Mode != "foundation" && c.Mode != "development" && c.Mode != "business" && c.Mode != "whispers" {
+		return c, fmt.Errorf("运行模式无效")
+	}
+	if c.Environment == "production" && c.Mode != "business" {
+		return c, fmt.Errorf("生产环境必须使用完整业务适配器")
+	}
+	if err := c.Database.resolve(); err != nil {
+		return c, err
+	}
+	if c.Mode != "foundation" && (c.Database.Driver != "postgres" || c.Database.DSN == "" || !c.Redis.Enabled) {
+		return c, fmt.Errorf("业务模式必须配置database连接字段和Redis")
+	}
+	if c.Server.Address == "" || c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 ||
+		c.Database.MaxOpen < 1 ||
+		c.Database.MaxOpen > 100 ||
+		c.Database.MaxIdle < 0 ||
+		c.Database.MaxIdle > c.Database.MaxOpen ||
+		c.Database.MaxLifetime <= 0 {
+		return c, fmt.Errorf("监听、期限或连接池预算无效")
+	}
+	if c.Environment == "production" && c.Redis.Password == "" {
+		return c, fmt.Errorf("生产Redis必须配置鉴权")
+	}
+	if err := c.resolveKeys(); err != nil {
+		return c, err
+	}
+	// 相对资源/状态路径固定相对于配置目录，与进程工作目录无关。
+	resolve := func(value string) string {
+		if value == "" || filepath.IsAbs(value) {
+			return value
 		}
+		return filepath.Clean(filepath.Join(filepath.Dir(absolute), value))
 	}
-	var c Config
-	if err := v.Unmarshal(&c); err != nil {
-		return c, fmt.Errorf("解析配置失败：%w", err)
+	c.Bootstrap.WordlistsFile = resolve(c.Bootstrap.WordlistsFile)
+	if err := validateTencent(c.Business.Runtime.Tencent); err != nil {
+		return c, err
 	}
-	if c.Database.Driver != "" && c.Database.Driver != "postgres" {
-		return c, fmt.Errorf("不支持的数据库驱动%q", c.Database.Driver)
-	}
-	if c.Database.Driver != "" && c.Database.DSN == "" && c.WhispersFile == "" {
-		return c, fmt.Errorf("必须配置数据库DSN")
-	}
-	if c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
-		return c, fmt.Errorf("服务超时必须为正数")
-	}
-	if c.Database.MaxOpen <= 0 || c.Database.MaxIdle < 0 || c.Database.MaxIdle > c.Database.MaxOpen || c.Database.MaxLifetime <= 0 {
-		return c, fmt.Errorf("数据库连接池配置无效")
-	}
-	if c.RocketMQ.Enabled && (len(c.RocketMQ.NameServers) == 0 || c.RocketMQ.Group == "") {
-		return c, fmt.Errorf("必须配置RocketMQ的NameServer和组名")
-	}
-	// 真实环境不能静默降级到无中间件或Mock。
-	if c.Environment != "foundation" && c.Environment != "integration" && c.Environment != "production" {
-		return c, fmt.Errorf("不支持的运行环境")
-	}
-	if c.WhispersFile != "" && c.Environment == "foundation" {
-		return c, fmt.Errorf("树洞运行配置要求显式业务环境")
-	}
-	// 显式开发业务使用数据库轮询，允许不启用MQ；生产和完整集成仍要求全部中间件。
-	localBusiness := c.Environment == "integration" && (c.DevAppFile != "" || c.WhispersFile != "")
-	if c.Environment != "foundation" && (c.Database.Driver != "postgres" || !c.Redis.Enabled || (!c.RocketMQ.Enabled && !localBusiness)) {
-		return c, fmt.Errorf("基础环境以外必须启用全部中间件")
-	}
-	if c.AdminAuth.Enabled && (c.AdminAuth.DSN == "" || c.AdminAuth.InitialPasswordFile == "" || c.AdminAuth.ReceiptKeyFile == "" || !c.Redis.Enabled || c.AdminAuth.SessionTTL <= 0 || c.AdminAuth.Timeout <= 0 || c.AdminAuth.LockTimeout < time.Millisecond || c.AdminAuth.LockTimeout > c.AdminAuth.Timeout || c.AdminAuth.ReceiptTTL <= 0 || c.AdminAuth.LoginWindow < time.Millisecond || c.AdminAuth.LoginLimit < 1 || c.AdminAuth.MaxAttempts < 1 || c.AdminAuth.MaxAttempts > 10) {
-		return c, fmt.Errorf("后台身份启用时必须显式配置独立数据库、凭据文件、期限、重试及共享限流")
-	}
-	if c.DevAppFile != "" && (c.Environment != "integration" || c.AdminAuth.Enabled) {
-		return c, fmt.Errorf("本地业务适配器仅允许隔离集成环境且不能重复装配后台身份")
+	c.Business.Runtime.ObjectDirectory = resolve(c.Business.Runtime.ObjectDirectory)
+	for _, r := range []*Runtime{&c.Business.Runtime, &c.Whispers} {
+		r.DatabaseDSN = c.Database.DSN
+		r.DatabaseMaxOpen, r.DatabaseMaxIdle = c.Database.MaxOpen, c.Database.MaxIdle
+		r.DatabaseMaxLifetime = c.Database.MaxLifetime
+		r.JournalFile, r.ResourcesFile = resolve(r.JournalFile), resolve(r.ResourcesFile)
 	}
 	return c, nil
+}
+
+// Defaults 返回公共基础预算；不包含任何口令、密钥或数据库连接。
+func Defaults() Config {
+	c := Config{Environment: "development", Mode: "foundation"}
+	c.Server.Address = "127.0.0.1:8080"
+	c.Server.ReadTimeout, c.Server.WriteTimeout, c.Server.ShutdownTimeout = 5*time.Second, 10*time.Second, 10*time.Second
+	c.Log.Level = "info"
+	c.Database.Port, c.Database.SSLMode, c.Database.TimeZone = 5432, "disable", "UTC"
+	c.Database.ConnectTimeout = 5 * time.Second
+	c.Database.MaxOpen, c.Database.MaxIdle, c.Database.MaxLifetime = 10, 2, 30*time.Minute
+	c.Redis.Address = "127.0.0.1:6379"
+	return c
 }

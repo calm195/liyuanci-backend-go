@@ -1,8 +1,0 @@
-apiVersion: 1
-providers:
-  - name: liyuanci
-    folder: 鲤源池运维
-    type: file
-    disableDeletion: true
-    options:
-      path: /var/lib/grafana/dashboards

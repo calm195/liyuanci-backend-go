@@ -9,9 +9,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/resourceplaza"
 	"github.com/gin-gonic/gin"
+
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 )
 
 // ResourcesAPI 是资料业务的完整读写入口；生产装配注入受限数据库服务。
@@ -25,13 +26,29 @@ func RegisterResources(r *gin.Engine, student, admin ResourcesAPI) error {
 	if r == nil || student == nil || admin == nil {
 		return command.ErrInvalid
 	}
+	// 学生与后台共享固定操作协议，但始终选择各自注入的领域服务重新授权。
 	routes := []struct {
 		method, path, op string
 		admin            bool
 	}{
-		{"GET", "/resource-categories", "categories", false}, {"GET", "/resources", "list", false}, {"GET", "/resources/:id", "detail", false}, {"GET", "/resources/:id/download-info", "download", false}, {"PUT", "/resources/:id/feedback", "feedback", false},
-		{"GET", "/admin/resources", "list", true}, {"GET", "/admin/resources/:id", "detail", true}, {"POST", "/admin/resources", "create", true}, {"PUT", "/admin/resources/:id/content", "update", true}, {"POST", "/admin/resources/:id/publish", "publish", true}, {"POST", "/admin/resources/:id/offline", "offline", true},
-		{"GET", "/admin/resource-categories", "categories", true}, {"GET", "/admin/resource-categories/:id", "category_detail", true}, {"POST", "/admin/resource-categories", "category_create", true}, {"PUT", "/admin/resource-categories/:id", "category_update", true},
+
+		{"GET", "/resource-categories", "categories", false},
+		{"GET", "/resources", "list", false},
+		{"GET", "/resources/:id", "detail", false},
+		{"GET", "/resources/:id/download-info", "download", false},
+		{"PUT", "/resources/:id/feedback", "feedback", false},
+
+		{"GET", "/admin/resources", "list", true},
+		{"GET", "/admin/resources/:id", "detail", true},
+		{"POST", "/admin/resources", "create", true},
+		{"PUT", "/admin/resources/:id/content", "update", true},
+		{"POST", "/admin/resources/:id/publish", "publish", true},
+		{"POST", "/admin/resources/:id/offline", "offline", true},
+
+		{"GET", "/admin/resource-categories", "categories", true},
+		{"GET", "/admin/resource-categories/:id", "category_detail", true},
+		{"POST", "/admin/resource-categories", "category_create", true},
+		{"PUT", "/admin/resource-categories/:id", "category_update", true},
 	}
 	for _, rt := range routes {
 		r.Handle(rt.method, "/api/v1"+rt.path, func(c *gin.Context) {
@@ -78,34 +95,8 @@ func RegisterResources(r *gin.Engine, student, admin ResourcesAPI) error {
 					return
 				}
 			} else {
-				media, params, e := mime.ParseMediaType(c.GetHeader("Content-Type"))
-				if e != nil || media != "application/json" || len(params) > 1 || (len(params) == 1 && strings.ToLower(params["charset"]) != "utf-8") {
-					resourceHTTPError(c, 415, "UNSUPPORTED_MEDIA_TYPE")
-					return
-				}
-				raw, e := io.ReadAll(io.LimitReader(c.Request.Body, 65537))
-				if e != nil {
-					resourceError(c, command.ErrInvalid)
-					return
-				}
-				if len(raw) > 65536 {
-					resourceHTTPError(c, 413, "PAYLOAD_TOO_LARGE")
-					return
-				}
-				key := c.GetHeader("Idempotency-Key")
-				if len(c.Request.Header.Values("Idempotency-Key")) != 1 || len(key) < 1 || len(key) > 128 {
-					resourceError(c, command.ErrInvalid)
-					return
-				}
-				for _, v := range key {
-					if v < 33 || v > 126 {
-						resourceError(c, command.ErrInvalid)
-						return
-					}
-				}
-				in, e := resourceplaza.ParseInput(rt.op, raw)
-				if e != nil {
-					resourceError(c, e)
+				in, key, ok := resourceWriteInput(c, rt.op)
+				if !ok {
 					return
 				}
 				out, e = service.Write(c.Request.Context(), token, c.GetString("request_id"), key, rt.op, id, in)
@@ -122,6 +113,44 @@ func RegisterResources(r *gin.Engine, student, admin ResourcesAPI) error {
 	}
 	return nil
 }
+
+// resourceWriteInput 在 HTTP 边界限制媒体类型、请求大小及幂等键，并按操作严格解析字段。
+// 校验失败时直接写入原有协议响应，调用者不得继续进入领域事务。
+func resourceWriteInput(c *gin.Context, op string) (resourceplaza.Input, string, bool) {
+	media, params, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err != nil || media != "application/json" || len(params) > 1 ||
+		(len(params) == 1 && strings.ToLower(params["charset"]) != "utf-8") {
+		resourceHTTPError(c, 415, "UNSUPPORTED_MEDIA_TYPE")
+		return resourceplaza.Input{}, "", false
+	}
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 65537))
+	if err != nil {
+		resourceError(c, command.ErrInvalid)
+		return resourceplaza.Input{}, "", false
+	}
+	if len(raw) > 65536 {
+		resourceHTTPError(c, 413, "PAYLOAD_TOO_LARGE")
+		return resourceplaza.Input{}, "", false
+	}
+	key := c.GetHeader("Idempotency-Key")
+	if len(c.Request.Header.Values("Idempotency-Key")) != 1 || len(key) < 1 || len(key) > 128 {
+		resourceError(c, command.ErrInvalid)
+		return resourceplaza.Input{}, "", false
+	}
+	for _, value := range key {
+		if value < 33 || value > 126 {
+			resourceError(c, command.ErrInvalid)
+			return resourceplaza.Input{}, "", false
+		}
+	}
+	in, err := resourceplaza.ParseInput(op, raw)
+	if err != nil {
+		resourceError(c, err)
+		return resourceplaza.Input{}, "", false
+	}
+	return in, key, true
+}
+
 func resourceQuery(raw, op string, admin bool) (q resourceplaza.Query, err error) {
 	values, e := url.ParseQuery(raw)
 	if e != nil {
@@ -201,16 +230,30 @@ func resourceQuery(raw, op string, admin bool) (q resourceplaza.Query, err error
 	}
 	return
 }
+
 func resourceHTTPError(c *gin.Context, status int, code string) {
 	c.AbortWithStatusJSON(status, gin.H{"code": status, "message": "资料请求未完成", "error_code": code, "request_id": c.GetString("request_id")})
 }
+
 func resourceError(c *gin.Context, e error) {
 	status, code := 503, "DEPENDENCY_UNAVAILABLE"
 	for _, v := range []struct {
 		err    error
 		status int
 		code   string
-	}{{command.ErrInvalid, 400, "VALIDATION_FAILED"}, {command.ErrUnauthenticated, 401, "UNAUTHENTICATED"}, {command.ErrForbidden, 403, "FORBIDDEN"}, {command.ErrVerificationRequired, 403, "VERIFICATION_REQUIRED"}, {command.ErrNotFound, 404, "NOT_FOUND"}, {command.ErrVersionConflict, 409, "VERSION_CONFLICT"}, {command.ErrIdempotencyConflict, 409, "IDEMPOTENCY_CONFLICT"}, {command.ErrConflict, 409, "STATE_CONFLICT"}, {resourceplaza.ErrCategoryInUse, 409, "CATEGORY_IN_USE"}, {resourceplaza.ErrCategoryName, 409, "CATEGORY_NAME_CONFLICT"}, {command.ErrInternal, 500, "INTERNAL_ERROR"}} {
+	}{
+		{command.ErrInvalid, 400, "VALIDATION_FAILED"},
+		{command.ErrUnauthenticated, 401, "UNAUTHENTICATED"},
+		{command.ErrForbidden, 403, "FORBIDDEN"},
+		{command.ErrVerificationRequired, 403, "VERIFICATION_REQUIRED"},
+		{command.ErrNotFound, 404, "NOT_FOUND"},
+		{command.ErrVersionConflict, 409, "VERSION_CONFLICT"},
+		{command.ErrIdempotencyConflict, 409, "IDEMPOTENCY_CONFLICT"},
+		{command.ErrConflict, 409, "STATE_CONFLICT"},
+		{resourceplaza.ErrCategoryInUse, 409, "CATEGORY_IN_USE"},
+		{resourceplaza.ErrCategoryName, 409, "CATEGORY_NAME_CONFLICT"},
+		{command.ErrInternal, 500, "INTERNAL_ERROR"},
+	} {
 		if errors.Is(e, v.err) {
 			status, code = v.status, v.code
 			break

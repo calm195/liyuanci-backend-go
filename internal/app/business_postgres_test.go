@@ -1,0 +1,589 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"encoding/pem"
+	"encoding/xml"
+	"fmt"
+	"image"
+	"image/png"
+	"io"
+	"mime/multipart"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/textproto"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+
+	"github.com/calm195/liyuanci-backend-go/internal/config"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
+	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
+)
+
+// TestPostgresBusinessDatabaseRuntime 使用生产数据库任务通道与收紧的连接池，完全不构造MQ客户端。
+func TestPostgresBusinessDatabaseRuntime(t *testing.T) {
+	testPostgresBusinessRuntime(t, true)
+}
+
+func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
+	dsn, redisAddress := testconfig.Value("whisper_text_test_dsn"), testconfig.Value("business_runtime_redis_address")
+	redisPassword := testconfig.Value("business_runtime_redis_password")
+	serverBin, workerBin, initBin := testconfig.Value("whisper_server_binary"), testconfig.Value("business_runtime_worker_binary"), testconfig.Value("business_runtime_init_binary")
+	if dsn == "" || redisAddress == "" || redisPassword == "" || serverBin == "" || workerBin == "" || initBin == "" {
+		t.Skip("需隔离PG、鉴权Redis及实际业务二进制，make integration覆盖")
+	}
+	ctx, log := context.Background(), zap.NewNop()
+	must := func(e error) {
+		t.Helper()
+		if e != nil {
+			t.Fatal("完整业务装配验收失败", e)
+		}
+	}
+	root, shared, businessDSN := applicationDatabase(t, dsn)
+	c := testBusinessSettings(t)
+	c.Runtime.DatabaseDSN = shared
+	c.Runtime.DatabaseMaxOpen, c.Runtime.DatabaseMaxIdle = 2, 1
+	c.Runtime.Command.Timeout = 5 * time.Second
+	c.Runtime.Command.LockTimeout = time.Second
+	c.Runtime.Tasks.Consumer.Timeout = 3 * time.Second
+	c.Runtime.Tasks.Consumer.LockTimeout = time.Second
+	c.Runtime.Tasks.Consumer.RetryDelay = 50 * time.Millisecond
+	c.Runtime.Tasks.AnalysisTimeout = 3 * time.Second
+	c.Runtime.ProviderTimeout = 3 * time.Second
+	c.Runtime.Tasks.OperationTimeout = 60 * time.Second
+	c.Runtime.Tasks.ScanInterval = 50 * time.Millisecond
+	if databaseTasks {
+		c.Runtime.Tasks.Consumer.RetryDelay = time.Second
+		c.Card.RetryDelay = time.Second
+	}
+	dir := t.TempDir()
+	must(os.Chmod(dir, 0700))
+	c.Runtime.JournalFile = filepath.Join(dir, "deletions.json")
+	write := func(name string, v any) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		must(os.WriteFile(p, mustYAML(t, v), 0600))
+		return p
+	}
+	var outage atomic.Bool
+	var objectsMu sync.Mutex
+	objects := map[string][]byte{}
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if outage.Load() {
+			w.WriteHeader(503)
+			return
+		}
+		if !strings.Contains(r.Header.Get("Authorization"), "q-sign-algorithm=sha1") {
+			w.WriteHeader(403)
+			return
+		}
+		if r.URL.Path == "/image/auditing" {
+			var input struct {
+				Input struct {
+					DataID  string `xml:"DataId"`
+					Content string
+				}
+			}
+			if xml.NewDecoder(r.Body).Decode(&input) != nil || input.Input.Content == "" {
+				w.WriteHeader(400)
+				return
+			}
+			fmt.Fprintf(w, "<Response><JobsDetail><DataId>%s</DataId><State>Success</State><Result>0</Result></JobsDetail></Response>", input.Input.DataID)
+			return
+		}
+		if r.URL.Query().Has("versioning") {
+			fmt.Fprint(w, "<VersioningConfiguration/>")
+			return
+		}
+		objectsMu.Lock()
+		defer objectsMu.Unlock()
+		if r.Method == http.MethodPut {
+			if r.Header.Get("x-cos-forbid-overwrite") != "true" {
+				w.WriteHeader(400)
+				return
+			}
+			if _, ok := objects[r.URL.Path]; ok {
+				w.WriteHeader(409)
+				return
+			}
+			objects[r.URL.Path], _ = io.ReadAll(r.Body)
+			return
+		}
+		_, _ = w.Write(objects[r.URL.Path])
+	}))
+	t.Cleanup(tlsServer.Close)
+	c.Runtime.Tencent = config.Tencent{
+		Enabled: true, Bucket: "synthetic-1234567890", Region: "ap-shanghai",
+		SecretID: "synthetic-id", SecretKey: "synthetic-secret", BizType: "synthetic-biz",
+		ObjectURL: tlsServer.URL, ImageURL: tlsServer.URL,
+		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw})),
+	}
+	version, verified := int64(1), "2026-10-31T00:00:00Z"
+	c.Runtime.ResourcesFile = write("catalog.yaml", ResourcesFile{
+		Version: "synthetic-release-v1",
+		Care:    &moderationCareFixture,
+		Catalog: whisper.CatalogSnapshot{
+			Grades:  whisper.Dictionary{Version: &version, Items: []whisper.Item{{Code: "grade_test", Label: "隔离合成年级"}}},
+			Reports: []whisper.Item{{Code: "other", Label: "隔离合成举报"}},
+			Help: whisper.HelpDirectory{
+				Status:     "ready",
+				Version:    &version,
+				VerifiedAt: &verified,
+				Items: []whisper.HelpItem{{
+					Kind:      "school_appointment",
+					Label:     "隔离合成援助",
+					Contact:   "仅用于测试，非真实联系渠道",
+					SourceURL: "https://example.invalid/test",
+				}},
+			},
+		},
+	})
+	must(root.Exec("INSERT INTO public.report_types(code,label,published) VALUES ('other','隔离合成举报',true)").Error)
+	workerEnv := "production"
+	listener, e := net.Listen("tcp", "127.0.0.1:0")
+	must(e)
+	address := listener.Addr().String()
+	must(listener.Close())
+	words := write("wordlists.yaml", map[string][]string{"crisis": {"隔离危机词"}, "school": {"隔离涉校词"}, "ordinary_violation": {"隔离违规词"}})
+	appDoc := businessDocument(c)
+	appDoc.Server.Address = address
+	appDoc.Redis.Address, appDoc.Redis.Password = redisAddress, redisPassword
+	appDoc.Bootstrap.Login, appDoc.Bootstrap.WordlistsFile = "release-admin", words
+	apiPath := write("common.yaml", appDoc)
+	appPath := write("production.yaml", map[string]any{"environment": "production"})
+	resolved, e := config.Load(appPath)
+	must(e)
+	c = resolved.Business
+	workerApp := func(kind string) string {
+		return write(kind+".yaml", map[string]any{"worker": map[string]any{"kind": kind}})
+	}
+	cleanEnv := []string{}
+	for _, v := range os.Environ() {
+		if !strings.HasPrefix(v, "APP_") {
+			cleanEnv = append(cleanEnv, v)
+		}
+	}
+	oneShot := func(bin string, success bool, args ...string) {
+		t.Helper()
+		call, cancel := context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(call, bin, args...)
+		cmd.Env = cleanEnv
+		raw, e := cmd.CombinedOutput()
+		if (e == nil) != success {
+			t.Fatalf("命令结果不符 success=%v: %s", success, raw)
+		}
+		if bytes.Contains(raw, []byte("synthetic-object-token")) {
+			t.Fatal("凭据进入日志")
+		}
+	}
+	start := func(bin string, args ...string) *runtimeProcess {
+		t.Helper()
+		p := &runtimeProcess{cmd: exec.Command(bin, args...), log: &processLog{}, done: make(chan error, 1)}
+		p.cmd.Env = cleanEnv
+		p.cmd.Stdout = p.log
+		p.cmd.Stderr = p.log
+		must(p.cmd.Start())
+		go func() { p.done <- p.cmd.Wait() }()
+		t.Cleanup(func() {
+			p.stop(t)
+			if t.Failed() {
+				t.Logf("进程 %s 日志：%s", filepath.Base(bin), p.log.String())
+			}
+		})
+		return p
+	}
+	wait := func(name string, check func() bool, processes ...*runtimeProcess) {
+		t.Helper()
+		deadline := time.Now().Add(45 * time.Second)
+		for time.Now().Before(deadline) {
+			if check() {
+				return
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		for _, p := range processes {
+			t.Log(p.log.String())
+		}
+		t.Fatal("等待超时", name)
+	}
+	oneShot(workerBin, false, "-config", appPath, "-kind", "card", "-recover")
+	oneShot(workerBin, false, "-config", appPath, "-kind", "account", "-check", "-recover")
+	oneShot(workerBin, false, "-config", appPath, "-kind", "content", "-check", "-check-config")
+	oneShot(serverBin, false, "-config", appPath, "-check", "-check-config")
+	oneShot(initBin, false, "-config", appPath, "unexpected")
+	oneShot(initBin, true, "-config", appPath, "-check-config")
+	oneShot(serverBin, false, "-config", appPath, "-check")
+	oneShot(initBin, true, "-config", appPath)
+	oneShot(initBin, true, "-config", appPath)
+	must(blockpolicy.Enable(ctx, root, log))
+	oneShot(serverBin, true, "-config", appPath, "-check-config")
+	oneShot(serverBin, true, "-config", appPath, "-check")
+	server := start(serverBin, "-config", appPath)
+	client := &http.Client{Timeout: 10 * time.Second}
+	health := func(path string) int {
+		r, e := client.Get("http://" + address + path)
+		if e != nil {
+			return 0
+		}
+		_ = r.Body.Close()
+		return r.StatusCode
+	}
+	wait("生产完整API", func() bool { return health("/readyz") == 200 }, server)
+	request := func(method, path, token string, body any, status int, out any) {
+		t.Helper()
+		raw, _ := json.Marshal(body)
+		req, e := http.NewRequest(method, "http://"+address+"/api/v1"+path, bytes.NewReader(raw))
+		must(e)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, e := client.Do(req)
+		must(e)
+		defer resp.Body.Close()
+		var envelope struct {
+			Data      json.RawMessage
+			ErrorCode string
+		}
+		must(json.NewDecoder(resp.Body).Decode(&envelope))
+		if resp.StatusCode != status {
+			t.Fatalf("%s %s: %d %s", method, path, resp.StatusCode, envelope.ErrorCode)
+		}
+		if out != nil {
+			must(json.Unmarshal(envelope.Data, out))
+		}
+	}
+	var session adminauth.Session
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]any{"login_name": "release-admin", "password": "synthetic-business-secret"},
+		200,
+		&session,
+	)
+	request("GET", "/admin/users", session.Token, nil, 200, nil)
+	request("GET", "/wishes", "", nil, 200, nil)
+	request("GET", "/me", "", nil, 401, nil)
+	actor, peer := uuid.NewString(), uuid.NewString()
+	token, peerToken := uuid.NewString(), uuid.NewString()
+	for i, row := range [][2]string{{actor, token}, {peer, peerToken}} {
+		state := "verified"
+		if i == 0 {
+			state = "unverified"
+		}
+		must(root.Create(&entity.Account{ID: row[0], Nickname: "隔离合成用户", Verification: state}).Error)
+		hash := sha256.Sum256([]byte(row[1]))
+		must(root.Exec(
+			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
+			uuid.NewString(),
+			row[0],
+			hash[:],
+		).Error)
+	}
+	request("GET", "/admin/users", token, nil, 403, nil)
+	for _, kind := range []string{"card", "content", "whispers", "account", "evidence"} {
+		oneShot(workerBin, true, "-config", workerApp(kind), "-check")
+	}
+	card := start(workerBin, "-config", workerApp("card"))
+	content := start(workerBin, "-config", workerApp("content"))
+	whispers := start(workerBin, "-config", workerApp("whispers"))
+	var form bytes.Buffer
+	multipartWriter := multipart.NewWriter(&form)
+	part, e := multipartWriter.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="file"; filename="synthetic.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	must(e)
+	must(png.Encode(part, image.NewRGBA(image.Rect(0, 0, 4, 4))))
+	must(multipartWriter.Close())
+	upload, e := http.NewRequest("POST", "http://"+address+"/api/v1/me/student-card-assets", &form)
+	must(e)
+	upload.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	upload.Header.Set("Authorization", "Bearer "+token)
+	upload.Header.Set("Idempotency-Key", uuid.NewString())
+	response, e := client.Do(upload)
+	must(e)
+	var assetEnvelope struct{ Data studentcard.Asset }
+	must(json.NewDecoder(response.Body).Decode(&assetEnvelope))
+	_ = response.Body.Close()
+	if response.StatusCode != 202 {
+		t.Fatal("学生卡上传", response.StatusCode)
+	}
+	asset := assetEnvelope.Data
+	wait("图片按CI原生协议合成响应通过", func() bool {
+		request("GET", "/me/student-card-assets/"+asset.AssetID, token, nil, 200, &asset)
+		return asset.ScanStatus == "approved"
+	}, card)
+	var verificationResult verification.Result
+	request(
+		"POST",
+		"/me/verification-requests",
+		token,
+		verification.Input{StudentNumber: "synthetic-number", Name: "隔离合成姓名", AssetID: asset.AssetID},
+		202,
+		&verificationResult,
+	)
+	request(
+		"POST",
+		"/admin/identity-reviews/"+verificationResult.RequestID+"/decision",
+		session.Token,
+		verification.Decision{Decision: "approved", ExpectedVersion: verificationResult.Version},
+		200,
+		&verificationResult,
+	)
+	var draft struct {
+		ID             string `json:"id"`
+		Version        int64  `json:"version"`
+		ContentVersion int64  `json:"content_version"`
+	}
+	request(
+		"POST",
+		"/wishes",
+		token,
+		wish.ContentInput{Category: "help", Body: "生产内容工作进程的隔离心愿", Campus: "any"},
+		201,
+		&draft,
+	)
+	request(
+		"POST",
+		"/wishes/"+draft.ID+"/submit-review",
+		token,
+		map[string]any{"expected_version": draft.Version, "content_version": draft.ContentVersion},
+		202,
+		&draft,
+	)
+	wait("普通心愿工作进程", func() bool {
+		var n int64
+		return root.Model(&entity.Wish{}).Where("id=? AND state='ready'", draft.ID).Count(&n).Error == nil && n == 1
+	}, content)
+	// 正式worker只用词库：命中保留原文交人工，不再调用外部内容分析。
+	manualBody := "隔离违规词与隔离涉校词需要原文复核"
+	manual := draft
+	request("POST", "/wishes", peerToken, wish.ContentInput{Category: "help", Body: manualBody, Campus: "any"}, 201, &manual)
+	request("POST", "/wishes/"+manual.ID+"/submit-review", peerToken,
+		map[string]any{"expected_version": manual.Version, "content_version": manual.ContentVersion}, 202, &manual)
+	var manualTask string
+	wait("词库命中进入人工复核", func() bool {
+		return root.Raw(`SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND t.status='human_required'`, manual.ID).
+			Scan(&manualTask).Error == nil && manualTask != ""
+	}, content)
+	var detail struct {
+		Body string `json:"body"`
+	}
+	request("GET", "/admin/moderation-tasks/"+manualTask, session.Token, nil, 200, &detail)
+	if detail.Body != manualBody {
+		t.Fatal("词库命中未保留原文")
+	}
+	var module whisper.ModuleConfig
+	request("GET", "/whispers/config", "", nil, 200, &module)
+	if !module.Enabled || !module.SemiAvailable {
+		t.Fatal("生产悄悄鲤未完整启用")
+	}
+	var post whisper.OwnerPost
+	var postTask string
+	if databaseTasks {
+		whispers.stop(t)
+	}
+	request(
+		"POST",
+		"/me/whispers/posts",
+		token,
+		whisper.ContentInput{Body: "生产装配的隔离文字", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+		201,
+		&post,
+	)
+	request(
+		"POST",
+		"/me/whispers/posts/"+post.ID+"/submit",
+		token,
+		map[string]any{"expected_version": post.Version},
+		202,
+		&post,
+	)
+	if databaseTasks {
+		must(root.Raw("SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? ORDER BY t.created_at DESC LIMIT 1", post.ID).
+			Scan(&postTask).
+			Error)
+		// 模拟进程退出后遗留的过期租约；重启继续处理已提交的任务。
+		changed := root.Exec("UPDATE public.work_items SET status='leased',lease_until=clock_timestamp()-interval '1 second' WHERE target_id=? AND status='pending'", postTask)
+		must(changed.Error)
+		if changed.RowsAffected != 1 {
+			t.Fatal("停止期间任务未持久保存")
+		}
+		// 两个正式进程竞争同一持久工作，不能重复公开或产生重复回执。
+		whispers = start(workerBin, "-config", workerApp("whispers"))
+		duplicate := start(workerBin, "-config", workerApp("whispers"))
+		wait("重启竞争完成", func() bool {
+			var n int64
+			return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil &&
+				n == 1
+		}, whispers, duplicate)
+		duplicate.stop(t)
+	}
+	wait("生产树洞公开", func() bool {
+		var n int64
+		return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil &&
+			n == 1
+	}, whispers)
+	var public whisper.PublicPost
+	request("GET", "/whispers/posts/"+post.ID, "", nil, 200, &public)
+	var hug whisper.HugResult
+	request(
+		"PUT",
+		"/whispers/posts/"+post.ID+"/hugs",
+		peerToken,
+		whisper.HugInput{ExpectedPostVersion: public.Version, Active: true},
+		200,
+		&hug,
+	)
+	if hug.HugCount != 1 || !hug.MyHug.Active {
+		t.Fatal("抱抱未保存权威状态")
+	}
+	request(
+		"PUT",
+		"/whispers/posts/"+post.ID+"/hugs",
+		peerToken,
+		whisper.HugInput{ExpectedPostVersion: public.Version, ExpectedHugVersion: hug.MyHug.Version, Active: false},
+		200,
+		&hug,
+	)
+	if hug.HugCount != 0 || hug.MyHug.Active {
+		t.Fatal("抱抱取消未生效")
+	}
+	var comment whisper.OwnerComment
+	request(
+		"POST",
+		"/whispers/posts/"+post.ID+"/comments",
+		peerToken,
+		whisper.CommentInput{
+			ContentInput:          whisper.ContentInput{Body: "隔离暖评", Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			ExpectedPostVersion:   public.Version,
+			ExpectedCommentsEpoch: public.CommentsEpoch,
+		},
+		202,
+		&comment,
+	)
+	wait("暖评审核", func() bool {
+		var n int64
+		return root.Model(&entity.WhisperComment{}).Where("id=? AND review_state='approved'", comment.ID).Count(&n).Error == nil && n == 1
+	}, whispers)
+	var capsule whisper.Capsule
+	request(
+		"POST",
+		"/me/whispers/capsules",
+		token,
+		whisper.CapsuleInput{
+			Body:                 "本人胶囊私密原文",
+			UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+			SafetyNoticeAccepted: true,
+		},
+		202,
+		&capsule,
+	)
+	request("GET", "/me/whispers/capsules/"+capsule.ID, token, nil, 200, &capsule)
+	if capsule.Body != nil {
+		t.Fatal("胶囊提前返回正文")
+	}
+	request("GET", "/me/whispers/capsules/"+capsule.ID, peerToken, nil, 404, nil)
+	wait("胶囊审核", func() bool {
+		var n int64
+		return root.Model(&entity.WhisperCapsule{}).Where("id=? AND review_state='approved'", capsule.ID).Count(&n).Error == nil && n == 1
+	}, whispers)
+	must(root.Exec("UPDATE public.whisper_capsules SET created_at=clock_timestamp()-interval '2 minutes',unlock_at=date_trunc('second',clock_timestamp())-interval '1 second' WHERE id=?", capsule.ID).
+		Error)
+	must(root.Exec("UPDATE public.work_items SET next_at=clock_timestamp() WHERE target_id=? AND kind='whisper_capsule_unlock'", capsule.ID).Error)
+	must(root.Exec("UPDATE public.outbox_events SET next_at=clock_timestamp() WHERE aggregate_id=? AND event_type='whisper.capsule.unlock.requested'", capsule.ID).
+		Error)
+	wait("胶囊解锁", func() bool {
+		var n int64
+		return root.Model(&entity.WhisperNotificationRef{}).Where("source_id=?", capsule.ID).Count(&n).Error == nil && n == 1
+	}, whispers)
+	request("GET", "/me/whispers/capsules/"+capsule.ID, token, nil, 200, &capsule)
+	if capsule.Body == nil || *capsule.Body != "本人胶囊私密原文" {
+		t.Fatal("解锁内容错误")
+	}
+	var manualCapsule whisper.Capsule
+	request("POST", "/me/whispers/capsules", token, whisper.CapsuleInput{
+		Body:                 "私密胶囊命中隔离违规词",
+		UnlockAt:             time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+		SafetyNoticeAccepted: true,
+	}, 202, &manualCapsule)
+	wait("私密词库命中进入人工复核", func() bool {
+		var n int64
+		return root.Raw(`SELECT count(*) FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND t.status='human_required'`, manualCapsule.ID).
+			Scan(&n).Error == nil && n == 1
+	}, whispers)
+	request("GET", "/me/whispers/capsules/"+manualCapsule.ID, token, nil, 200, &manualCapsule)
+	if manualCapsule.Body != nil {
+		t.Fatal("待复核胶囊提前返回原文")
+	}
+	if databaseTasks {
+		var sent, receipts int64
+		must(root.Model(&entity.OutboxEvent{}).Where("sent_at IS NOT NULL").Count(&sent).Error)
+		must(root.Model(&entity.ConsumerReceipt{}).Where("operation_id=?", postTask).Count(&receipts).Error)
+		if sent != 0 || receipts != 1 {
+			t.Fatalf("数据库调度不得伪造MQ回执或重复消费: sent=%d receipts=%d", sent, receipts)
+		}
+	}
+	outage.Store(true)
+	if health("/readyz") != 200 || health("/healthz") != 200 {
+		t.Fatal("对象服务故障不应阻断其他业务就绪")
+	}
+	outage.Store(false)
+	var account entity.Account
+	must(root.Where("id=?", actor).Take(&account).Error)
+	var accepted privacy.Accepted
+	request(
+		"POST",
+		"/me/deletion-requests",
+		token,
+		privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: account.Version},
+		202,
+		&accepted,
+	)
+	request("GET", "/me", token, nil, 401, nil)
+	server.stop(t)
+	card.stop(t)
+	content.stop(t)
+	whispers.stop(t)
+	oneShot(serverBin, false, "-config", appPath, "-check")
+	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
+	oneShot(serverBin, true, "-config", appPath, "-check")
+	must(root.Create(&entity.Account{ID: actor, Nickname: "模拟恢复出的已注销主体"}).Error)
+	oneShot(serverBin, false, "-config", appPath, "-check")
+	oneShot(workerBin, true, "-config", workerApp("account"), "-recover")
+	oneShot(serverBin, true, "-config", appPath, "-check")
+	bad := appDoc
+	bad.Database = databaseSettings(businessDSN)
+	must(os.WriteFile(apiPath, mustYAML(t, bad), 0600))
+	oneShot(serverBin, false, "-config", appPath, "-check")
+	var latest int64
+	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error)
+	if latest != 9 {
+		t.Fatal("运行入口改变迁移版本", latest)
+	}
+	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/COS使用原生协议隔离TLS夹具，学校按策略直接通过", workerEnv)
+}

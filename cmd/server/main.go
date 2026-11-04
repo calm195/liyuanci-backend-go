@@ -1,25 +1,15 @@
+// server 保留命令行和信号边界，应用资源由app统一装配与关闭。
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"go.uber.org/zap"
-
-	"github.com/calm195/liyuanci-backend-go/internal/adminauth"
-	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/devapp"
-	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
-	"github.com/calm195/liyuanci-backend-go/internal/platform"
-	"github.com/calm195/liyuanci-backend-go/internal/whisperapp"
+	"github.com/calm195/liyuanci-backend-go/internal/app"
 )
 
 func main() {
@@ -30,184 +20,14 @@ func main() {
 }
 
 func run() error {
-	path := flag.String("config", "", "YAML配置路径；留空时仅使用环境变量")
+	path := flag.String("config", "configs/development.yaml", "应用YAML配置路径")
 	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")
+	checkConfig := flag.Bool("check-config", false, "只检查所选业务YAML，不连接外部依赖")
 	flag.Parse()
-	cfg, err := config.Load(*path)
-	if err != nil {
-		return err
-	}
-	if *check && cfg.DevAppFile == "" && cfg.WhispersFile == "" {
-		return errors.New("依赖诊断必须显式提供业务配置")
-	}
-	log, err := platform.NewLogger(cfg.Log.Level)
-	if err != nil {
-		return fmt.Errorf("日志级别配置失败：%w", err)
-	}
-	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
-	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
-	defer func() { _ = log.Sync() }()
-	var whisperSettings *whisperapp.Settings
-	if cfg.WhispersFile != "" {
-		settings, e := config.LoadWhispers(context.Background(), cfg.WhispersFile, cfg.Environment)
-		if e != nil {
-			return errors.New("树洞运行配置无效或启用被禁止")
-		}
-		whisperSettings = &settings
-		if cfg.DevAppFile == "" {
-			cfg.Database.DSN = settings.APIDSN
-		}
-	}
-	var development *devapp.Settings
-	if cfg.DevAppFile != "" {
-		settings, e := devapp.Load(cfg.DevAppFile)
-		if e != nil {
-			log.Error("开发业务配置读取失败")
-			return errors.New("开发业务配置读取失败")
-		}
-		development = &settings
-		// 开发业务进程的共享健康连接也使用业务运行身份，不能保留探针管理员连接。
-		cfg.Database.DSN = settings.WishDSN
+	if flag.NArg() != 0 {
+		return fmt.Errorf("不接受位置参数，请使用 -h 查看用法")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
-	resources, err := platform.Open(startup, cfg)
-	cancel()
-	if err != nil {
-		// 客户端错误可能包含凭据，因此这里只记录操作结果。
-		log.Error("资源初始化失败")
-		return errors.New("资源初始化失败")
-	}
-	log.Info("资源初始化完成",
-		zap.Bool("database_enabled", resources.DB != nil),
-		zap.Bool("redis_enabled", resources.Redis != nil),
-		zap.Bool("rocketmq_enabled", resources.Producer != nil),
-	)
-	defer func() {
-		if err := resources.Close(); err != nil {
-			log.Error("资源清理失败")
-			return
-		}
-		log.Info("资源清理完成")
-	}()
-	var whisperAPI *whisperapp.API
-	router := httpapi.New(log, func(ctx context.Context) error {
-		if whisperAPI != nil {
-			return whisperAPI.Ready(ctx)
-		}
-		if err := resources.Ready(ctx); err != nil {
-			return err
-		}
-		return errors.New("学生认证与密钥就绪检查尚未实现")
-	})
-	if cfg.DevAppFile != "" {
-		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		businessRouter, closeBusiness, e := devapp.Open(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
-			// 本地业务允许数据库轮询，不把探针MQ客户端作为API就绪前置。
-			// devapp仍检查业务池，树洞存在时继续检查其真实装配依赖。
-			if development.LocalTest {
-				if resources.Redis == nil {
-					return errors.New("本地共享限流不可用")
-				}
-				if e := resources.Redis.Ping(checkCtx).Err(); e != nil {
-					return e
-				}
-			} else if e := resources.Ready(checkCtx); e != nil {
-				return e
-			}
-			if whisperAPI != nil {
-				return whisperAPI.Ready(checkCtx)
-			}
-			return nil
-		})
-		cancel()
-		if e != nil {
-			log.Error("开发业务装配失败，请显式初始化数据库和凭据")
-			return errors.New("开发业务装配失败")
-		}
-		defer func() { _ = closeBusiness() }()
-		router = businessRouter
-	}
-	if whisperSettings != nil {
-		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		app, e := whisperapp.OpenAPI(initCtx, *whisperSettings, resources.Redis, log)
-		cancel()
-		if e != nil {
-			return errors.New("树洞依赖装配失败")
-		}
-		defer func() { _ = app.Close() }()
-		whisperAPI = app
-		if e = app.Register(router); e != nil {
-			return errors.New("树洞路由装配失败")
-		}
-	}
-	if cfg.AdminAuth.Enabled {
-		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		service, closePool, e := adminauth.Open(initCtx, cfg, resources.Redis, log)
-		cancel()
-		if e != nil {
-			return errors.New("后台身份资源初始化失败")
-		}
-		defer func() { _ = closePool() }()
-		if e = httpapi.RegisterAdmin(router, service); e != nil {
-			return errors.New("后台身份路由装配失败")
-		}
-	}
-	if *check {
-		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if development != nil {
-			if err := devapp.CheckCardWorker(checkCtx, *development, log); err != nil {
-				log.Error("开发工作进程诊断失败")
-				return errors.New("开发工作进程诊断失败")
-			}
-		}
-		if whisperAPI != nil && whisperAPI.Ready(checkCtx) != nil {
-			return errors.New("树洞依赖诊断失败")
-		}
-		log.Info("业务依赖诊断完成", zap.String("result", "success"))
-		return nil
-	}
-	server := &http.Server{
-		Addr: cfg.Server.Address,
-		// 后台独立入口可用不等于学生认证/密钥已就绪，readyz仍按整体业务依赖失败关闭。
-		Handler:           router,
-		ReadHeaderTimeout: 3 * time.Second,
-		ReadTimeout:       cfg.Server.ReadTimeout,
-		WriteTimeout:      cfg.Server.WriteTimeout,
-		IdleTimeout:       60 * time.Second,
-	}
-	// 先绑定监听地址再记录启动成功，避免地址冲突时误报就绪。
-	listener, err := net.Listen("tcp", server.Addr)
-	if err != nil {
-		log.Error("服务启动失败", zap.Error(err))
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
-	log.Info("服务启动完成", zap.String("address", listener.Addr().String()))
-	// 存活心跳独立于业务ready，停止函数等待日志协程退出。
-	stopHeartbeat := platform.StartHeartbeat(ctx, log, "api")
-	defer stopHeartbeat()
-	select {
-	case err := <-done:
-		if !errors.Is(err, http.ErrServerClosed) {
-			log.Error("服务运行失败", zap.Error(err))
-			return err
-		}
-		return nil
-	case <-ctx.Done():
-	}
-	// 先等待 HTTP 请求结束，再由延迟清理逻辑关闭共享客户端。
-	log.Info("开始关闭服务")
-	shutdown, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer cancel()
-	if err := server.Shutdown(shutdown); err != nil {
-		_ = server.Close()
-		log.Error("服务关闭失败", zap.Error(err))
-		return err
-	}
-	log.Info("服务关闭完成")
-	return nil
+	return app.RunServer(ctx, app.ServerOptions{ConfigFile: *path, Check: *check, CheckConfig: *checkConfig})
 }

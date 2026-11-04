@@ -1,9 +1,16 @@
--- 回退仅允许空表，避免运维误操作静默删除账号；有数据时须另行审查迁移方案。
--- 先排他锁表，避免空表检查与删除之间插入新账号而丢失数据。
-LOCK TABLE public.accounts IN ACCESS EXCLUSIVE MODE;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM public.accounts) THEN
-        RAISE EXCEPTION '账号表非空，拒绝回退';
-    END IF;
-END $$;
-DROP TABLE public.accounts;
+-- 仅由迁移器在锁定并确认全部业务表为空后执行。
+DROP TABLE public.accounts,
+    public.admin_account_actions,
+    public.admin_accounts,
+    public.admin_role_bindings,
+    public.assets,
+    public.blocks,
+    public.identity_lookup_claims,
+    public.identity_lookup_keys,
+    public.identity_names,
+    public.identity_reviews,
+    public.identity_secrets,
+    public.interaction_block_policy,
+    public.sessions,
+    public.student_card_payloads,
+    public.student_login_exchanges;

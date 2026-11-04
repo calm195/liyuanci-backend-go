@@ -1,72 +1,41 @@
-// 独立worker目前仅允许隔离探针，领域可靠消费尚未实现。
+// worker 统一任务参数与信号边界，运行资源交由app管理。
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/platform"
-	"github.com/calm195/liyuanci-backend-go/internal/worker"
+	"github.com/calm195/liyuanci-backend-go/internal/app"
 )
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "工作进程未完成，请核对参数、配置和依赖")
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	path := flag.String("config", "configs/app/integration.yaml", "隔离环境配置路径")
+	path := flag.String("config", "configs/development.yaml", "公共配置旁的私有环境YAML")
+	offline := flag.Bool("check-config", false, "只验证配置，不连接数据库或供应商")
+	check := flag.Bool("check", false, "验证依赖，不消费任务")
+	recoverOnly := flag.Bool("recover", false, "只恢复账号或证据删除，完成前不得开放读取和外发")
+	kind := flag.String("kind", "", "执行职责：card/content/whispers/account/evidence")
 	flag.Parse()
-	c, err := config.Load(*path)
-	if err != nil {
-		return err
+	if flag.NArg() != 0 {
+		return fmt.Errorf("不接受位置参数，请使用 -h 查看用法")
 	}
-	log, err := platform.NewLogger(c.Log.Level)
-	if err != nil {
-		return errors.New("日志配置失败")
-	}
-	defer func() { _ = log.Sync() }()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
-	r, err := platform.Open(startup, c)
-	cancel()
-	if err != nil {
-		log.Error("工作进程资源初始化失败")
-		return errors.New("工作进程资源初始化失败")
-	}
-	defer func() {
-		if err := r.Close(); err != nil {
-			log.Error("工作进程资源清理失败")
-		} else {
-			log.Info("工作进程资源清理完成")
-		}
-	}()
-	client, err := worker.Start(c, r, log)
-	if err != nil {
-		log.Error("消费者启动失败")
-		return err
-	}
-	// 停止消费并等待回调结束后才能关闭数据库等共享依赖。
-	defer func() {
-		if err := client.Shutdown(); err != nil {
-			log.Error("消费者关闭失败")
-		} else {
-			log.Info("消费者关闭完成")
-		}
-	}()
-	// 消费者真实启动后才输出存活心跳，不代表业务消费验收完成。
-	stopHeartbeat := platform.StartHeartbeat(ctx, log, "worker")
-	defer stopHeartbeat()
-	<-ctx.Done()
-	return nil
+	return app.RunWorker(ctx, app.WorkerOptions{
+		ConfigFile:  *path,
+		Kind:        *kind,
+		Check:       *check,
+		CheckConfig: *offline,
+		Recover:     *recoverOnly,
+	})
 }

@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/verification"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
 )
 
 // VerificationStudents 仅暴露本人认证申请及状态。
@@ -19,7 +19,7 @@ type VerificationStudents interface {
 	Current(context.Context, string, string) (verification.Result, error)
 }
 
-// VerificationReviews 使用独立后台权限连接池，不与学生入口共享访问权限。
+// VerificationReviews 由领域服务复核当前后台会话与审核岗位，不授予学生入口审核权限。
 type VerificationReviews interface {
 	List(context.Context, string, string, string, int) (verification.Page, error)
 	Detail(context.Context, string, string, string) (verification.Case, error)
@@ -33,7 +33,12 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 		return command.ErrInvalid
 	}
 	group := r.Group("/api/v1")
-	group.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	group.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
 	group.POST("/me/verification-requests", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -57,7 +62,8 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 		// 可选整数的显式null不能被当成首次申请省略，保持与共享JSON Schema一致。
 		if len(wire.ExpectedVersion) > 0 {
 			var version int64
-			if bytes.Equal(bytes.TrimSpace(wire.ExpectedVersion), []byte("null")) || json.Unmarshal(wire.ExpectedVersion, &version) != nil || version < 1 {
+			if bytes.Equal(bytes.TrimSpace(wire.ExpectedVersion), []byte("null")) || json.Unmarshal(wire.ExpectedVersion, &version) != nil ||
+				version < 1 {
 				adminError(c, command.ErrInvalid)
 				return
 			}

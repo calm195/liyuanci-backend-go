@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/whisper"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
 // WhisperInteractions 是暖评、抱抱和本人通知的显式业务边界。
@@ -97,7 +97,9 @@ func RegisterWhisperInteractions(r *gin.Engine, s WhisperInteractions) error {
 						fields, e = whisperObject(data, []string{"expected_version", "comments_open"})
 						var version int64
 						var open bool
-						if e == nil && (json.Unmarshal(fields["expected_version"], &version) != nil || version < 1 || json.Unmarshal(fields["comments_open"], &open) != nil) {
+						if e == nil &&
+							(json.Unmarshal(fields["expected_version"], &version) != nil || version < 1 ||
+								json.Unmarshal(fields["comments_open"], &open) != nil) {
 							e = command.ErrInvalid
 						}
 						if e == nil {
@@ -123,10 +125,20 @@ func RegisterWhisperInteractions(r *gin.Engine, s WhisperInteractions) error {
 		}
 	}
 	for _, v := range []struct{ method, path, op string }{
-		{"GET", "/whispers/posts/:post_id/comments", "public_comments"}, {"POST", "/whispers/posts/:post_id/comments", "create"},
-		{"PUT", "/me/whispers/posts/:post_id/comments-setting", "setting"}, {"GET", "/me/whispers/comments", "own_comments"},
-		{"GET", "/me/whispers/comments/:comment_id", "comment_get"}, {"PUT", "/me/whispers/comments/:comment_id", "update"}, {"POST", "/me/whispers/comments/:comment_id/withdraw", "withdraw"},
-		{"PUT", "/whispers/posts/:post_id/hugs", "hug"}, {"GET", "/me/whispers/notifications", "notifications"}, {"POST", "/me/whispers/notifications/:notification_id/read", "read"},
+
+		{"GET", "/whispers/posts/:post_id/comments", "public_comments"},
+		{"POST", "/whispers/posts/:post_id/comments", "create"},
+
+		{"PUT", "/me/whispers/posts/:post_id/comments-setting", "setting"},
+		{"GET", "/me/whispers/comments", "own_comments"},
+
+		{"GET", "/me/whispers/comments/:comment_id", "comment_get"},
+		{"PUT", "/me/whispers/comments/:comment_id", "update"},
+		{"POST", "/me/whispers/comments/:comment_id/withdraw", "withdraw"},
+
+		{"PUT", "/whispers/posts/:post_id/hugs", "hug"},
+		{"GET", "/me/whispers/notifications", "notifications"},
+		{"POST", "/me/whispers/notifications/:notification_id/read", "read"},
 	} {
 		r.Handle(v.method, "/api/v1"+v.path, handle(v.op))
 	}
@@ -142,7 +154,9 @@ func decodeWhisperComment(data []byte, update bool) (out whisper.CommentInput, e
 	if e != nil {
 		return out, e
 	}
-	if json.Unmarshal(fields["expected_post_version"], &out.ExpectedPostVersion) != nil || out.ExpectedPostVersion < 1 || json.Unmarshal(fields["expected_comments_epoch"], &out.ExpectedCommentsEpoch) != nil || out.ExpectedCommentsEpoch < 1 {
+	if json.Unmarshal(fields["expected_post_version"], &out.ExpectedPostVersion) != nil || out.ExpectedPostVersion < 1 ||
+		json.Unmarshal(fields["expected_comments_epoch"], &out.ExpectedCommentsEpoch) != nil ||
+		out.ExpectedCommentsEpoch < 1 {
 		return out, command.ErrInvalid
 	}
 	if update && (json.Unmarshal(fields["expected_version"], &out.ExpectedVersion) != nil || out.ExpectedVersion < 1) {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/calm195/liyuanci-backend-go/internal/command"
-	"github.com/calm195/liyuanci-backend-go/internal/safety"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 )
 
 // SafetyAPI 提供固定安全治理命令及当前主体可见投影。
@@ -33,7 +33,13 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 		registerUserRestrictions(r, controls)
 	}
 	g := r.Group("/api/v1")
-	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Header("Pragma", "no-cache"); c.Next() })
+	g.Use(func(c *gin.Context) {
+
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next()
+	})
+	// 路由表同时声明领域操作、字段白名单、响应状态和后台边界，避免注册时分散这些协议。
 	writes := []struct {
 		op, method, path   string
 		required, optional []string
@@ -42,20 +48,108 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 	}{
 		{"block", "POST", "/me/blocks", []string{"target_user_id"}, nil, 200, false},
 		{"unblock", "DELETE", "/me/blocks/:id", []string{"expected_version"}, nil, 204, false},
-		{"report", "POST", "/reports", []string{"target_kind", "id", "type_code"}, []string{"description"}, 202, false},
+		{
+			"report",
+			"POST",
+			"/reports",
+			[]string{"target_kind", "id", "type_code"},
+			[]string{"description"},
+			202,
+			false,
+		},
 		{"appeal", "POST", "/me/appeals", []string{"penalty_id", "body"}, nil, 202, false},
 		{"display", "POST", "/me/warnings/:id/display", []string{"expected_version"}, nil, 200, false},
 		{"ack", "POST", "/me/warnings/:id/ack", []string{"expected_version"}, nil, 200, false},
-		{"exception_exit", "POST", "/wishes/:id/exception-exit", []string{"expected_version"}, nil, 200, false},
-		{"report_decision", "POST", "/admin/reports/:id/decision", []string{"decision", "reason", "expected_version"}, nil, 200, true},
-		{"offline", "POST", "/admin/contents/:kind/:id/offline", []string{"reason", "expected_version"}, nil, 200, true},
-		{"release", "POST", "/admin/contents/:kind/:id/release-restriction", []string{"reason", "expected_version"}, nil, 200, true},
-		{"user_ban", "POST", "/admin/users/:id/restrictions/ban", []string{"reason", "expected_version"}, nil, 200, true},
-		{"user_unban", "POST", "/admin/users/:id/restrictions/unban", []string{"reason", "expected_version"}, nil, 200, true},
-		{"user_mute", "POST", "/admin/users/:id/restrictions/mute", []string{"reason", "expected_version"}, nil, 200, true},
-		{"user_unmute", "POST", "/admin/users/:id/restrictions/unmute", []string{"reason", "expected_version"}, nil, 200, true},
-		{"penalty", "POST", "/admin/users/:id/penalties", []string{"violation_ref", "content_ref", "content_version", "level", "reason", "expected_version"}, nil, 200, true},
-		{"appeal_decision", "POST", "/admin/appeals/:id/decision", []string{"decision", "reason", "expected_version"}, nil, 200, true},
+		{
+			"exception_exit",
+			"POST",
+			"/wishes/:id/exception-exit",
+			[]string{"expected_version"},
+			nil,
+			200,
+			false,
+		},
+		{
+			"report_decision",
+			"POST",
+			"/admin/reports/:id/decision",
+			[]string{"decision", "reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"offline",
+			"POST",
+			"/admin/contents/:kind/:id/offline",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"release",
+			"POST",
+			"/admin/contents/:kind/:id/release-restriction",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"user_ban",
+			"POST",
+			"/admin/users/:id/restrictions/ban",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"user_unban",
+			"POST",
+			"/admin/users/:id/restrictions/unban",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"user_mute",
+			"POST",
+			"/admin/users/:id/restrictions/mute",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"user_unmute",
+			"POST",
+			"/admin/users/:id/restrictions/unmute",
+			[]string{"reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"penalty",
+			"POST",
+			"/admin/users/:id/penalties",
+			[]string{"violation_ref", "content_ref", "content_version", "level", "reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
+		{
+			"appeal_decision",
+			"POST",
+			"/admin/appeals/:id/decision",
+			[]string{"decision", "reason", "expected_version"},
+			nil,
+			200,
+			true,
+		},
 	}
 	for _, route := range writes {
 		g.Handle(route.method, route.path, func(c *gin.Context) {
@@ -122,7 +216,13 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 		op, path string
 		admin    bool
 	}{
-		{"blocks", "/me/blocks", false}, {"warnings", "/me/warnings", false}, {"appeals", "/me/appeals", false}, {"report_types", "/report-types", false}, {"reports", "/admin/reports", true}, {"admin_appeals", "/admin/appeals", true},
+
+		{"blocks", "/me/blocks", false},
+		{"warnings", "/me/warnings", false},
+		{"appeals", "/me/appeals", false},
+		{"report_types", "/report-types", false},
+		{"reports", "/admin/reports", true},
+		{"admin_appeals", "/admin/appeals", true},
 	} {
 		g.GET(route.path, func(c *gin.Context) {
 			token, ok := bearer(c)
@@ -148,7 +248,13 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			if route.admin {
 				service = admin
 			}
-			out, e := service.List(c.Request.Context(), token, c.GetString("request_id"), route.op, safety.Query{Cursor: q.Cursor, Limit: q.Limit})
+			out, e := service.List(
+				c.Request.Context(),
+				token,
+				c.GetString("request_id"),
+				route.op,
+				safety.Query{Cursor: q.Cursor, Limit: q.Limit},
+			)
 			if e != nil {
 				adminError(c, e)
 				return
