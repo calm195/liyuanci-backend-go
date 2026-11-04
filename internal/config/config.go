@@ -13,16 +13,11 @@ type Config struct {
 	Environment, Mode string
 	// MasterKey 是唯一可配置的应用主密钥；各领域子密钥只在内存派生。
 	MasterKey []byte
-	// 以下路径由加载器注入，仅用于内部装配，不能从 YAML 设置。
-	DevAppFile   string `json:"-"`
-	BusinessFile string `json:"-"`
-	WhispersFile string `json:"-"`
-	Business     Business
-	Development  Development
-	Whispers     Whispers
-	Worker       struct{ Kind, ContentAnalyzer string }
-	Bootstrap    struct{ Login, WordlistsFile string }
-	Server       struct {
+	Business  Business
+	Whispers  Runtime
+	Worker    struct{ Kind string }
+	Bootstrap struct{ Login, WordlistsFile string }
+	Server    struct {
 		Address                                    string
 		ReadTimeout, WriteTimeout, ShutdownTimeout time.Duration
 	}
@@ -91,32 +86,15 @@ func Load(path string) (Config, error) {
 		return filepath.Clean(filepath.Join(filepath.Dir(absolute), value))
 	}
 	c.Bootstrap.WordlistsFile = resolve(c.Bootstrap.WordlistsFile)
-	c.Development.DatabaseDSN = c.Database.DSN
-	c.Development.DatabaseMaxOpen, c.Development.DatabaseMaxIdle, c.Development.DatabaseMaxLifetime = c.Database.MaxOpen, c.Database.MaxIdle, c.Database.MaxLifetime
-	c.Development.JournalFile = resolve(c.Development.JournalFile)
-	c.Development.ObjectDirectory = resolve(c.Development.ObjectDirectory)
-	c.Development.LocalTest = true
 	if err := validateTencent(c.Business.Runtime.Tencent); err != nil {
 		return c, err
 	}
-	c.Development.Tencent = c.Business.Runtime.Tencent
-	c.Development.ProviderTimeout = c.Business.Runtime.ProviderTimeout
-	for _, r := range []*Whispers{&c.Business.Runtime, &c.Whispers} {
+	c.Business.Runtime.ObjectDirectory = resolve(c.Business.Runtime.ObjectDirectory)
+	for _, r := range []*Runtime{&c.Business.Runtime, &c.Whispers} {
 		r.DatabaseDSN = c.Database.DSN
 		r.DatabaseMaxOpen, r.DatabaseMaxIdle = c.Database.MaxOpen, c.Database.MaxIdle
 		r.DatabaseMaxLifetime = c.Database.MaxLifetime
-		r.JournalFile, r.CatalogFile = resolve(r.JournalFile), resolve(r.CatalogFile)
-	}
-	switch c.Mode {
-	case "business":
-		c.BusinessFile = absolute
-	case "development":
-		c.DevAppFile = absolute
-		if c.Whispers.Enabled {
-			c.WhispersFile = absolute
-		}
-	case "whispers":
-		c.WhispersFile = absolute
+		r.JournalFile, r.ResourcesFile = resolve(r.JournalFile), resolve(r.ResourcesFile)
 	}
 	return c, nil
 }

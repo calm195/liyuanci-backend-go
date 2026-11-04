@@ -103,7 +103,7 @@ func TestAPIOwnership(t *testing.T) {
 func TestAPIConstructorFailure(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	log := zap.New(core)
-	runtime, services, err := openAPIComponents(context.Background(), WhisperSettings{}, &borrowedRedis{}, log)
+	runtime, services, err := openAPIComponents(context.Background(), RuntimeSettings{}, &borrowedRedis{}, log)
 	if err != command.ErrInvalid || runtime != nil || services != nil {
 		t.Fatal("资源失败返回半套组件", err)
 	}

@@ -1,7 +1,7 @@
 # Viper读取公共配置后合并私有环境覆盖；秘密只填私有YAML，时长必须带单位。
 # 环境：development开发、production生产；不从环境变量推断。
 environment: development
-# foundation仅健康探针；development为本地适配器；business为完整正式业务。
+# foundation仅健康探针；development为开发装配；business为完整业务；whispers为开发独立树洞。
 mode: foundation
 # 唯一应用主密钥：32字节密码学随机值的Base64；程序按环境和用途派生子密钥。所有进程保持一致，已有数据时禁止直接更换。
 masterkey: ''
@@ -45,7 +45,7 @@ database:
   maxidle: 2
   # 连接复用寿命，默认30m。
   maxlifetime: 30m
-# 共享限流与缓存连接；正式业务必须启用鉴权。
+# 共享限流连接；正式业务必须启用鉴权。
 redis:
   # 显式启用当前配置块；关闭不会自动清理已有数据。
   enabled: false
@@ -63,12 +63,10 @@ bootstrap:
   login: admin
   # 初始化词库数据YAML；相对configs目录解析，普通启动不发布。
   wordlistsfile: wordlists.yaml
-# 当前进程类型或消费者参数；以本文件所属层级为准。
+# 当前进程的默认任务职责。
 worker:
   # 业务进程类型：card/content/whispers/account/evidence。
   kind: content
-  # 原文复核模式；空值或manual，词库命中与显式重审均交人工。
-  contentanalyzer: manual
 # 完整业务配置；业务权限通过账号会话、岗位及领域函数检查。
 business:
   # 业务任务、外部对象存储与删除恢复的共用设置。
@@ -95,18 +93,10 @@ business:
       imageurl: ''
       # 可选代理CA完整PEM，直接内联私有YAML；空值使用系统信任根。
       ca: ''
-    # 显式启用当前配置块；关闭不会自动清理已有数据。
+    # 仅控制树洞与胶囊模块，不关闭其他业务或持久任务。
     enabled: false
-    # 旧自定义对象协议HTTPS地址（启用腾讯云时必须留空）；不得含账号、查询参数或片段。
-    gatewayurl: ''
-    # 网关Bearer令牌，内联单行字符串；至少16字符，不记录到日志。
-    gatewaytoken: ''
-    # 可选私有CA的完整PEM；多行用 | 块。空值使用系统信任根。
-    gatewayca: ''
-    # 对象服务协议版本；仅在配置对象服务时填写。
-    providerversion: ''
     # 已核实公开资料的YAML路径；相对configs目录解析。
-    catalogfile: resources.yaml
+    resourcesfile: resources.yaml
     # 业务事务期限、锁等待和幂等回执设置。
     command:
       # 单次事务/操作总超时；时长必须带单位，例如5s。
@@ -117,8 +107,12 @@ business:
       receiptttl: 168h
       # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
       maxattempts: 3
-    # 当前进程类型或消费者参数；以本文件所属层级为准。
-    worker:
+    # 数据库持久任务的扫描、消费、分析和整次处理预算。
+    tasks:
+      # 任务扫描/调度间隔；带单位，例如1s。
+      scaninterval: 1s
+      # 整次工作处理上限；应大于内部事务与供应商调用预算。
+      operationtimeout: 1m
       # 消费者事务和重试边界；失败任务仍受持久状态约束。
       consumer:
         # 单次事务/操作总超时；时长必须带单位，例如5s。
@@ -131,14 +125,12 @@ business:
         maxattempts: 3
       # 一次内容分析调用超时；需容纳在外层操作期限内。
       analysistimeout: 5s
-    # 任务扫描/调度间隔；带单位，例如1s。
-    interval: 1s
-    # 整次工作处理上限；应大于内部事务与供应商调用预算。
-    operationtimeout: 1m
     # 一次供应商HTTP调用超时；带单位。
     providertimeout: 5s
     # 加密删除意图账本；相对configs目录解析，父目录0700，不能随业务数据库一并回滚。
     journalfile: ../.local/data/deletions.json
+    # 隔离集成使用的本地对象目录；development环境仍使用真实供应商。
+    objectdirectory: ../.local/data/objects
   # 真实小程序AppID；不使用示例用户绕过微信身份校验。
   wechatappid: ''
   # 原微信AppSecret，内联单行字符串；至少16字符。
@@ -165,18 +157,12 @@ business:
     maxpixels: 4000000
     # 单进程并发解码槽位；原生小规格建议1。
     decodeslots: 2
-    # 工作租约时长；必须覆盖内部事务预算。
+    # 工作租约时长；须大于数据库命令预算，并为最终确认预留该预算。
     lease: 30s
     # 重试前等待时长；带单位，例如1m。
     retrydelay: 1m
     # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。
     maxattempts: 3
-# 开发本地适配器；正式业务对象存储仍使用外部接口。
-development:
-  # 加密删除意图账本；相对configs目录解析，父目录0700，不能随业务数据库一并回滚。
-  journalfile: ../.local/data/deletions.json
-  # 本地对象数据目录；相对configs目录解析，不在启动时删除或更换历史对象。
-  objectdirectory: ../.local/data/objects
 # 开发独立树洞设置；正式业务读取business.runtime。
 whispers:
   # 显式启用当前配置块；关闭不会自动清理已有数据。

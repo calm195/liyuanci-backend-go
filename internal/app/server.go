@@ -25,11 +25,14 @@ type ServerOptions struct {
 // ctx由入口的信号控制，取消后先等待请求结束，再逆序释放业务池、供应商和共享客户端。
 // 本函数不迁移数据库、不初始化账号，也不替换历史密钥或删除意图。
 func RunServer(ctx context.Context, options ServerOptions) error {
+	if options.Check && options.CheckConfig {
+		return errors.New("检查模式不能同时指定")
+	}
 	cfg, err := config.Load(options.ConfigFile)
 	if err != nil {
 		return err
 	}
-	if (options.Check || options.CheckConfig) && cfg.DevAppFile == "" && cfg.WhispersFile == "" && cfg.BusinessFile == "" {
+	if (options.Check || options.CheckConfig) && cfg.Mode == "foundation" {
 		return errors.New("依赖诊断必须显式提供业务配置")
 	}
 	log, err := platform.NewLogger(cfg.Log.Level)
@@ -41,28 +44,29 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	defer func() { _ = log.Sync() }()
 	// 先完成各运行模式的配置投影与校验，离线诊断到此阶段不访问外部依赖。
 	var businessSettings *config.Business
-	if cfg.BusinessFile != "" {
-		settings, e := config.LoadBusiness(ctx, cfg.BusinessFile, cfg.Environment, "api")
+	if cfg.Mode == "business" {
+		settings := cfg.Business
+		e := config.ValidateBusiness(settings, cfg.Environment, "api")
 		if e != nil {
 			return errors.New("完整业务配置无效或必需凭据缺失")
 		}
 		businessSettings = &settings
 		cfg.Database.DSN = settings.Runtime.DatabaseDSN
 	}
-	var whisperSettings *WhisperSettings
-	if cfg.WhispersFile != "" {
-		settings, e := config.LoadWhispers(ctx, cfg.WhispersFile, cfg.Environment)
+	var whisperSettings *RuntimeSettings
+	if cfg.Mode == "whispers" || cfg.Mode == "development" && cfg.Whispers.Enabled {
+		settings, e := config.ValidateWhispers(cfg.Whispers, cfg.Environment)
 		if e != nil {
 			return errors.New("树洞运行配置无效或启用被禁止")
 		}
 		whisperSettings = &settings
-		if cfg.DevAppFile == "" {
+		if cfg.Mode != "development" {
 			cfg.Database.DSN = settings.DatabaseDSN
 		}
 	}
 	var development *DevelopmentSettings
-	if cfg.DevAppFile != "" {
-		settings, e := LoadDevelopment(cfg.DevAppFile)
+	if cfg.Mode == "development" {
+		settings, e := developmentSettings(cfg)
 		if e != nil {
 			log.Error("开发业务配置读取失败")
 			return errors.New("开发业务配置读取失败")
@@ -117,7 +121,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		defer func() { _ = app.Close() }()
 		router = app.Router
 	}
-	if cfg.DevAppFile != "" {
+	if cfg.Mode == "development" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		businessRouter, closeBusiness, e := OpenDevelopment(initCtx, cfg.Environment, *development, resources.Redis, log, func(checkCtx context.Context) error {
 			// 本地业务允许数据库轮询，就绪检查只覆盖实际装配依赖。

@@ -11,19 +11,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 )
 
-// gatewayConfig 只交付供应商需要的参数，避免适配器持有应用数据库和派生密钥配置。
-func gatewayConfig(cfg WhisperSettings) gateway.Config {
-	return gateway.Config{
-		URL:     cfg.GatewayURL,
-		Token:   cfg.GatewayToken,
-		CA:      cfg.GatewayCA,
-		Version: cfg.ProviderVersion,
-		Timeout: cfg.ProviderTimeout,
-	}
-}
-
-// openObjectGateway 仅在显式配置对象端点时创建客户端，不在启动时要求供应商已选定。
-func openObjectGateway(cfg WhisperSettings, maxBytes int64, log *zap.Logger) (objectGateway, error) {
+// openObjectGateway 仅在显式启用腾讯云时创建客户端；未配置时对象操作失败关闭。
+func openObjectGateway(cfg RuntimeSettings, maxBytes int64, log *zap.Logger) (objectGateway, error) {
 	if cfg.Tencent.Enabled {
 		return gateway.NewTencent(gateway.TencentConfig{
 			Bucket:         cfg.Tencent.Bucket,
@@ -39,14 +28,7 @@ func openObjectGateway(cfg WhisperSettings, maxBytes int64, log *zap.Logger) (ob
 			MaxObjectBytes: maxBytes,
 		}, log)
 	}
-	if cfg.GatewayURL == "" && cfg.GatewayToken == "" && cfg.GatewayCA == "" && cfg.ProviderVersion == "" {
-		return nil, nil
-	}
-	g, err := gateway.New(gatewayConfig(cfg), log)
-	if err != nil {
-		return nil, err
-	}
-	return gateway.NewBusiness(g, maxBytes), nil
+	return nil, nil
 }
 
 type unavailableObjects struct{}
@@ -67,7 +49,7 @@ func objectStore(g objectGateway) Objects {
 	return g
 }
 
-// objectGateway 让装配层统一拥有两种对象协议的生命周期。
+// objectGateway 让装配层统一拥有对象客户端的生命周期。
 type objectGateway interface {
 	Objects
 	Close()

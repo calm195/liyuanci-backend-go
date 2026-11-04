@@ -33,9 +33,6 @@ func TestCreateDraftPreparation(t *testing.T) {
 	if *out.Content.IdentityTags.Gender != "undisclosed" {
 		t.Fatal("内容保留输入指针")
 	}
-	if count, err := p.CountActive("", at(), []Snapshot{out.Transition.Next}); err != nil || count != 0 {
-		t.Fatal(count, err)
-	}
 	if _, err := p.Public("", at(), eligible(), out.Transition.Next); !errors.Is(err, command.ErrNotFound) {
 		t.Fatal(err)
 	}

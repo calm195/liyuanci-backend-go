@@ -102,13 +102,13 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	cfg.DatabaseDSN = shared
 	cfg.Command.Timeout = 5 * time.Second
 	cfg.Command.LockTimeout = time.Second
-	cfg.Worker.Consumer.Timeout = 3 * time.Second
-	cfg.Worker.Consumer.LockTimeout = time.Second
-	cfg.Worker.AnalysisTimeout = 3 * time.Second
-	cfg.Worker.Consumer.RetryDelay = 50 * time.Millisecond
+	cfg.Tasks.Consumer.Timeout = 3 * time.Second
+	cfg.Tasks.Consumer.LockTimeout = time.Second
+	cfg.Tasks.AnalysisTimeout = 3 * time.Second
+	cfg.Tasks.Consumer.RetryDelay = 50 * time.Millisecond
 	cfg.ProviderTimeout = 3 * time.Second
-	cfg.OperationTimeout = 20 * time.Second
-	cfg.Interval = 50 * time.Millisecond
+	cfg.Tasks.OperationTimeout = 20 * time.Second
+	cfg.Tasks.ScanInterval = 50 * time.Millisecond
 	dir := t.TempDir()
 	must(os.Chmod(dir, 0700))
 	cfg.JournalFile = filepath.Join(dir, "deletions.json")
@@ -120,7 +120,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		must(os.WriteFile(path, raw, 0600))
 		return path
 	}
-	cfg.CatalogFile = write("catalog.yaml", ResourcesFile{
+	cfg.ResourcesFile = write("catalog.yaml", ResourcesFile{
 		Version: "synthetic-runtime-resources-v1",
 		Catalog: whisper.CatalogSnapshot{
 			Grades: whisper.Dictionary{Items: []whisper.Item{}},
@@ -395,12 +395,12 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	server.stop(t)
 	content.stop(t)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(privacyBin, true, "-config", appPath, "-recover")
+	oneShot(privacyBin, true, "-config", appPath, "-kind", "account", "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	// 模拟恢复出已确认删除的主体；读取进程必须再次拒绝，隐私进程重删后才可启动。
 	must(root.Create(&entity.Account{ID: actor, Nickname: "恢复合成残留"}).Error)
 	oneShot(serverBin, false, "-config", appPath, "-check")
-	oneShot(privacyBin, true, "-config", appPath, "-recover")
+	oneShot(privacyBin, true, "-config", appPath, "-kind", "account", "-recover")
 	oneShot(serverBin, true, "-config", appPath, "-check")
 	cfg.Enabled = true
 	saveConfig()
@@ -427,7 +427,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	if version != 9 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
-	t.Logf("server/content-worker/privacy-worker、本机密钥、Redis、数据库任务、禁用/重启/数据库删除恢复门禁通过；未使用外部审核、KMS或通知服务")
+	t.Logf("server及统一worker、本机密钥、Redis、数据库任务、禁用/重启/数据库删除恢复门禁通过；未使用外部审核、KMS或通知服务")
 }
 
 func mustJSON(t *testing.T, value any) []byte {

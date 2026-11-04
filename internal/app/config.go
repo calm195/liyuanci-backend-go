@@ -8,8 +8,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
-// WhisperSettings 是配置边界提供的只读运行约束，所有文件加载由config负责。
-type WhisperSettings = config.Whispers
+// RuntimeSettings 是完整业务与独立树洞共用的只读运行约束，所有文件加载由config负责。
+type RuntimeSettings = config.Runtime
 
 // ResourcesFile 是装配层转换后的资源快照，配置包不依赖领域投影类型。
 type ResourcesFile struct {
@@ -30,14 +30,14 @@ func careResources(value *config.CareResources) *moderation.CareResources {
 // readResources 保留版本、可选字段与nil/空数组区别，再由领域校验资料是否可用。
 // 转换逐字段执行；不能用JSON往返转换，否则字段标记或数字类型可能悄悄改变。
 func readResources(ctx context.Context, path string) (ResourcesFile, error) {
-	value, err := config.LoadWhisperResources(ctx, path)
+	value, err := config.LoadResources(ctx, path)
 	if err != nil {
 		return ResourcesFile{}, err
 	}
 	return resourceSnapshot(value), nil
 }
 
-func resourceSnapshot(value config.WhisperResources) ResourcesFile {
+func resourceSnapshot(value config.Resources) ResourcesFile {
 	items := func(values []config.DictionaryItem) []whisper.Item {
 		if values == nil {
 			return nil

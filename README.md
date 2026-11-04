@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```text
-cmd/                          # 8个命令入口：参数、信号与退出状态
+cmd/                          # 4个命令入口：参数、信号与退出状态
 configs/                      # 公共YAML、环境覆盖模板、词库与公开资料
 internal/
   app/                        # API/worker/初始化/迁移装配与资源生命周期
@@ -60,11 +60,13 @@ API 启动后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 | `make worker KIND=account` | 账号注销清理 |
 | `make worker KIND=evidence` | 独立证据清理 |
 
+构建只生成 `server`、`worker`、`init`、`migrate` 四个命令。`worker -kind …` 与 `init` 在开发和生产共用入口，适配器由 YAML 模式决定；检查及恢复参数见 [进程与动作](CONFIGURATION.md#进程与动作)。
+
 所有进程读取同一环境 YAML，使用同一组数据库分项字段及 `masterkey`。配置为 `configs/common.yaml` 合并私有环境覆盖，不读取环境变量或独立秘密文件；已有数据时不能直接更换主密钥或环境名。普通启动不迁移、不初始化、不重置数据，也不自动启停 PostgreSQL/Redis。
 
 ### 健康入口与生产运行
 
-只检查程序启动时，构建后执行 `bin/server -config configs/common.yaml`；该模式仅提供 `/healthz`、`/readyz`，没有业务路由。`/healthz` 表示进程存活，`/readyz` 检查已装配依赖。
+只检查程序启动时，构建后执行 `bin/server -config configs/common.yaml`。公共配置默认使用 `mode: foundation`、空 `database.driver` 和关闭的Redis，无需中间件或业务凭据；仅提供 `/healthz`、`/readyz`，没有业务路由。`/healthz` 返回存活状态，未装配业务依赖时 `/readyz` 返回503。开发与生产覆盖均须显式设置 `database.driver: postgres`、完整连接字段及 `redis.enabled: true`。
 
 生产使用私有 `configs/production.yaml`，为上述 Make 命令指定 `CONFIG=configs/production.yaml`，并配置真实服务。当前只采用原生二进制，由宿主服务管理器管理 API 及五类 worker。首次装配、词库与屏蔽策略初始化、删除账本及恢复前两域重删步骤见 [生产流程](DEVELOPER_GUIDE.md#5-完整生产装配与上线流程)和[原生运行与恢复](DEVELOPER_GUIDE.md#6-无mq原生生产装配)。
 

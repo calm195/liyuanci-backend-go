@@ -93,7 +93,7 @@ API 运行后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 
 树洞还需要显式启用 `whispers` 开发配置及屏蔽策略，步骤见 [初始化与启动](#3-初始化与启动)。配置合并、相对路径与模式区别见 [CONFIGURATION.md](CONFIGURATION.md)。所有进程使用同一环境文件与 `masterkey`；已有数据时不能随意换环境名或主密钥。
 
-如果只想确认 Go 程序能启动，可在构建后运行 `bin/server -config configs/common.yaml`，只提供健康端点。`/healthz` 是进程存活，`/readyz` 反映已装配依赖；健康模式没有业务路由。业务开发需要私有配置，真实学生登录需要微信能力，本地没有伪造微信登录接口；先做规则或接口开发时可直接运行不依赖中间件的单测。
+如果只想确认 Go 程序能启动，可在构建后运行 `bin/server -config configs/common.yaml`，只提供健康端点。公共文件默认保持 `mode: foundation`、空 `database.driver` 和关闭的Redis，无需补齐中间件凭据；业务环境通过私有覆盖显式启用数据库和Redis。`/healthz` 是进程存活，`/readyz` 反映已装配依赖；健康模式没有业务路由。业务开发需要私有配置，真实学生登录需要微信能力，本地没有伪造微信登录接口；先做规则或接口开发时可直接运行不依赖中间件的单测。
 
 ### 从一个需求进入开发流程
 
@@ -142,7 +142,7 @@ configs/
   resources.yaml              # 公开资料模板，投放前核验
 ```
 
-所有 Go 进程通过 Viper 先读取环境文件旁的 `common.yaml`，再递归合并指定环境 YAML；映射逐字段覆盖，数组整体替换。口令、密钥、令牌、CA 均内联私有环境文件，不读取环境变量或独立秘密文件。资源和状态的相对路径以配置目录解析。
+所有 Go 进程通过 Viper 先读取环境文件旁的 `common.yaml`，再递归合并指定环境 YAML；映射逐字段覆盖，数组整体替换。口令、密钥、令牌、CA 均内联私有环境文件，不读取环境变量或独立秘密文件。资源和状态的相对路径以配置目录解析。共享配置结构为 `config.Runtime`；版本化资料使用 `resourcesfile`，扫描、分析和消费预算集中在 `runtime.tasks`。旧网关、单一联系方式、内联关怀和内容审核模式字段已删除，具体迁移映射见[配置字段清理](CONFIGURATION.md#配置项清理与层级)。
 
 应用自身只维护顶层 `masterkey`（32字节随机值的Base64），内部按环境和用途派生密钥，不再填写 `sessionkey`、`wrapkey` 等字段。数据库/Redis密码、微信和供应商凭据仍独立填写。所有进程必须使用同一环境及主密钥；已有数据时不可直接更换，详见[配置说明](CONFIGURATION.md)。
 
@@ -199,9 +199,9 @@ make integration              # 真实、一次性的原生PG/Redis与实际Go�
 
 `integration` 需要宿主安装 `initdb`、`pg_ctl`、`psql`、`redis-server`。它创建随机端口及临时集群，使用独立测试账号，退出后清理本轮进程和数据。供应商由隔离 TLS 夹具替代；通过不等于正式供应商、手机或生产容量验收。
 
-集成脚本核对Go结构化结果：六类专项中登记的顶层必需用例必须实际执行、全部通过且测试包正常完成；用例缺失、顶层或子用例跳过、失败及无法解析的结果均不能报成功。普通`make check`仍允许未提供隔离依赖的集成用例跳过，不能单独作为真实中间件验收。
+集成脚本核对Go结构化结果：八类专项中登记的顶层必需用例必须实际执行、全部通过且测试包正常完成；用例缺失、顶层或子用例跳过、失败及无法解析的结果均不能报成功。`durable` 覆盖工作/事件原子写入、数据库消费、补偿和受控重驱动；`wish_lifecycle` 覆盖实际上架路径的并发额度与到期规则。隐私受理、确认失败、恢复屏障及证据删除使用正式加密文件账本验证。普通`make check`仍允许未提供隔离依赖的集成用例跳过，不能单独作为真实中间件验收。
 
-`/healthz` 表示进程存活，`/readyz` 表示已装配业务依赖可用。`make doctor` 连接依赖检查装配，不监听 HTTP。仅检查健康入口时可运行 `bin/server -config configs/common.yaml`。
+`/healthz` 表示进程存活，`/readyz` 表示已装配业务依赖可用。`make doctor` 连接依赖检查装配，不监听 HTTP。仅检查健康入口时可直接运行 `bin/server -config configs/common.yaml`；公共配置默认不连接数据库或Redis。开发/生产覆盖显式启用postgres与Redis，业务连接字段不能缺失。
 
 ## 5. 完整生产装配与上线流程
 
@@ -231,15 +231,15 @@ make worker CONFIG=configs/production.yaml KIND=content
 删除意图存放在独立加密文件账本。API、相关 worker 必须使用相同账本路径与恢复密钥；目录权限 `0700`、文件 `0600`。账本使用跨进程锁、原子替换和 fsync，不清空已确认记录。恢复业务数据库时先运行：
 
 ```sh
-bin/business-worker -config configs/production.yaml -kind account -recover
-bin/business-worker -config configs/production.yaml -kind evidence -recover
+bin/worker -config configs/production.yaml -kind account -recover
+bin/worker -config configs/production.yaml -kind evidence -recover
 ```
 
 恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和外部对象保留/删除规则仍待存储服务确定。本分支没有执行部署、服务管理器安装或生产迁移。
 
 ## 7. 代码组织与重构边界
 
-工程使用单个Go module，`cmd/`的8个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
+工程使用单个Go module，`cmd/`的4个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
 
 ```text
 internal/app/                  # 服务构造、入口装配、资源生命周期
@@ -285,4 +285,25 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 宿主拥有自己打开的数据库、Redis和供应商资源，借用服务不得自行关闭；停止时先排空请求和后台任务，再逆序释放。普通启动不执行DDL。命令参数、HTTP契约、YAML字段与相对路径规则、密钥派生标签、任务协议、删除账本和恢复门禁属于兼容边界。
 
-相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、studentcard、resourceplaza、moderation、whisper_review、migration六类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。
+相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、durable、wish_lifecycle、studentcard、resourceplaza、moderation、whisper_review、migration八类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。
+
+## 8. 保留但尚未接入的维护与治理能力
+
+以下方法仍承担独立的领域职责，并有测试验证，但当前没有面向操作者的命令或HTTP入口。它们不能当作已交付的运维工具或后台功能。
+
+| 能力 | 已有机制 | 当前缺口及接入条件 |
+| --- | --- | --- |
+| 身份摘要轮换与重加密 | `identity.Store.BeginRotation`、`Backfill`、`FinishRotation` 保证双代查重和完整回填；`Reencrypt` 分批更新信封，不改变内容版本 | 本机适配器固定使用 `local-lookup-v1` / `local-wrap-v1`，不支持新旧密钥并存；没有维护命令。接入前须提供多代密钥适配器、受控维护装配和中断续跑验证，已有数据不能直接更换 `masterkey`、环境或派生标签 |
+| 异常任务重驱动 | `durable.Consumer.RedriveCommand` 通过当前岗位、领域 `Recheck`、工作版本、锁和命令回执决定恢复或作废；旧事件失效 | 没有后台路由或CLI；定义中的 `ResourcePath` 仅绑定回执。接入时由所属领域固定角色与状态复核策略，不能开放任意工作类型或让客户端提供策略；需验证越权、旧版本、重复及失效目标不复活 |
+| 通用批量补偿 | `Compensate` / `RunCompensator` 从数据库事件关联补偿到期任务，受持久状态和幂等消费限制 | 当前worker已通过领域 `ProcessNext` 和 `workrunner` 调度；本批量循环未装配。仅在有独立批量维护需要时接入，并明确调度归属、预算和关闭等待，避免重复建立同职责循环 |
+| 资料治理屏障 | `resourceplaza.Service.SetBarrier` 复核超管权限，按分类/资料锁更新屏障、离线状态、版本和加密审计 | 仅集成测试调用，未提供资料举报或普通后台治理入口。若产品需要，先明确治理来源与解除规则，再设计输入、版本、幂等和岗位协议及三端操作；本次不扩展现有15个资料操作 |
+
+已退役的MQ转发器、PostgreSQL删除账本运行实现和旧worker/配置包装已移除。数据库工作及事件关联仍用于当前消费者，历史路由值保持不变；正式删除意图只使用加密文件账本。`internal/testconfig` 中旧数据库日志SQL与权限矩阵仅保留为迁移隔离、权限及拒绝错误数据库的测试夹具，不提供运行配置入口，也不代表独立灾备已验收。
+
+## 9. 运行边界回归与容量处理
+
+开发API与完整业务API在开放路由前复用同一删除恢复检查：两域全部分页扫描，已确认历史也不能跳过；账号域恢复成功后证据目标仍存在时继续拒绝启动。原生runtime回归模拟第二页中的已确认账号/证据目标，验证两域重删及再次恢复旧目标后的失败关闭。`-check-config` 不连接依赖、不检查账本内容；在线检查才执行门禁。
+
+学生卡注册必须显式传入文件字节预算，HTTP总预算为文件上限加64KiB multipart开销；其余路由仍为1MiB，不能按客户端Content-Type豁免。回归覆盖精确文件边界、较大配置、超限图片、过量头部、额外部分以及超过1MiB的真实合成PNG经HTTP、规范化、加密和数据库暂存的完整链路。
+
+文件账本编码为临时快照后先校验32MiB完整文件上限，再fsync及原子替换；超限返回失败并保留旧账本，日志 `capacity_exceeded=true` 可用于告警。已确认意图不删除，满容量后既有任务确认和恢复仍可继续；新增意图被拒绝时，不得视为注销已受理。显式分段存储尚未实现，扩展前须验证旧意图全量迁移、原密钥、分页顺序、跨进程锁、fsync和中断恢复；禁止用清空文件或轮换主密钥临时腾挪容量。同机文件仍不代表独立故障域。

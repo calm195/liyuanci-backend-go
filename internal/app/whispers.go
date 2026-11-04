@@ -15,7 +15,7 @@ type WhisperAPI struct {
 }
 
 // OpenWhispers 在监听前检查资源与恢复门禁并构造树洞服务，不启动后台任务。
-func OpenWhispers(ctx context.Context, cfg WhisperSettings, client redis.UniversalClient, log *zap.Logger) (out *WhisperAPI, err error) {
+func OpenWhispers(ctx context.Context, cfg RuntimeSettings, client redis.UniversalClient, log *zap.Logger) (out *WhisperAPI, err error) {
 	runtime, services, err := openAPIComponents(ctx, cfg, client, log)
 	if err != nil {
 		return nil, err

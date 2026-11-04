@@ -1,4 +1,4 @@
-package local
+package privacy_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
@@ -19,7 +20,7 @@ import (
 func TestJournalPersistence(t *testing.T) {
 	ctx := context.Background()
 	log := zap.NewNop()
-	codec, e := securedata.New(Keys{bytes.Repeat([]byte{7}, 32), log}, log)
+	codec, e := securedata.New(local.Keys{Key: bytes.Repeat([]byte{7}, 32), Logger: log}, log)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -28,11 +29,11 @@ func TestJournalPersistence(t *testing.T) {
 		t.Fatal(e)
 	}
 	path := filepath.Join(dir, "journal.json")
-	first, e := NewJournal(path, codec, log)
+	first, e := privacy.NewFileJournal(path, codec, log)
 	if e != nil {
 		t.Fatal(e)
 	}
-	second, e := NewJournal(path, codec, log)
+	second, e := privacy.NewFileJournal(path, codec, log)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -63,7 +64,7 @@ func TestJournalPersistence(t *testing.T) {
 	if e = second.Confirm(ctx, "000"); e != nil {
 		t.Fatal(e)
 	}
-	restarted, e := NewJournal(path, codec, log)
+	restarted, e := privacy.NewFileJournal(path, codec, log)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -93,27 +94,5 @@ func TestJournalPersistence(t *testing.T) {
 	}
 	if e = restarted.Append(ctx, privacy.Intent{ID: "new", Scope: "account", Target: "new"}); e == nil {
 		t.Fatal("损坏账本被覆盖")
-	}
-}
-
-// TestLocalKeys 验证重启兼容既有开发引用，错误密钥和篡改均拒绝。
-func TestLocalKeys(t *testing.T) {
-	ctx := context.Background()
-	key := bytes.Repeat([]byte{9}, 32)
-	k := Keys{key, zap.NewNop()}
-	ref, wrapped, e := k.Wrap(ctx, []byte("测试数据密钥"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	out, e := (Keys{key, zap.NewNop()}).Unwrap(ctx, ref, wrapped)
-	if e != nil || string(out) != "测试数据密钥" {
-		t.Fatal("重启解密失败", e)
-	}
-	if _, e = (Keys{bytes.Repeat([]byte{8}, 32), zap.NewNop()}).Unwrap(ctx, ref, wrapped); e == nil {
-		t.Fatal("接受错误密钥")
-	}
-	wrapped[len(wrapped)-1] ^= 1
-	if _, e = k.Unwrap(ctx, ref, wrapped); e == nil {
-		t.Fatal("接受篡改")
 	}
 }

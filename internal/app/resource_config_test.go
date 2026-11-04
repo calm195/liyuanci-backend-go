@@ -42,7 +42,7 @@ care:
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	source, err := config.LoadWhisperResources(context.Background(), path)
+	source, err := config.LoadResources(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ care:
 	if !reflect.DeepEqual(resourceSnapshot(source), out) {
 		t.Fatal("业务投影修改污染了原始配置")
 	}
-	empty := resourceSnapshot(config.WhisperResources{Version: "empty"})
+	empty := resourceSnapshot(config.Resources{Version: "empty"})
 	if empty.Care != nil || empty.Catalog.Grades.Version != nil || empty.Catalog.Grades.Items != nil || empty.Catalog.Reports != nil ||
 		empty.Catalog.Help.Items != nil ||
 		empty.Catalog.Help.VerifiedAt != nil {

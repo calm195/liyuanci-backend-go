@@ -24,6 +24,9 @@ func run() error {
 	check := flag.Bool("check", false, "仅检查显式业务依赖和装配，不监听HTTP")
 	checkConfig := flag.Bool("check-config", false, "只检查所选业务YAML，不连接外部依赖")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		return fmt.Errorf("不接受位置参数，请使用 -h 查看用法")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return app.RunServer(ctx, app.ServerOptions{ConfigFile: *path, Check: *check, CheckConfig: *checkConfig})

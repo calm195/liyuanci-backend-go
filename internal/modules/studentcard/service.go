@@ -49,6 +49,7 @@ type Config struct {
 	MaxPixels   int64
 	ReceiptKey  []byte
 	Command     command.Config
+	// Lease 覆盖外部扫描和最终确认，必须严格大于单次数据库命令预算。
 	Lease       time.Duration
 	RetryDelay  time.Duration
 	MaxAttempts int
@@ -81,7 +82,7 @@ func New(db *gorm.DB, logger *zap.Logger, sessions Sessions, codec *securedata.C
 		cfg.MaxBytes > int64(int(^uint(0)>>1))/4 ||
 		cfg.MaxPixels < 1 ||
 		len(cfg.ReceiptKey) < 32 ||
-		cfg.Lease < cfg.Command.Timeout ||
+		cfg.Lease <= cfg.Command.Timeout ||
 		cfg.RetryDelay < time.Millisecond ||
 		cfg.MaxAttempts < 1 ||
 		cfg.MaxAttempts > 1000 {
@@ -128,6 +129,9 @@ func safe(e error) error {
 		return nil
 	}
 	for _, known := range []error{
+		ErrImageInputTooLarge,
+		ErrImageNormalizedTooLarge,
+		ErrImagePixelsExceeded,
 		command.ErrInvalid,
 		command.ErrUnauthenticated,
 		command.ErrForbidden,
@@ -166,6 +170,7 @@ func (s *Service) complete(operation, requestID string, start time.Time, err err
 // Upload 只在根事务中持久化信封密文和工作；网络外发由worker在提交后执行。
 func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string, source io.Reader) (out Asset, err error) {
 	start := time.Now()
+	var validation imageValidation
 	defer func() {
 		if recover() != nil {
 			err = command.ErrInternal
@@ -174,7 +179,20 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 		if err != nil {
 			out = Asset{}
 		}
-		s.complete("upload", requestID, start, err)
+		fields := []zap.Field{}
+		if validation.result != "" {
+			fields = append(fields,
+				zap.String("image_validation_result", validation.result),
+				zap.Int64("input_bytes", validation.inputBytes),
+				zap.Bool("input_bytes_truncated", validation.inputTruncated),
+				zap.Int64("normalized_bytes", validation.normalizedBytes),
+				zap.Int("image_width", validation.width),
+				zap.Int("image_height", validation.height),
+				zap.Int64("max_bytes", s.config.MaxBytes),
+				zap.Int64("max_pixels", s.config.MaxPixels),
+			)
+		}
+		s.complete("upload", requestID, start, err, fields...)
 	}()
 	if !validKey(key) {
 		return out, command.ErrInvalid
@@ -191,7 +209,8 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 	default:
 		return out, ErrBusy
 	}
-	image, e := normalizeImage(source, mime, s.config.MaxBytes, s.config.MaxPixels)
+	image, checked, e := normalizeImage(source, mime, s.config.MaxBytes, s.config.MaxPixels)
+	validation = checked
 	if e != nil {
 		return out, e
 	}

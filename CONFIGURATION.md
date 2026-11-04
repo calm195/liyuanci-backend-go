@@ -4,7 +4,7 @@
 
 应用只维护 `configs/common.yaml` 和环境覆盖文件。开发指定 `configs/development.yaml`，生产指定 `configs/production.yaml`；实际覆盖文件被 Git 忽略，仓库提供对应 `.example.yaml`。所有 CLI 的 `-config` 都指向环境覆盖，公共文件固定为它旁边的 `common.yaml`。
 
-Go入口统一通过独立的 Viper 实例读取、合并并映射到结构体；不绑定环境变量、命令行配置值或文件热更新。使用 `UnmarshalExact` 拒绝未知字段，关闭弱类型转换，单独处理带单位时长和 Base64 密钥。业务代码不直接导入 go-yaml；它仅作为 Viper 的间接依赖保留。应用不会回写源 YAML，原注释和私有值保持不变。
+Go进程通过 `config.Load` 一次读取统一配置快照，装配时只投影和校验，不按运行模式重复读文件。加载器通过独立的 Viper 实例读取、合并并映射到结构体；不绑定环境变量、命令行配置值或文件热更新。使用 `UnmarshalExact` 拒绝未知字段，关闭弱类型转换，单独处理带单位时长和 Base64 密钥。业务代码不直接导入 go-yaml；它仅作为 Viper 的间接依赖保留。应用不会回写源 YAML，原注释和私有值保持不变。
 
 顺序为公共值 → 环境值。嵌套映射递归合并；标量、数组整体替换；空字符串可显式清空可选字段；`null`、重复键（包括大小写重复）、YAML 别名/合并、多文档、未知字段均拒绝。旧环境变量、JSON 配置、分角色 DSN、MQ 与文件秘密入口不再有效。输入不会展开 `$VARIABLE`，口令中的字符按原值读取。
 
@@ -24,13 +24,32 @@ Go入口统一通过独立的 Viper 实例读取、合并并映射到结构体�
 | `database` | 主机、端口、库名、账号、口令、TLS、时区和连接超时，以及 `maxopen` / `maxidle` / `maxlifetime` 预算 |
 | `redis` | 地址、ACL 用户、内联原口令、逻辑库；生产必须鉴权 |
 | `bootstrap` | 首个后台登录名与词库数据路径，仅显式初始化使用 |
-| `worker` | 默认职责、原文复核模式（空值或manual）；`-kind` 选择执行哪种进程动作 |
-| `development` | 初始后台口令、微信凭据、对象及删除账本路径；密钥统一由顶层派生 |
+| `worker` | 默认职责 `kind`；`-kind` 选择执行哪种进程动作，内容审核策略不再提供切换项 |
 | `whispers` | 开发悄悄鲤适配；`localtest: true` 只在开发允许；生产使用下行配置 |
-| `business` | 正式微信、账号、上传约束及会话期限；密钥统一由顶层派生 |
-| `business.runtime` | 共享任务预算、可选外部对象网关及内联CA、资源与删除账本 |
+| `business` | 开发与正式环境共用的微信、后台口令、上传约束及会话期限；密钥统一由顶层派生 |
+| `business.runtime` | 共享事务、腾讯云对象服务、资源文件、删除账本与隔离集成本地对象目录 |
+| `business.runtime.tasks` | 扫描间隔、整次任务期限、消费者短事务和分析预算 |
 
 详细中文注释直接写在 [common.yaml](configs/common.yaml)、[开发覆盖模板](configs/development.example.yaml) 和 [生产覆盖模板](configs/production.example.yaml)。`wordlists.yaml` 和 `resources.yaml` 是词库、公开资料数据，不是另一套应用参数。
+
+开发与生产共用 `business` / `business.runtime` 字段，已删除独立 `development:` 配置块和 `internal/config/development.go`。旧文件须将后台口令、微信凭据移至 `business`，账本、对象目录移至 `business.runtime`，关怀资料统一放入 `resourcesfile` 指向的版本化资源文件；旧块即使为空也会被拒绝。`mode: development` 仍选择开发适配器，其 `development/*` 密钥派生标签保持不变；配置字段归组不要求清空数据或更换主密钥。
+
+## 配置项清理与层级
+
+共享运行结构使用 `config.Runtime`，公开资料结构使用 `config.Resources`；应用装配使用 `RuntimeSettings`，不再以树洞名称表示完整业务共用参数。资源文件读取位于 `internal/config/resources.go`，运行预算与校验位于 `internal/config/runtime.go`。
+
+| 原字段 | 当前字段或处理 |
+| --- | --- |
+| `runtime.catalogfile` | `runtime.resourcesfile`，承载字典、援助目录和关怀资料 |
+| `runtime.worker.consumer` | `runtime.tasks.consumer`，仅控制短事务和重试 |
+| `runtime.worker.analysistimeout` | `runtime.tasks.analysistimeout` |
+| `runtime.interval` | `runtime.tasks.scaninterval` |
+| `runtime.operationtimeout` | `runtime.tasks.operationtimeout`，须覆盖分析与前后两次事务 |
+| `runtime.gatewayurl/gatewaytoken/gatewayca/providerversion` | 删除，正式对象服务统一腾讯云COS/CI |
+| `runtime.contact` / `runtime.care` | 删除，关怀资料只从版本化资源文件读取，不再用一个联系方式生成资料 |
+| `worker.contentanalyzer` | 删除，内容策略固定为词库筛选及命中/重审时交人工 |
+
+此表的 `runtime` 同时适用于 `business.runtime` 和开发独立 `whispers` 块；旧字段即使为空也拒绝，不设置兼容别名。本机已有私有覆盖已迁移字段位置，主密钥、凭据与原有用途派生标签未变更，其他环境的私有文件须同步调整。`runtime.enabled` **只控制树洞与胶囊模块**，不关闭其他业务、对象服务或持久任务；`redis.enabled` 与 `tencent.enabled` 分别控制对应客户端。开发与生产示例均显式启用Redis，避免继承公共配置的关闭值。
 
 ## 数据库分项配置与权限
 
@@ -64,10 +83,21 @@ database:
 | 入口 | 行为 |
 | --- | --- |
 | `server` | 按模式装配 API；`-check-config` 离线验证，`-check` 验证依赖 |
-| `business-worker -kind …` | 生产 `card/content/whispers/account/evidence` 五类任务；可 `-check-config`、`-check` 或隐私 `-recover` |
-| `card-worker` / `content-worker` / `privacy-worker` | 开发适配器；`content-worker -kind whispers` 为开发树洞，隐私以 `-kind account/evidence` 选择范围 |
-| `business-init` / `dev-init` | 显式初始化后台账号和检索引用；普通启动不会调用 |
+| `worker -kind …` | 统一 `card/content/whispers/account/evidence` 五类任务，按YAML模式选择适配器；`-kind` 省略时读取 `worker.kind` |
+| `init` | 显式初始化后台账号和检索引用；`-check-config` 离线检查；普通启动不会调用 |
 | `migrate … up` | 同一事务内执行版本 SQL、字段检查和应用账号权限；`permissions` 只重放权限，`opaque-blocks` 显式切换屏蔽策略 |
+
+`make build` 仅构建当前四个入口；既有构建目录中的旧 worker 和初始化二进制需手动清理，已有服务管理配置须改为 `worker -kind …` 或 `init`。
+
+所有命令默认 `-config configs/development.yaml`，接收 SIGINT/SIGTERM 并在失败时返回非零状态。`server` 与 `worker` 支持 `-check-config`（离线）和 `-check`（装配依赖，不监听/消费）；`worker -kind account/evidence -recover` 仅执行删除恢复，未完成则失败退出。这三种运行模式互斥；未知职责、额外位置参数和不支持的参数均被拒绝。`init` 仅支持离线检查，`migrate` 必须指定一个操作。迁移和初始化仍为显式动作。
+
+脚本对应参数为 `--check-config`、`--check`、`--recover`，例如：
+
+```sh
+python3 scripts/manage.py worker --kind content --check-config
+python3 scripts/manage.py worker --kind account --recover
+python3 scripts/manage.py init --check-config
+```
 
 常用命令由 Make 转交 `scripts/manage.py`，始终传入同一配置文件，不生成每个进程的副本：
 
@@ -107,7 +137,7 @@ make wordlists                              # API运行时显式发布词库
 
 密钥包裹和OpenID/学号摘要使用本机派生密钥；业务与恢复用途隔离。正式图片扫描使用腾讯云CI，未配置或故障失败关闭；学校权威校验直接通过，仍保留图片解码、上传上限、归属、学号占用及人工认证。公开/私密内容使用已发布词库：未命中原文通过，命中或显式重审原文人工复核；危机命中继续隔离并进入站内案件。旧synthetic/unavailable分析模式不再接受。
 
-`gatewayurl/gatewaytoken/gatewayca/providerversion`保留旧自定义对象协议，不能填写COS地址，也不能与腾讯云配置混用；可全部留空，部分填写必须提供合法HTTPS端点、令牌与版本。未配置时对象读写不可用。对象服务不承担审核、身份、通知或全副本清理。外部危机通知和重试动作已删除，站内关怀保留。账号及证据删除保留数据库清理、屏障及独立恢复账本，完成回执不涵盖外部对象和备份；COS对象及CI审核数据的保留/删除策略仍待云资源准备时确认。脱敏使用移除原文、要求重新编辑的本机策略。
+旧自定义对象协议及 `gatewayurl/gatewaytoken/gatewayca/providerversion` 配置已删除，正式对象读写只使用腾讯云COS，未配置时操作不可用。对象服务不承担审核、身份、通知或全副本清理。外部危机通知和重试动作已删除，站内关怀保留。账号及证据删除保留数据库清理、屏障及独立恢复账本，完成回执不涵盖外部对象和备份；COS对象及CI审核数据的保留/删除策略仍待云资源准备时确认。脱敏使用移除原文、要求重新编辑的本机策略。
 
 ## 腾讯云 COS 与数据万象 CI
 
@@ -131,8 +161,18 @@ business:
 
 COS 使用专用私有桶，必须**从未开启版本控制**。每次上传先查询桶版本状态，开启或暂停均拒绝；`x-cos-forbid-overwrite: true` 保障同键不可覆盖。应用版本为 `sha256:<完整密文摘要>`，不是 COS versionId；重复写入与精确读取均下载限长密文并核对完整摘要，不以 ETag 或可改写元数据作为版本依据。不同密文、篡改及预算超限均失败关闭。普通启动不修改桶配置。应用账号按桶限定 `cos:GetBucketVersioning`、`cos:PutObject`、`cos:GetObject` 和 `ci:CreateAuditingPictureJob`；用桶策略强制写入携带禁止覆盖头，不授予删除对象、修改版本配置、ACL或桶管理权限。管理员也须保持版本控制关闭，并核实生命周期与保留规则。
 
-CI 须提前开通、绑定桶并创建审核策略。card-worker 在事务外提交解密后的规范化 JPEG/PNG Base64，显式同步审核，不向COS写入图片明文，不发送用户身份字段。仅匹配请求标识、`State=Success` 且显式 `Result=0` 才批准；`Result=1`（违规）与 `Result=2`（疑似）均持久化为 `scan_status=rejected`，本次任务结束，提示用户重新上传；两者均不自动重试、不进入人工图片复核，不能用于提交学生认证。超时、取消、缺字段、未知状态、场景错误和HTTP失败保留现有租约、重试与耗尽转人工关注语义。未启用CI的正式装配同样失败关闭，development开发模式同样使用上述真实COS/CI，只有integration隔离测试使用本地文件和模拟扫描。
+CI 须提前开通、绑定桶并创建审核策略。worker 在事务外提交解密后的规范化 JPEG/PNG Base64，显式同步审核，不向COS写入图片明文，不发送用户身份字段。仅匹配请求标识、`State=Success` 且显式 `Result=0` 才批准；`Result=1`（违规）与 `Result=2`（疑似）均持久化为 `scan_status=rejected`，本次任务结束，提示用户重新上传；两者均不自动重试、不进入人工图片复核，不能用于提交学生认证。超时、取消、缺字段、未知状态、场景错误和HTTP失败保留现有租约、重试与耗尽转人工关注语义。未启用CI的正式装配同样失败关闭，development开发模式同样使用上述真实COS/CI，只有integration隔离测试使用本地文件和模拟扫描。
 
 所有请求使用腾讯云官方 Go SDK 签名、HTTPS、显式超时和响应长度上限，拒绝重定向。专用代理只能通过私有YAML的HTTPS源站与内联CA显式设置。云端审核数据留存、访问权限和删除规则须另行确认；当前删除回执只覆盖数据库，不承诺清除COS对象、CI留存或备份。官方接口依据：[PUT Object](https://cloud.tencent.com/document/product/436/7749)、[图片批量审核](https://cloud.tencent.com/document/product/436/119479)。
 
-`configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和card-worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。
+`configs/development.example.yaml`及现有私有`configs/development.yaml`已列出腾讯云字段，开发覆盖预设`enabled: true`，填写专用开发桶/地域/凭据/BizType后再启动；占位尚未填写时校验会失败。development API和worker读取同一`business.runtime.tencent`投影，不需要切换为business模式。开发模式未启用腾讯云时对象/扫描不可用，不回退本地文件或直接通过；隔离integration测试继续使用显式合成夹具。
+
+## 健康模式、上传与删除恢复边界
+
+公共 `common.yaml` 默认foundation，数据库驱动留空、Redis关闭，可以直接启动健康端点；开发和生产示例分别显式启用postgres及Redis。已有业务私有覆盖若曾继承公共驱动，须补 `database.driver: postgres`；本机私有开发覆盖已补齐，原主密钥和凭据保持不变。`-check-config` 仍只校验配置，不连接或读取状态账本。
+
+HTTP普通请求保持1MiB上限；已注册的学生卡上传路由由装配显式传入图片预算（开发1MiB，完整业务使用 `business.card.maxbytes`，最大8MiB），额外预留64KiB multipart头部与边界。图片服务仍校验原图和规范化图片大小、像素、类型及唯一file部分；不能通过改变Content-Type放宽其他入口。
+
+开发API与完整业务API共享两域历史删除门禁，扫描包含已确认意图。恢复快照带回账号或证据目标时，先运行 `worker -kind account -recover` 和 `worker -kind evidence -recover`，重删并检查通过后才启动API；只恢复一个域不能放行另一个域。普通初始化不代替恢复，不清空账本。
+
+加密文件账本的完整JSON快照上限为32MiB（包含编码末尾换行），读取和发布使用同一边界。临时快照编码后超限则拒绝原子替换，记录 `capacity_exceeded=true` 的失败完成日志，原账本和历史意图保留；本次新增删除意图未受理，业务事务回滚，不能提示注销成功。已受理意图的确认、读取与恢复仍可继续。容量边界已用本地精确32MiB、超限一字节、确认及重启读取回归验证，这不代表目标机吞吐或灾备验收。需要更多容量时先设计保留全部历史意图、原密钥、跨进程锁和fsync语义的显式分段迁移；当前不自动分段、截断或清理历史，也不将已有损坏/超限账本当作空账本。

@@ -210,27 +210,6 @@ func revokeSession(ctx context.Context, db *gorm.DB, hash []byte, now time.Time)
 	return db.WithContext(ctx).Model(&entity.Session{}).Where("token_hash = ? AND subject_kind = ?", hash, "admin").Update("revoked_at", now).Error
 }
 
-// checkSchema 只检查已显式交付结构及读取权限，不执行迁移或修补旧账号。
-func checkSchema(ctx context.Context, db *gorm.DB) error {
-	if e := db.WithContext(ctx).Select("login_name").Limit(0).Find(&[]entity.AdminAccount{}).Error; e != nil {
-		return e
-	}
-	if e := db.WithContext(ctx).Select("id").Limit(0).Find(&[]entity.AdminAccountAction{}).Error; e != nil {
-		return e
-	}
-	// 启用角色写入口前要求显式迁移已扩展留迹动作，避免旧结构下部分能力启动成功。
-	var ready bool
-	if e := db.WithContext(ctx).Raw(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
- WHERE conrelid='public.admin_account_actions'::regclass AND conname='admin_account_actions_action_kind_check'
- AND pg_catalog.pg_get_constraintdef(oid) LIKE '%roles_change%')`).Scan(&ready).Error; e != nil {
-		return e
-	}
-	if !ready {
-		return ErrUnavailable
-	}
-	return nil
-}
-
 // precheckSession 只作事务外的计算资源准入；真正授权仍在持guard后复核，不能用此快照提交业务。
 func precheckSession(ctx context.Context, db *gorm.DB, token string) error {
 	if token == "" {

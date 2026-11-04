@@ -71,7 +71,7 @@ func TestPostgresAdmin(t *testing.T) {
 	}
 	// 共用应用池依然拒绝超级用户及通过SET ROLE掩盖真实身份。
 	for _, value := range []string{dsn, dsn + " options='-c role=liyuanci_admin_maintenance'"} {
-		if _, _, e := platform.OpenRuntimeDatabase(ctx, value, logger); e == nil {
+		if _, _, e := platform.OpenRuntimeDatabaseWithLimits(ctx, value, logger, 0, 0); e == nil {
 			t.Fatal("超级用户不得进入业务运行池")
 		}
 	}

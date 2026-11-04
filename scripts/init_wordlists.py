@@ -55,7 +55,7 @@ def main():
     endpoint = parse.urlsplit(api_url)
     if endpoint.scheme != 'http' or endpoint.hostname not in ('localhost', '127.0.0.1', '::1') or endpoint.username or endpoint.password or endpoint.path or endpoint.query or endpoint.fragment:
         raise ValueError('初始化仅允许本地HTTP入口')
-    cfg = values['development'] if values['mode'] == 'development' else values['business']
+    cfg = values['business']
     source = Path(values['bootstrap']['wordlistsfile'])
     if not source.is_absolute():
         source = Path(args.config).resolve().parent / source

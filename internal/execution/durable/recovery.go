@@ -385,6 +385,7 @@ func eventUUID() (string, error) {
 }
 
 // RedriveCommand 构造固定后台命令，使首次执行和幂等重放都复核当前角色及对象访问。
+// 当前没有HTTP或CLI装配；ResourcePath只参与命令回执绑定，不表示该路由已经开放。
 // 调用方必须将同一个 input 作为 command.Input.Request，令请求摘要覆盖工作期望版本。
 func (c *Consumer) RedriveCommand(policy RedrivePolicy, input RedriveRequest) (command.Definition, error) {
 	if !validID(input.WorkID) || input.ExpectedVersion < 1 || policy.Recheck == nil || len(policy.AllowedRoles) == 0 {
@@ -439,6 +440,7 @@ func (c *Consumer) RedriveCommand(policy RedrivePolicy, input RedriveRequest) (c
 }
 
 // RunCompensator 显式运行串行数据库补偿循环，不由普通 API/探针启动，也不拥有连接池。
+// 当前worker使用领域ProcessNext和workrunner调度，本循环仅保留为独立批量补偿能力。
 // 取消后停止接收新批次并等待当前调用退出；单批失败保持持久状态，下个时钟周期重试。
 func (c *Consumer) RunCompensator(ctx context.Context, interval time.Duration, limit int) (err error) {
 	start := time.Now()

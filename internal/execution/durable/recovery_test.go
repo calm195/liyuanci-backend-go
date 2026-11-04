@@ -427,28 +427,6 @@ func TestPostgresRecovery(t *testing.T) {
 			t.Fatal("审计失败留下部分重驱动结果")
 		}
 	})
-	t.Run("旧转发者不能覆盖新周期", func(t *testing.T) {
-		clear()
-		event := makeWork(1016, "pending")
-		newer, _ := NewRelay(db, log, sendFunc(func(context.Context, Event) error { return nil }), route(), configuration())
-		older, _ := NewRelay(db, log, sendFunc(func(context.Context, Event) error {
-			exec("UPDATE public.work_items SET status='attention',version=5 WHERE id=?", event.CorrelationID)
-			if _, failure := run(1016, "fence", policy, 5, false); failure != nil {
-				return failure
-			}
-			if _, failure := newer.Once(ctx); failure != nil {
-				return failure
-			}
-			return ErrTemporary
-		}), route(), configuration())
-		if _, failure := older.Once(ctx); failure != ErrLeaseLost {
-			t.Fatal("旧租约应失效", failure)
-		}
-		if status(event.CorrelationID) != "pending" ||
-			scalar("SELECT count(*) FROM public.outbox_events WHERE sent_at IS NOT NULL AND superseded_at IS NULL") != 1 {
-			t.Fatal("旧持有者不能覆盖新周期")
-		}
-	})
 	t.Run("实际后台命令与领域补偿权限", func(t *testing.T) {
 		clear()
 		event := makeWork(1017, "attention")

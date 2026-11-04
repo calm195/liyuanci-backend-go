@@ -13,7 +13,7 @@ import (
 
 // TestBusinessImagesFailClosed 正式装配不借用本地直接通过扫描器。
 func TestBusinessImagesFailClosed(t *testing.T) {
-	for _, store := range []objectGateway{nil, &gateway.Business{}} {
+	for _, store := range []objectGateway{nil, unavailableTestObjectGateway{}} {
 		approved, err := imageScanner(store).Scan(context.Background(), []byte("image"), "image/png")
 		if approved || err == nil {
 			t.Fatal("没有CI不能通过图片")
@@ -49,3 +49,8 @@ func TestDevelopmentMediaUsesTencent(t *testing.T) {
 		t.Fatal("开发扫描必须使用CI")
 	}
 }
+
+// unavailableTestObjectGateway 验证没有CI能力的对象客户端不能成为图片扫描器。
+type unavailableTestObjectGateway struct{ unavailableObjects }
+
+func (unavailableTestObjectGateway) Close() {}

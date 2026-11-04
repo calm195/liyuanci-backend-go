@@ -287,7 +287,7 @@ func businessCardConfig(c config.Business) studentcard.Config {
 	}
 }
 
-func businessResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile, error) {
+func businessResources(ctx context.Context, cfg RuntimeSettings) (ResourcesFile, error) {
 	r, e := loadResources(ctx, cfg)
 	if e != nil || !moderation.CareResourcesReady(r.Care) || r.Catalog.Grades.Version == nil || len(r.Catalog.Grades.Items) == 0 ||
 		len(r.Catalog.Reports) == 0 ||
@@ -300,7 +300,7 @@ func businessResources(ctx context.Context, cfg WhisperSettings) (ResourcesFile,
 	return r, nil
 }
 
-type businessGrades struct{ cfg WhisperSettings }
+type businessGrades struct{ cfg RuntimeSettings }
 
 // Allows 按当前已核验资源校验年级，资料读取失败不能放行新输入。
 func (g businessGrades) Allows(ctx context.Context, value string) (bool, error) {

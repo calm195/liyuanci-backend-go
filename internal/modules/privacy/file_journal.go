@@ -30,6 +30,11 @@ type journalRecord struct {
 	Confirmed bool
 }
 
+// journalMaxBytes 同时约束读取及发布快照，包含JSON末尾换行；历史意图不能通过自动截断腾挪空间。
+const journalMaxBytes = 32 << 20
+
+var errJournalCapacity = errors.New("删除意图账本容量已满")
+
 // NewFileJournal 只装配已有私有目录中的账本，不生成密钥或连接第二个数据库。
 func NewFileJournal(path string, codec *securedata.Codec, log *zap.Logger) (*FileJournal, error) {
 	if !filepath.IsAbs(path) || codec == nil || log == nil {
@@ -71,9 +76,9 @@ func (j *FileJournal) access(ctx context.Context, write bool, fn func(map[string
 	rows := map[string]journalRecord{}
 	file, e := os.Open(j.path)
 	if e == nil {
-		raw, readErr := io.ReadAll(io.LimitReader(file, 32<<20+1))
+		raw, readErr := io.ReadAll(io.LimitReader(file, journalMaxBytes+1))
 		file.Close()
-		if readErr != nil || len(raw) > 32<<20 || json.Unmarshal(raw, &rows) != nil || rows == nil {
+		if readErr != nil || len(raw) > journalMaxBytes || json.Unmarshal(raw, &rows) != nil || rows == nil {
 			return command.ErrUnavailable
 		}
 	} else if !os.IsNotExist(e) {
@@ -97,6 +102,14 @@ func (j *FileJournal) access(ctx context.Context, write bool, fn func(map[string
 	}
 	if e = json.NewEncoder(file).Encode(rows); e != nil {
 		return e
+	}
+	// 临时文件编码完成后、原子替换前检查完整尺寸；失败保留可读旧账本，不能发布自身拒读的快照。
+	info, e := file.Stat()
+	if e != nil {
+		return e
+	}
+	if info.Size() > journalMaxBytes {
+		return errJournalCapacity
 	}
 	if e = file.Sync(); e != nil {
 		return e
@@ -217,9 +230,14 @@ func (j *FileJournal) Confirm(ctx context.Context, id string) error {
 
 func (j *FileJournal) fileDone(start time.Time, err *error) {
 	result := "success"
+	capacityExceeded := errors.Is(*err, errJournalCapacity)
 	if *err != nil {
 		result = "failure"
 		*err = command.ErrUnavailable
 	}
-	j.log.Info("文件删除日志操作完成", zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	j.log.Info("文件删除日志操作完成",
+		zap.String("result", result),
+		zap.Bool("capacity_exceeded", capacityExceeded),
+		zap.Duration("duration", time.Since(start)),
+	)
 }

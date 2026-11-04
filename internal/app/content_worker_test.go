@@ -21,7 +21,7 @@ func TestRuntimeSharedDatabase(t *testing.T) {
 	if path == "" {
 		t.Skip("需显式隔离开发配置")
 	}
-	cfg, e := LoadDevelopment(path)
+	cfg, e := loadDevelopmentFixture(t, path)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -41,36 +41,37 @@ func TestRuntimeSharedDatabase(t *testing.T) {
 	}
 }
 
-// TestContentWorkerBoundary 覆盖 T016/REQ-015/018 的生产隔离、显式合成与默认失败关闭。
+// TestContentWorkerBoundary 覆盖开发任务的生产隔离与身份依赖校验；审核模式不再是可选配置。
 func TestContentWorkerBoundary(t *testing.T) {
-	cfg := DevelopmentSettings{
-		DatabaseDSN: "unused",
-		WrapKey:     bytes.Repeat([]byte{1}, 32),
-		LookupKey:   bytes.Repeat([]byte{2}, 32),
-	}
 	for _, tc := range []struct {
-		name, environment, mode string
-		valid                   bool
+		name, environment string
+		change            func(*DevelopmentSettings)
+		valid             bool
 	}{
-		{"生产拒绝", "production", "synthetic", false},
-		{"生产拒绝人工模式", "production", "manual", false},
-		{"默认不放行", "integration", "", true},
-		{"缺供应商", "integration", "unavailable", false},
-		{"显式合成", "integration", "synthetic", false},
-		{"显式人工", "integration", "manual", true},
-		{"未知模式", "integration", "approve", false},
+		{"生产拒绝", "production", func(*DevelopmentSettings) {}, false},
+		{"开发准入", "development", func(*DevelopmentSettings) {}, true},
+		{"隔离集成", "integration", func(*DevelopmentSettings) {}, true},
+		{"未知环境", "unknown", func(*DevelopmentSettings) {}, false},
+		{"缺连接", "integration", func(c *DevelopmentSettings) { c.DatabaseDSN = "" }, false},
+		{"缺加密密钥", "integration", func(c *DevelopmentSettings) { c.WrapKey = nil }, false},
+		{"缺检索密钥", "integration", func(c *DevelopmentSettings) { c.LookupKey = nil }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			options := ContentWorkerConfig{Analyzer: tc.mode}
-			if (ValidateContentWorker(tc.environment, cfg, options) == nil) != tc.valid {
+			cfg := DevelopmentSettings{
+				DatabaseDSN: "unused",
+				WrapKey:     bytes.Repeat([]byte{1}, 32),
+				LookupKey:   bytes.Repeat([]byte{2}, 32),
+			}
+			tc.change(&cfg)
+			if (ValidateContentWorker(tc.environment, cfg) == nil) != tc.valid {
 				t.Fatal("启动边界错误")
 			}
-			if !tc.valid && RunContentWorker(context.Background(), tc.environment, cfg, options, zap.NewNop()) != command.ErrInvalid {
+			if !tc.valid && RunContentWorker(context.Background(), tc.environment, cfg, ContentWorkerConfig{}, zap.NewNop()) != command.ErrInvalid {
 				t.Fatal("无效配置访问了数据库")
 			}
 		})
 	}
-	if RunContentWorker(context.Background(), "integration", cfg, ContentWorkerConfig{}, nil) != command.ErrInvalid {
+	if RunContentWorker(context.Background(), "integration", DevelopmentSettings{}, ContentWorkerConfig{}, nil) != command.ErrInvalid {
 		t.Fatal("缺日志仍启动")
 	}
 }

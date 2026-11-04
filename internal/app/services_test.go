@@ -110,7 +110,7 @@ func dependencies(t *testing.T) (ServiceDependencies, ServiceConfig) {
 			MaxPixels:   1024,
 			ReceiptKey:  bytes.Repeat([]byte{2}, 32),
 			Command:     cmd,
-			Lease:       time.Second,
+			Lease:       2 * time.Second,
 			RetryDelay:  time.Millisecond,
 			MaxAttempts: 2,
 		},

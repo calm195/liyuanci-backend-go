@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,10 +58,13 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		{"池预算扩张", func(c *config.Business) { c.Runtime.DatabaseMaxOpen = 101 }, false},
 		{"本地适配", func(c *config.Business) { c.Runtime.LocalTest = true }, false},
 		{"未配置对象供应商允许启动", func(c *config.Business) {}, true},
-		{"对象端点必须HTTPS", func(c *config.Business) { c.Runtime.GatewayURL = "http://objects.invalid" }, false},
+		{"对象端点必须HTTPS", func(c *config.Business) {
+			c.Runtime.Tencent = config.Tencent{Enabled: true, ObjectURL: "http://objects.invalid"}
+		}, false},
 		{"缺微信凭据", func(c *config.Business) { c.WeChatSecret = "" }, false},
 		{"缺身份池", func(c *config.Business) { c.Runtime.DatabaseDSN = "" }, false},
 		{"空上传预算", func(c *config.Business) { c.Card.MaxBytes = 0 }, false},
+		{"扫描无确认预算", func(c *config.Business) { c.Card.Lease = c.Runtime.Command.Timeout }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testBusinessSettings(t)
@@ -72,7 +74,10 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 			if e := os.WriteFile(p, mustYAML(t, businessDocument(c)), 0600); e != nil {
 				t.Fatal(e)
 			}
-			_, e := config.LoadBusiness(context.Background(), p, "production", "api")
+			loaded, e := config.Load(p)
+			if e == nil {
+				e = config.ValidateBusiness(loaded.Business, loaded.Environment, "api")
+			}
 			if (e == nil) != tc.ok {
 				t.Fatal("配置准入不符", e)
 			}
@@ -83,7 +88,11 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 	if config.ValidateBusiness(c, "production", "api") == nil {
 		t.Fatal("领域构造器接受跨用途共钥")
 	}
-	if _, e := config.LoadWhispers(context.Background(), writeSettings(t, c.Runtime), "production"); e == nil {
+	loaded, e := config.Load(writeSettings(t, c.Runtime))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e := config.ValidateWhispers(loaded.Whispers, "production"); e == nil {
 		t.Fatal("独立旧入口绕过完整宿主门禁")
 	}
 

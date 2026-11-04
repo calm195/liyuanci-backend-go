@@ -96,21 +96,28 @@ func (o *objects) PutOnce(_ context.Context, key string, data []byte) (string, e
 }
 
 type scanner struct {
-	mu        sync.Mutex
-	calls     int
-	approved  bool
-	failure   bool
-	panicScan bool
-	hook      func()
+	mu          sync.Mutex
+	calls       int
+	approved    bool
+	failure     bool
+	panicScan   bool
+	hook        func()
+	contextHook func(context.Context)
 }
 
-func (s *scanner) Scan(_ context.Context, data []byte, mime string) (bool, error) {
+func (s *scanner) Scan(ctx context.Context, data []byte, mime string) (bool, error) {
 	s.mu.Lock()
 	s.calls++
-	approved, failure, panicScan, hook := s.approved, s.failure, s.panicScan, s.hook
+	approved, failure, panicScan, hook, contextHook := s.approved, s.failure, s.panicScan, s.hook, s.contextHook
 	s.mu.Unlock()
 	if hook != nil {
 		hook()
+	}
+	if contextHook != nil {
+		contextHook(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	if panicScan {
 		panic("SYNTHETIC_SCANNER_SECRET")
@@ -269,7 +276,7 @@ func TestPostgresStudentCards(t *testing.T) {
 	if _, e = api.Get(ctx, first.Token, "00000000-0000-4000-8000-000000000001", "card_unknown"); e != command.ErrNotFound {
 		t.Fatal("未知对象不应泄漏", e)
 	}
-	if _, e = api.Upload(ctx, first.Token, "invalid-mime", "card_mime", "image/jpeg", bytes.NewReader(imageA)); e != command.ErrInvalid {
+	if _, e = api.Upload(ctx, first.Token, "invalid-mime", "card_mime", "image/jpeg", bytes.NewReader(imageA)); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal("伪造MIME应拒绝", e)
 	}
 	if _, e = api.Upload(
@@ -279,7 +286,7 @@ func TestPostgresStudentCards(t *testing.T) {
 		"card_size",
 		"image/png",
 		strings.NewReader(strings.Repeat("x", 4097)),
-	); e != command.ErrInvalid {
+	); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal("超限应拒绝", e)
 	}
 	var stored entity.StudentCardPayload
@@ -499,7 +506,7 @@ func TestPostgresStudentCards(t *testing.T) {
 	}
 	// HTTP实际multipart边界验证，不向临时目录写明文图片。
 	router := httpapi.New(logger, func(context.Context) error { return nil })
-	if e = httpapi.RegisterStudentCards(router, api); e != nil {
+	if e = httpapi.RegisterStudentCards(router, api, cfg.MaxBytes); e != nil {
 		t.Fatal(e)
 	}
 	request := func(key string, extra bool) *httptest.ResponseRecorder {
@@ -529,6 +536,123 @@ func TestPostgresStudentCards(t *testing.T) {
 	if rec := request("http-extra", true); rec.Code != 400 {
 		t.Fatal("额外multipart字段须拒绝", rec.Code)
 	}
+	t.Run("大于默认请求上限的合法图片", func(t *testing.T) {
+		// 随机像素只用于形成不可压缩的合成PNG，实际文件须大于旧1MiB限制且小于显式图片预算。
+		pixels := image.NewNRGBA(image.Rect(0, 0, 640, 640))
+		if _, err := rand.Read(pixels.Pix); err != nil {
+			t.Fatal(err)
+		}
+		var imageData bytes.Buffer
+		if err := png.Encode(&imageData, pixels); err != nil {
+			t.Fatal(err)
+		}
+		largeConfig := cfg
+		largeConfig.MaxBytes, largeConfig.MaxPixels = 2<<20, 640*640
+		if imageData.Len() <= 1<<20 || int64(imageData.Len()) > largeConfig.MaxBytes {
+			t.Fatal("合成图片未覆盖预期边界", imageData.Len())
+		}
+		largeAPI, err := studentcard.New(apiDB, logger, sessions, codec, bucket, scan, largeConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		largeRouter := httpapi.New(logger, nil)
+		if err = httpapi.RegisterStudentCards(largeRouter, largeAPI, largeConfig.MaxBytes); err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		header := textproto.MIMEHeader{}
+		header.Set("Content-Disposition", `form-data; name="file"; filename="synthetic.png"`)
+		header.Set("Content-Type", "image/png")
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = part.Write(imageData.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		if err = writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "/api/v1/me/student-card-assets", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.Header.Set("Authorization", "Bearer "+first.Token)
+		req.Header.Set("Idempotency-Key", "large-image-boundary")
+		rec := httptest.NewRecorder()
+		largeRouter.ServeHTTP(rec, req)
+		if rec.Code != 202 {
+			t.Fatal("合法大图片未完成加密暂存", rec.Code)
+		}
+	})
+	t.Run("扫描与数据库预算隔离", func(t *testing.T) {
+		// 这些工作使用独立扫描器，避免其他用例的故障开关影响预算验证。
+		budgetScanner := &scanner{approved: true}
+		budgetConfig := cfg
+		budgetConfig.Command.Timeout = 300 * time.Millisecond
+		budgetConfig.Command.LockTimeout = 100 * time.Millisecond
+		budgetConfig.Lease = 2 * time.Second
+		budgetWorker, err := studentcard.New(workerDB, logger, sessions, codec, bucket, budgetScanner, budgetConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 将新工作排到最前，确保 ProcessNext 的初读预算不会包住后续供应商调用。
+		slowAsset := upload("slow-within-lease-card")
+		slowWork := work(slowAsset.AssetID)
+		execute("UPDATE public.work_items SET next_at=clock_timestamp()-interval '1 day' WHERE id=?", slowWork.ID)
+		budgetScanner.contextHook = func(ctx context.Context) {
+			select {
+			case <-time.After(2 * budgetConfig.Command.Timeout):
+			case <-ctx.Done():
+			}
+		}
+		if result, err := budgetWorker.ProcessNext(ctx, "card_slow_within_lease"); err != nil || !result.Applied {
+			t.Fatal("外部调用超过数据库预算但租约有效时应完成", err)
+		}
+		if current := work(slowAsset.AssetID); current.Status != "completed" {
+			t.Fatal("有效扫描结果未持久化", current.Status)
+		}
+
+		// 外部阶段耗尽自身预算后，确认事务仍有独立预算记录重试。
+		timeoutAsset := upload("external-timeout-card")
+		timeoutWork := work(timeoutAsset.AssetID)
+		var timeoutEvent durable.Event
+		if err := root.Model(&entity.OutboxEvent{}).
+			Select("event_id,work_id AS correlation_id,aggregate_id,aggregate_version,event_type,created_at").
+			Where("work_id=?", timeoutWork.ID).
+			Take(&timeoutEvent).Error; err != nil {
+			t.Fatal(err)
+		}
+		budgetConfig.Lease = 900 * time.Millisecond
+		timeoutWorker, err := studentcard.New(workerDB, logger, sessions, codec, bucket, budgetScanner, budgetConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		budgetScanner.contextHook = func(ctx context.Context) { <-ctx.Done() }
+		if _, err := timeoutWorker.Consume(ctx, timeoutEvent); err != command.ErrUnavailable {
+			t.Fatal("外部阶段超时应失败关闭", err)
+		}
+		if current := work(timeoutAsset.AssetID); current.Status != "retry_wait" || current.LeaseUntil != nil || current.Attempts != 1 {
+			t.Fatal("超时后未用独立事务安排重试", current.Status, current.Attempts)
+		}
+		execute("UPDATE public.work_items SET status='cancelled',lease_until=NULL WHERE id=?", timeoutWork.ID)
+
+		// 调用方取消不会被外部阶段预算隔离掩盖，也不使用后台上下文提交通过。
+		cancelAsset := upload("parent-cancel-card")
+		cancelWork := work(cancelAsset.AssetID)
+		parent, cancel := context.WithCancel(ctx)
+		defer cancel()
+		budgetScanner.contextHook = func(context.Context) { cancel() }
+		if _, err := budgetWorker.Process(parent, cancelWork.ID, "card_parent_cancel"); err == nil {
+			t.Fatal("调用方取消必须返回失败")
+		}
+		if current := work(cancelAsset.AssetID); current.Status != "leased" {
+			t.Fatal("取消后不应脱离父上下文提交结果", current.Status)
+		}
+		if current, err := api.Get(ctx, first.Token, cancelAsset.AssetID, "card_cancel_pending"); err != nil || current.ScanStatus != "pending" {
+			t.Fatal("取消不能标记扫描通过", err)
+		}
+		execute("UPDATE public.work_items SET status='cancelled',lease_until=NULL WHERE id=?", cancelWork.ID)
+	})
 	// 失败的持久工作写入必须回滚资产与暂存，不能创建没有消费者的孤立上传。
 	var before, after int64
 	_ = root.Model(&entity.Asset{}).Count(&before).Error

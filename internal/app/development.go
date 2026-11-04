@@ -31,16 +31,48 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
-// DevelopmentSettings 从公共配置与私有环境覆盖加载，使用唯一数据库连接；密钥不进入环境或日志。
-type DevelopmentSettings config.Development
+// DevelopmentSettings 是统一业务配置向本地适配器投影的运行参数，不提供独立YAML入口。
+type DevelopmentSettings struct {
+	Tencent                                                                     config.Tencent
+	ProviderTimeout                                                             time.Duration
+	LocalTest                                                                   bool
+	DatabaseDSN                                                                 string
+	DatabaseMaxOpen, DatabaseMaxIdle                                            int
+	DatabaseMaxLifetime                                                         time.Duration
+	JournalFile, ObjectDirectory                                                string
+	RecoveryWrapKey, ModerationKey                                              []byte `json:"-"`
+	WrapKey, LookupKey, SessionKey, CardKey, VerificationKey, WishKey, AdminKey []byte `json:"-"`
+	AdminPassword, WeChatAppID, WeChatSecret                                    string
+	ResourcesFile                                                               string
+}
 
-// LoadDevelopment 拒绝缺失或复用的密钥，不自动生成或重置持久凭据。
-func LoadDevelopment(path string) (DevelopmentSettings, error) {
-	app, err := config.Load(path)
-	if err != nil {
-		return DevelopmentSettings{}, err
+// developmentSettings 只投影已加载的业务配置，保留本地运行校验和资源归属。
+func developmentSettings(app config.Config) (DevelopmentSettings, error) {
+	b, r := app.Business, app.Business.Runtime
+	cfg := DevelopmentSettings{
+		Tencent:             r.Tencent,
+		ProviderTimeout:     r.ProviderTimeout,
+		LocalTest:           true,
+		DatabaseDSN:         r.DatabaseDSN,
+		DatabaseMaxOpen:     r.DatabaseMaxOpen,
+		DatabaseMaxIdle:     r.DatabaseMaxIdle,
+		DatabaseMaxLifetime: r.DatabaseMaxLifetime,
+		JournalFile:         r.JournalFile,
+		ObjectDirectory:     r.ObjectDirectory,
+		RecoveryWrapKey:     r.RecoveryWrapKey,
+		ModerationKey:       b.ModerationKey,
+		WrapKey:             r.WrapKey,
+		LookupKey:           b.LookupKey,
+		SessionKey:          b.SessionKey,
+		CardKey:             b.CardKey,
+		VerificationKey:     b.VerificationKey,
+		WishKey:             b.WishKey,
+		AdminKey:            b.AdminKey,
+		AdminPassword:       b.AdminPassword,
+		WeChatAppID:         b.WeChatAppID,
+		WeChatSecret:        b.WeChatSecret,
+		ResourcesFile:       r.ResourcesFile,
 	}
-	cfg := DevelopmentSettings(app.Development)
 	return validateDevelopment(cfg)
 }
 
@@ -189,6 +221,12 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		closeJournal()
 		return nil
 	})
+	// 恢复快照可能重新带回已确认删除的目标；两域重删完成前不能开放读取。
+	for _, scope := range []string{"account", "evidence"} {
+		if e = checkDeletionRecovery(ctx, database, deletionJournal, scope); e != nil {
+			return nil, closeAll, e
+		}
+	}
 	privacyDB, evidenceDeletionDB := database, database
 	pc := developmentPrivacyConfig(cfg)
 	pc.Redactor = local.WhisperProvider{Logger: logger}

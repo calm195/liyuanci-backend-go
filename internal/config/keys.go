@@ -21,17 +21,8 @@ func (c *Config) resolveKeys() error {
 		purpose string
 		target  *[]byte
 	}
-	d, b := &c.Development, &c.Business
+	b := &c.Business
 	keys := []purposeKey{
-		{"development/wrap", &d.WrapKey},
-		{"development/recovery-wrap", &d.RecoveryWrapKey},
-		{"development/lookup", &d.LookupKey},
-		{"development/session", &d.SessionKey},
-		{"development/card", &d.CardKey},
-		{"development/verification", &d.VerificationKey},
-		{"development/wish", &d.WishKey},
-		{"development/admin", &d.AdminKey},
-		{"development/moderation", &d.ModerationKey},
 		{"business/runtime/wrap", &b.Runtime.WrapKey},
 		{"business/runtime/recovery-wrap", &b.Runtime.RecoveryWrapKey},
 		{"business/lookup", &b.LookupKey},
@@ -46,7 +37,7 @@ func (c *Config) resolveKeys() error {
 	}
 	for _, scope := range []struct {
 		name string
-		cfg  *Whispers
+		cfg  *Runtime
 	}{{"business/runtime", &b.Runtime}, {"whispers", &c.Whispers}} {
 		r := scope.cfg
 		for _, key := range []purposeKey{
@@ -58,6 +49,25 @@ func (c *Config) resolveKeys() error {
 			keys = append(keys, purposeKey{scope.name + "/" + key.purpose, key.target})
 		}
 	}
+	// 配置归组不改变开发数据的派生协议；运行模式继续决定既有用途标签。
+	if c.Mode == "development" {
+		legacy := map[*[]byte]string{
+			&b.Runtime.WrapKey:         "wrap",
+			&b.Runtime.RecoveryWrapKey: "recovery-wrap",
+			&b.LookupKey:               "lookup",
+			&b.SessionKey:              "session",
+			&b.CardKey:                 "card",
+			&b.VerificationKey:         "verification",
+			&b.WishKey:                 "wish",
+			&b.AdminKey:                "admin",
+		}
+		for i := range keys {
+			if purpose, ok := legacy[keys[i].target]; ok {
+				keys[i].purpose = "development/" + purpose
+			}
+		}
+		keys = append(keys, purposeKey{"development/moderation", &b.ModerationKey})
+	}
 	for _, key := range keys {
 		derived, err := hkdf.Key(sha256.New, c.MasterKey, nil, "liyuanci/config-keys/v1/"+c.Environment+"/"+key.purpose, 32)
 		if err != nil {
@@ -67,10 +77,10 @@ func (c *Config) resolveKeys() error {
 	}
 	if c.Whispers.LocalTest {
 		// 本地组合API共享加密身份、恢复账本和安全索引，必须沿用同一领域的密钥。
-		c.Whispers.WrapKey = append([]byte(nil), d.WrapKey...)
-		c.Whispers.RecoveryWrapKey = append([]byte(nil), d.RecoveryWrapKey...)
-		c.Whispers.PrivacyKey = securedata.PrivacyReceiptKey(d.WishKey)
-		c.Whispers.SafetyKey = securedata.SafetyScopeKey(d.WishKey)
+		c.Whispers.WrapKey = append([]byte(nil), b.Runtime.WrapKey...)
+		c.Whispers.RecoveryWrapKey = append([]byte(nil), b.Runtime.RecoveryWrapKey...)
+		c.Whispers.PrivacyKey = securedata.PrivacyReceiptKey(b.WishKey)
+		c.Whispers.SafetyKey = securedata.SafetyScopeKey(b.WishKey)
 	}
 	return nil
 }

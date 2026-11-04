@@ -31,16 +31,17 @@ func (s *Service) ProcessNext(ctx context.Context, requestID string) (out durabl
 		err = safe(err)
 		s.complete("scan_next", requestID, start, err)
 	}()
-	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
+	queryCtx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
 	var rows []entity.WorkItem
-	e := s.db.WithContext(ctx).Where(
+	e := s.db.WithContext(queryCtx).Where(
 		"kind=? AND target_kind=? AND status IN ? AND next_at<=clock_timestamp() AND (status<>? OR lease_until<=clock_timestamp())",
 		Route().Kind,
 		Route().TargetKind,
 		[]string{"pending", "retry_wait", "leased"},
 		"leased",
 	).Order("next_at,id").Limit(1).Find(&rows).Error
+	cancel()
 	if e != nil {
 		return out, e
 	}
@@ -61,7 +62,7 @@ func (s *Service) Consume(ctx context.Context, event durable.Event) (out durable
 		err = safe(err)
 		s.complete("scan_event", "", start, err)
 	}()
-	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
+	queryCtx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
 	if !validID(event.EventID) || !validID(event.CorrelationID) || !validID(event.AggregateID) || event.AggregateVersion != 1 ||
 		event.EventType != Route().
@@ -70,7 +71,7 @@ func (s *Service) Consume(ctx context.Context, event durable.Event) (out durable
 		return out, command.ErrInvalid
 	}
 	var count int64
-	e := s.db.WithContext(ctx).Model(&entity.OutboxEvent{}).Where(
+	e := s.db.WithContext(queryCtx).Model(&entity.OutboxEvent{}).Where(
 		"event_id=? AND work_id=? AND aggregate_id=? AND aggregate_version=? AND event_type=? AND created_at=? AND superseded_at IS NULL",
 		event.EventID,
 		event.CorrelationID,
@@ -86,7 +87,7 @@ func (s *Service) Consume(ctx context.Context, event durable.Event) (out durable
 		out.Missing = true
 		return out, nil
 	}
-	work, e := readWork(ctx, s.db, event.CorrelationID, false)
+	work, e := readWork(queryCtx, s.db, event.CorrelationID, false)
 	if e != nil {
 		return out, e
 	}
@@ -94,6 +95,7 @@ func (s *Service) Consume(ctx context.Context, event durable.Event) (out durable
 		out.Missing = true
 		return out, nil
 	}
+	cancel()
 	return s.process(ctx, work.ID, "", &event)
 }
 
@@ -126,9 +128,9 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 	if !validID(workID) {
 		return out, command.ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
+	readCtx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
-	initial, e := readWork(ctx, s.db, workID, false)
+	initial, e := readWork(readCtx, s.db, workID, false)
 	if e != nil {
 		return out, e
 	}
@@ -140,13 +142,13 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 		out.Cancelled = true
 		return out, nil
 	}
-	asset, e := readAsset(ctx, s.db, initial.TargetID)
+	asset, e := readAsset(readCtx, s.db, initial.TargetID)
 	if errors.Is(e, command.ErrNotFound) {
-		err = s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
-			if e := setTimeout(ctx, db, s.config.Command.LockTimeout); e != nil {
+		err = s.db.WithContext(readCtx).Transaction(func(db *gorm.DB) error {
+			if e := setTimeout(readCtx, db, s.config.Command.LockTimeout); e != nil {
 				return e
 			}
-			current, e := readWork(ctx, db, workID, true)
+			current, e := readWork(readCtx, db, workID, true)
 			if e != nil {
 				return e
 			}
@@ -166,24 +168,46 @@ func (s *Service) process(ctx context.Context, workID, requestID string, expecte
 				return nil
 			}
 			out.Cancelled = true
-			return finishWork(ctx, db, current, "cancelled")
+			return finishWork(readCtx, db, current, "cancelled")
 		})
 		return out, err
 	}
 	if e != nil {
 		return out, e
 	}
+	cancel()
 	// 领取事务提交后才调用对象与扫描供应商，确认事务会再次检查租约和资产代次。
 	lease, out, claimed, err := s.claimScan(ctx, workID, asset, expected)
 	if err != nil || !claimed {
 		return out, err
 	}
-	version, approved, failure := s.external(ctx, lease)
+	// 供应商调用不借用数据库事务的短时限；按实际租约预留完整确认预算。
+	// 超时仅取消外部阶段，父任务若仍有效，随后仍可持久化重试或待办状态。
+	version, approved, failure := s.scanExternal(ctx, lease)
 	out, err = s.completeScan(ctx, workID, asset, lease, version, approved, failure)
 	if err == nil && failure != nil {
 		return out, command.ErrUnavailable
 	}
 	return out, err
+}
+
+// scanExternal 在租约到期前为最终数据库确认预留一个命令预算，不脱离调用方取消。
+func (s *Service) scanExternal(ctx context.Context, lease leased) (string, bool, error) {
+	if lease.work.LeaseUntil == nil {
+		return "", false, command.ErrConflict
+	}
+	externalCtx, cancel := context.WithDeadline(ctx, lease.work.LeaseUntil.Add(-s.config.Command.Timeout))
+	defer cancel()
+	if err := externalCtx.Err(); err != nil {
+		return "", false, err
+	}
+	version, approved, err := s.external(externalCtx, lease)
+	// 即便供应商未及时返回取消错误，也不能把超时响应确认为通过。
+	if err == nil && externalCtx.Err() != nil {
+		err = externalCtx.Err()
+		approved = false
+	}
+	return version, approved, err
 }
 
 // external 只在事务外执行；任何适配器panic均失败关闭，不能被解释为扫描通过。
@@ -228,6 +252,8 @@ func (s *Service) external(ctx context.Context, lease leased) (version string, a
 
 // claimScan 按账号与资源锁序领取学生卡工作；有效租约和终态不会重复扫描。
 func (s *Service) claimScan(ctx context.Context, workID string, asset entity.Asset, expected *durable.Event) (lease leased, out durable.Consumption, claimed bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
+	defer cancel()
 	err = s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		tx, e := command.LockPlan(
 			ctx,
@@ -340,6 +366,8 @@ func (s *Service) claimScan(ctx context.Context, workID string, asset entity.Ass
 
 // completeScan 复核租约代次、资产版本及账号生命周期后，原子确认扫描结果或安排重试。
 func (s *Service) completeScan(ctx context.Context, workID string, asset entity.Asset, lease leased, version string, approved bool, failure error) (out durable.Consumption, err error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
+	defer cancel()
 	err = s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		tx, e := command.LockPlan(
 			ctx,

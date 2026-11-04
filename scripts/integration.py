@@ -17,8 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SUITES = {
     'runtime': (
         './internal/app',
-        ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime')
+        ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime',
+         'TestPostgresDevelopmentCommands', 'TestPostgresDevelopmentRecoveryGate')
     ),
+    'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
+    'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle',)),
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/modules/moderation', ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion')),
@@ -239,12 +242,12 @@ def run(suite='all'):
                 'business_runtime_redis_address': f'127.0.0.1:{authport}',
                 'business_runtime_redis_password': redispassword,
                 'whisper_server_binary': str(ROOT / 'bin/server'),
-                'business_runtime_worker_binary': str(ROOT / 'bin/business-worker'),
-                'business_runtime_init_binary': str(ROOT / 'bin/business-init'),
-                'whisper_content_binary': str(ROOT / 'bin/content-worker'),
-                'whisper_privacy_binary': str(ROOT / 'bin/privacy-worker'),
+                'business_runtime_worker_binary': str(ROOT / 'bin/worker'),
+                'business_runtime_init_binary': str(ROOT / 'bin/init'),
+                'whisper_content_binary': str(ROOT / 'bin/worker'),
+                'whisper_privacy_binary': str(ROOT / 'bin/worker'),
             }
-            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, privacy_recovery_test_dsn=dsn,
+            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
             if suite in ('all', 'migration'):
                 for key, database in MIGRATION_DATABASES.items():

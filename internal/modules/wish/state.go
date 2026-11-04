@@ -269,30 +269,6 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 	return out, nil
 }
 
-// CountActive 计算同一作者已锁定的完整候选集合；应愿中跨截止时间仍占额。
-// 调用方不得传分页结果或缓存计数，否则不能作为并发上架的额度依据。
-func (p *Policy) CountActive(requestID string, now time.Time, rows []Snapshot) (count int, err error) {
-	start := time.Now()
-	defer func() {
-		if err != nil {
-			count = 0
-		}
-		p.complete("count_active", requestID, start, err)
-	}()
-	if now.IsZero() {
-		return 0, command.ErrInvalid
-	}
-	for _, row := range rows {
-		if !validSnapshot(row) {
-			return 0, command.ErrInvalid
-		}
-		if row.State == Matching || row.State == Published && now.Before(*row.ExpiresAt) {
-			count++
-		}
-	}
-	return count, nil
-}
-
 // Public 重新核对当前资格、期限、屏障与审核版本，仅输出已审投影；任何不满足均不可公开。
 func (p *Policy) Public(requestID string, now time.Time, owner Eligibility, current Snapshot) (out PublicProjection, err error) {
 	start := time.Now()

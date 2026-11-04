@@ -6,8 +6,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/config"
-	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
@@ -16,20 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
-// RunWhisperContent 由正式内容入口调用，调度独立审核、解锁及危机补偿；模块关闭不丢弃已持久工作。
-func RunWhisperContent(ctx context.Context, path, environment string, log *zap.Logger) (err error) {
-	if log == nil {
-		return command.ErrInvalid
-	}
-	defer finish(log, "content_run", time.Now(), &err)
-	cfg, e := config.LoadWhispers(ctx, path, environment)
-	if e != nil {
-		return e
-	}
-	return runContentSettings(ctx, cfg, environment, log, false)
-}
-
-func runContentSettings(ctx context.Context, cfg WhisperSettings, environment string, log *zap.Logger, check bool) (err error) {
+func runContentSettings(ctx context.Context, cfg RuntimeSettings, environment string, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openRuntimeResources(startup, cfg, log)
@@ -52,7 +37,7 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 		return e
 	}
 	for _, scope := range []string{"account", "evidence"} {
-		if e = r.recoveryGate(startup, db, scope); e != nil {
+		if e = checkDeletionRecovery(startup, db, r.journal, scope); e != nil {
 			return e
 		}
 	}
@@ -70,15 +55,15 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 		r.gateway,
 		r.gateway,
 		moderation.WorkerConfig{
-			Consumer:        durable.ConsumerConfig(cfg.Worker.Consumer),
-			AnalysisTimeout: cfg.Worker.AnalysisTimeout,
+			Consumer:        durable.ConsumerConfig(cfg.Tasks.Consumer),
+			AnalysisTimeout: cfg.Tasks.AnalysisTimeout,
 			Care:            resources.Care,
 		},
 	)
 	if e != nil {
 		return e
 	}
-	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, durable.ConsumerConfig(cfg.Worker.Consumer))
+	unlock, e := whisper.NewCapsuleUnlockWorker(db, log, durable.ConsumerConfig(cfg.Tasks.Consumer))
 	if e != nil {
 		return e
 	}
@@ -94,7 +79,7 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 		}
 	}()
 	for _, scanner := range []workrunner.Scanner{scanner, unlock} {
-		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Interval, cfg.OperationTimeout)
+		runner, e := workrunner.OpenDatabase(startup, scanner, log, cfg.Tasks.ScanInterval, cfg.Tasks.OperationTimeout)
 		if e != nil {
 			return e
 		}
@@ -105,24 +90,7 @@ func runContentSettings(ctx context.Context, cfg WhisperSettings, environment st
 	return nil
 }
 
-// RunWhisperPrivacy 按领域授权恢复全部删除意图；recoverOnly用于开放读取和外发前的显式恢复演练。
-// 数据库、账本或脱敏失败均保留processing；完成回执仅覆盖数据库清理。
-func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, recoverOnly bool, log *zap.Logger) (err error) {
-	if log == nil {
-		return command.ErrInvalid
-	}
-	defer finish(log, "privacy_run", time.Now(), &err)
-	if scope != "account" && scope != "evidence" {
-		return command.ErrInvalid
-	}
-	cfg, e := config.LoadWhispers(ctx, path, environment)
-	if e != nil {
-		return e
-	}
-	return runPrivacySettings(ctx, cfg, scope, recoverOnly, log, false)
-}
-
-func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
+func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r, e := openRuntimeResources(startup, cfg, log)
@@ -150,20 +118,12 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		return nil
 	}
 	if recoverOnly {
-		bounded, stop := context.WithTimeout(ctx, cfg.OperationTimeout)
+		bounded, stop := context.WithTimeout(ctx, cfg.Tasks.OperationTimeout)
 		defer stop()
 		ctx = bounded
 	}
-	after := ""
-	for {
-		next, e := service.Recover(ctx, after, 100, scope)
-		if e != nil {
-			return e
-		}
-		if next == "" {
-			break
-		}
-		after = next
+	if err := replayDeletionIntents(ctx, service, scope); err != nil {
+		return err
 	}
 	log.Info(
 		"树洞隐私进程启动完成",
@@ -172,22 +132,10 @@ func runPrivacySettings(ctx context.Context, cfg WhisperSettings, scope string, 
 		zap.String("result", "success"),
 	)
 	if !recoverOnly {
-		return service.Run(ctx, scope, cfg.Interval)
+		return service.Run(ctx, scope, cfg.Tasks.ScanInterval)
 	}
-	for {
-		if e = ctx.Err(); e != nil {
-			return e
-		}
-		processed, e := service.ProcessNext(ctx, scope)
-		if e != nil {
-			return e
-		}
-		if !processed {
-			var n int64
-			if e = db.WithContext(ctx).Model(&entity.DeletionJob{}).Where("scope=? AND phase<>'completed'", scope).Count(&n).Error; e != nil || n != 0 {
-				return command.ErrUnavailable
-			}
-			return r.recoveryGate(ctx, db, scope)
-		}
+	if err := drainDeletionTasks(ctx, service, db, scope); err != nil {
+		return err
 	}
+	return checkDeletionRecovery(ctx, db, r.journal, scope)
 }
