@@ -18,8 +18,10 @@ SUITES = {
     'runtime': (
         './internal/app',
         ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime',
-         'TestPostgresDevelopmentCommands')
+         'TestPostgresDevelopmentCommands', 'TestPostgresDevelopmentRecoveryGate')
     ),
+    'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
+    'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle',)),
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/modules/moderation', ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion')),
@@ -245,7 +247,7 @@ def run(suite='all'):
                 'whisper_content_binary': str(ROOT / 'bin/worker'),
                 'whisper_privacy_binary': str(ROOT / 'bin/worker'),
             }
-            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, privacy_recovery_test_dsn=dsn,
+            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
             if suite in ('all', 'migration'):
                 for key, database in MIGRATION_DATABASES.items():

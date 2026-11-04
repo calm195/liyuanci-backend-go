@@ -47,10 +47,10 @@ func openAPIRuntime(ctx context.Context, cfg RuntimeSettings, client redis.Unive
 			return nil, err
 		}
 	}
-	if err = r.recoveryGate(ctx, db, "account"); err != nil {
+	if err = checkDeletionRecovery(ctx, db, r.journal, "account"); err != nil {
 		return nil, err
 	}
-	if err = r.recoveryGate(ctx, db, "evidence"); err != nil {
+	if err = checkDeletionRecovery(ctx, db, r.journal, "evidence"); err != nil {
 		return nil, err
 	}
 	if err = client.Ping(ctx).Err(); err != nil {

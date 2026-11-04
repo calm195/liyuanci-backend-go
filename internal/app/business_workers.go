@@ -17,14 +17,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
 )
 
-// CheckBusinessWorkerConfig 只验证当前进程的完整配置和任务预算/凭据，不消费工作。
-func CheckBusinessWorkerConfig(c config.Business, environment, kind string) error {
-	if e := config.ValidateBusiness(c, environment, kind); e != nil {
-		return e
-	}
-	return nil
-}
-
 // workerSessions 禁止正式扫描进程借用学生上传入口，持久任务仍按领域授权。
 type workerSessions struct{}
 
@@ -46,7 +38,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 		return command.ErrInvalid
 	}
 	defer finish(log, "business_worker_"+kind, time.Now(), &err)
-	if e := CheckBusinessWorkerConfig(c, environment, kind); e != nil {
+	if e := config.ValidateBusiness(c, environment, kind); e != nil {
 		return e
 	}
 	if recoverOnly && kind != "account" && kind != "evidence" {
@@ -87,7 +79,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 		return e
 	}
 	for _, scope := range []string{"account", "evidence"} {
-		if e = r.recoveryGate(startup, db, scope); e != nil {
+		if e = checkDeletionRecovery(startup, db, r.journal, scope); e != nil {
 			return e
 		}
 	}

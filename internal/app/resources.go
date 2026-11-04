@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
-	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
@@ -152,38 +151,6 @@ func (r *runtimeResources) rules(ctx context.Context, db *gorm.DB) error {
 		return command.ErrUnavailable
 	}
 	return nil
-}
-
-// recoveryGate 在读取或外发开启前扫描包含已确认项的独立日志，任何恢复目标仍存在则拒绝启动。
-// 由专用隐私进程先恢复屏障并完成重删；普通删除中断后的冷启动也采用同一失败关闭边界。
-func (r *runtimeResources) recoveryGate(ctx context.Context, db *gorm.DB, scope string) error {
-	after := ""
-	for {
-		intents, e := r.journal.AllIntents(ctx, after, 100)
-		if e != nil {
-			return e
-		}
-		for _, in := range intents {
-			after = in.ID
-			if in.Scope != scope {
-				continue
-			}
-			var n int64
-			model := any(&entity.Account{})
-			if scope == "evidence" {
-				model = &entity.EvidenceCase{}
-			}
-			if e = db.WithContext(ctx).Model(model).Where("id=?", in.Target).Count(&n).Error; e != nil {
-				return command.ErrUnavailable
-			}
-			if n != 0 {
-				return command.ErrUnavailable
-			}
-		}
-		if len(intents) < 100 {
-			return nil
-		}
-	}
 }
 
 func (r *runtimeResources) privacyConfig() privacy.Config {

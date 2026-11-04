@@ -41,13 +41,8 @@ func CheckCardWorker(ctx context.Context, cfg DevelopmentSettings, logger *zap.L
 	return nil
 }
 
-// RunCardWorker 仅在隔离开发环境扫描数据库持久任务，保留租约、重试与幂等语义。
-// 仅轮询数据库，不迁移或重置历史任务。
-// 先等当前处理返回再关闭池，取消中的租约由后续启动恢复。
-func RunCardWorker(ctx context.Context, environment string, cfg DevelopmentSettings, logger *zap.Logger) (err error) {
-	return runCardWorker(ctx, environment, cfg, logger, false)
-}
-
+// runCardWorker 只在开发或隔离集成环境装配学生卡扫描，检查模式不消费任务。
+// 取消后等待在途处理返回，再由宿主释放数据库和对象客户端。
 func runCardWorker(ctx context.Context, environment string, cfg DevelopmentSettings, logger *zap.Logger, check bool) (err error) {
 	if logger == nil {
 		return command.ErrInvalid

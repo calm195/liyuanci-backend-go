@@ -221,6 +221,12 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		closeJournal()
 		return nil
 	})
+	// 恢复快照可能重新带回已确认删除的目标；两域重删完成前不能开放读取。
+	for _, scope := range []string{"account", "evidence"} {
+		if e = checkDeletionRecovery(ctx, database, deletionJournal, scope); e != nil {
+			return nil, closeAll, e
+		}
+	}
 	privacyDB, evidenceDeletionDB := database, database
 	pc := developmentPrivacyConfig(cfg)
 	pc.Redactor = local.WhisperProvider{Logger: logger}

@@ -22,7 +22,7 @@ func developmentPrivacyConfig(cfg DevelopmentSettings) privacy.Config {
 	}
 }
 
-func openDevelopmentJournal(ctx context.Context, cfg DevelopmentSettings, logger *zap.Logger) (out privacy.Journal, closeAll func(), err error) {
+func openDevelopmentJournal(ctx context.Context, cfg DevelopmentSettings, logger *zap.Logger) (out recoveryJournal, closeAll func(), err error) {
 	codec, e := securedata.New(local.Keys{Key: cfg.RecoveryWrapKey, Logger: logger}, logger)
 	if e != nil {
 		return nil, nil, e
@@ -79,7 +79,10 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 		if err := replayDeletionIntents(bounded, s, scope); err != nil {
 			return err
 		}
-		return drainDeletionTasks(bounded, s, db, scope)
+		if err := drainDeletionTasks(bounded, s, db, scope); err != nil {
+			return err
+		}
+		return checkDeletionRecovery(bounded, db, journal, scope)
 	}
 	logger.Info(
 		"开发隐私工作进程启动完成",

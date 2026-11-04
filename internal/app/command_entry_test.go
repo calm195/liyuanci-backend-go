@@ -3,15 +3,19 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
@@ -148,4 +152,99 @@ func TestPostgresDevelopmentCommands(t *testing.T) {
 		t.Fatal("未完成删除任务被误报为恢复成功")
 	}
 
+}
+
+// TestPostgresDevelopmentRecoveryGate 验证分页扫描包含已确认意图，两域重删完成前开发API失败关闭。
+func TestPostgresDevelopmentRecoveryGate(t *testing.T) {
+	dsn := testconfig.Value("whisper_text_test_dsn")
+	if dsn == "" {
+		t.Skip("需make integration提供隔离数据库")
+	}
+	db, shared, _ := applicationDatabase(t, dsn)
+	cfg, path := developmentCommandDocument(t)
+	cfg.Database = databaseSettings(shared)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{cfg.Business.Runtime.ObjectDirectory, filepath.Dir(cfg.Business.Runtime.JournalFile)} {
+		must(os.MkdirAll(dir, 0700))
+	}
+	must(os.WriteFile(path, mustYAML(t, cfg), 0600))
+	loaded, err := config.Load(path)
+	must(err)
+	development, err := developmentSettings(loaded)
+	must(err)
+	ctx, log := context.Background(), zap.NewNop()
+	journal, closeJournal, err := openDevelopmentJournal(ctx, development, log)
+	must(err)
+	defer closeJournal()
+	// 首批为已删除目标，真正恢复回来的目标放在第二页，防止只检查第一页或未确认项。
+	for i := range 100 {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
+		must(journal.Append(ctx, privacy.Intent{ID: id, Scope: "account", Target: uuid.NewString()}))
+		must(journal.Confirm(ctx, id))
+	}
+	accountID, evidenceID := uuid.NewString(), uuid.NewString()
+	must(db.Create(&entity.Account{ID: accountID, Nickname: "恢复测试账号"}).Error)
+	must(db.Create(&entity.EvidenceCase{ID: evidenceID, Kind: "crisis", SourceRef: uuid.NewString()}).Error)
+	for _, intent := range []privacy.Intent{
+		{ID: "ffffffff-ffff-4fff-8fff-fffffffffffe", Scope: "account", Target: accountID},
+		{ID: "ffffffff-ffff-4fff-8fff-ffffffffffff", Scope: "evidence", Target: evidenceID},
+	} {
+		must(journal.Append(ctx, intent))
+		must(journal.Confirm(ctx, intent.ID))
+	}
+	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+	defer client.Close()
+	open := func() error {
+		_, closeApp, err := OpenDevelopment(ctx, "integration", development, client, log, func(context.Context) error { return nil })
+		if closeApp != nil {
+			must(closeApp())
+		}
+		return err
+	}
+	if open() == nil {
+		t.Fatal("历史确认意图未阻止恢复后的开发API")
+	}
+	must(RunWorker(ctx, WorkerOptions{ConfigFile: path, Kind: "account", Recover: true}))
+	if open() == nil {
+		t.Fatal("只恢复账号域就开放了证据读取")
+	}
+	must(RunWorker(ctx, WorkerOptions{ConfigFile: path, Kind: "evidence", Recover: true}))
+	must(open())
+	// 正常恢复没有清掉历史意图；再次恢复旧快照目标仍须被阻断。
+	must(db.Create(&entity.Account{ID: accountID, Nickname: "恢复测试账号"}).Error)
+	if open() == nil {
+		t.Fatal("重删后丢失了历史恢复屏障")
+	}
+	must(RunWorker(ctx, WorkerOptions{ConfigFile: path, Kind: "account", Recover: true}))
+	must(open())
+	must(os.WriteFile(development.JournalFile, []byte("broken"), 0600))
+	if open() == nil {
+		t.Fatal("损坏账本被当作无需恢复而开放读取")
+	}
+}
+
+// TestFoundationServerStarts 验证公共基础配置可在没有中间件、主密钥和业务凭据时真实监听并取消退出。
+func TestFoundationServerStarts(t *testing.T) {
+	common, err := os.ReadFile(filepath.Join("..", "..", "configs", "common.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.WriteFile(filepath.Join(dir, "common.yaml"), common, 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "foundation.yaml")
+	if err = os.WriteFile(path, []byte("server:\n  address: 127.0.0.1:0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err = RunServer(ctx, ServerOptions{ConfigFile: path}); err != nil {
+		t.Fatal(err)
+	}
 }

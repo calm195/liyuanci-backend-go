@@ -57,9 +57,6 @@ func RunWorker(ctx context.Context, options WorkerOptions) (err error) {
 		if err != nil {
 			return err
 		}
-		if err = CheckBusinessWorkerConfig(settings, cfg.Environment, kind); err != nil {
-			return err
-		}
 		if options.CheckConfig {
 			return nil
 		}

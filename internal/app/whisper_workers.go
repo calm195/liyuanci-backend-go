@@ -37,7 +37,7 @@ func runContentSettings(ctx context.Context, cfg RuntimeSettings, environment st
 		return e
 	}
 	for _, scope := range []string{"account", "evidence"} {
-		if e = r.recoveryGate(startup, db, scope); e != nil {
+		if e = checkDeletionRecovery(startup, db, r.journal, scope); e != nil {
 			return e
 		}
 	}
@@ -137,5 +137,5 @@ func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, 
 	if err := drainDeletionTasks(ctx, service, db, scope); err != nil {
 		return err
 	}
-	return r.recoveryGate(ctx, db, scope)
+	return checkDeletionRecovery(ctx, db, r.journal, scope)
 }
