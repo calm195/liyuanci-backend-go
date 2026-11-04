@@ -101,12 +101,16 @@ func validTencentSecret(value string) bool {
 // Close 释放签名客户端拥有的连接池，不影响其他业务资源。
 func (t *Tencent) Close() { t.transport.CloseIdleConnections() }
 
-func (t *Tencent) complete(operation string, start time.Time, err *error) {
+func (t *Tencent) complete(operation string, start time.Time, err *error, fields ...zap.Field) {
 	result := "success"
 	if *err != nil {
 		result = "failure"
 	}
-	t.logger.Info("腾讯云调用完成", zap.String("operation", operation), zap.String("result", result), zap.Duration("duration", time.Since(start)))
+	t.logger.Info("腾讯云调用完成", append([]zap.Field{
+		zap.String("operation", operation),
+		zap.String("result", result),
+		zap.Duration("duration", time.Since(start)),
+	}, fields...)...)
 }
 
 // request 对成功与失败响应均限长，不记录供应商错误正文或图片数据；重试由持久任务负责。

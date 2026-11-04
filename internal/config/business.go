@@ -84,7 +84,7 @@ func ValidateBusiness(c Business, environment, process string) error {
 		if len(c.CardKey) != 32 || c.Card.MaxBytes < 1 || c.Card.MaxBytes > 8<<20 || c.Card.MaxPixels < 1 || c.Card.MaxPixels > 32_000_000 ||
 			c.Card.DecodeSlots < 1 ||
 			c.Card.DecodeSlots > 16 ||
-			c.Card.Lease < c.Runtime.Command.Timeout ||
+			c.Card.Lease <= c.Runtime.Command.Timeout ||
 			c.Card.RetryDelay < time.Millisecond ||
 			c.Card.MaxAttempts < 1 ||
 			c.Card.MaxAttempts > 1000 {

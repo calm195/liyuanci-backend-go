@@ -2,6 +2,7 @@ package studentcard
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -21,11 +22,11 @@ func TestImageBoundaries(t *testing.T) {
 	if e := jpeg.Encode(&jpegData, image.NewRGBA(image.Rect(0, 0, 2, 2)), nil); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := normalizeImage(bytes.NewReader(jpegData.Bytes()), "image/jpeg", 4096, 10); e != nil {
+	if _, _, e := normalizeImage(bytes.NewReader(jpegData.Bytes()), "image/jpeg", 4096, 10); e != nil {
 		t.Fatal("合法JPEG应接受", e)
 	}
 	withTail := append(bytes.Clone(encoded.Bytes()), []byte("SYNTHETIC_HIDDEN_DATA")...)
-	normalized, e := normalizeImage(bytes.NewReader(withTail), "image/png", 4096, 10)
+	normalized, _, e := normalizeImage(bytes.NewReader(withTail), "image/png", 4096, 10)
 	if e != nil || bytes.Contains(normalized, []byte("SYNTHETIC_HIDDEN_DATA")) {
 		t.Fatal("尾部载荷未清除", e)
 	}
@@ -38,11 +39,11 @@ func TestImageBoundaries(t *testing.T) {
 		{"image/png", encoded.Bytes(), 4096, 1}, {"image/png", encoded.Bytes(), 1, 10},
 		{"image/png", []byte("invalid"), 4096, 10}, {"image/png", encoded.Bytes()[:16], 4096, 10},
 	} {
-		if _, e := normalizeImage(bytes.NewReader(tc.body), tc.mime, tc.limit, tc.pixels); e != command.ErrInvalid {
+		if _, _, e := normalizeImage(bytes.NewReader(tc.body), tc.mime, tc.limit, tc.pixels); !errors.Is(e, command.ErrInvalid) {
 			t.Fatal("无效图片未拒绝", tc.mime, e)
 		}
 	}
-	if _, e := normalizeImage(strings.NewReader(""), "image/png", 4096, 10); e != command.ErrInvalid {
+	if _, _, e := normalizeImage(strings.NewReader(""), "image/png", 4096, 10); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal(e)
 	}
 }

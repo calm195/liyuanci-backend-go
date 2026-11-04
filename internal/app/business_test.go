@@ -64,6 +64,7 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		{"缺微信凭据", func(c *config.Business) { c.WeChatSecret = "" }, false},
 		{"缺身份池", func(c *config.Business) { c.Runtime.DatabaseDSN = "" }, false},
 		{"空上传预算", func(c *config.Business) { c.Card.MaxBytes = 0 }, false},
+		{"扫描无确认预算", func(c *config.Business) { c.Card.Lease = c.Runtime.Command.Timeout }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testBusinessSettings(t)

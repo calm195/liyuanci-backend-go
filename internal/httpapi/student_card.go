@@ -77,6 +77,9 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards, maxBytes int64) e
 		}}
 		out, e := service.Upload(c.Request.Context(), token, key, c.GetString("request_id"), contentType, body)
 		if e != nil {
+			if studentCardImageError(c, e, maxBytes) {
+				return
+			}
 			if errors.Is(e, studentcard.ErrBusy) {
 				e = adminauth.ErrRateLimited
 			}
@@ -121,4 +124,27 @@ func (r *singlePart) Read(p []byte) (int, error) {
 		}
 	}
 	return n, e
+}
+
+// studentCardImageError 返回明确的图片限制错误；不向客户端暴露解码器或内部错误原文。
+func studentCardImageError(c *gin.Context, err error, maxBytes int64) bool {
+	code := ""
+	switch {
+	case errors.Is(err, studentcard.ErrImageInputTooLarge):
+		code = "STUDENT_CARD_IMAGE_TOO_LARGE"
+	case errors.Is(err, studentcard.ErrImageNormalizedTooLarge):
+		code = "STUDENT_CARD_NORMALIZED_IMAGE_TOO_LARGE"
+	case errors.Is(err, studentcard.ErrImagePixelsExceeded):
+		code = "STUDENT_CARD_PIXELS_EXCEEDED"
+	default:
+		return false
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"code":       http.StatusBadRequest,
+		"message":    "图片不符合上传限制",
+		"error_code": code,
+		"request_id": c.GetString("request_id"),
+		"max_bytes":  maxBytes,
+	})
+	return true
 }

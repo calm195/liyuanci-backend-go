@@ -1,9 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -102,5 +106,57 @@ func TestStudentCardProtocol(t *testing.T) {
 	}
 	if RegisterStudentCards(nil, &cardsFixture{}, 1<<20) == nil {
 		t.Fatal("nil装配未拒绝")
+	}
+}
+
+// TestStudentCardImageLimits 验证原图与规范化图片超限可由客户端分别提示，同时保留400分类。
+func TestStudentCardImageLimits(t *testing.T) {
+	for _, tc := range []struct {
+		failure error
+		code    string
+	}{
+		{studentcard.ErrImageInputTooLarge, "STUDENT_CARD_IMAGE_TOO_LARGE"},
+		{studentcard.ErrImageNormalizedTooLarge, "STUDENT_CARD_NORMALIZED_IMAGE_TOO_LARGE"},
+		{studentcard.ErrImagePixelsExceeded, "STUDENT_CARD_PIXELS_EXCEEDED"},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			router := New(zap.NewNop(), func(context.Context) error { return nil })
+			fixture := &cardsFixture{failure: tc.failure}
+			if err := RegisterStudentCards(router, fixture, 8<<20); err != nil {
+				t.Fatal(err)
+			}
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", `form-data; name="file"; filename="synthetic.png"`)
+			header.Set("Content-Type", "image/png")
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = part.Write([]byte("synthetic image")); err != nil {
+				t.Fatal(err)
+			}
+			if err = writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest("POST", studentCardUploadPath, &body)
+			request.Header.Set("Content-Type", writer.FormDataContentType())
+			request.Header.Set("Authorization", "Bearer synthetic-token")
+			request.Header.Set("Idempotency-Key", "synthetic-key")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			var response struct {
+				Code      int    `json:"code"`
+				ErrorCode string `json:"error_code"`
+				MaxBytes  int64  `json:"max_bytes"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != 400 || response.Code != 400 || response.ErrorCode != tc.code || response.MaxBytes != 8<<20 || !fixture.called {
+				t.Fatal(recorder.Code, response, fixture.called)
+			}
+		})
 	}
 }

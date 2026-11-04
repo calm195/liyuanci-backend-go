@@ -1,7 +1,77 @@
-# 版本化公共资源占位；须填写经核验的字典、援助目录和关怀资料后用于正式业务。
-# 资料版本，非空仅表示文件可解析，不代表内容已完成运营核验。
-version: unconfigured
-# 年级、举报类型和援助目录；空值不生成默认资料。
-catalog: {}
-# 独立关怀资料；未填写时由业务判断为不可用。
-care: {}
+# 年级和举报类型由运营确认；援助、关怀资料按下列官方公开来源核对。
+# 核验指公开页面内容核对，未拨打热线或完成医院预约；联系方式变更时更新版本。
+version: production-20261104-v1
+catalog:
+  grades:
+    version: 1
+    items:
+      - code: undergraduate_1
+        label: 大一
+      - code: undergraduate_2
+        label: 大二
+      - code: undergraduate_3
+        label: 大三
+      - code: undergraduate_4
+        label: 大四
+      - code: master_1
+        label: 研一
+      - code: master_2
+        label: 研二
+      - code: master_3
+        label: 研三
+      - code: doctoral_1
+        label: 博一
+      - code: doctoral_2
+        label: 博二
+      - code: doctoral_3
+        label: 博三
+  # code为持久业务标识；数据库report_types须发布同一组code和label。
+  reports:
+    - code: spam
+      label: 垃圾广告
+    - code: harassment
+      label: 辱骂攻击
+    - code: privacy_leak
+      label: 隐私泄露
+    - code: school_rules
+      label: 违反校规
+    - code: pornography_drugs
+      label: 涉黄涉毒
+    - code: other
+      label: 其他
+  help:
+    status: ready
+    version: 1
+    # 援助目录使用UTC秒精度时间；不表示实际电话接通验收。
+    verified_at: '2026-11-04T14:20:00Z'
+    items:
+      - kind: hotline
+        label: 全国统一心理援助热线
+        contact: '12356；在中国大陆拨打可接入当地心理援助服务，具体服务时间以当地公告为准。'
+        source_url: https://www.nhc.gov.cn/yzygj/c100068/202412/49a1a65386cd4be582d4702fd0926ee8.shtml
+      - kind: hotline
+        label: 广东省心理援助热线
+        contact: '广东省内拨打12356，24小时提供心理援助服务。'
+        source_url: https://www.szknyy.com/gz/xwzx/yydt/content/post_1719309.html
+care:
+  version: production-care-20261104-v1
+  source: >-
+    深圳市康宁医院2026年5月29日广东省12356热线整合公告
+    https://www.szknyy.com/gz/xwzx/yydt/content/post_1719309.html；
+    广东省人民医院门诊预约指南
+    https://www.gdghospital.org.cn/AppointmentGuide/index.html；
+    广东省人民医院心理咨询科介绍
+    https://www.gdghospital.org.cn/TheDepartments/index_subjectid_39.html；
+    北京市通信管理局紧急救助号码说明
+    https://bjca.miit.gov.cn/zwgk/tzgg/art/2022/art_8d4eb93ee3424f30826c97ee400e8937.html
+  # 关怀资料使用日期格式，与援助目录的时间字段不同。
+  verified_at: '2026-11-04'
+  hotline_24_hours: '广东省内可拨打12356心理援助热线，服务时间为24小时。其他地区请以当地热线公告为准。'
+  appointment: >-
+    可通过广东省人民医院官方微信公众号“广东省人民医院”或医院官网
+    https://www.gdghospital.org.cn/ 预约心理咨询科等相关门诊；
+    出诊、号源和费用以医院当日信息为准，也可选择所在地正规医疗机构。
+  notice: >-
+    如果你正经历难以承受的情绪，可以联系信任的人陪伴，或主动寻求专业支持。
+    如有紧急医疗需要，请拨打120；遇到人身安全威胁，可拨打110。
+    本平台提供关怀信息，不能代替医疗诊断、治疗或紧急救援。
