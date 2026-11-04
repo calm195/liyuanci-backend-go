@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,22 +18,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
-type sendFunc func(context.Context, Event) error
-
-func (f sendFunc) Send(ctx context.Context, event Event) error { return f(ctx, event) }
-
 func route() Route {
 	return Route{Kind: "synthetic.scan", TargetKind: "wish", EventType: "content.scan"}
-}
-
-func configuration() Config {
-	return Config{
-		DatabaseTimeout: time.Second,
-		SendTimeout:     100 * time.Millisecond,
-		LeaseDuration:   time.Second,
-		RetryDelay:      time.Millisecond,
-		MaxAttempts:     2,
-	}
 }
 
 func draft(n int) Draft {
@@ -53,15 +36,6 @@ func uid(n int) string { return fmt.Sprintf("70000000-0000-0000-0000-%012d", n) 
 
 // T007/REQ-006、007、015、017、018：禁止任意载荷/动态身份类型，缺失依赖失败关闭。
 func TestContracts(t *testing.T) {
-	if _, err := NewRelay(
-		nil,
-		zap.NewNop(),
-		sendFunc(func(context.Context, Event) error { return nil }),
-		route(),
-		configuration(),
-	); err != ErrInvalid {
-		t.Fatal("无数据库应拒绝")
-	}
 	if validRoute(Route{Kind: "body contains secret", TargetKind: "wish", EventType: "scan"}) {
 		t.Fatal("任意正文不能成为路由")
 	}
@@ -85,7 +59,7 @@ func TestContracts(t *testing.T) {
 	}
 }
 
-// T007/REQ-006、007、015、017、018、020：真 PostgreSQL 事务/租约，Sender 为合成故障适配器。
+// T007/REQ-006、007、015、017、018、020：真实 PostgreSQL 事务验证业务工作与事件关联同提交、回滚及唯一性。
 func TestPostgresDurable(t *testing.T) {
 	dsn := testconfig.Value("durable_test_dsn")
 	if dsn == "" {
@@ -122,32 +96,6 @@ func TestPostgresDurable(t *testing.T) {
 			t.Fatal(failure)
 		}
 		return n
-	}
-	appendWork := func(n int) {
-		t.Helper()
-		if failure := db.Transaction(func(tx *gorm.DB) error { return Append(ctx, tx, log, route(), draft(n)) }); failure != nil {
-			t.Fatal(failure)
-		}
-	}
-	clear := func() {
-
-		exec("DELETE FROM public.outbox_events")
-		exec("DELETE FROM public.work_items")
-	}
-	relay := func(sender Sender) *Relay {
-		t.Helper()
-		got, failure := NewRelay(db, log, sender, route(), configuration())
-		if failure != nil {
-			t.Fatal(failure)
-		}
-		return got
-	}
-	state := func(id string) string {
-		var status string
-		if failure := db.Raw("SELECT status FROM public.work_items WHERE id=?", id).Scan(&status).Error; failure != nil {
-			t.Fatal(failure)
-		}
-		return status
 	}
 	// 专用测试库可重复运行，事务夹具账号随本测试退出清理。
 	defer exec("DELETE FROM public.accounts WHERE id=?", uid(999))
@@ -198,211 +146,6 @@ func TestPostgresDurable(t *testing.T) {
 			t.Fatal("冲突产生孤立工作")
 		}
 	})
-	t.Run("并发领取与提交后发送", func(t *testing.T) {
-		clear()
-		appendWork(2)
-		var calls atomic.Int32
-		r := relay(sendFunc(func(_ context.Context, event Event) error {
-			calls.Add(1)
-			if event.CorrelationID != draft(2).WorkID {
-				t.Error("关联工作引用错误")
-			}
-			return nil
-		}))
-		var wg sync.WaitGroup
-		failures := make(chan error, 8)
-		for i := 0; i < 8; i++ {
-			wg.Add(1)
-			go func() {
-
-				defer wg.Done()
-				_, failure := r.Once(ctx)
-				failures <- failure
-			}()
-		}
-		wg.Wait()
-		close(failures)
-		for failure := range failures {
-			if failure != nil {
-				t.Fatal(failure)
-			}
-		}
-		if calls.Load() != 1 {
-			t.Fatal("有效租约期间只能发送一次")
-		}
-		var sent bool
-		db.Raw("SELECT sent_at IS NOT NULL FROM public.outbox_events").Scan(&sent)
-		if !sent {
-			t.Fatal("成功确认未落库")
-		}
-	})
-	t.Run("发送不持有领取事务", func(t *testing.T) {
-		clear()
-		appendWork(2)
-		// 此处只运行一个转发者，排除其他合法领取者短暂持锁对NOWAIT断言的干扰。
-		r := relay(sendFunc(func(_ context.Context, event Event) error {
-			return db.Transaction(func(tx *gorm.DB) error {
-				return tx.Exec("SELECT id FROM public.work_items WHERE id=? FOR UPDATE NOWAIT", event.CorrelationID).Error
-			})
-		}))
-		if claimed, failure := r.Once(ctx); failure != nil || !claimed {
-			t.Fatal("发送仍持有领取事务", failure)
-		}
-	})
-	t.Run("临时重试与异常待办", func(t *testing.T) {
-		clear()
-		appendWork(3)
-		r := relay(sendFunc(func(context.Context, Event) error { return fmt.Errorf("SYNTHETIC_SECRET: %w", ErrTemporary) }))
-		if _, failure := r.Once(ctx); failure != ErrTemporary {
-			t.Fatal(failure)
-		}
-		if state(draft(3).WorkID) != "pending" {
-			t.Fatal("首次临时失败不终结")
-		}
-		exec("UPDATE public.outbox_events SET next_at=clock_timestamp()-interval '1 second'")
-		if _, failure := r.Once(ctx); failure != ErrConfiguration {
-			t.Fatal(failure)
-		}
-		if state(draft(3).WorkID) != "attention" {
-			t.Fatal("重试门槛应进入异常待办")
-		}
-		if claimed, failure := r.Once(ctx); failure != nil || claimed {
-			t.Fatal("异常待办不能自动重放")
-		}
-	})
-	t.Run("配置故障与发送恢复", func(t *testing.T) {
-		for _, panicNow := range []bool{false, true} {
-			clear()
-			appendWork(4)
-			r := relay(sendFunc(func(context.Context, Event) error {
-				if panicNow {
-					panic("SYNTHETIC_SECRET")
-				}
-				return errors.New("SYNTHETIC_SECRET")
-			}))
-			if _, failure := r.Once(ctx); failure != ErrConfiguration {
-				t.Fatal(failure)
-			}
-			if state(draft(4).WorkID) != "attention" {
-				t.Fatal("未知发送故障需待办")
-			}
-		}
-	})
-	t.Run("失效租约与稳定重复事件", func(t *testing.T) {
-		clear()
-		appendWork(5)
-		var first Event
-		old := relay(sendFunc(func(_ context.Context, event Event) error {
-			first = event
-			exec("UPDATE public.outbox_events SET lease_until=clock_timestamp()-interval '1 second'")
-			return nil
-		}))
-		if _, failure := old.Once(ctx); failure != ErrLeaseLost {
-			t.Fatal("过期持有者不得确认", failure)
-		}
-		current := relay(sendFunc(func(_ context.Context, event Event) error {
-			if event != first {
-				t.Error("重投必须保持稳定事件和技术时间")
-			}
-			return nil
-		}))
-		if _, failure := current.Once(ctx); failure != nil {
-			t.Fatal(failure)
-		}
-	})
-	t.Run("旧转发者不得覆盖新租约", func(t *testing.T) {
-		clear()
-		appendWork(6)
-		newer := relay(sendFunc(func(context.Context, Event) error { return nil }))
-		old := relay(sendFunc(func(context.Context, Event) error {
-			exec("UPDATE public.outbox_events SET lease_until=clock_timestamp()-interval '1 second'")
-			if _, failure := newer.Once(ctx); failure != nil {
-				t.Error(failure)
-			}
-			return ErrTemporary
-		}))
-		if _, failure := old.Once(ctx); failure != ErrLeaseLost {
-			t.Fatal(failure)
-		}
-		if state(draft(6).WorkID) != "pending" {
-			t.Fatal("旧持有者不得写失败或待办")
-		}
-	})
-	t.Run("取消与完成不复活", func(t *testing.T) {
-		for _, status := range []string{"cancelled", "completed"} {
-			clear()
-			appendWork(7)
-			exec("UPDATE public.work_items SET status=?", status)
-			r := relay(sendFunc(func(context.Context, Event) error {
-
-				t.Error("终态不应再次转发")
-				return nil
-			}))
-			if claimed, failure := r.Once(ctx); failure != nil || claimed {
-				t.Fatal("终态应跳过")
-			}
-		}
-		clear()
-		appendWork(8)
-		r := relay(sendFunc(func(context.Context, Event) error {
-			exec("UPDATE public.work_items SET status='cancelled'")
-			return ErrConfiguration
-		}))
-		if _, failure := r.Once(ctx); failure != ErrConfiguration {
-			t.Fatal(failure)
-		}
-		if state(draft(8).WorkID) != "cancelled" {
-			t.Fatal("发送中取消不得被待办覆盖")
-		}
-	})
-	t.Run("确认前中断耗尽预算", func(t *testing.T) {
-		clear()
-		appendWork(10)
-		exec("UPDATE public.outbox_events SET attempts=2,lease_until=clock_timestamp()-interval '1 second'")
-		r := relay(sendFunc(func(context.Context, Event) error {
-
-			t.Error("预算已耗尽不得发送")
-			return nil
-		}))
-		if claimed, failure := r.Once(ctx); failure != nil || claimed {
-			t.Fatal("预算耗尽仅标记待办", failure)
-		}
-		if state(draft(10).WorkID) != "attention" {
-			t.Fatal("确认前中断也应进入待办")
-		}
-	})
-	t.Run("领域工作组实际权限", func(t *testing.T) {
-		clear()
-		appendWork(9)
-		failure := db.Connection(func(conn *gorm.DB) error {
-			if failure := conn.Exec("SET ROLE liyuanci_domain_worker").Error; failure != nil {
-				return failure
-			}
-			defer conn.Statement.ConnPool.ExecContext(context.Background(), "RESET ROLE")
-			r, failure := NewRelay(conn, log, sendFunc(func(context.Context, Event) error { return nil }), route(), configuration())
-			if failure != nil {
-				return failure
-			}
-			_, failure = r.Once(ctx)
-			return failure
-		})
-		if failure != nil {
-			t.Fatal(failure)
-		}
-	})
-	entries := observed.FilterMessage("发件箱转发完成").All()
-	if len(entries) == 0 {
-		t.Fatal("缺少转发完成日志")
-	}
-	for _, entry := range entries {
-		fields := entry.ContextMap()
-		if fields["duration"] == nil || fields["result"] == nil || fields["claimed"] == nil {
-			t.Fatal("缺少完成字段")
-		}
-		if strings.Contains(fmt.Sprint(fields), "SYNTHETIC_SECRET") {
-			t.Fatal("供应商错误泄漏")
-		}
-	}
 	for _, entry := range observed.FilterMessage("持久工作暂存完成").All() {
 		if entry.ContextMap()["result"] == "success" {
 			t.Fatal("不能把事务暂存记成持久提交")

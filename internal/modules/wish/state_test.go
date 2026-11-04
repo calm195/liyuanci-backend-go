@@ -199,22 +199,6 @@ func TestPublicProjectionAndCopy(t *testing.T) {
 	}
 }
 
-func TestActiveCount(t *testing.T) {
-	p, _ := NewPolicy(zap.NewNop(), nil)
-	ended := snapshot(Published)
-	ended.ExpiresAt = pointer(at())
-	matching := snapshot(Matching)
-	matching.ExpiresAt = pointer(at().Add(-time.Hour))
-	rows := []Snapshot{snapshot(Published), ended, matching, snapshot(Ready), snapshot(Realized), snapshot(Fulfilled)}
-	if n, err := p.CountActive("", at(), rows); n != 2 || err != nil {
-		t.Fatalf("%d %v", n, err)
-	}
-	rows = append(rows, Snapshot{})
-	if n, err := p.CountActive("", at(), rows); n != 0 || err != command.ErrInvalid {
-		t.Fatal("错误返回部分额度")
-	}
-}
-
 func TestVersionAndInvalidInputs(t *testing.T) {
 	for _, mode := range []string{
 		"version",

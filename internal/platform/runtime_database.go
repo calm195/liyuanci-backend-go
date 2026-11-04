@@ -12,13 +12,8 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
-// OpenRuntimeDatabase 打开应用共用连接池，拒绝超级用户、集群管理权限和只读副本。
-// 成功后关闭责任转交宿主；本函数不迁移或读取业务内容。
-func OpenRuntimeDatabase(ctx context.Context, dsn string, log *zap.Logger) (out *gorm.DB, closePool func() error, err error) {
-	return OpenRuntimeDatabaseWithLimits(ctx, dsn, log, 0, 0)
-}
-
 // OpenRuntimeDatabaseWithLimits 在相同权限检查下收紧应用池的预算；零值兼容10/2，不能无限连接。
+// 拒绝超级用户、集群管理权限和只读副本，不迁移或读取业务内容；成功后关闭责任转交宿主。
 func OpenRuntimeDatabaseWithLimits(ctx context.Context, dsn string, log *zap.Logger, maxOpen, maxIdle int, lifetimes ...time.Duration) (out *gorm.DB, closePool func() error, err error) {
 	if maxOpen == 0 && maxIdle == 0 {
 		maxOpen, maxIdle = 10, 2
