@@ -4,6 +4,8 @@ mode: business
 masterkey: ''
 # 唯一数据库配置；API、后台任务、显式迁移使用同一账号。
 database:
+  # 业务模式显式启用PostgreSQL；公共基础配置不连接数据库。
+  driver: postgres
   # PostgreSQL单个主机名或IP，不含端口；IPv6不加方括号，不支持多主机列表。
   host: 127.0.0.1
   # PostgreSQL端口，整数1至65535；默认5432。

@@ -88,7 +88,9 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	devDoc.Whispers = cfg
 	must(os.WriteFile(common, mustYAML(t, devDoc), 0600))
 	must(os.WriteFile(path, []byte("environment: development\n"), 0600))
-	cfg, e = config.LoadWhispers(ctx, path, "integration")
+	loaded, e := config.Load(path)
+	must(e)
+	cfg, e = config.ValidateWhispers(loaded.Whispers, "integration")
 	must(e)
 	if !bytes.Equal(cfg.WrapKey, dc.WrapKey) || !bytes.Equal(cfg.RecoveryWrapKey, dc.RecoveryWrapKey) ||
 		!bytes.Equal(cfg.PrivacyKey, privacy.DeriveKey(dc.WishKey)) ||
@@ -189,7 +191,7 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	)
 	workCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- RunWhisperContent(workCtx, path, "integration", log) }()
+	go func() { done <- runContentSettings(workCtx, cfg, "integration", log, false) }()
 	stopped := false
 	defer func() {
 		if stopped {
@@ -290,7 +292,7 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	cancel()
 	must(<-done)
 	stopped = true
-	must(RunWhisperPrivacy(ctx, path, "integration", "account", true, log))
+	must(runPrivacySettings(ctx, cfg, "account", true, log, false))
 	rebuilt, e := OpenWhispers(ctx, cfg, client, log)
 	must(e)
 	must(rebuilt.Close())

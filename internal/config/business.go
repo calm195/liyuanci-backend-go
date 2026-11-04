@@ -2,7 +2,6 @@ package config
 
 import (
 	"bytes"
-	"context"
 	"slices"
 	"strings"
 	"time"
@@ -23,20 +22,6 @@ type Business struct {
 		DecodeSlots, MaxAttempts int
 		Lease, RetryDelay        time.Duration
 	}
-}
-
-// LoadBusiness 经统一入口加载并按进程校验业务配置；不连接网络或改写文件。
-func LoadBusiness(ctx context.Context, path, environment, process string) (cfg Business, err error) {
-	if err = ctx.Err(); err != nil {
-		return cfg, err
-	}
-	app, e := Load(path)
-	if e != nil {
-		return cfg, e
-	}
-	cfg = app.Business
-	err = ValidateBusiness(cfg, environment, process)
-	return
 }
 
 // ValidateBusiness 按用途校验配置，业务密钥与微信凭据仍须显式提供。

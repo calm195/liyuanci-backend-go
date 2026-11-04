@@ -20,7 +20,7 @@ func TestTemplateSchema(t *testing.T) {
 			}, &c); err != nil {
 				t.Fatal(err)
 			}
-			if c.Environment != environment || !c.Redis.Enabled {
+			if c.Environment != environment || !c.Redis.Enabled || c.Database.Driver != "postgres" {
 				t.Fatal("环境或共享限流启用配置丢失")
 			}
 			if c.Business.Runtime.ResourcesFile != "resources.yaml" || c.Business.Runtime.Tasks.ScanInterval != time.Second ||
@@ -52,5 +52,16 @@ func TestRetiredConfigurationRejected(t *testing.T) {
 	}
 	if _, err := Load(fixture(t, "mode: foundation\n", "worker:\n  contentanalyzer: manual\n")); err == nil {
 		t.Fatal("接受已删除的审核模式选项")
+	}
+}
+
+// TestFoundationTemplate 验证仓库公共配置可直接加载为不依赖中间件的纯健康模式。
+func TestFoundationTemplate(t *testing.T) {
+	c, err := Load(filepath.Join("..", "..", "configs", "common.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Mode != "foundation" || c.Database.Driver != "" || c.Database.DSN != "" || c.Redis.Enabled {
+		t.Fatal("基础模式启用了中间件")
 	}
 }

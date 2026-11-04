@@ -2,7 +2,6 @@ package config
 
 import (
 	"bytes"
-	"context"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,19 +28,6 @@ type Runtime struct {
 	Command                                                                           Command
 	Tasks                                                                             Tasks
 	ProviderTimeout                                                                   time.Duration
-}
-
-// LoadWhispers 在开连接前拒绝无效配置、密钥复用及生产启用，绝不生成凭据或运行迁移。
-func LoadWhispers(ctx context.Context, path, environment string) (cfg Runtime, err error) {
-	if err = ctx.Err(); err != nil {
-		return cfg, err
-	}
-	app, e := Load(path)
-	if e != nil {
-		return cfg, e
-	}
-	cfg = app.Whispers
-	return ValidateWhispers(cfg, environment)
 }
 
 // ValidateWhispers 校验统一入口已加载的独立树洞配置，不重复读取文件。

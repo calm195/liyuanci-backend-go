@@ -22,7 +22,7 @@ log:
 # 唯一数据库配置；API、后台任务、显式迁移使用同一账号。
 database:
   # 数据库驱动只支持postgres；foundation未启用数据库时可省略。
-  driver: postgres
+  driver: ''
   # PostgreSQL单个主机名或IP，不含端口；IPv6不加方括号，不支持多主机列表。
   host: ''
   # PostgreSQL端口，整数1至65535；默认5432。
@@ -48,7 +48,7 @@ database:
 # 共享限流连接；正式业务必须启用鉴权。
 redis:
   # 显式启用当前配置块；关闭不会自动清理已有数据。
-  enabled: true
+  enabled: false
   # 监听或连接地址（host:port）；按当前配置块填写。
   address: 127.0.0.1:6379
   # 命名ACL用户；空值使用default用户。

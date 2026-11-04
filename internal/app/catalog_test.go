@@ -17,7 +17,11 @@ func TestLocalConfiguration(t *testing.T) {
 	cfg.WrapKey = bytes.Repeat([]byte{31}, 32)
 	cfg.RecoveryWrapKey = bytes.Repeat([]byte{32}, 32)
 	cfg.ResourcesFile = ""
-	loaded, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), "integration")
+	document, e := config.Load(writeSettings(t, cfg))
+	if e != nil {
+		t.Fatal(e)
+	}
+	loaded, e := config.ValidateWhispers(document.Whispers, "integration")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -25,7 +29,11 @@ func TestLocalConfiguration(t *testing.T) {
 		t.Fatal("分项配置改变业务连接")
 	}
 	cfg.Enabled = false
-	if _, e = config.LoadWhispers(context.Background(), writeSettings(t, cfg), "production"); e == nil {
+	document, e = config.Load(writeSettings(t, cfg))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = config.ValidateWhispers(document.Whispers, "production"); e == nil {
 		t.Fatal("生产接受本地模式")
 	}
 }

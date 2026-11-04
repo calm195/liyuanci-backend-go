@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -74,7 +73,10 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 			if e := os.WriteFile(p, mustYAML(t, businessDocument(c)), 0600); e != nil {
 				t.Fatal(e)
 			}
-			_, e := config.LoadBusiness(context.Background(), p, "production", "api")
+			loaded, e := config.Load(p)
+			if e == nil {
+				e = config.ValidateBusiness(loaded.Business, loaded.Environment, "api")
+			}
 			if (e == nil) != tc.ok {
 				t.Fatal("配置准入不符", e)
 			}
@@ -85,7 +87,11 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 	if config.ValidateBusiness(c, "production", "api") == nil {
 		t.Fatal("领域构造器接受跨用途共钥")
 	}
-	if _, e := config.LoadWhispers(context.Background(), writeSettings(t, c.Runtime), "production"); e == nil {
+	loaded, e := config.Load(writeSettings(t, c.Runtime))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e := config.ValidateWhispers(loaded.Whispers, "production"); e == nil {
 		t.Fatal("独立旧入口绕过完整宿主门禁")
 	}
 

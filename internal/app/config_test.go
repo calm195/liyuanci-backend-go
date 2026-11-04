@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,7 +86,10 @@ func TestRuntimeConfiguration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testSettings()
 			tc.change(&cfg)
-			_, e := config.LoadWhispers(context.Background(), writeSettings(t, cfg), tc.env)
+			loaded, e := config.Load(writeSettings(t, cfg))
+			if e == nil {
+				_, e = config.ValidateWhispers(loaded.Whispers, tc.env)
+			}
 			if (e == nil) != tc.valid {
 				t.Fatal(e)
 			}
@@ -101,7 +103,7 @@ func TestRuntimeConfiguration(t *testing.T) {
 	}
 	_, _ = file.WriteString("\n---\nEnabled: true\n")
 	_ = file.Close()
-	if _, e = config.LoadWhispers(context.Background(), path, "integration"); e == nil {
+	if _, e = config.Load(path); e == nil {
 		t.Fatal("接受多文档YAML")
 	}
 

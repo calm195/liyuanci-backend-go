@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
@@ -14,19 +13,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
-
-// RunWhisperContent 由正式内容入口调用，调度独立审核、解锁及危机补偿；模块关闭不丢弃已持久工作。
-func RunWhisperContent(ctx context.Context, path, environment string, log *zap.Logger) (err error) {
-	if log == nil {
-		return command.ErrInvalid
-	}
-	defer finish(log, "content_run", time.Now(), &err)
-	cfg, e := config.LoadWhispers(ctx, path, environment)
-	if e != nil {
-		return e
-	}
-	return runContentSettings(ctx, cfg, environment, log, false)
-}
 
 func runContentSettings(ctx context.Context, cfg RuntimeSettings, environment string, log *zap.Logger, check bool) (err error) {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -102,23 +88,6 @@ func runContentSettings(ctx context.Context, cfg RuntimeSettings, environment st
 	log.Info("树洞内容进程启动完成", zap.String("result", "success"), zap.String("resource_version", resources.Version))
 	<-ctx.Done()
 	return nil
-}
-
-// RunWhisperPrivacy 按领域授权恢复全部删除意图；recoverOnly用于开放读取和外发前的显式恢复演练。
-// 数据库、账本或脱敏失败均保留processing；完成回执仅覆盖数据库清理。
-func RunWhisperPrivacy(ctx context.Context, path, environment, scope string, recoverOnly bool, log *zap.Logger) (err error) {
-	if log == nil {
-		return command.ErrInvalid
-	}
-	defer finish(log, "privacy_run", time.Now(), &err)
-	if scope != "account" && scope != "evidence" {
-		return command.ErrInvalid
-	}
-	cfg, e := config.LoadWhispers(ctx, path, environment)
-	if e != nil {
-		return e
-	}
-	return runPrivacySettings(ctx, cfg, scope, recoverOnly, log, false)
 }
 
 func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, recoverOnly bool, log *zap.Logger, check bool) (err error) {
