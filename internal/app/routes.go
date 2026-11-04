@@ -39,7 +39,7 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine
 	if e = httpapi.RegisterStudent(router, s.auth); e != nil {
 		return nil, e
 	}
-	if e = httpapi.RegisterStudentCards(router, s.cards); e != nil {
+	if e = httpapi.RegisterStudentCards(router, s.cards, cfg.Card.MaxBytes); e != nil {
 		return nil, e
 	}
 	if e = httpapi.RegisterVerification(router, s.students, s.reviews); e != nil {

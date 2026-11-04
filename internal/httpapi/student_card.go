@@ -14,18 +14,24 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 )
 
+const (
+	studentCardUploadPath = "/api/v1/me/student-card-assets"
+	// studentCardMultipartOverhead 为multipart边界和头部预留有界空间，不计入图片字节预算。
+	studentCardMultipartOverhead int64 = 64 << 10
+)
+
 // StudentCards 是显式注入的学生卡服务，不替代学生会话与人工认证。
 type StudentCards interface {
 	Upload(context.Context, string, string, string, string, io.Reader) (studentcard.Asset, error)
 	Get(context.Context, string, string, string) (studentcard.Asset, error)
 }
 
-// RegisterStudentCards 只注册本人上传/状态路由；默认server不开放合成外部服务。
-func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
-	if r == nil || service == nil {
+// RegisterStudentCards 按显式文件字节预算注册本人上传/状态路由；默认server不开放合成外部服务。
+func RegisterStudentCards(r *gin.Engine, service StudentCards, maxBytes int64) error {
+	if r == nil || service == nil || maxBytes < 1 || maxBytes > 8<<20 {
 		return command.ErrInvalid
 	}
-	group := r.Group("/api/v1/me/student-card-assets")
+	group := r.Group(studentCardUploadPath)
 	group.Use(func(c *gin.Context) {
 
 		c.Header("Cache-Control", "no-store")
@@ -41,6 +47,8 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards) error {
 		if !ok {
 			return
 		}
+		// 原始文件大小仍由服务校验；总请求另含有界multipart开销，避免合法边界图片被提前截断。
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+studentCardMultipartOverhead)
 		reader, e := c.Request.MultipartReader()
 		if e != nil {
 			adminError(c, command.ErrInvalid)

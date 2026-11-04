@@ -499,7 +499,7 @@ func TestPostgresStudentCards(t *testing.T) {
 	}
 	// HTTP实际multipart边界验证，不向临时目录写明文图片。
 	router := httpapi.New(logger, func(context.Context) error { return nil })
-	if e = httpapi.RegisterStudentCards(router, api); e != nil {
+	if e = httpapi.RegisterStudentCards(router, api, cfg.MaxBytes); e != nil {
 		t.Fatal(e)
 	}
 	request := func(key string, extra bool) *httptest.ResponseRecorder {
@@ -529,6 +529,54 @@ func TestPostgresStudentCards(t *testing.T) {
 	if rec := request("http-extra", true); rec.Code != 400 {
 		t.Fatal("额外multipart字段须拒绝", rec.Code)
 	}
+	t.Run("大于默认请求上限的合法图片", func(t *testing.T) {
+		// 随机像素只用于形成不可压缩的合成PNG，实际文件须大于旧1MiB限制且小于显式图片预算。
+		pixels := image.NewNRGBA(image.Rect(0, 0, 640, 640))
+		if _, err := rand.Read(pixels.Pix); err != nil {
+			t.Fatal(err)
+		}
+		var imageData bytes.Buffer
+		if err := png.Encode(&imageData, pixels); err != nil {
+			t.Fatal(err)
+		}
+		largeConfig := cfg
+		largeConfig.MaxBytes, largeConfig.MaxPixels = 2<<20, 640*640
+		if imageData.Len() <= 1<<20 || int64(imageData.Len()) > largeConfig.MaxBytes {
+			t.Fatal("合成图片未覆盖预期边界", imageData.Len())
+		}
+		largeAPI, err := studentcard.New(apiDB, logger, sessions, codec, bucket, scan, largeConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		largeRouter := httpapi.New(logger, nil)
+		if err = httpapi.RegisterStudentCards(largeRouter, largeAPI, largeConfig.MaxBytes); err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		header := textproto.MIMEHeader{}
+		header.Set("Content-Disposition", `form-data; name="file"; filename="synthetic.png"`)
+		header.Set("Content-Type", "image/png")
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = part.Write(imageData.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		if err = writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "/api/v1/me/student-card-assets", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.Header.Set("Authorization", "Bearer "+first.Token)
+		req.Header.Set("Idempotency-Key", "large-image-boundary")
+		rec := httptest.NewRecorder()
+		largeRouter.ServeHTTP(rec, req)
+		if rec.Code != 202 {
+			t.Fatal("合法大图片未完成加密暂存", rec.Code)
+		}
+	})
 	// 失败的持久工作写入必须回滚资产与暂存，不能创建没有消费者的孤立上传。
 	var before, after int64
 	_ = root.Model(&entity.Asset{}).Count(&before).Error

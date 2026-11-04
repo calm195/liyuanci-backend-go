@@ -77,7 +77,7 @@ func TestStudentCardProtocol(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			router := New(zap.NewNop(), func(context.Context) error { return nil })
 			fixture := &cardsFixture{failure: tc.failure}
-			if e := RegisterStudentCards(router, fixture); e != nil {
+			if e := RegisterStudentCards(router, fixture, 1<<20); e != nil {
 				t.Fatal(e)
 			}
 			request := httptest.NewRequest(tc.method, "/api/v1/me/student-card-assets"+tc.path, strings.NewReader("{}"))
@@ -100,7 +100,7 @@ func TestStudentCardProtocol(t *testing.T) {
 			}
 		})
 	}
-	if RegisterStudentCards(nil, &cardsFixture{}) == nil {
+	if RegisterStudentCards(nil, &cardsFixture{}, 1<<20) == nil {
 		t.Fatal("nil装配未拒绝")
 	}
 }
