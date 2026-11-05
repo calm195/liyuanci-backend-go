@@ -614,7 +614,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var latest int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error)
-	if latest != 9 {
+	if latest != 10 {
 		t.Fatal("运行入口改变迁移版本", latest)
 	}
 	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/COS使用原生协议隔离TLS夹具，学校按策略直接通过", workerEnv)

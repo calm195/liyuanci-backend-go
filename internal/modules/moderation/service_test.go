@@ -13,6 +13,8 @@ func TestValidation(t *testing.T) {
 		{Kind: "school", ExpectedVersion: 1},
 		{Kind: "school", ExpectedVersion: 1, Entries: []string{" "}},
 		{Kind: "school", ExpectedVersion: 1, Entries: []string{"重复", "重复"}},
+		{Kind: "school", ExpectedVersion: 1, Entries: []string{"词条"}, DisabledEntries: []string{"其他"}},
+		{Kind: "school", ExpectedVersion: 1, Entries: []string{"词条"}, DisabledEntries: []string{"词条", "词条"}},
 	} {
 		if validateEntries(in, 100) == nil {
 			t.Fatal("非法快照被接受")

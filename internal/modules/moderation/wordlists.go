@@ -26,7 +26,8 @@ type Wordlist struct {
 // WordlistDetail 只在当前角色授权后返回完整词条。
 type WordlistDetail struct {
 	Wordlist
-	Entries []string `json:"entries"`
+	Entries         []string `json:"entries"`
+	DisabledEntries []string `json:"disabled_entries,omitempty"`
 }
 
 // WordlistPage 每页都包含三类一致快照的基准，不随分页遗漏。
@@ -41,6 +42,7 @@ type WordlistInput struct {
 	Kind            string   `json:"kind"`
 	Entries         []string `json:"entries"`
 	ExpectedVersion int64    `json:"expected_version"`
+	DisabledEntries []string `json:"disabled_entries,omitempty"`
 }
 
 // WordlistPublish 同时比较草案资源和kind基准，禁止旧草案覆盖后来生效版本。
@@ -61,9 +63,9 @@ func readList(db *gorm.DB, id string) (row entity.WordlistVersion, err error) {
 	return
 }
 
-func entries(db *gorm.DB, id string) ([]string, error) {
+func enabledEntries(db *gorm.DB, id string) ([]string, error) {
 	out := []string{}
-	e := db.Model(&entity.WordlistEntry{}).Where("version_id=?", id).Order("entry").Pluck("entry", &out).Error
+	e := db.Model(&entity.WordlistEntry{}).Where("version_id=? AND NOT disabled", id).Order("entry").Pluck("entry", &out).Error
 	return out, e
 }
 
@@ -136,9 +138,16 @@ func (s *Service) Wordlist(ctx context.Context, token, rid, id string) (out Word
 			return e
 		}
 		out.Wordlist = wordlist(row)
-		out.Entries, e = entries(db, id)
-		if e != nil {
+		var rows []entity.WordlistEntry
+		if e = db.Where("version_id=?", id).Order("entry").Find(&rows).Error; e != nil {
 			return e
+		}
+		out.Entries = make([]string, 0, len(rows))
+		for _, row := range rows {
+			out.Entries = append(out.Entries, row.Entry)
+			if row.Disabled {
+				out.DisabledEntries = append(out.DisabledEntries, row.Entry)
+			}
 		}
 		return audit(db, actor, id, "wordlist.detail")
 	})
@@ -155,6 +164,12 @@ func validateEntries(input WordlistInput, max int) error {
 			return command.ErrInvalid
 		}
 		seen[entry] = true
+	}
+	for _, entry := range input.DisabledEntries {
+		if !seen[entry] {
+			return command.ErrInvalid
+		}
+		delete(seen, entry)
 	}
 	return nil
 }
@@ -240,8 +255,18 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 			}
 			sorted := append([]string(nil), input.Entries...)
 			slices.Sort(sorted)
+			disabled := make(map[string]bool, len(input.DisabledEntries))
+			for _, entry := range input.DisabledEntries {
+				disabled[entry] = true
+			}
 			for _, entry := range sorted {
-				if e := db.Create(&entity.WordlistEntry{ID: uuid.NewString(), VersionID: row.ID, Entry: entry, Action: k}).Error; e != nil {
+				if e := db.Create(&entity.WordlistEntry{
+					ID:        uuid.NewString(),
+					VersionID: row.ID,
+					Entry:     entry,
+					Action:    k,
+					Disabled:  disabled[entry],
+				}).Error; e != nil {
 					return "", e
 				}
 			}

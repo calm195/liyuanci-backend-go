@@ -40,7 +40,7 @@ func TestModerationHTTPBoundary(t *testing.T) {
 			"正常创建",
 			"POST",
 			"/api/v1/admin/wordlists/versions",
-			`{"kind":"school","entries":[],"expected_version":1}`,
+			`{"kind":"school","entries":["停用示例"],"disabled_entries":["停用示例"],"expected_version":1}`,
 			"token",
 			"key",
 			201,

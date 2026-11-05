@@ -24,6 +24,7 @@ type WordlistEntry struct {
 	VersionID string `gorm:"column:version_id;type:uuid;not null;comment:所属词库版本" json:"-"`
 	Entry     string `gorm:"column:entry;type:text;not null;comment:规则词条，非用户输入" json:"-"`
 	Action    string `gorm:"column:action;type:text;not null;comment:命中后的稳定动作码，运营规则交付后验证" json:"-"`
+	Disabled  bool   `gorm:"column:disabled;not null;default:false;comment:是否从该版本的扫描规则中停用" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

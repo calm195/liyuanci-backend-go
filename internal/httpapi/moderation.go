@@ -123,7 +123,7 @@ func RegisterModeration(r *gin.Engine, s ModerationService) error {
 			return
 		}
 		var input moderation.WordlistInput
-		if moderationJSON(c, &input, "kind", "entries", "expected_version") != nil {
+		if moderationJSON(c, &input, "kind", "entries", "expected_version", "disabled_entries") != nil {
 			adminError(c, command.ErrInvalid)
 			return
 		}

@@ -115,7 +115,7 @@ func readRules(db *gorm.DB) (out rules, err error) {
 			Take(item.row).Error; err != nil {
 			return
 		}
-		*item.entries, err = entries(db, item.row.ID)
+		*item.entries, err = enabledEntries(db, item.row.ID)
 		if err != nil {
 			return
 		}

@@ -353,7 +353,12 @@ func TestModerationCore(t *testing.T) {
 			adminToken,
 			uuid.NewString(),
 			"draft-b",
-			moderation.WordlistInput{Kind: h.Kind, Entries: []string{"普通命中", "新增标记"}, ExpectedVersion: h.Version},
+			moderation.WordlistInput{
+				Kind:            h.Kind,
+				Entries:         []string{"普通命中", "新增标记"},
+				DisabledEntries: []string{"新增标记"},
+				ExpectedVersion: h.Version,
+			},
 		)
 		must(e)
 		h = head(h.Kind)
@@ -404,6 +409,45 @@ func TestModerationCore(t *testing.T) {
 		)
 		if e != command.ErrConflict {
 			t.Fatal("归档可重新发布", e)
+		}
+	})
+	t.Run("已停用词条留在快照中但不会命中新扫描", func(t *testing.T) {
+		h := head("ordinary_violation")
+		if h.EffectiveID == nil {
+			t.Fatal("缺少生效词库")
+		}
+		snapshot, e := service.Wordlist(ctx, adminToken, "disabled-detail", *h.EffectiveID)
+		must(e)
+		if len(snapshot.Entries) != 2 || len(snapshot.DisabledEntries) != 1 || snapshot.DisabledEntries[0] != "新增标记" {
+			t.Fatal("完整快照或停用状态丢失")
+		}
+		draft, event := submit("包含新增标记")
+		out, e := worker.Consume(ctx, event)
+		must(e)
+		if !out.Applied || state(draft.ID).State != "ready" {
+			t.Fatal("停用词条仍参与扫描")
+		}
+		enabled, e := service.CreateWordlist(ctx, adminToken, uuid.NewString(), "reenable-draft", moderation.WordlistInput{
+			Kind:            h.Kind,
+			Entries:         snapshot.Entries,
+			ExpectedVersion: h.Version,
+		})
+		must(e)
+		_, e = service.PublishWordlist(ctx, adminToken, uuid.NewString(), "reenable-publish", enabled.ID, moderation.WordlistPublish{
+			ExpectedVersion:     enabled.Version,
+			ExpectedHeadVersion: head(h.Kind).Version,
+		})
+		must(e)
+		draft, event = submit("重新启用后包含新增标记")
+		out, e = worker.Consume(ctx, event)
+		must(e)
+		if !out.Applied || state(draft.ID).State != "pending_review" {
+			t.Fatal("重新启用的词条未触发人工审核")
+		}
+		old, e := service.Wordlist(ctx, adminToken, "disabled-archived", snapshot.ID)
+		must(e)
+		if old.Status != "archived" || len(old.DisabledEntries) != 1 || old.DisabledEntries[0] != "新增标记" {
+			t.Fatal("重新启用改变了历史快照")
 		}
 	})
 	t.Run("未命中保留原文并只进入待上架", func(t *testing.T) {
