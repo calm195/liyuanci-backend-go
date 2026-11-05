@@ -57,11 +57,12 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	objects := filepath.Join(dir, "objects")
 	must(os.Mkdir(objects, 0700))
 	dc := DevelopmentSettings{
-		LocalTest:       true,
-		DatabaseDSN:     shared,
-		JournalFile:     filepath.Join(dir, "journal.json"),
-		AdminPassword:   "isolated-local-password",
-		ObjectDirectory: objects,
+		LocalTest:           true,
+		DatabaseDSN:         shared,
+		JournalFile:         filepath.Join(dir, "journal.json"),
+		AdminPassword:       "isolated-local-password",
+		AdminCreatePassword: "isolated-new-admin-secret",
+		ObjectDirectory:     objects,
 	}
 	devDoc := config.Defaults()
 	devDoc.MasterKey = bytes.Repeat([]byte{94}, 32)
@@ -70,6 +71,7 @@ func TestPostgresLocalBusiness(t *testing.T) {
 	devDoc.Database.TimeZone = "Asia/Shanghai"
 	devDoc.Redis.Enabled, devDoc.Redis.Address = true, redisAddress
 	devDoc.Business.AdminPassword = dc.AdminPassword
+	devDoc.Business.AdminCreatePassword = dc.AdminCreatePassword
 	devDoc.Business.Runtime.JournalFile = dc.JournalFile
 	devDoc.Business.Runtime.ObjectDirectory = dc.ObjectDirectory
 	common := filepath.Join(dir, "common.yaml")
@@ -150,12 +152,20 @@ func TestPostgresLocalBusiness(t *testing.T) {
 			nil,
 			201,
 		)
-		var session struct{ Token string }
 		request(
 			"POST",
 			"/admin/sessions",
 			"",
 			map[string]string{"login_name": a.name, "password": dc.AdminPassword},
+			nil,
+			401,
+		)
+		var session struct{ Token string }
+		request(
+			"POST",
+			"/admin/sessions",
+			"",
+			map[string]string{"login_name": a.name, "password": dc.AdminCreatePassword},
 			&session,
 			200,
 		)

@@ -42,7 +42,7 @@ type DevelopmentSettings struct {
 	JournalFile, ObjectDirectory                                                string
 	RecoveryWrapKey, ModerationKey                                              []byte `json:"-"`
 	WrapKey, LookupKey, SessionKey, CardKey, VerificationKey, WishKey, AdminKey []byte `json:"-"`
-	AdminPassword, WeChatAppID, WeChatSecret                                    string
+	AdminPassword, AdminCreatePassword, WeChatAppID, WeChatSecret               string
 	ResourcesFile                                                               string
 }
 
@@ -69,6 +69,7 @@ func developmentSettings(app config.Config) (DevelopmentSettings, error) {
 		WishKey:             b.WishKey,
 		AdminKey:            b.AdminKey,
 		AdminPassword:       b.AdminPassword,
+		AdminCreatePassword: b.AdminCreatePassword,
 		WeChatAppID:         b.WeChatAppID,
 		WeChatSecret:        b.WeChatSecret,
 		ResourcesFile:       r.ResourcesFile,
@@ -82,8 +83,13 @@ func validateDevelopment(cfg DevelopmentSettings) (DevelopmentSettings, error) {
 			return cfg, command.ErrInvalid
 		}
 	}
-	if cfg.DatabaseDSN == "" || cfg.ObjectDirectory == "" || len(cfg.AdminPassword) < 12 {
+	if cfg.DatabaseDSN == "" || cfg.ObjectDirectory == "" {
 		return cfg, command.ErrInvalid
+	}
+	var err error
+	cfg.AdminPassword, cfg.AdminCreatePassword, err = config.ValidateAdminPasswords(cfg.AdminPassword, cfg.AdminCreatePassword)
+	if err != nil {
+		return cfg, err
 	}
 	keys := [][]byte{
 		cfg.WrapKey,
@@ -284,10 +290,10 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		return nil, closeAll, e
 	}
 	admin, e := adminauth.New(database, limiter, logger, adminauth.Config{
-		SessionTTL:      8 * time.Hour,
-		InitialPassword: cfg.AdminPassword,
-		ReceiptKey:      cfg.AdminKey,
-		Command:         cmd,
+		SessionTTL:     8 * time.Hour,
+		CreatePassword: cfg.AdminCreatePassword,
+		ReceiptKey:     cfg.AdminKey,
+		Command:        cmd,
 	})
 	if e != nil {
 		return nil, closeAll, e
@@ -329,10 +335,10 @@ func InitializeDevelopment(ctx context.Context, cfg DevelopmentSettings, logger 
 		return e
 	}
 	admin, e := adminauth.New(adminDB, limiter, logger, adminauth.Config{
-		SessionTTL:      8 * time.Hour,
-		InitialPassword: cfg.AdminPassword,
-		ReceiptKey:      cfg.AdminKey,
-		Command:         developmentCommandConfig(),
+		SessionTTL:     8 * time.Hour,
+		CreatePassword: cfg.AdminCreatePassword,
+		ReceiptKey:     cfg.AdminKey,
+		Command:        developmentCommandConfig(),
 	})
 	if e != nil {
 		return e
@@ -345,6 +351,6 @@ func InitializeDevelopment(ctx context.Context, cfg DevelopmentSettings, logger 
 	if count > 0 {
 		return nil
 	}
-	_, e = admin.Bootstrap(ctx, login)
+	_, e = admin.Bootstrap(ctx, login, cfg.AdminPassword)
 	return e
 }

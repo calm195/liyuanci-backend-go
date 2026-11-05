@@ -169,7 +169,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
-	password, e := config.ValidateSecret(cfg.AdminPassword, 12)
+	password, e := config.ValidateSecret(cfg.AdminCreatePassword, 12)
 	if e != nil {
 		return nil, e
 	}
@@ -178,10 +178,10 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		limiter,
 		log,
 		adminauth.Config{
-			Command:         cmd,
-			ReceiptKey:      cfg.AdminKey,
-			SessionTTL:      cfg.AdminSessionTTL,
-			InitialPassword: password,
+			Command:        cmd,
+			ReceiptKey:     cfg.AdminKey,
+			SessionTTL:     cfg.AdminSessionTTL,
+			CreatePassword: password,
 		},
 	)
 	if e != nil {

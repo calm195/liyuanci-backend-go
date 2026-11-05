@@ -135,8 +135,10 @@ business:
   wechatappid: ''
   # 原微信AppSecret，内联单行字符串；至少16字符。
   wechatsecret: ''
-  # 后台初始化原口令，内联单行字符串；至少12字符，不自动重置账号。
+  # 首次初始化超级管理员的口令，至少12字符，只在私有覆盖填写。
   adminpassword: ''
+  # 新建后台账号的初始口令，至少12字符，必须与首次超管口令不同。
+  admincreatepassword: ''
   # 学生会话有效期；必须带单位，例如24h。
   sessionttl: 24h
   # 微信交换临时凭证有效期；例如1m。

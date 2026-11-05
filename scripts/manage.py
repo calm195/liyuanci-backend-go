@@ -21,6 +21,7 @@ def initialize(path, environment):
     if environment == 'development':
         values['masterkey'] = base64.b64encode(secrets.token_bytes(32)).decode()
         values['business']['adminpassword'] = secrets.token_urlsafe(24)
+        values['business']['admincreatepassword'] = secrets.token_urlsafe(24)
     if not (path.parent / 'common.yaml').is_file():
         raise ValueError('环境覆盖旁必须存在common.yaml')
     # 独占创建，防止并发初始化覆盖历史文件。

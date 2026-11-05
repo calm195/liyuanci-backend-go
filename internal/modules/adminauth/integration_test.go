@@ -63,11 +63,12 @@ func TestPostgresAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const bootstrapPassword = "synthetic-bootstrap-password"
 	cfg := adminauth.Config{
-		SessionTTL:      time.Hour,
-		InitialPassword: "123456",
-		ReceiptKey:      []byte(strings.Repeat("SYNTHETIC_KEY_", 4)),
-		Command:         command.Config{Timeout: 20 * time.Second, LockTimeout: 5 * time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
+		SessionTTL:     time.Hour,
+		CreatePassword: "synthetic-new-admin-password",
+		ReceiptKey:     []byte(strings.Repeat("SYNTHETIC_KEY_", 4)),
+		Command:        command.Config{Timeout: 20 * time.Second, LockTimeout: 5 * time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
 	}
 	// 共用应用池依然拒绝超级用户及通过SET ROLE掩盖真实身份。
 	for _, value := range []string{dsn, dsn + " options='-c role=liyuanci_admin_maintenance'"} {
@@ -85,11 +86,11 @@ func TestPostgresAdmin(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	root, err := service.Bootstrap(ctx, "synthetic-root")
+	root, err := service.Bootstrap(ctx, "synthetic-root", bootstrapPassword)
 	if err != nil || len(root.Roles) != 1 || root.Roles[0] != "super_admin" {
 		t.Fatal("离线初始化失败", err)
 	}
-	if _, err = service.Bootstrap(ctx, "other-root"); err != adminauth.ErrConflict {
+	if _, err = service.Bootstrap(ctx, "other-root", bootstrapPassword); err != adminauth.ErrConflict {
 		t.Fatal("重复初始化不能接管或重置", err)
 	}
 	if _, err = service.Login(ctx, "synthetic-root", "WRONG_SYNTHETIC", "source-root", "login_failure"); err != adminauth.ErrUnauthenticated {
@@ -98,7 +99,7 @@ func TestPostgresAdmin(t *testing.T) {
 	if _, err = service.Login(ctx, "missing-synthetic", "WRONG_SYNTHETIC", "source-root", "login_unknown"); err != adminauth.ErrUnauthenticated {
 		t.Fatal("未知账号不能枚举", err)
 	}
-	session, err := service.Login(ctx, "synthetic-root", "123456", "source-root", "login_success")
+	session, err := service.Login(ctx, "synthetic-root", bootstrapPassword, "source-root", "login_success")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestPostgresAdmin(t *testing.T) {
 	if got := request("POST", "/api/v1/admin/accounts", session.Token, "duplicate-name", body).Code; got != 409 {
 		t.Fatal("重复名称应409", got)
 	}
-	operator, err := service.Login(ctx, "synthetic-review", "123456", "source-review", "login_review")
+	operator, err := service.Login(ctx, "synthetic-review", "synthetic-new-admin-password", "source-review", "login_review")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +268,7 @@ func TestPostgresAdmin(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		logged, e := service.Login(ctx, "roles-super", "123456", "roles-source", "roles_login")
+		logged, e := service.Login(ctx, "roles-super", "synthetic-new-admin-password", "roles-source", "roles_login")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -346,7 +347,7 @@ func TestPostgresAdmin(t *testing.T) {
 		Error == nil {
 		t.Fatal("后台组不能建立学生会话")
 	}
-	second, err := service.Login(ctx, "synthetic-review", "123456", "source-review", "login_second")
+	second, err := service.Login(ctx, "synthetic-review", "synthetic-new-admin-password", "source-review", "login_second")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,13 +369,13 @@ func TestPostgresAdmin(t *testing.T) {
 		operator.Token,
 		"rollback",
 		"rollback",
-		adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ABORT"},
+		adminauth.PasswordInput{CurrentPassword: "synthetic-new-admin-password", NewPassword: "SYNTHETIC_ABORT"},
 	); e != adminauth.ErrUnavailable {
 		t.Fatal("留迹失败应回滚", e)
 	}
 	exec("DROP TRIGGER reject_password_audit ON public.admin_account_actions")
 	exec("DROP FUNCTION public.reject_admin_audit()")
-	if _, e := service.Login(ctx, "synthetic-review", "123456", "source-review", "after_rollback"); e != nil {
+	if _, e := service.Login(ctx, "synthetic-review", "synthetic-new-admin-password", "source-review", "after_rollback"); e != nil {
 		t.Fatal("回滚不能改变口令", e)
 	}
 	good := request(
@@ -382,7 +383,7 @@ func TestPostgresAdmin(t *testing.T) {
 		"/api/v1/admin/password",
 		operator.Token,
 		"change-password",
-		`{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`,
+		`{"current_password":"synthetic-new-admin-password","new_password":"SYNTHETIC_NEW"}`,
 	)
 	if good.Code != 204 || good.Body.Len() != 0 {
 		t.Fatal("改密必须204空体", good.Code, good.Body.String())
@@ -393,12 +394,12 @@ func TestPostgresAdmin(t *testing.T) {
 			"/api/v1/admin/password",
 			token,
 			"old-session",
-			`{"current_password":"123456","new_password":"SYNTHETIC_NEW"}`,
+			`{"current_password":"synthetic-new-admin-password","new_password":"SYNTHETIC_NEW"}`,
 		).Code; got != 401 {
 			t.Fatal("所有旧会话必须撤销", got)
 		}
 	}
-	if _, e := service.Login(ctx, "synthetic-review", "123456", "source-review", "old_password"); e != adminauth.ErrUnauthenticated {
+	if _, e := service.Login(ctx, "synthetic-review", "synthetic-new-admin-password", "source-review", "old_password"); e != adminauth.ErrUnauthenticated {
 		t.Fatal("旧口令不可再登录", e)
 	}
 	updated, e := service.Login(ctx, "synthetic-review", "SYNTHETIC_NEW", "source-review", "new_password")
@@ -444,7 +445,7 @@ func TestPostgresAdmin(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	roleless, e := service.Login(ctx, "no-role", "123456", "source-empty", "roleless_login")
+	roleless, e := service.Login(ctx, "no-role", "synthetic-new-admin-password", "source-empty", "roleless_login")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -453,7 +454,7 @@ func TestPostgresAdmin(t *testing.T) {
 		roleless.Token,
 		"roleless_change",
 		"roleless_change",
-		adminauth.PasswordInput{CurrentPassword: "123456", NewPassword: "SYNTHETIC_ROLELESS"},
+		adminauth.PasswordInput{CurrentPassword: "synthetic-new-admin-password", NewPassword: "SYNTHETIC_ROLELESS"},
 	); e != nil {
 		t.Fatal("无角色仍可改本人密码", e)
 	}
@@ -548,7 +549,7 @@ func TestPostgresAdmin(t *testing.T) {
 		t.Fatal("非空本地账号必须拒绝回退")
 	}
 	_ = client.Close()
-	if _, e = service.Login(ctx, "synthetic-root", "123456", "source-root", "redis_failure"); !errors.Is(e, adminauth.ErrUnavailable) {
+	if _, e = service.Login(ctx, "synthetic-root", bootstrapPassword, "source-root", "redis_failure"); !errors.Is(e, adminauth.ErrUnavailable) {
 		t.Fatal("Redis故障不得放行", e)
 	}
 	t.Log("真实后台账号/角色/会话/口令/幂等/窄权限/回滚/Redis及HTTP通过；TTL仅合成测试配置，不代表生产选择")

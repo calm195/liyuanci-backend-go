@@ -13,10 +13,11 @@ import (
 // TestSettingsRejectKeyReuse 验证单主密钥装配后领域仍拒绝错误注入共钥，文件拒绝半套微信凭据。
 func TestSettingsRejectKeyReuse(t *testing.T) {
 	cfg := DevelopmentSettings{
-		DatabaseDSN:     "shared",
-		AdminPassword:   "long-enough-password",
-		ObjectDirectory: t.TempDir(),
-		JournalFile:     "/tmp/unit-journal.json",
+		DatabaseDSN:         "shared",
+		AdminPassword:       "long-enough-password",
+		AdminCreatePassword: "synthetic-new-admin-secret",
+		ObjectDirectory:     t.TempDir(),
+		JournalFile:         "/tmp/unit-journal.json",
 	}
 	path := filepath.Join(t.TempDir(), "business.yaml")
 	save := func() {
@@ -31,10 +32,11 @@ func TestSettingsRejectKeyReuse(t *testing.T) {
 				"password": "synthetic",
 			},
 			"business": map[string]any{
-				"adminpassword": cfg.AdminPassword,
-				"wechatappid":   cfg.WeChatAppID,
-				"wechatsecret":  cfg.WeChatSecret,
-				"runtime":       map[string]any{"journalfile": cfg.JournalFile, "objectdirectory": cfg.ObjectDirectory},
+				"adminpassword":       cfg.AdminPassword,
+				"admincreatepassword": cfg.AdminCreatePassword,
+				"wechatappid":         cfg.WeChatAppID,
+				"wechatsecret":        cfg.WeChatSecret,
+				"runtime":             map[string]any{"journalfile": cfg.JournalFile, "objectdirectory": cfg.ObjectDirectory},
 			},
 		})
 		if err := os.WriteFile(path, data, 0600); err != nil {

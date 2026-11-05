@@ -34,6 +34,15 @@ Go进程通过 `config.Load` 一次读取统一配置快照，装配时只投影
 
 开发与生产共用 `business` / `business.runtime` 字段，已删除独立 `development:` 配置块和 `internal/config/development.go`。旧文件须将后台口令、微信凭据移至 `business`，账本、对象目录移至 `business.runtime`，关怀资料统一放入 `resourcesfile` 指向的版本化资源文件；旧块即使为空也会被拒绝。`mode: development` 仍选择开发适配器，其 `development/*` 密钥派生标签保持不变；配置字段归组不要求清空数据或更换主密钥。
 
+## 后台账号口令
+
+在私有环境 YAML 的 `business` 下配置两个至少 12 字符的独立单行口令：
+
+- `adminpassword` 用于首次显式初始化超级管理员，也是词库初始化脚本登录该账号时读取的口令。
+- `admincreatepassword` 用于此后通过后台账号管理创建的账号，包括在页面新建的超级管理员。
+
+升级时保留现有 `adminpassword`，添加 `admincreatepassword` 后执行 `make check-config CONFIG=配置路径`。重启 API 后，新创建的后台账号使用新字段。已有账号的密码变更通过后台改密入口完成。
+
 ## 配置项清理与层级
 
 共享运行结构使用 `config.Runtime`，公开资料结构使用 `config.Resources`；应用装配使用 `RuntimeSettings`，不再以树洞名称表示完整业务共用参数。资源文件读取位于 `internal/config/resources.go`，运行预算与校验位于 `internal/config/runtime.go`。

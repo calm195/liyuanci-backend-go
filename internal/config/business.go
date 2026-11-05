@@ -14,7 +14,8 @@ type Business struct {
 	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte `json:"-"`
 	ModerationKey                                                      []byte `json:"-"`
 	LookupKey                                                          []byte `json:"-"`
-	WeChatAppID, WeChatSecret, AdminPassword                           string
+	WeChatAppID, WeChatSecret                                          string
+	AdminPassword, AdminCreatePassword                                 string
 	SessionTTL, ExchangeTTL, AdminSessionTTL, LoginWindow              time.Duration
 	LoginLimit, MaxTextBytes                                           int
 	Card                                                               struct {
@@ -63,7 +64,7 @@ func ValidateBusiness(c Business, environment, process string) error {
 			c.LoginLimit < 1 {
 			return ErrInvalid
 		}
-		if _, e := ValidateSecret(c.AdminPassword, 12); e != nil {
+		if _, _, e := ValidateAdminPasswords(c.AdminPassword, c.AdminCreatePassword); e != nil {
 			return e
 		}
 	}
@@ -97,6 +98,22 @@ func ValidateBusiness(c Business, environment, process string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateAdminPasswords 校验首次超管口令与新建后台账号口令，按实际使用的值拒绝复用。
+func ValidateAdminPasswords(bootstrap, create string) (string, string, error) {
+	bootstrap, err := ValidateSecret(bootstrap, 12)
+	if err != nil {
+		return "", "", err
+	}
+	create, err = ValidateSecret(create, 12)
+	if err != nil {
+		return "", "", err
+	}
+	if bootstrap == create {
+		return "", "", ErrInvalid
+	}
+	return bootstrap, create, nil
 }
 
 // ValidateSecret 校验YAML内联的有界单行凭据；不读取外部文件，不生成或替换原值。

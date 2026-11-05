@@ -44,10 +44,10 @@ type Limiter interface {
 
 // Config 的所有期限由调用方显式注入，不猜测后台会话或幂等回执保留期。
 type Config struct {
-	SessionTTL      time.Duration
-	Command         command.Config
-	InitialPassword string
-	ReceiptKey      []byte
+	SessionTTL     time.Duration
+	Command        command.Config
+	CreatePassword string
+	ReceiptKey     []byte
 }
 
 // Account 是可返回的当前后台投影，不含凭据摘要。
@@ -91,7 +91,7 @@ type Service struct {
 
 // New 拒绝外部事务和缺失的显式安全参数；构造不创建账号、迁移或修改凭据。
 func New(db *gorm.DB, limiter Limiter, logger *zap.Logger, c Config) (*Service, error) {
-	if db == nil || db.Statement == nil || limiter == nil || logger == nil || c.SessionTTL <= 0 || c.InitialPassword == "" ||
+	if db == nil || db.Statement == nil || limiter == nil || logger == nil || c.SessionTTL <= 0 || c.CreatePassword == "" ||
 		len(c.ReceiptKey) < 32 {
 		return nil, ErrInvalid
 	}
@@ -99,7 +99,7 @@ func New(db *gorm.DB, limiter Limiter, logger *zap.Logger, c Config) (*Service, 
 	if err != nil {
 		return nil, err
 	}
-	dummy, err := hashPassword(c.InitialPassword)
+	dummy, err := hashPassword(c.CreatePassword)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func (s *Service) passwordSlot(ctx context.Context) (func(), error) {
 }
 
 // Bootstrap 仅用于离线显式初始化；任一后台账号已存在就拒绝，不接管历史账号或重置口令。
-func (s *Service) Bootstrap(ctx context.Context, loginName string) (out Account, err error) {
+func (s *Service) Bootstrap(ctx context.Context, loginName, password string) (out Account, err error) {
 	start := time.Now()
 	defer func() {
 		if recover() != nil {
@@ -185,7 +185,7 @@ func (s *Service) Bootstrap(ctx context.Context, loginName string) (out Account,
 		}
 		s.complete("bootstrap", "", start, err)
 	}()
-	if strings.TrimSpace(loginName) == "" {
+	if strings.TrimSpace(loginName) == "" || password == "" || password == s.config.CreatePassword {
 		return out, ErrInvalid
 	}
 	release, err := s.passwordSlot(ctx)
@@ -193,7 +193,7 @@ func (s *Service) Bootstrap(ctx context.Context, loginName string) (out Account,
 		return out, err
 	}
 	defer release()
-	hash, err := hashPassword(s.config.InitialPassword)
+	hash, err := hashPassword(password)
 	if err != nil {
 		return out, err
 	}
@@ -261,7 +261,7 @@ func (s *Service) Create(ctx context.Context, token, key, requestID string, inpu
 		return out, err
 	}
 	defer release()
-	hash, err := hashPassword(s.config.InitialPassword)
+	hash, err := hashPassword(s.config.CreatePassword)
 	if err != nil {
 		return out, err
 	}

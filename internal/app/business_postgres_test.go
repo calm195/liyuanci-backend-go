@@ -280,9 +280,41 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		"POST",
 		"/admin/sessions",
 		"",
-		map[string]any{"login_name": "release-admin", "password": "synthetic-business-secret"},
+		map[string]any{"login_name": "release-admin", "password": c.AdminCreatePassword},
+		401,
+		nil,
+	)
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]any{"login_name": "release-admin", "password": c.AdminPassword},
 		200,
 		&session,
+	)
+	request(
+		"POST",
+		"/admin/accounts",
+		session.Token,
+		map[string]any{"login_name": "release-review", "roles": []string{"review_operator"}, "reason": "隔离测试岗位"},
+		201,
+		nil,
+	)
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]any{"login_name": "release-review", "password": c.AdminPassword},
+		401,
+		nil,
+	)
+	request(
+		"POST",
+		"/admin/sessions",
+		"",
+		map[string]any{"login_name": "release-review", "password": c.AdminCreatePassword},
+		200,
+		nil,
 	)
 	request("GET", "/admin/users", session.Token, nil, 200, nil)
 	request("GET", "/wishes", "", nil, 200, nil)

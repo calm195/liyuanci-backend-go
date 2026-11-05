@@ -28,6 +28,7 @@ func testBusinessSettings(t *testing.T) config.Business {
 	}
 	c.WeChatSecret = "synthetic-wechat-secret"
 	c.AdminPassword = "synthetic-business-secret"
+	c.AdminCreatePassword = "synthetic-new-admin-secret"
 	c.Card.MaxBytes, c.Card.MaxPixels, c.Card.DecodeSlots, c.Card.Lease, c.Card.RetryDelay, c.Card.MaxAttempts = 1<<20, 4_000_000, 2, 30*time.Second, time.Second, 3
 	return c
 }
@@ -61,6 +62,8 @@ func TestBusinessConfigurationFailClosed(t *testing.T) {
 		{"对象端点必须HTTPS", func(c *config.Business) {
 			c.Runtime.Tencent = config.Tencent{Enabled: true, ObjectURL: "http://objects.invalid"}
 		}, false},
+		{"缺新建后台账号口令", func(c *config.Business) { c.AdminCreatePassword = "" }, false},
+		{"复用初始化口令", func(c *config.Business) { c.AdminCreatePassword = " " + c.AdminPassword }, false},
 		{"缺微信凭据", func(c *config.Business) { c.WeChatSecret = "" }, false},
 		{"缺身份池", func(c *config.Business) { c.Runtime.DatabaseDSN = "" }, false},
 		{"空上传预算", func(c *config.Business) { c.Card.MaxBytes = 0 }, false},

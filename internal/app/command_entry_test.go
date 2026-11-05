@@ -58,6 +58,7 @@ func developmentCommandDocument(t *testing.T) (config.Config, string) {
 	cfg.Database = databaseSettings("host=127.0.0.1 port=1 user=application password=synthetic dbname=synthetic sslmode=disable")
 	cfg.Redis.Enabled, cfg.Redis.Address = true, "127.0.0.1:1"
 	cfg.Business.AdminPassword = "synthetic-long-password"
+	cfg.Business.AdminCreatePassword = "synthetic-new-admin-secret"
 	cfg.Business.Runtime.ObjectDirectory = filepath.Join(dir, "objects")
 	cfg.Business.Runtime.JournalFile = filepath.Join(dir, "journal", "deletions.json")
 	cfg.Bootstrap.Login = "synthetic-admin"

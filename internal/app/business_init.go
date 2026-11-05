@@ -73,7 +73,7 @@ func InitializeBusiness(
 	if e != nil {
 		return e
 	}
-	password, e := config.ValidateSecret(c.AdminPassword, 12)
+	password, createPassword, e := config.ValidateAdminPasswords(c.AdminPassword, c.AdminCreatePassword)
 	if e != nil {
 		return e
 	}
@@ -82,10 +82,10 @@ func InitializeBusiness(
 		limiter,
 		log,
 		adminauth.Config{
-			SessionTTL:      c.AdminSessionTTL,
-			Command:         command.Config(c.Runtime.Command),
-			InitialPassword: password,
-			ReceiptKey:      c.AdminKey,
+			SessionTTL:     c.AdminSessionTTL,
+			Command:        command.Config(c.Runtime.Command),
+			CreatePassword: createPassword,
+			ReceiptKey:     c.AdminKey,
 		},
 	)
 	if e != nil {
@@ -96,7 +96,7 @@ func InitializeBusiness(
 		return command.ErrUnavailable
 	}
 	if count == 0 {
-		if _, e = admin.Bootstrap(ctx, login); e != nil {
+		if _, e = admin.Bootstrap(ctx, login, password); e != nil {
 			return e
 		}
 	}
