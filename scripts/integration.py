@@ -23,6 +23,7 @@ SUITES = {
     'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
     'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle',)),
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
+    'verification': ('./internal/modules/verification', ('TestPostgresVerification',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/modules/moderation', ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion')),
     'whisper_review': ('./internal/modules/whisper', ('TestPostgresWhisperModeration',)),
@@ -248,7 +249,7 @@ def run(suite='all'):
                 'whisper_privacy_binary': str(ROOT / 'bin/worker'),
             }
             values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
-                          studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
+                          verification_test_dsn=dsn, studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
             if suite in ('all', 'migration'):
                 for key, database in MIGRATION_DATABASES.items():
                     subprocess.run(

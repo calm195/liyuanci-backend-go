@@ -83,12 +83,15 @@ type Case struct {
 	AssetID       string `json:"asset_id"`
 }
 
-// Summary 不包含姓名、学号、账号或学生卡引用。
+// Summary 在显式工作区视图下附带姓名和学号，始终省略账号和学生卡引用。
 type Summary struct {
-	ID      string `json:"id"`
-	Version int64  `json:"version"`
-	Status  string `json:"status"`
-	Kind    string `json:"kind"`
+	ID            string     `json:"id"`
+	Version       int64      `json:"version"`
+	Status        string     `json:"status"`
+	Kind          string     `json:"kind"`
+	Name          string     `json:"name,omitempty"`
+	StudentNumber string     `json:"student_number,omitempty"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
 }
 
 // Page 使用随机UUID的稳定升序游标分页，限制每页材料数。

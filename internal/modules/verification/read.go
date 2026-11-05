@@ -56,14 +56,19 @@ func (s *Service) Current(ctx context.Context, token, rid string) (out Result, e
 }
 
 // List 提供无敏感字段的审核队列；游标和页大小只作用于服务器过滤后的可见案件。
-func (s *Service) List(ctx context.Context, token, rid, cursor string, limit int) (out Page, err error) {
+func (s *Service) List(ctx context.Context, token, rid, cursor string, limit int) (Page, error) {
+	return s.ListWorkspace(ctx, token, rid, cursor, limit, "")
+}
+
+// ListWorkspace 读取待审或已处理案件，仅在显式工作区视图下解密并留迹。
+func (s *Service) ListWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string) (out Page, err error) {
 	defer func() {
 		if err != nil {
 			out = Page{}
 		}
 	}()
 	defer s.done("list", rid, time.Now(), &err)
-	if limit < 1 || limit > 50 || len(cursor) > 256 {
+	if limit < 1 || limit > 50 || len(cursor) > 256 || !slices.Contains([]string{"", "pending", "history"}, view) {
 		return out, command.ErrInvalid
 	}
 	out.Items = []Summary{}
@@ -72,21 +77,34 @@ func (s *Service) List(ctx context.Context, token, rid, cursor string, limit int
 		if e != nil {
 			return e
 		}
-		after, e := s.decodeCursor(actor, cursor)
+		after, e := s.decodeCursor(actor, cursor, view)
 		if e != nil {
 			return e
 		}
-		rows, e := listReviews(db, after, limit)
+		rows, e := listReviews(db, after, limit, view)
 		if e != nil {
 			return e
 		}
 		if len(rows) > limit {
 			rows = rows[:limit]
-			next := s.encodeCursor(actor, rows[len(rows)-1].ID)
+			next := s.encodeCursor(actor, rows[len(rows)-1].ID, view)
 			out.NextCursor = &next
 		}
 		for _, r := range rows {
-			out.Items = append(out.Items, Summary{ID: r.ID, Version: r.Version, Status: r.Status, Kind: "identity_review"})
+			item := Summary{ID: r.ID, Version: r.Version, Status: r.Status, Kind: "identity_review"}
+			if view != "" {
+				m, e := s.decrypt(db.Statement.Context, r)
+				if e != nil {
+					return e
+				}
+				if e = audit(db, actor, r.AccountID, "identity_review.list."+view, "allowed"); e != nil {
+					return e
+				}
+				item.Name = m.Name
+				item.StudentNumber = m.StudentNumber
+				item.ReviewedAt = r.ReviewedAt
+			}
+			out.Items = append(out.Items, item)
 		}
 		return nil
 	})
@@ -244,18 +262,21 @@ func (s *Service) Card(ctx context.Context, token, rid, id string) (out []byte, 
 	return image.Bytes(), nil
 }
 
-// 游标签名绑定当前后台主体及固定pending队列，不能跨账号或篡改边界。
-func (s *Service) cursorMAC(actor, id string) string {
+// 游标签名绑定后台主体及列表视图，保留原脱敏队列的签名。
+func (s *Service) cursorMAC(actor, id, view string) string {
 	mac := hmac.New(sha256.New, s.cfg.ReceiptKey)
 	mac.Write([]byte("identity_review_queue\x00" + actor + "\x00" + id))
+	if view != "" {
+		mac.Write([]byte("\x00" + view))
+	}
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (s *Service) encodeCursor(actor, id string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(id + "." + s.cursorMAC(actor, id)))
+func (s *Service) encodeCursor(actor, id, view string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(id + "." + s.cursorMAC(actor, id, view)))
 }
 
-func (s *Service) decodeCursor(actor, cursor string) (string, error) {
+func (s *Service) decodeCursor(actor, cursor, view string) (string, error) {
 	if cursor == "" {
 		return "", nil
 	}
@@ -264,7 +285,7 @@ func (s *Service) decodeCursor(actor, cursor string) (string, error) {
 		return "", command.ErrInvalid
 	}
 	parts := strings.Split(string(raw), ".")
-	if len(parts) != 2 || !validID(parts[0]) || !hmac.Equal([]byte(parts[1]), []byte(s.cursorMAC(actor, parts[0]))) {
+	if len(parts) != 2 || !validID(parts[0]) || !hmac.Equal([]byte(parts[1]), []byte(s.cursorMAC(actor, parts[0], view))) {
 		return "", command.ErrInvalid
 	}
 	return parts[0], nil

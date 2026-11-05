@@ -21,7 +21,7 @@ type VerificationStudents interface {
 
 // VerificationReviews 由领域服务复核当前后台会话与审核岗位，不授予学生入口审核权限。
 type VerificationReviews interface {
-	List(context.Context, string, string, string, int) (verification.Page, error)
+	ListWorkspace(context.Context, string, string, string, int, string) (verification.Page, error)
 	Detail(context.Context, string, string, string) (verification.Case, error)
 	Card(context.Context, string, string, string) ([]byte, error)
 	Decide(context.Context, string, string, string, string, verification.Decision) (verification.Result, error)
@@ -102,7 +102,7 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 			}
 			limit = n
 		}
-		out, e := reviews.List(c.Request.Context(), token, c.GetString("request_id"), c.Query("cursor"), limit)
+		out, e := reviews.ListWorkspace(c.Request.Context(), token, c.GetString("request_id"), c.Query("cursor"), limit, c.Query("view"))
 		if e != nil {
 			adminError(c, e)
 			return

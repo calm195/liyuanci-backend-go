@@ -286,6 +286,17 @@ func TestPostgresVerification(t *testing.T) {
 	if bytes.Contains(encoded, []byte("SYNTHETIC_")) || bytes.Contains(encoded, []byte(card)) {
 		t.Fatal("列表泄露材料")
 	}
+	pending, e := admin.ListWorkspace(ctx, adminToken, "review_test", "", 1, "pending")
+	if e != nil || len(pending.Items) != 1 || pending.Items[0].Name != input.Name || pending.Items[0].StudentNumber != input.StudentNumber {
+		t.Fatal("待审核列表未返回授权的姓名与学号", e)
+	}
+	encoded, _ = json.Marshal(pending)
+	if bytes.Contains(encoded, []byte(card)) || bytes.Contains(encoded, []byte("asset_id")) {
+		t.Fatal("工作区列表暴露后台引用")
+	}
+	if _, e = admin.ListWorkspace(ctx, token, "review_test", "", 1, "history"); !errors.Is(e, command.ErrUnauthenticated) {
+		t.Fatal("学生会话读取了后台审核历史", e)
+	}
 	detail, e := admin.Detail(ctx, adminToken, "review_test", result.RequestID)
 	if e != nil || detail.Name != input.Name || detail.StudentNumber != input.StudentNumber {
 		t.Fatal("详情失败", e)
@@ -310,6 +321,16 @@ func TestPostgresVerification(t *testing.T) {
 	)
 	if e != nil || rejected.Version != 2 || rejected.Status != "rejected" {
 		t.Fatal("驳回失败", e)
+	}
+	history, e := admin.ListWorkspace(ctx, adminToken, "review_test", "", 1, "history")
+	if e != nil || len(history.Items) != 1 || history.Items[0].ID != result.RequestID ||
+		history.Items[0].Status != "rejected" || history.Items[0].ReviewedAt == nil ||
+		history.Items[0].Name != input.Name || history.Items[0].StudentNumber != input.StudentNumber {
+		t.Fatal("审核历史未返回已处理案件", e)
+	}
+	pending, e = admin.ListWorkspace(ctx, adminToken, "review_test", "", 1, "pending")
+	if e != nil || len(pending.Items) != 0 {
+		t.Fatal("已处理案件仍出现在待审核列表", e)
 	}
 	if _, e = student.Submit(ctx, token, "resubmit-missing", "review_test", input); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal("重提缺版本未拒绝", e)
@@ -556,6 +577,12 @@ func TestPostgresVerification(t *testing.T) {
 	root.Model(&entity.AccessAudit{}).Where("actor_id=?", actor).Count(&count)
 	if count < 4 {
 		t.Fatal("访问留迹缺失")
+	}
+	root.Model(&entity.AccessAudit{}).Where("actor_id=? AND purpose IN ?", actor, []string{
+		"identity_review.list.pending", "identity_review.list.history",
+	}).Count(&count)
+	if count != 2 {
+		t.Fatal("工作区身份资料访问留迹缺失", count)
 	}
 	var rows []entity.IdentityReview
 	root.Find(&rows)

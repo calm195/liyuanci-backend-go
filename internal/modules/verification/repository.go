@@ -176,11 +176,20 @@ func createName(db *gorm.DB, account string, cipher json.RawMessage) error {
 	return db.Create(&entity.IdentityName{AccountID: account, ContentVersion: 1, NameCipher: cipher}).Error
 }
 
-func listReviews(db *gorm.DB, after string, limit int) ([]entity.IdentityReview, error) {
+func listReviews(db *gorm.DB, after string, limit int, view string) ([]entity.IdentityReview, error) {
 	var rows []entity.IdentityReview
-	q := db.Model(&entity.IdentityReview{}).Select("identity_reviews.id,identity_reviews.version,identity_reviews.status").
+	fields := "identity_reviews.id,identity_reviews.version,identity_reviews.status"
+	if view != "" {
+		fields += ",identity_reviews.account_id,identity_reviews.data_cipher,identity_reviews.reviewed_at"
+	}
+	q := db.Model(&entity.IdentityReview{}).Select(fields).
 		Joins("JOIN public.accounts ON accounts.id=identity_reviews.account_id AND accounts.lifecycle='active'").
-		Where("identity_reviews.data_cipher IS NOT NULL AND identity_reviews.status=?", "pending")
+		Where("identity_reviews.data_cipher IS NOT NULL")
+	if view == "history" {
+		q = q.Where("identity_reviews.status IN ?", []string{"approved", "rejected"})
+	} else {
+		q = q.Where("identity_reviews.status=?", "pending")
+	}
 	if after != "" {
 		q = q.Where("identity_reviews.id > ?", after)
 	}

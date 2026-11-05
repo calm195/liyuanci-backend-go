@@ -14,8 +14,8 @@ func TestQueueCursor(t *testing.T) {
 	s := &Service{cfg: Config{ReceiptKey: bytes.Repeat([]byte{17}, 32)}}
 	actor := "11111111-1111-4111-8111-111111111111"
 	id := "22222222-2222-4222-8222-222222222222"
-	cursor := s.encodeCursor(actor, id)
-	if got, e := s.decodeCursor(actor, cursor); e != nil || got != id {
+	cursor := s.encodeCursor(actor, id, "")
+	if got, e := s.decodeCursor(actor, cursor, ""); e != nil || got != id {
 		t.Fatal("合法游标无法读取", e)
 	}
 	for _, item := range []struct{ actor, cursor string }{
@@ -24,12 +24,15 @@ func TestQueueCursor(t *testing.T) {
 		{actor, "invalid"},
 		{actor, strings.Repeat("x", 256)},
 	} {
-		if _, e := s.decodeCursor(item.actor, item.cursor); !errors.Is(e, command.ErrInvalid) {
+		if _, e := s.decodeCursor(item.actor, item.cursor, ""); !errors.Is(e, command.ErrInvalid) {
 			t.Fatal("非法游标未拒绝", e)
 		}
 	}
+	if _, e := s.decodeCursor(actor, cursor, "history"); !errors.Is(e, command.ErrInvalid) {
+		t.Fatalf("脱敏队列游标不能用于历史列表: %v", e)
+	}
 	other := &Service{cfg: Config{ReceiptKey: bytes.Repeat([]byte{18}, 32)}}
-	if _, e := other.decodeCursor(actor, cursor); !errors.Is(e, command.ErrInvalid) {
+	if _, e := other.decodeCursor(actor, cursor, ""); !errors.Is(e, command.ErrInvalid) {
 		t.Fatal("密钥变更后游标仍生效")
 	}
 }
