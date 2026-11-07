@@ -7,6 +7,8 @@ import (
 
 // WhisperPostVersion 映射 public.whisper_post_versions，传输层不得直接序列化实体。
 type WhisperPostVersion struct {
+	TitleCipher       json.RawMessage `gorm:"column:title_cipher;type:jsonb;comment:当前版本标题用途绑定密文，历史内容可为空" json:"-"`
+	PublicTitle       *string         `gorm:"column:public_title;type:text;comment:当前版本已审标题" json:"-"`
 	PostID            string          `gorm:"column:post_id;type:uuid;primaryKey;autoIncrement:false;not null;comment:所属帖子" json:"-"`
 	ContentVersion    int64           `gorm:"column:content_version;type:bigint;primaryKey;autoIncrement:false;not null;comment:正文版本" json:"-"`
 	ContentRegistryID string          `gorm:"column:content_registry_id;type:uuid;not null;unique;comment:精确内容注册标识，昵称来源使用本随机标识" json:"-"`

@@ -9,6 +9,12 @@ func businessModels() []any {
 
 		&entity.Account{},
 
+		&entity.AccountAvatar{},
+
+		&entity.ModuleGuide{},
+
+		&entity.ModuleGuideAcknowledgement{},
+
 		&entity.WhisperPreference{},
 
 		&entity.WhisperNicknameVersion{},

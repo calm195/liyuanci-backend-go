@@ -110,6 +110,8 @@ func guardRollback(tx *gorm.DB) error {
 		switch table {
 		case "public.interaction_block_policy":
 			predicate = "opaque_enabled OR switched_at IS NOT NULL"
+		case "public.module_guides":
+			predicate = "version <> 1 OR modules <> '[]'::jsonb OR published_version <> 0 OR published_modules <> '[]'::jsonb"
 		case "public.wordlist_heads":
 			predicate = "version <> 1 OR effective_id IS NOT NULL"
 		}

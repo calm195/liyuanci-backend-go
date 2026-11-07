@@ -7,14 +7,17 @@ import (
 
 // Account 映射 public.accounts，字段注释描述数据库持久化语义。
 type Account struct {
-	ID               string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机账号标识，同时用于统一锁序" json:"-"`
-	Lifecycle        string    `gorm:"column:lifecycle;type:text;not null;default:'active';comment:账号生命周期：active 正常，deleting 注销处理中" json:"-"`
-	Verification     string    `gorm:"column:verification;type:text;not null;default:'unverified';comment:学生资格审核状态，身份绑定本身不代表审核通过" json:"-"`
-	AuthEpoch        int64     `gorm:"column:auth_epoch;type:bigint;not null;default:1;comment:权限代次，变更后用于撤销旧会话授权" json:"-"`
-	Version          int64     `gorm:"column:version;type:bigint;not null;default:1;comment:聚合状态版本，用于命令期望版本校验" json:"-"`
-	Nickname         string    `gorm:"column:nickname;type:text;not null;comment:用户昵称，不得为空白" json:"-"`
-	HideIdentityTags bool      `gorm:"column:hide_identity_tags;type:boolean;not null;default:false;comment:是否隐藏公开身份标签" json:"-"`
-	CreatedAt        time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:账号创建时间，以带时区时间保存" json:"-"`
+	AvatarID         *string         `gorm:"column:avatar_id;type:uuid;comment:当前私有头像标识，空时可展示存量头像地址" json:"-"`
+	AvatarURL        string          `gorm:"column:avatar_url;type:text;not null;default:'';comment:用户设置的头像地址" json:"-"`
+	IdentityTags     json.RawMessage `gorm:"column:identity_tags;type:jsonb;not null;default:'{}';comment:用户自选公开标签，不是认证身份" json:"-"`
+	ID               string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机账号标识，同时用于统一锁序" json:"-"`
+	Lifecycle        string          `gorm:"column:lifecycle;type:text;not null;default:'active';comment:账号生命周期：active 正常，deleting 注销处理中" json:"-"`
+	Verification     string          `gorm:"column:verification;type:text;not null;default:'unverified';comment:学生资格审核状态，身份绑定本身不代表审核通过" json:"-"`
+	AuthEpoch        int64           `gorm:"column:auth_epoch;type:bigint;not null;default:1;comment:权限代次，变更后用于撤销旧会话授权" json:"-"`
+	Version          int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合状态版本，用于命令期望版本校验" json:"-"`
+	Nickname         string          `gorm:"column:nickname;type:text;not null;comment:用户昵称，不得为空白" json:"-"`
+	HideIdentityTags bool            `gorm:"column:hide_identity_tags;type:boolean;not null;default:false;comment:是否隐藏公开身份标签" json:"-"`
+	CreatedAt        time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:账号创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

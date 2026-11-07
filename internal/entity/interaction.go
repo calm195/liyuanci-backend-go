@@ -30,6 +30,8 @@ func (Wish) TableName() string { return "public.wishes" }
 
 // WishVersion 映射 public.wish_versions，字段注释描述数据库持久化语义。
 type WishVersion struct {
+	PublicTitle            *string         `gorm:"column:public_title;type:text;comment:当前版本已审标题" json:"-"`
+	PublicRewardText       *string         `gorm:"column:public_reward_text;type:text;comment:当前版本已审自定义报答" json:"-"`
 	ReviewTaskID           *string         `gorm:"column:review_task_id;type:uuid;comment:当前显式送审任务引用，旧任务不能覆盖本版本的新审核轮次" json:"-"`
 	WishID                 string          `gorm:"column:wish_id;type:uuid;primaryKey;autoIncrement:false;comment:所属心愿" json:"-"`
 	ContentVersion         int64           `gorm:"column:content_version;type:bigint;primaryKey;autoIncrement:false;comment:内容版本" json:"-"`
