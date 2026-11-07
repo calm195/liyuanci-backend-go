@@ -164,16 +164,9 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 		return out, e
 	}
 	identity.IsAuthor = a.comment.AuthorID == parent.post.OwnerID
-	if identity.Mode == "semi" && (a.author.HideIdentityTags || !tagsValid(identity.Tags, c.Grades)) {
-		identity.Mode, identity.Tags = "anonymous", nil
-	}
-	if identity.Mode != "named" {
-		identity.Label = alias.Label
-	} else if !validText(identity.Label, 2, 20) {
-		return out, command.ErrNotFound
-	}
-	if identity.Mode != "semi" {
-		identity.Tags = nil
+	identity, e = projectIdentity(identity, a.author.HideIdentityTags, c.Grades)
+	if e != nil {
+		return out, e
 	}
 	out = PublicComment{
 		ID:                   id,

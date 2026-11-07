@@ -212,6 +212,8 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 					"review_task_id":           taskID,
 					"moderation_status":        "pending",
 					"public_body":              nil,
+					"public_title":             nil,
+					"public_reward_text":       nil,
 					"identity_tags":            json.RawMessage(`{}`),
 					"school_related":           nil,
 					"school_detection_state":   "pending",
@@ -238,9 +240,11 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 			if transition.Delete {
 				// 不删除审计/申请外键指向的技术对象；清除各版本内容并以不可复活标记屏蔽所有入口。
 				if e = tx.DB().WithContext(ctx).Model(&entity.WishVersion{}).Where("wish_id=?", id).Updates(map[string]any{
-					"body_cipher":   json.RawMessage(`{}`),
-					"public_body":   nil,
-					"identity_tags": json.RawMessage(`{}`),
+					"body_cipher":        json.RawMessage(`{}`),
+					"public_body":        nil,
+					"public_title":       nil,
+					"public_reward_text": nil,
+					"identity_tags":      json.RawMessage(`{}`),
 				}).Error; e != nil {
 					return "", e
 				}

@@ -89,6 +89,7 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 		Category:       a.row.Category,
 		Campus:         a.row.Campus,
 		RewardMethod:   a.content.RewardMethod,
+		Title:          publicTitle(a.content), RewardText: publicReward(a.content),
 	}
 	if out.SchoolRelated {
 		out.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
@@ -204,6 +205,7 @@ type ShareLink struct {
 type ShareTarget struct {
 	TargetKind string        `json:"target_kind"`
 	Target     PublicContent `json:"target"`
+	GradeLabel string        `json:"grade_label,omitempty"`
 }
 
 func (s *Service) shareTarget(ctx context.Context, db *gorm.DB, kind, id, rid string, now time.Time) (out PublicContent, err error) {
@@ -289,7 +291,31 @@ func (s *Service) ResolveShare(ctx context.Context, token, rid, ref string) (out
 		if e != nil {
 			return e
 		}
-		out = ShareTarget{row.TargetKind, target}
+		out = ShareTarget{TargetKind: row.TargetKind, Target: target}
+		// 资料年级单独用于卡片，并沿用账户当前隐藏标签的选择。
+		labels, ok := s.policy.grades.(interface {
+			Label(context.Context, string) string
+		})
+		if !ok {
+			return nil
+		}
+		var author entity.Account
+		if e = db.Select("hide_identity_tags", "identity_tags").Where("id=?", target.Author.ID).Take(&author).Error; e != nil {
+			return e
+		}
+		if author.HideIdentityTags {
+			return nil
+		}
+		var tags IdentityTags
+		if e = json.Unmarshal(author.IdentityTags, &tags); e != nil {
+			return e
+		}
+		if tags.Grade == nil {
+			tags.Grade = target.Author.IdentityTags.Grade
+		}
+		if tags.Grade != nil {
+			out.GradeLabel = labels.Label(ctx, *tags.Grade)
+		}
 		return nil
 	})
 	return

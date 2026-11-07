@@ -278,13 +278,21 @@ func whisperText(value string, min, max int) bool {
 func decodeWhisperPost(data []byte, action string) (out whisper.PostInput, err error) {
 	keys := []string{"expected_version"}
 	if action == "create" {
-		keys = []string{"body", "identity"}
+		keys = []string{"body", "identity", "title"}
 	} else if action == "update" {
-		keys = append(keys, "body", "identity")
+		keys = append(keys, "body", "identity", "title")
 	}
-	fields, e := whisperObject(data, keys)
+	fields, e := wishObject(data, keys)
 	if e != nil {
 		return out, e
+	}
+	if !strictWhisperUnicode(data) {
+		return out, command.ErrInvalid
+	}
+	if raw, ok := fields["title"]; ok {
+		if json.Unmarshal(raw, &out.Title) != nil || !whisperText(out.Title, 1, 40) {
+			return out, command.ErrInvalid
+		}
 	}
 	if action != "create" {
 		if json.Unmarshal(fields["expected_version"], &out.ExpectedVersion) != nil || out.ExpectedVersion < 1 {

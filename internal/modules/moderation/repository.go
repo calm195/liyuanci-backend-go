@@ -251,7 +251,7 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 	return epoch == row.task.HoldEpoch, nil
 }
 
-func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte) error {
+func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte, extra ...reviewProjection) error {
 	if row.story != nil {
 		if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
 			return e
@@ -336,8 +336,16 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 		}
 		return nil
 	}
+	var title, reward *string
+	if decision == "approved" && len(extra) > 0 {
+		if extra[0].Title == "" {
+			extra[0].Title = "未命名心愿"
+		}
+		title = &extra[0].Title
+		reward = &extra[0].RewardText
+	}
 	if e := db.Model(&entity.WishVersion{}).Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).
-		Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags)}).
+		Updates(map[string]any{"moderation_status": decision, "public_body": body, "identity_tags": json.RawMessage(tags), "public_title": title, "public_reward_text": reward}).
 		Error; e != nil {
 		return e
 	}

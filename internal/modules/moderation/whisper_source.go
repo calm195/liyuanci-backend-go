@@ -165,3 +165,18 @@ func whisperPlain(ctx context.Context, codec *securedata.Codec, purpose, id stri
 	defer clear(b)
 	return json.Unmarshal(b, out)
 }
+
+// whisperTitle 读取与精确正文版本绑定的标题，历史版本使用安全默认名称。
+func whisperTitle(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource) (string, error) {
+	var v entity.WhisperPostVersion
+	if e := db.WithContext(ctx).Select("title_cipher").Where("post_id=? AND content_version=?", r.ID, r.ContentVersion).Take(&v).Error; e != nil {
+		return "", e
+	}
+	title := "未命名悄悄话"
+	if len(v.TitleCipher) > 0 {
+		if e := whisperPlain(ctx, codec, "whisper_post_title", r.ID, r.ContentVersion, v.TitleCipher, &title); e != nil {
+			return "", e
+		}
+	}
+	return title, nil
+}

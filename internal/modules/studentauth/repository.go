@@ -3,6 +3,7 @@ package studentauth
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -135,7 +136,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me, error) {
 	var rows []Me
 	if e := db.WithContext(ctx).Model(&entity.Account{}).
-		Select("id,version,nickname,verification,hide_identity_tags").
+		Select("id,version,nickname,verification,hide_identity_tags,avatar_id,avatar_url,identity_tags").
 		Where("id=? AND lifecycle='active'", id).
 		Find(&rows).
 		Error; e != nil {
@@ -168,11 +169,35 @@ func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me,
 
 // replaceProfile 显式更新零值字段，避免结构体 Updates 忽略 false；版本递增仍在数据库内完成。
 func replaceProfile(ctx context.Context, db *gorm.DB, id string, input ProfileInput) error {
-	return db.WithContext(ctx).Model(&entity.Account{}).Where("id = ?", id).Updates(map[string]any{
+	updates := map[string]any{
 		"nickname":           input.Nickname,
 		"hide_identity_tags": *input.HideIdentityTags,
 		"version":            gorm.Expr("version + 1"),
-	}).Error
+	}
+	if input.AvatarURL != nil {
+		updates["avatar_url"] = gorm.Expr("CASE WHEN avatar_id IS NULL THEN ? ELSE avatar_url END", *input.AvatarURL)
+	}
+	if input.IdentityTags != nil {
+		tags := *input.IdentityTags
+		grade := tags.Grade
+		if grade != nil && *grade == "" {
+			tags.Grade = nil
+		}
+		raw, e := json.Marshal(tags)
+		if e != nil {
+			return e
+		}
+		if grade == nil {
+			// 旧客户端整组提交校区与性别时保留已保存的年级。
+			updates["identity_tags"] = gorm.Expr(
+				"CAST(? AS jsonb) || jsonb_strip_nulls(jsonb_build_object('grade', identity_tags->'grade'))",
+				string(raw),
+			)
+		} else {
+			updates["identity_tags"] = json.RawMessage(raw)
+		}
+	}
+	return db.WithContext(ctx).Model(&entity.Account{}).Where("id=?", id).Updates(updates).Error
 }
 
 func revoke(ctx context.Context, db *gorm.DB, hash []byte, now time.Time) error {

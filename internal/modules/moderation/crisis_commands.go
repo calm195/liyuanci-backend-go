@@ -396,6 +396,8 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	case "wish":
 		updates["moderation_status"] = "human_required"
 		updates["public_body"] = nil
+		updates["public_title"] = nil
+		updates["public_reward_text"] = nil
 		if e = db.Model(&entity.WishVersion{}).Where(
 			"wish_id=? AND content_version=?",
 			row.wish.ID,

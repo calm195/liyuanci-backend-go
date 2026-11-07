@@ -11,6 +11,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 )
 
@@ -107,6 +108,14 @@ func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, 
 		return e
 	}
 	pcfg := r.privacyConfig()
+	if scope == "account" && cfg.Tencent.Enabled {
+		objects, failure := openObjectGateway(cfg, studentauth.AvatarMaxBytes, log)
+		if failure != nil {
+			return failure
+		}
+		defer objects.Close()
+		pcfg.AvatarObjects = objects
+	}
 	if scope == "evidence" {
 		pcfg.Key = cfg.EvidenceKey
 	}

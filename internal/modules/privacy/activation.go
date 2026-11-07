@@ -177,7 +177,7 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 		}
 		// 所有历史公开候选与身份标签立即失效；原稿只有本人隐私重审路径能处理。
 		if e := db.Model(&entity.WishVersion{}).Where("wish_id=?", w.ID).
-			Updates(map[string]any{"public_body": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).
+			Updates(map[string]any{"public_body": nil, "public_title": nil, "public_reward_text": nil, "identity_tags": emptyJSON(), "moderation_status": "obsolete"}).
 			Error; e != nil {
 			return e
 		}

@@ -36,6 +36,14 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine
 			return nil, e
 		}
 	}
+	if e = httpapi.RegisterModuleGuide(router, s.guide); e != nil {
+		return nil, e
+	}
+	if s.avatars {
+		if e = httpapi.RegisterAvatar(router, s.auth); e != nil {
+			return nil, e
+		}
+	}
 	if e = httpapi.RegisterStudent(router, s.auth); e != nil {
 		return nil, e
 	}

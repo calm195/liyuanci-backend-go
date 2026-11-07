@@ -34,6 +34,7 @@ type WhisperReviewSummary struct {
 // WhisperReviewDetail 仅在精确当前普通命中案件并提交审计后返回。
 type WhisperReviewDetail struct {
 	WhisperReviewSummary
+	Title          string `json:"title,omitempty"`
 	Body           string `json:"body"`
 	SchoolRelated  bool   `json:"school_related"`
 	PrivacyRecheck bool   `json:"privacy_recheck"`
@@ -210,7 +211,23 @@ func (s *Service) WhisperReview(ctx context.Context, token, rid, id string) (out
 		if e != nil {
 			return e
 		}
-		out = WhisperReviewDetail{whisperSummary(r), body, scan.SchoolRelated, r.task.PrivacyRecheck}
+		title := ""
+		if r.registry.Kind == "whisper_post" {
+			hash := sha256.Sum256([]byte(token))
+			var raw []struct{ Title json.RawMessage }
+			e = db.Raw("SELECT title FROM public.read_whisper_review_title(decode(?,'hex'),?)", hex.EncodeToString(hash[:]), r.task.ID).Scan(&raw).Error
+			if e == nil && len(raw) != 1 {
+				e = command.ErrNotFound
+			}
+			title = "未命名悄悄话"
+			if e == nil && len(raw[0].Title) > 0 {
+				e = whisperPlain(ctx, s.codec, "whisper_post_title", r.ID, r.ContentVersion, raw[0].Title, &title)
+			}
+			if e != nil {
+				return e
+			}
+		}
+		out = WhisperReviewDetail{WhisperReviewSummary: whisperSummary(r), Body: body, Title: title, SchoolRelated: scan.SchoolRelated, PrivacyRecheck: r.task.PrivacyRecheck}
 		if r.task.Status == "human_required" {
 			out.AllowedActions = []string{"whisperAdminReviewDecide"}
 			var n int64

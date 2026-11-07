@@ -21,12 +21,14 @@ SUITES = {
          'TestPostgresDevelopmentCommands', 'TestPostgresDevelopmentRecoveryGate')
     ),
     'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
+    'moduleguide': ('./internal/modules/moduleguide', ('TestPostgresGuide',)),
     'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle',)),
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'verification': ('./internal/modules/verification', ('TestPostgresVerification',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'moderation': ('./internal/modules/moderation', ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion')),
     'whisper_review': ('./internal/modules/whisper', ('TestPostgresWhisperModeration',)),
+    'studentauth': ('./internal/modules/studentauth', ('TestPostgresStudent',)),
     'migration': (
         './internal/migration',
         (
@@ -41,6 +43,7 @@ SUITES = {
 }
 # 原地上下行/升级测试需要各自空库；只在本轮临时集群创建这些固定名称的数据库。
 MIGRATION_DATABASES = {
+    'studentauth_test_dsn': 'studentauth_test',
     'migration_test_dsn': 'migration_test',
     'schema_test_dsn': 'schema_test',
     'recovery_test_dsn': 'recovery_test',
@@ -239,6 +242,7 @@ def run(suite='all'):
             # 测试配置只引用本轮实例与已构建二进制，不接入已有业务或生产数据库。
             values = {
                 'whisper_text_test_dsn': dsn,
+                'studentauth_test_redis': f'127.0.0.1:{redisport}',
                 'whisper_redis_test_address': f'127.0.0.1:{redisport}',
                 'business_runtime_redis_address': f'127.0.0.1:{authport}',
                 'business_runtime_redis_password': redispassword,
@@ -250,7 +254,7 @@ def run(suite='all'):
             }
             values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           verification_test_dsn=dsn, studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
-            if suite in ('all', 'migration'):
+            if suite in ('all', 'migration', 'studentauth'):
                 for key, database in MIGRATION_DATABASES.items():
                     subprocess.run(
                         [

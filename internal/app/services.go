@@ -11,6 +11,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
@@ -83,6 +84,8 @@ type ServiceConfig struct {
 // serviceSet 只持有已构造的领域服务，不拥有连接池、供应商或调度协程。
 // 字段显式列出，各职责构造器在全部成功后才交给HTTP注册边界。
 type serviceSet struct {
+	guide                             *moduleguide.Service
+	avatars                           bool
 	auth                              *studentauth.Service
 	cards                             *studentcard.Service
 	students, reviews                 *verification.Service

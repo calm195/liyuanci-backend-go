@@ -56,7 +56,7 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			"body",
 			"campus",
 			"identity_tags",
-			"reward_method",
+			"reward_method", "title", "reward_text",
 			"duration_days",
 			"refresh_expiry",
 			"expected_version",

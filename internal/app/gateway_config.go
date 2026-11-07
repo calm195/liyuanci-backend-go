@@ -8,6 +8,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 )
 
@@ -52,6 +53,7 @@ func objectStore(g objectGateway) Objects {
 // objectGateway 让装配层统一拥有对象客户端的生命周期。
 type objectGateway interface {
 	Objects
+	privacy.AvatarObjects
 	Close()
 }
 

@@ -258,14 +258,18 @@ func TestModerationCore(t *testing.T) {
 		must(e)
 		return out
 	}
-	submit := func(body string) (wish.CreatedDraft, durable.Event) {
+	submit := func(body string, additions ...wish.ContentInput) (wish.CreatedDraft, durable.Event) {
+		input := wish.ContentInput{Category: "help", Campus: "wushan", Body: body}
+		if len(additions) > 0 {
+			input = additions[0]
+		}
 		t.Helper()
 		draft, e := wishes.Create(
 			ctx,
 			studentToken,
 			uuid.NewString(),
 			"wish-create",
-			wish.ContentInput{Category: "help", Campus: "wushan", Body: body},
+			input,
 		)
 		must(e)
 		draft, e = wishes.Submit(
@@ -448,6 +452,31 @@ func TestModerationCore(t *testing.T) {
 		must(e)
 		if old.Status != "archived" || len(old.DisabledEntries) != 1 || old.DisabledEntries[0] != "新增标记" {
 			t.Fatal("重新启用改变了历史快照")
+		}
+	})
+	t.Run("标题及自定义报答独立审核发布", func(t *testing.T) {
+		method := "custom"
+		input := wish.ContentInput{Category: "help", Campus: "wushan", Body: "正常正文", Title: "普通命中 合成个人姓名标题", RewardMethod: &method, RewardText: "普通命中 合成个人姓名报答"}
+		draft, event := submit(input.Body, input)
+		_, e := worker.Consume(ctx, event)
+		must(e)
+		if state(draft.ID).State != "pending_review" {
+			t.Fatal("标题和报答绕过审核")
+		}
+		detail, e := service.Case(ctx, adminToken, "", event.AggregateID)
+		must(e)
+		if detail.Title != input.Title || detail.RewardText != input.RewardText {
+			t.Fatal("人工审核缺少原始标题或报答", detail)
+		}
+		_, e = service.Decide(ctx, adminToken, uuid.NewString(), "", detail.ID, moderation.Decision{Decision: "approved", ExpectedVersion: detail.Version})
+		must(e)
+		row := state(draft.ID)
+		_, e = wishes.Publish(ctx, studentToken, uuid.NewString(), "", row.ID, row.Version)
+		must(e)
+		public, e := wishes.Detail(ctx, "", "", row.ID)
+		must(e)
+		if public.Public == nil || public.Public.Title != "普通命中 [已脱敏]标题" || public.Public.RewardText != "普通命中 [已脱敏]报答" {
+			t.Fatal("公开内容未使用已审投影", public)
 		}
 	})
 	t.Run("未命中保留原文并只进入待上架", func(t *testing.T) {

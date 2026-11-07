@@ -169,12 +169,20 @@ func (s *Service) capsule(ctx context.Context, db *gorm.DB, now time.Time, id, o
 			}
 		}
 	}
-	if detail && state == "unlocked" {
+	if state == "unlocked" {
 		var body string
 		if e = s.decrypt(ctx, "whisper_capsule_body", id, 1, c.BodyCipher, &body); e != nil {
 			return Capsule{}, e
 		}
-		out.Body = &body
+		runes := []rune(body)
+		if len(runes) > 3 {
+			runes = runes[:3]
+		}
+		preview := string(runes)
+		out.Preview = &preview
+		if detail {
+			out.Body = &body
+		}
 	}
 	return out, nil
 }

@@ -139,6 +139,9 @@ func TestPostgresStudent(t *testing.T) {
 	}
 	exchanger := &exchange{}
 	cfg := studentauth.Config{
+		ProfileGrades: func(context.Context) []studentauth.GradeOption {
+			return []studentauth.GradeOption{{Code: "undergraduate_3", Label: "大三"}}
+		},
 		SessionTTL:  time.Hour,
 		ExchangeTTL: time.Minute,
 		SessionKey:  bytes.Repeat([]byte{98}, 32),
@@ -319,9 +322,29 @@ func TestPostgresStudent(t *testing.T) {
 		"/api/v1/me/profile",
 		first.Token,
 		"http-profile",
-		`{"nickname":"新昵称","hide_identity_tags":false,"expected_version":2}`,
+		`{"nickname":"新昵称","hide_identity_tags":false,"expected_version":2,"avatar_url":"https://example.com/avatar.png","identity_tags":{"campus":"wushan","gender":"undisclosed","grade":"undergraduate_3"}}`,
 	); rec.Code != 200 {
 		t.Fatal("资料HTTP失败", rec.Code)
+	}
+	profile, e := service.Current(ctx, first.Token, "profile-readback")
+	if e != nil || profile.AvatarURL != "https://example.com/avatar.png" || profile.IdentityTags.Campus != "wushan" || profile.IdentityTags.Gender != "undisclosed" {
+		t.Fatal("头像和标签未正确回读", profile, e)
+	}
+	if profile.IdentityTags.Grade == nil || *profile.IdentityTags.Grade != "undergraduate_3" || len(profile.GradeOptions) != 1 {
+		t.Fatal("年级未回读", profile)
+	}
+	for _, tc := range []struct {
+		body string
+		code int
+	}{
+		{`{"nickname":"旧客户端","hide_identity_tags":false,"expected_version":3,"identity_tags":{"campus":"wushan"}}`, 200},
+		{`{"nickname":"无效年级","hide_identity_tags":false,"expected_version":4,"identity_tags":{"campus":"wushan","grade":"invalid"}}`, 400},
+		{`{"nickname":"清除年级","hide_identity_tags":false,"expected_version":4,"identity_tags":{"campus":"wushan","grade":""}}`, 200},
+	} {
+		rec := request("PUT", "/api/v1/me/profile", first.Token, uuid.NewString(), tc.body)
+		if rec.Code != tc.code || tc.code == 200 && strings.Contains(rec.Body.String(), `"grade":"undergraduate_3"`) != strings.Contains(tc.body, "旧客户端") {
+			t.Fatal("年级兼容或清除失败", rec.Code, rec.Body.String())
+		}
 	}
 	// 身份已暂存后会话写失败，也不能留下孤立账号或返回token。
 	var beforeAccounts, afterAccounts int64
@@ -476,6 +499,18 @@ func TestPostgresStudent(t *testing.T) {
 	).Error; e == nil {
 		t.Fatal("身份组跨写后台会话")
 	}
+	t.Run("头像并发预约、故障保留与重试", func(t *testing.T) {
+		fixture := &avatarFixture{entered: make(chan struct{}), resume: make(chan struct{})}
+		avatarConfig := cfg
+		avatarConfig.AvatarObjects = fixture
+		avatarConfig.AvatarScanner = fixture
+		avatarService, err := studentauth.New(restricted, logger, exchanger, store, limiter, avatarConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		user := login("avatar-fixture")
+		testAvatarCommands(t, avatarService, fixture, user)
+	})
 	// 数据库持久内容不含明文code、OpenID或会话令牌。
 	var content string
 	if e = db.Raw("SELECT coalesce(json_agg(t)::text,'') FROM public.student_login_exchanges t").Scan(&content).Error; e != nil {

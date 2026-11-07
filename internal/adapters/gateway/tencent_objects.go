@@ -20,25 +20,27 @@ import (
 // COS开启或暂停版本控制后会忽略禁止覆盖头，因此每次写入前检查并失败关闭。
 func (t *Tencent) PutOnce(ctx context.Context, key string, data []byte) (version string, err error) {
 	defer t.complete("cos_put", time.Now(), &err)
+	return t.putOnce(ctx, key, data, "application/octet-stream", false)
+}
+
+func (t *Tencent) putOnce(ctx context.Context, key string, data []byte, mediaType string, private bool) (string, error) {
 	if !validObjectKey(key) || len(data) == 0 || int64(len(data)) > t.maxObjectBytes {
 		return "", command.ErrInvalid
 	}
-	status, _, raw, e := t.request(ctx, http.MethodGet, t.objects+"/?versioning", nil, nil, 4096)
-	defer clear(raw)
-	var state struct {
-		XMLName xml.Name `xml:"VersioningConfiguration"`
-		Status  []string
-	}
-	if e != nil || status != http.StatusOK || decodeTencentXML(raw, &state) != nil || len(state.Status) != 0 {
-		return "", command.ErrUnavailable
+	if e := t.requireUnversioned(ctx); e != nil {
+		return "", e
 	}
 	digest := sha256.Sum256(data)
-	version = "sha256:" + hex.EncodeToString(digest[:])
+	version := "sha256:" + hex.EncodeToString(digest[:])
 	md5sum := md5.Sum(data)
 	headers := http.Header{
-		"Content-Type":           {"application/octet-stream"},
+		"Content-Type":           {mediaType},
 		"Content-Md5":            {base64.StdEncoding.EncodeToString(md5sum[:])},
 		"X-Cos-Forbid-Overwrite": {"true"},
+	}
+	if private {
+		headers.Set("X-Cos-Acl", "private")
+		headers.Set("Cache-Control", "private, no-store")
 	}
 	status, responseHeaders, body, e := t.request(ctx, http.MethodPut, t.objectURL(key), data, headers, 8192)
 	clear(body)
@@ -52,6 +54,20 @@ func (t *Tencent) PutOnce(ctx context.Context, key string, data []byte) (version
 	}
 	defer reader.Close()
 	return version, nil
+}
+
+// requireUnversioned 拒绝会忽略禁止覆盖、或将删除变成隐藏旧版本的桶状态。
+func (t *Tencent) requireUnversioned(ctx context.Context) error {
+	status, _, raw, err := t.request(ctx, http.MethodGet, t.objects+"/?versioning", nil, nil, 4096)
+	defer clear(raw)
+	var state struct {
+		XMLName xml.Name `xml:"VersioningConfiguration"`
+		Status  []string
+	}
+	if err != nil || status != http.StatusOK || decodeTencentXML(raw, &state) != nil || len(state.Status) != 0 {
+		return command.ErrUnavailable
+	}
+	return nil
 }
 
 // Open 只交付与应用版本摘要完全一致的密文，桶配置或对象被外部更改时不能交付其他内容。

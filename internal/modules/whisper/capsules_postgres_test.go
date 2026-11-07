@@ -179,6 +179,9 @@ func testWhisperCapsules(
 		var page whisper.Page[whisper.Capsule]
 		must(json.Unmarshal(raw, &page))
 		for _, v := range page.Items {
+			if v.ID == c.ID && (v.Preview == nil || *v.Preview != string([]rune(input.Body)[:3])) {
+				t.Fatal("已解锁摘要错误", v)
+			}
 			if v.Body != nil {
 				t.Fatal("列表泄漏正文")
 			}

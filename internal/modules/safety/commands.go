@@ -643,6 +643,9 @@ func (s *Service) applyReport(ctx context.Context, tx *command.Tx, op, id string
 	if e != nil {
 		return "", e
 	}
+	if c.Kind == "wish" && c.AuthorID == actor {
+		return "", command.ErrForbidden
+	}
 	r := entity.Report{
 		ID:         uuid.NewString(),
 		ReporterID: actor,

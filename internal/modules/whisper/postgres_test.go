@@ -311,7 +311,7 @@ func TestPostgresWhisperText(t *testing.T) {
 		Identity: whisper.IdentityInput{
 			Mode:              "semi",
 			DictionaryVersion: &version,
-			Tags:              &whisper.Tags{Campus: "wushan", Grade: "g1", Gender: "undisclosed"},
+			Tags:              &whisper.Tags{Campus: "wushan", Grade: "g1", Gender: "male"},
 		},
 	}
 	semiDraft, e := service.CreatePost(ctx, otherToken, uuid.NewString(), "", semi)
@@ -335,8 +335,7 @@ func TestPostgresWhisperText(t *testing.T) {
 	public, e := service.GetPost(ctx, "", "", semiDraft.ID, false)
 	must(e)
 	p := public.(whisper.PublicPost)
-	alias := p.Identity.Label
-	if p.Identity.Mode != "semi" || p.NoticeText == nil || *p.NoticeText != "未经证实" {
+	if p.Identity.Mode != "semi" || p.Identity.Label != "五山合成年级男生" || p.NoticeText == nil || *p.NoticeText != "未经证实" {
 		t.Fatal("已审投影错误", p)
 	}
 	raw, _ := json.Marshal(p)
@@ -347,7 +346,7 @@ func TestPostgresWhisperText(t *testing.T) {
 	public, e = service.GetPost(ctx, "", "", semiDraft.ID, false)
 	must(e)
 	p = public.(whisper.PublicPost)
-	if p.Identity.Mode != "anonymous" || p.Identity.Tags != nil || p.Identity.Label != alias {
+	if p.Identity.Mode != "anonymous" || p.Identity.Tags != nil || p.Identity.Label != "小鲤鱼" {
 		t.Fatal("隐藏设置未即时生效")
 	}
 	must(admin.Exec("UPDATE public.accounts SET hide_identity_tags=false WHERE id=?", other).Error)

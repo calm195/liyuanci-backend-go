@@ -327,14 +327,14 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		},
 	)
 	must(e)
-	create := func(body string) whisper.OwnerPost {
+	createWithTitle := func(title, body string) whisper.OwnerPost {
 		t.Helper()
 		v, e := service.CreatePost(
 			ctx,
 			token,
 			uuid.NewString(),
 			"",
-			whisper.ContentInput{Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}},
+			whisper.ContentInput{Title: title, Body: body, Identity: whisper.IdentityInput{Mode: "anonymous"}},
 		)
 		must(e)
 		v, e = service.ChangePost(
@@ -349,6 +349,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 		must(e)
 		return v
 	}
+	create := func(body string) whisper.OwnerPost { return createWithTitle("", body) }
 	event := func(id string) durable.Event {
 		t.Helper()
 		var ev durable.Event
@@ -369,6 +370,27 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			Error)
 		return v
 	}
+	t.Run("标题独立命中进入人工审核", func(t *testing.T) {
+		v := createWithTitle("普通命中 合成人名标题", "正常正文")
+		_, e := worker.Consume(ctx, event(v.ID))
+		must(e)
+		row := task(v.ID)
+		if row.Status != "human_required" {
+			t.Fatal("标题绕过审核", row.Status)
+		}
+		detail, e := reviews.WhisperReview(ctx, adminToken, "", row.ID)
+		must(e)
+		if detail.Title != "普通命中 合成人名标题" || detail.Body != "正常正文" {
+			t.Fatal(detail)
+		}
+		_, e = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", row.ID, moderation.WhisperReviewCommand{ExpectedVersion: row.Version, ExpectedContentVersion: 1, Decision: "approved"})
+		must(e)
+		raw, e := service.GetPost(ctx, "", "", v.ID, false)
+		must(e)
+		if raw.(whisper.PublicPost).Title != "普通命中 [已脱敏]标题" {
+			t.Fatal("标题未使用已审候选", raw)
+		}
+	})
 	t.Run("自动发布及持久重放", func(t *testing.T) {
 		v := create("合成人名 的公开文字")
 		ev := event(v.ID)

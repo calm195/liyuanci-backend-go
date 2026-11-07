@@ -27,6 +27,7 @@ type IdentityInput struct {
 
 // ContentInput 保留原文空白，只限制码点与纯空白。
 type ContentInput struct {
+	Title    string        `json:"title,omitempty"`
 	Body     string        `json:"body"`
 	Identity IdentityInput `json:"identity"`
 }
@@ -53,6 +54,7 @@ type ReviewResult struct {
 
 // OwnerPost 与公开投影独立，屏障优先遮蔽原稿。
 type OwnerPost struct {
+	Title          *string        `json:"title"`
 	ID             string         `json:"id"`
 	Version        int64          `json:"version"`
 	ContentVersion int64          `json:"content_version"`
@@ -84,6 +86,7 @@ type HugState struct {
 
 // PublicPost 只返回当前已批准版本及同步安全投影。
 type PublicPost struct {
+	Title          string         `json:"title"`
 	ID             string         `json:"id"`
 	Version        int64          `json:"version"`
 	ContentVersion int64          `json:"content_version"`

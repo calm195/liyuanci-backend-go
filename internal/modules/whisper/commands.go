@@ -140,7 +140,7 @@ func (s *Service) execute(
 // CreatePost 原子写入草稿、独立随机别名和加密不可变版本，不产生审核工作。
 func (s *Service) CreatePost(ctx context.Context, token, key, rid string, input ContentInput) (out OwnerPost, err error) {
 	defer s.completed("post_create", rid, time.Now(), &err)
-	if !validText(input.Body, 1, 500) || !identityShape(input.Identity) {
+	if input.Title != "" && !validText(input.Title, 1, 40) || !validText(input.Body, 1, 500) || !identityShape(input.Identity) {
 		return out, command.ErrInvalid
 	}
 	id := uuid.NewString()
@@ -187,6 +187,13 @@ func (s *Service) CreatePost(ctx context.Context, token, key, rid string, input 
 }
 
 func (s *Service) writeVersion(ctx context.Context, tx *command.Tx, id string, version int64, input ContentInput) error {
+	if input.Title == "" {
+		input.Title = "未命名悄悄话"
+	}
+	title, e := s.encrypt(ctx, "whisper_post_title", id, version, input.Title)
+	if e != nil {
+		return e
+	}
 	body, e := s.encrypt(ctx, "whisper_post_body", id, version, input.Body)
 	if e != nil {
 		return e
@@ -207,6 +214,7 @@ func (s *Service) writeVersion(ctx context.Context, tx *command.Tx, id string, v
 			ContentVersion:    version,
 			ContentRegistryID: registryID,
 			BodyCipher:        body,
+			TitleCipher:       title,
 			IdentityMode:      input.Identity.Mode,
 			IdentityCipher:    identity,
 			NicknameVersion:   input.Identity.NicknameVersion,
@@ -223,7 +231,7 @@ func (s *Service) ChangePost(ctx context.Context, token, key, rid, id, action st
 	if !ValidID(id) || input.ExpectedVersion < 1 || !slices.Contains([]string{"update", "submit", "withdraw"}, action) {
 		return out, command.ErrInvalid
 	}
-	if action == "update" && (!validText(input.Body, 1, 500) || !identityShape(input.Identity)) {
+	if action == "update" && (input.Title != "" && !validText(input.Title, 1, 40) || !validText(input.Body, 1, 500) || !identityShape(input.Identity)) {
 		return out, command.ErrInvalid
 	}
 	path := "/api/v1/me/whispers/posts/" + id

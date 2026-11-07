@@ -10,6 +10,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -64,6 +65,14 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 	}
 	policy := local.WhisperProvider{Logger: logger}
 	pcfg := developmentPrivacyConfig(cfg)
+	if scope == "account" && cfg.Tencent.Enabled {
+		objects, failure := openObjectGateway(RuntimeSettings{Tencent: cfg.Tencent, ProviderTimeout: cfg.ProviderTimeout}, studentauth.AvatarMaxBytes, logger)
+		if failure != nil {
+			return failure
+		}
+		defer objects.Close()
+		pcfg.AvatarObjects = objects
+	}
 	pcfg.Redactor = policy
 	s, e := privacy.New(db, journal, codec, logger, pcfg)
 	if e != nil {

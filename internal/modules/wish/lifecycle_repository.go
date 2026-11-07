@@ -245,7 +245,7 @@ func invalidate(ctx context.Context, tx *command.Tx, id string, applications boo
 		return err
 	}
 	if err := db.Model(&entity.WishVersion{}).Where("wish_id=?", id).
-		Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil}).
+		Updates(map[string]any{"moderation_status": "obsolete", "public_body": nil, "public_title": nil, "public_reward_text": nil}).
 		Error; err != nil {
 		return err
 	}

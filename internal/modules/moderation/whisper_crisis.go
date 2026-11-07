@@ -34,6 +34,15 @@ func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Co
 		body = capturedBody[0]
 	} else {
 		body, _, e = whisperDecrypt(ctx, db, codec, r)
+		if e == nil && r.registry.Kind == "whisper_post" {
+			title, failure := whisperTitle(ctx, db, codec, r)
+			if failure != nil {
+				return "", failure
+			}
+			if title != "未命名悄悄话" {
+				body = title + "\n" + body
+			}
+		}
 		if e != nil {
 			return "", e
 		}
@@ -131,7 +140,7 @@ func hideWhisper(db *gorm.DB, r whisperSource, advance bool, now time.Time) erro
 		u["published_content_version"] = nil
 		u["comments_epoch"] = gorm.Expr("comments_epoch+1")
 		if e := db.Model(&entity.WhisperPostVersion{}).Where("post_id=?", r.ID).
-			Updates(map[string]any{"public_body": nil, "public_identity": nil}).
+			Updates(map[string]any{"public_body": nil, "public_title": nil, "public_identity": nil}).
 			Error; e != nil {
 			return e
 		}

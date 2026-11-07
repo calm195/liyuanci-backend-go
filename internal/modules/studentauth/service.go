@@ -8,15 +8,18 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 	identitydata "github.com/calm195/liyuanci-backend-go/internal/modules/identity"
@@ -39,6 +42,9 @@ type Limiter interface {
 
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
+	ProfileGrades func(context.Context) []GradeOption
+	AvatarObjects AvatarObjects
+	AvatarScanner AvatarScanner
 	// Safety 仅在安全治理路由全部成功装配时提示受限申诉及警告操作。
 	// DeletionRequests只在显式装配注销入口后提示受罚本人可用的隐私动作。
 	DeletionRequests bool
@@ -57,13 +63,17 @@ type Config struct {
 
 // Me 仅包含本人非敏感资料及当前可用操作，不回显完整身份字段。
 type Me struct {
-	ID               string   `json:"id"`
-	Version          int64    `json:"version"`
-	Nickname         string   `json:"nickname,omitempty"`
-	Verification     string   `json:"verification"`
-	HideIdentityTags bool     `json:"hide_identity_tags"`
-	AllowedActions   []string `json:"allowed_actions" gorm:"-"`
-	PenaltyNotice    string   `json:"penalty_notice,omitempty" gorm:"-"`
+	AvatarID         *string       `json:"avatar_id,omitempty"`
+	AvatarURL        string        `json:"avatar_url"`
+	GradeOptions     []GradeOption `json:"grade_options,omitempty" gorm:"-"`
+	IdentityTags     ProfileTags   `json:"identity_tags" gorm:"serializer:json"`
+	ID               string        `json:"id"`
+	Version          int64         `json:"version"`
+	Nickname         string        `json:"nickname,omitempty"`
+	Verification     string        `json:"verification"`
+	HideIdentityTags bool          `json:"hide_identity_tags"`
+	AllowedActions   []string      `json:"allowed_actions" gorm:"-"`
+	PenaltyNotice    string        `json:"penalty_notice,omitempty" gorm:"-"`
 }
 
 // Session 只在会话事务提交后返回；数据库只保存摘要及独立随机派生材料。
@@ -72,22 +82,38 @@ type Session struct {
 	Me    Me     `json:"me"`
 }
 
-// ProfileInput 不允许修改学号、认证状态或角色。
+// GradeOption 是当前可选年级及其展示文字。
+type GradeOption struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+}
+
+// ProfileTags 只保存用户自选公开标签，不修改认证资料。
+type ProfileTags struct {
+	Campus string  `json:"campus,omitempty"`
+	Grade  *string `json:"grade,omitempty"`
+	Gender string  `json:"gender,omitempty"`
+}
+
+// ProfileInput 不允许修改学号、认证状态或角色，省略新增字段保留原值。
 type ProfileInput struct {
-	Nickname         string `json:"nickname"`
-	HideIdentityTags *bool  `json:"hide_identity_tags"`
-	ExpectedVersion  int64  `json:"expected_version"`
+	AvatarURL        *string      `json:"avatar_url,omitempty"`
+	IdentityTags     *ProfileTags `json:"identity_tags,omitempty"`
+	Nickname         string       `json:"nickname"`
+	HideIdentityTags *bool        `json:"hide_identity_tags"`
+	ExpectedVersion  int64        `json:"expected_version"`
 }
 
 // Service 不拥有连接池或适配器；外层先停止HTTP请求，再关闭注入资源。
 type Service struct {
-	db       *gorm.DB
-	engine   *command.Engine
-	logger   *zap.Logger
-	exchange Exchanger
-	identity Resolver
-	limiter  Limiter
-	config   Config
+	avatarSlots chan struct{}
+	db          *gorm.DB
+	engine      *command.Engine
+	logger      *zap.Logger
+	exchange    Exchanger
+	identity    Resolver
+	limiter     Limiter
+	config      Config
 }
 
 // New 仅构造显式服务，不初始化检索密钥、执行迁移或创建默认账号。
@@ -104,13 +130,14 @@ func New(db *gorm.DB, logger *zap.Logger, exchange Exchanger, identity Resolver,
 	}
 	cfg.SessionKey = slices.Clone(cfg.SessionKey)
 	return &Service{
-		db:       db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
-		engine:   engine,
-		logger:   logger,
-		exchange: exchange,
-		identity: identity,
-		limiter:  limiter,
-		config:   cfg,
+		avatarSlots: make(chan struct{}, 2),
+		db:          db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		engine:      engine,
+		logger:      logger,
+		exchange:    exchange,
+		identity:    identity,
+		limiter:     limiter,
+		config:      cfg,
 	}, nil
 }
 
@@ -348,6 +375,18 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 	if !validKey(key) || strings.TrimSpace(input.Nickname) == "" || input.HideIdentityTags == nil || input.ExpectedVersion < 1 {
 		return out, command.ErrInvalid
 	}
+	if input.AvatarURL != nil {
+		u, e := url.Parse(*input.AvatarURL)
+		if *input.AvatarURL != "" && (e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || len(*input.AvatarURL) > 2048) {
+			return out, command.ErrInvalid
+		}
+	}
+	if !utf8.ValidString(input.Nickname) || utf8.RuneCountInString(input.Nickname) > 40 {
+		return out, command.ErrInvalid
+	}
+	if input.IdentityTags != nil && (!slices.Contains([]string{"", "wushan", "university_town", "international", "any"}, input.IdentityTags.Campus) || !slices.Contains([]string{"", "male", "female", "undisclosed"}, input.IdentityTags.Gender)) {
+		return out, command.ErrInvalid
+	}
 	definition := command.Definition{
 
 		Kind:         "student.profile",
@@ -369,6 +408,20 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 			}
 			if guard.Version != input.ExpectedVersion {
 				return "", command.ErrVersionConflict
+			}
+			if input.IdentityTags != nil && input.IdentityTags.Grade != nil && *input.IdentityTags.Grade != "" {
+				if s.config.ProfileGrades == nil {
+					return "", command.ErrUnavailable
+				}
+				options := s.config.ProfileGrades(ctx)
+				if len(options) == 0 {
+					return "", command.ErrUnavailable
+				}
+				if !slices.ContainsFunc(options, func(option GradeOption) bool {
+					return option.Code == *input.IdentityTags.Grade
+				}) {
+					return "", command.ErrInvalid
+				}
 			}
 			return guard.ID, replaceProfile(ctx, tx.DB(), guard.ID, input)
 		},
@@ -418,6 +471,19 @@ func (s *Service) Logout(ctx context.Context, token, key, requestID string) (err
 // project 仅提示显式装配且当前资格允许的动作，不把静态协议目录当成实际授权。
 func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.Time) (Me, error) {
 	out, e := projection(ctx, db, id, at)
+	if e == nil && s.config.ProfileGrades != nil {
+		out.GradeOptions = s.config.ProfileGrades(ctx)
+	}
+	if e == nil && out.AvatarID != nil {
+		out.AvatarURL = ""
+		if s.config.AvatarObjects != nil {
+			var row entity.AccountAvatar
+			if failure := db.WithContext(ctx).Where("id=? AND owner_id=? AND installed_at IS NOT NULL AND removed_at IS NULL", *out.AvatarID, id).Take(&row).Error; failure != nil {
+				return Me{}, failure
+			}
+			out.AvatarURL, e = s.config.AvatarObjects.AvatarURL(ctx, row.ObjectKey)
+		}
+	}
 	if e == nil && s.config.DeletionRequests {
 		out.AllowedActions = append(out.AllowedActions, "postMeDeletionRequests")
 	}

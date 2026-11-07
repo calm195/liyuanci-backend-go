@@ -34,6 +34,8 @@ type Page struct {
 
 // Case 返回精确案件原版本正文，仅在访问审计提交后交付。
 type Case struct {
+	Title          string `json:"title,omitempty"`
+	RewardText     string `json:"reward_text,omitempty"`
 	ID             string `json:"id"`
 	Version        int64  `json:"version"`
 	ContentVersion int64  `json:"content_version"`
@@ -217,8 +219,9 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 			Version:        row.task.Version,
 			ContentVersion: row.task.ContentVersion,
 			Body:           body.Body,
-			SchoolRelated:  scan.SchoolRelated,
-			Status:         row.task.Status,
+			Title:          body.Title, RewardText: body.RewardText,
+			SchoolRelated: scan.SchoolRelated,
+			Status:        row.task.Status,
 		}
 		return nil
 	})
@@ -367,7 +370,7 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 					}
 				}
 			}
-			if e = setReview(db, s.codec, row, in.Decision, body, tags); e != nil {
+			if e = setReview(db, s.codec, row, in.Decision, body, tags, candidate); e != nil {
 				return "", e
 			}
 		}
@@ -455,8 +458,10 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 
 // reviewProjection 只表示扫描阶段保存的脱敏候选，不能绕过当前任务和隐私屏障复核。
 type reviewProjection struct {
-	Body string
-	Tags wish.IdentityTags
+	Title      string
+	RewardText string
+	Body       string
+	Tags       wish.IdentityTags
 }
 
 // readReviewProjection 按固定用途与任务版本解密候选，并在人工审批写入前再次校验正文。

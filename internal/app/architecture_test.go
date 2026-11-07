@@ -42,6 +42,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/chat",
 		"modules/identity",
 		"modules/moderation",
+		"modules/moduleguide",
 		"modules/privacy",
 		"modules/resourceplaza",
 		"modules/safety",
@@ -64,6 +65,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/adminauth",
 		"modules/chat",
 		"modules/moderation",
+		"modules/moduleguide",
 		"modules/privacy",
 		"modules/resourceplaza",
 		"modules/safety",
@@ -73,7 +75,9 @@ var allowedInternalImports = map[string][]string{
 		"modules/whisper",
 		"modules/wish",
 	},
-	"migration":           {"entity"},
+	"migration": {"entity"},
+	// 模块说明独立维护版本与发布快照，复用权威命令授权和实体。
+	"modules/moduleguide": {"entity", "execution/command"},
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
@@ -105,9 +109,9 @@ var allowedInternalImports = map[string][]string{
 		"platform/securedata",
 	},
 	// 登录复用身份检索和黑名单协议策略。
-	"modules/studentauth": {"entity", "execution/command", "modules/blockpolicy", "modules/identity"},
+	"modules/studentauth": {"entity", "execution/command", "modules/blockpolicy", "modules/identity", "platform/imageinput"},
 	// 学生卡工作处理复核当前学生会话。
-	"modules/studentcard": {"entity", "execution/command", "execution/durable", "modules/studentauth", "platform/securedata"},
+	"modules/studentcard": {"entity", "execution/command", "execution/durable", "modules/studentauth", "platform/imageinput", "platform/securedata"},
 	// 资格认证使用统一身份绑定与检索锁。
 	"modules/verification": {"entity", "execution/command", "modules/identity", "platform/securedata"},
 	// 树洞复核黑名单与安全处罚，避免模块开关绕过限制。
@@ -121,6 +125,7 @@ var allowedInternalImports = map[string][]string{
 	},
 	"modules/wish":        {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
 	"platform":            {"config", "execution/command"},
+	"platform/imageinput": {},
 	"platform/securedata": {},
 	"platform/yamlconfig": {},
 	// 测试配置与隔离数据库夹具只供测试使用；实体用于日志表映射。

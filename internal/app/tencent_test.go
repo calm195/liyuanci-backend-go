@@ -54,3 +54,7 @@ func TestDevelopmentMediaUsesTencent(t *testing.T) {
 type unavailableTestObjectGateway struct{ unavailableObjects }
 
 func (unavailableTestObjectGateway) Close() {}
+
+func (unavailableTestObjectGateway) RemoveAvatar(context.Context, string) error {
+	return context.Canceled
+}

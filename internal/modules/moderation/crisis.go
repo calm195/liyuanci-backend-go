@@ -119,7 +119,14 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 		clear(b)
 	}
 	caseID, itemID, evidenceID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	body, key, e := encryptEvidence(ctx, codec, "crisis_body", itemID, input.Body)
+	evidenceBody := input.Body
+	if input.Title != "" && input.Title != "未命名心愿" {
+		evidenceBody = input.Title + "\n" + evidenceBody
+	}
+	if input.RewardText != "" {
+		evidenceBody += "\n报答：" + input.RewardText
+	}
+	body, key, e := encryptEvidence(ctx, codec, "crisis_body", itemID, evidenceBody)
 	if e != nil {
 		return "", e
 	}
@@ -175,7 +182,7 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 			"wish_id=? AND content_version=?",
 			row.wish.ID,
 			row.registry.ContentVersion,
-		).Update("public_body", nil).Error; e != nil {
+		).Updates(map[string]any{"public_body": nil, "public_title": nil, "public_reward_text": nil}).Error; e != nil {
 			return "", e
 		}
 		updates := map[string]any{"version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}

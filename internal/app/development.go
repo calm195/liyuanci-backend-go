@@ -252,6 +252,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		Objects:   objects,
 		Scanner:   scanner,
 		Rules:     local.SchoolRules{Logger: logger},
+		Grades:    businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}},
 	}, ServiceConfig{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,
@@ -259,10 +260,11 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		Resources:  &resourceplaza.Config{Command: cmd, Key: resourceplaza.DeriveKey(cfg.WishKey)},
 		Safety:     &safety.Config{Command: cmd, Key: safety.DeriveKey(cfg.WishKey), MaxTextBytes: 64 << 10},
 		Auth: studentauth.Config{
-			SessionTTL:  24 * time.Hour,
-			ExchangeTTL: time.Minute,
-			SessionKey:  cfg.SessionKey,
-			Command:     cmd,
+			ProfileGrades: businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}}.options,
+			SessionTTL:    24 * time.Hour,
+			ExchangeTTL:   time.Minute,
+			SessionKey:    cfg.SessionKey,
+			Command:       cmd,
 		},
 		Card: studentcard.Config{
 			DecodeSlots: 2,

@@ -46,6 +46,13 @@ func (s *Service) ownerPost(ctx context.Context, db *gorm.DB, now time.Time, id,
 		if e = s.decrypt(ctx, "whisper_post_identity", id, a.post.CurrentContentVersion, a.version.IdentityCipher, &identity); e != nil {
 			return OwnerPost{}, e
 		}
+		title := "未命名悄悄话"
+		if len(a.version.TitleCipher) > 0 {
+			if e = s.decrypt(ctx, "whisper_post_title", id, a.post.CurrentContentVersion, a.version.TitleCipher, &title); e != nil {
+				return OwnerPost{}, e
+			}
+		}
+		out.Title = &title
 		out.Body = &body
 		out.IdentityInput = &identity
 	}
@@ -108,21 +115,9 @@ func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time
 		return out, command.ErrNotFound
 	}
 	identity.IsAuthor = true
-	switch identity.Mode {
-	case "anonymous":
-		identity.Label = a.alias
-		identity.Tags = nil
-	case "semi":
-		if a.owner.HideIdentityTags || !tagsValid(identity.Tags, c.Grades) {
-			identity = PublicIdentity{Mode: "anonymous", Label: a.alias, IsAuthor: true}
-		} else {
-			identity.Label = a.alias
-		}
-	case "named":
-		if a.version.NicknameVersion == nil || !validText(identity.Label, 2, 20) {
-			return out, command.ErrNotFound
-		}
-		identity.Tags = nil
+	identity, e = projectIdentity(identity, a.owner.HideIdentityTags, c.Grades)
+	if e != nil {
+		return out, e
 	}
 	codes := []string{}
 	var notice *string
@@ -131,7 +126,12 @@ func (s *Service) publicPostBase(ctx context.Context, db *gorm.DB, now time.Time
 		v := "未经证实"
 		notice = &v
 	}
+	title := "未命名悄悄话"
+	if a.version.PublicTitle != nil {
+		title = *a.version.PublicTitle
+	}
 	out = PublicPost{
+		Title:          title,
 		ID:             id,
 		Version:        a.post.Version,
 		ContentVersion: a.post.CurrentContentVersion,

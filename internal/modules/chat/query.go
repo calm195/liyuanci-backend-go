@@ -27,6 +27,7 @@ type Query struct {
 
 // Conversation 是当前原参与者可访问的最小元数据。
 type Conversation struct {
+	WishTitle  string `json:"wish_title"`
 	ID         string `json:"id"`
 	Version    int64  `json:"version"`
 	CanWrite   bool   `json:"can_write"`
@@ -66,12 +67,15 @@ type Status struct {
 
 // Notification 是通用进展提示，没有私聊正文或作者身份。
 type Notification struct {
-	ID        string  `json:"id"`
-	Version   int64   `json:"version"`
-	Kind      string  `json:"kind"`
-	Read      bool    `json:"read"`
-	TargetRef *string `json:"target_ref,omitempty"`
-	Notice    string  `json:"notice,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	TargetKind *string `json:"target_kind,omitempty"`
+	CommentID  *string `json:"comment_id,omitempty"`
+	ID         string  `json:"id"`
+	Version    int64   `json:"version"`
+	Kind       string  `json:"kind"`
+	Read       bool    `json:"read"`
+	TargetRef  *string `json:"target_ref,omitempty"`
+	Notice     string  `json:"notice,omitempty"`
 }
 
 // NotificationsPage 使用本人独立游标，不共享会话列表位置。
@@ -81,6 +85,7 @@ type NotificationsPage struct {
 }
 
 type cursor struct {
+	At    time.Time `json:"At,omitempty"`
 	Scope string
 	ID    string
 	Seq   int64
@@ -171,20 +176,32 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.Table("public.conversations AS c").Select("c.*").
+		// 标题与会话列表一次读取，仅读取当前已审且未被隐私屏障撤销的投影。
+		titleProjection := `c.*,
+ CASE WHEN v.moderation_status='approved' AND v.public_body IS NOT NULL
+ AND NOT EXISTS (
+  SELECT 1 FROM public.privacy_holds h
+  WHERE h.target_kind='wish' AND h.target_id=w.id AND h.status='active'
+ ) AND NOT EXISTS (
+  SELECT 1 FROM public.content_restrictions x
+  JOIN public.content_registry cr ON cr.id=x.content_id
+  WHERE cr.kind='wish' AND cr.entity_id=w.id AND x.active
+ ) THEN COALESCE(NULLIF(v.public_title,''),'未命名心愿')
+ ELSE '未命名心愿' END AS wish_title`
+		query := db.Table("public.conversations AS c").Select(titleProjection).
 			Joins("JOIN public.matches m ON m.id=c.match_id").
 			Joins("JOIN public.accounts a ON a.id=m.requester_id AND a.lifecycle='active'").
 			Joins("JOIN public.accounts b ON b.id=m.helper_id AND b.lifecycle='active'").
 			Joins("JOIN public.wishes w ON w.id=m.wish_id AND w.draft_deleted_at IS NULL").
-			Where(
-				"(m.requester_id=? OR m.helper_id=?)",
-				actor,
-				actor,
-			)
+			Joins("LEFT JOIN public.wish_versions v ON v.wish_id=w.id AND v.content_version=w.current_content_version").
+			Where("(m.requester_id=? OR m.helper_id=?)", actor, actor)
 		if after.ID != "" {
 			query = query.Where("c.id<?", after.ID)
 		}
-		var rows []entity.Conversation
+		var rows []struct {
+			entity.Conversation
+			WishTitle string
+		}
 		if e = query.Order("c.id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
 			return e
 		}
@@ -194,7 +211,8 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 			out.NextCursor = &next
 			rows = rows[:q.Limit]
 		}
-		for _, c := range rows {
+		for _, row := range rows {
+			c := row.Conversation
 			v, e := LoadConversation(ctx, db, c.ID)
 			if e != nil {
 				return e
@@ -203,7 +221,13 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 			if e != nil && !errors.Is(e, command.ErrForbidden) && !errors.Is(e, command.ErrBlockedInteraction) {
 				return e
 			}
-			out.Items = append(out.Items, Conversation{c.ID, c.Version, e == nil, c.WriteEpoch})
+			out.Items = append(out.Items, Conversation{
+				WishTitle:  row.WishTitle,
+				ID:         c.ID,
+				Version:    c.Version,
+				CanWrite:   e == nil,
+				WriteEpoch: c.WriteEpoch,
+			})
 		}
 		return nil
 	})
@@ -341,11 +365,28 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 
 func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (Notification, error) {
 	out := Notification{
-		ID:      row.ID,
-		Version: row.Version,
-		Kind:    row.Type,
-		Read:    row.ReadAt != nil,
-		Notice:  "有新进展，请打开应用查看",
+		ID:        row.ID,
+		Version:   row.Version,
+		Kind:      row.Type,
+		Read:      row.ReadAt != nil,
+		Notice:    "有新进展，请打开应用查看",
+		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if row.Type == "whisper_comment" || row.Type == "whisper_capsule_unlocked" {
+		var ref entity.WhisperNotificationRef
+		e := db.WithContext(ctx).Where("notification_id=? AND NOT suppressed", row.ID).Take(&ref).Error
+		if e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return out, e
+		}
+		if e == nil {
+			out.TargetKind = &ref.TargetKind
+			out.TargetRef = &ref.TargetID
+			out.CommentID = ref.CommentID
+			out.Notice = "有新的暖评，请打开帖子查看"
+			if row.Type == "whisper_capsule_unlocked" {
+				out.Notice = "时光胶囊已到约定时间，请打开查看"
+			}
+		}
 	}
 	if row.Type == "crisis_care" {
 		var card entity.CareCard
@@ -408,27 +449,27 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		return out, command.ErrInvalid
 	}
 	err = s.read(ctx, token, func(db *gorm.DB, actor string, now time.Time) error {
-		scope := "notifications/" + actor
+		scope := "notifications.timeline/" + actor
 		after, e := s.decode(q.Cursor, scope)
 		if e != nil {
 			return e
 		}
-		query := db.Where("recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')", actor)
+		query := db.Where("recipient_id=? AND NOT EXISTS(SELECT 1 FROM public.whisper_notification_refs r WHERE r.notification_id=notifications.id AND r.suppressed)", actor)
 		if e := readChatAllowed(db, actor, now); errors.Is(e, command.ErrForbidden) {
 			query = query.Where("type IN ('penalty_notice','appeal_result','crisis_care')")
 		} else if e != nil {
 			return e
 		}
 		if after.ID != "" {
-			query = query.Where("id<?", after.ID)
+			query = query.Where("(created_at,id)<(?,?)", after.At, after.ID)
 		}
 		var rows []entity.Notification
-		if e = query.Order("id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
+		if e = query.Order("created_at DESC,id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
 			return e
 		}
 		out.Items = []Notification{}
 		if len(rows) > q.Limit {
-			next := s.encode(cursor{Scope: scope, ID: rows[q.Limit-1].ID})
+			next := s.encode(cursor{Scope: scope, ID: rows[q.Limit-1].ID, At: rows[q.Limit-1].CreatedAt})
 			out.NextCursor = &next
 			rows = rows[:q.Limit]
 		}
@@ -477,7 +518,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		var n int64
 		if e := tx.DB().WithContext(ctx).Model(&entity.Notification{}).Where(
-			"id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')",
+			"id=? AND recipient_id=? AND NOT EXISTS(SELECT 1 FROM public.whisper_notification_refs r WHERE r.notification_id=notifications.id AND r.suppressed)",
 			id,
 			tx.Actor().ID,
 		).Count(&n).Error; e != nil {
@@ -510,7 +551,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
 		var row entity.Notification
 		if e := tx.DB().WithContext(ctx).Where(
-			"id=? AND recipient_id=? AND type NOT IN ('whisper_comment','whisper_capsule_unlocked')",
+			"id=? AND recipient_id=? AND NOT EXISTS(SELECT 1 FROM public.whisper_notification_refs r WHERE r.notification_id=notifications.id AND r.suppressed)",
 			ref,
 			tx.Actor().ID,
 		).Take(&row).Error; e != nil {

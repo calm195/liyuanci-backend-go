@@ -47,6 +47,8 @@ type PublicAuthor struct {
 
 // PublicContent 只组合当前已审投影和公开元数据，不包含作者私有身份或原始密文。
 type PublicContent struct {
+	Title          string       `json:"title"`
+	RewardText     string       `json:"reward_text,omitempty"`
 	ID             string       `json:"id"`
 	Body           string       `json:"body"`
 	ContentVersion int64        `json:"content_version"`
@@ -232,6 +234,8 @@ func (s *Service) publicContent(rid string, now time.Time, a aggregate) (out Pub
 		Category:       a.row.Category,
 		Campus:         a.row.Campus,
 		RewardMethod:   a.content.RewardMethod,
+		Title:          publicTitle(a.content),
+		RewardText:     publicReward(a.content),
 		ExpiresAt:      a.row.ExpiresAt,
 	}, nil
 }
@@ -326,6 +330,8 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		}
 		out.OwnContent = &ContentInput{
 			Category:     c.Category,
+			Title:        contentTitle(c.Title),
+			RewardText:   c.RewardText,
 			Body:         c.Body,
 			Campus:       c.Campus,
 			IdentityTags: &c.IdentityTags,
@@ -457,6 +463,8 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 					Category:       a.row.Category,
 					Campus:         a.row.Campus,
 					RewardMethod:   a.content.RewardMethod,
+					Title:          publicTitle(a.content),
+					RewardText:     publicReward(a.content),
 					ExpiresAt:      a.row.ExpiresAt,
 				}
 				if !a.owner.HideIdentityTags {
@@ -655,4 +663,23 @@ func (s *Service) List(ctx context.Context, rid string, q Query) (out PublicPage
 		return nil
 	})
 	return out, err
+}
+
+func contentTitle(title string) string {
+	if title == "" {
+		return "未命名心愿"
+	}
+	return title
+}
+func publicTitle(c entity.WishVersion) string {
+	if c.PublicTitle == nil {
+		return "未命名心愿"
+	}
+	return contentTitle(*c.PublicTitle)
+}
+func publicReward(c entity.WishVersion) string {
+	if c.PublicRewardText == nil {
+		return ""
+	}
+	return *c.PublicRewardText
 }

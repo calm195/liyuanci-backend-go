@@ -221,6 +221,10 @@ func cleanAccount(db *gorm.DB, id string) error {
 	if e = db.Model(&entity.DeletionJob{}).Where("subject_ref=?", id).Update("subject_ref", nil).Error; e != nil {
 		return e
 	}
+	// 已安装的头像立即进入外部清理，未完成的上传仍保留其预约期限。
+	if e = db.Model(&entity.AccountAvatar{}).Where("owner_id=? AND installed_at IS NOT NULL AND removed_at IS NULL", id).Update("removable_after", gorm.Expr("clock_timestamp()")).Error; e != nil {
+		return e
+	}
 	return deleteRows(db, &entity.Account{}, "id=? AND lifecycle='deleting'", id)
 }
 
@@ -555,6 +559,9 @@ func (s *Service) Run(ctx context.Context, scope string, interval time.Duration)
 			after = next
 		}
 		_, _ = s.ProcessNext(ctx, scope)
+		if scope == "account" && s.cfg.AvatarObjects != nil {
+			_ = s.cleanNextAvatar(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return nil

@@ -24,6 +24,8 @@ import (
 
 // Assessment 是安全处理器审查组合信息后产生的脱敏候选，未复核前不可公开。
 type Assessment struct {
+	Title                                 string
+	RewardText                            string
 	Body                                  string
 	Tags                                  wish.IdentityTags
 	SchoolRelated, OrdinaryHit, CrisisHit bool
@@ -193,6 +195,9 @@ func decryptContent(ctx context.Context, codec *securedata.Codec, row current) (
 	if e != nil || json.Unmarshal(plain, &out) != nil {
 		return wish.Content{}, command.ErrUnavailable
 	}
+	if out.Title == "" {
+		out.Title = "未命名心愿"
+	}
 	return out, nil
 }
 
@@ -350,15 +355,38 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 	if e != nil {
 		return nil, nil, durable.ErrTemporary
 	}
+	if source.application == nil && source.message == nil && source.story == nil {
+		for _, field := range []struct {
+			value  string
+			target *string
+			limit  int
+		}{{input.Title, &a.Title, 40}, {input.RewardText, &a.RewardText, 100}} {
+			if field.value == "" {
+				continue
+			}
+			part := input
+			part.Body = field.value
+			part.Title = ""
+			part.RewardText = ""
+			result, failure := w.analyze(ctx, source, snapshot, part)
+			if failure != nil {
+				return nil, nil, durable.ErrTemporary
+			}
+			if !text(result.Body, field.limit) {
+				return nil, nil, durable.ErrConfiguration
+			}
+			*field.target = result.Body
+			a.CrisisHit = a.CrisisHit || result.CrisisHit
+			a.SchoolRelated = a.SchoolRelated || result.SchoolRelated
+			a.OrdinaryHit = a.OrdinaryHit || result.OrdinaryHit
+		}
+	}
 	// 候选不能扩大身份标签范围，非法正文或缺少检测版本也不能进入写入阶段。
 	if !candidateBody(source, a.Body) || !text(a.DetectorVersion, 80) || !subset(a.Tags, input.IdentityTags) {
 		return nil, nil, durable.ErrConfiguration
 	}
 
-	candidate, _ := json.Marshal(struct {
-		Body string
-		Tags wish.IdentityTags
-	}{a.Body, a.Tags})
+	candidate, _ := json.Marshal(reviewProjection{Body: a.Body, Tags: a.Tags, Title: a.Title, RewardText: a.RewardText})
 	defer clear(candidate)
 	envelope, e := w.codec.Encrypt(ctx, securedata.Binding{
 		Purpose:  "moderation_projection",
@@ -446,7 +474,7 @@ func (w *Worker) applyScan(ctx context.Context, tx *command.Tx, work durable.Wor
 		status = "approved"
 		decision = "approved"
 		tags, _ := json.Marshal(a.Tags)
-		if e = setReview(db, w.codec, row, "approved", &a.Body, tags); e != nil {
+		if e = setReview(db, w.codec, row, "approved", &a.Body, tags, reviewProjection{Title: a.Title, RewardText: a.RewardText}); e != nil {
 			return "", e
 		}
 	}

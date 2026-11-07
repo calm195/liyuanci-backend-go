@@ -61,6 +61,25 @@ func tagsValid(tags *Tags, dict Dictionary) bool {
 	return slices.ContainsFunc(dict.Items, func(i Item) bool { return i.Code == tags.Grade })
 }
 
+// projectIdentity 用同一套昵称规则展示帖子与评论，隐藏标签时即时降级。
+func projectIdentity(identity PublicIdentity, hidden bool, grades Dictionary) (PublicIdentity, error) {
+	if identity.Mode == "named" {
+		if !validText(identity.Label, 2, 20) {
+			return PublicIdentity{}, command.ErrNotFound
+		}
+		identity.Tags = nil
+		return identity, nil
+	}
+	if identity.Mode == "semi" && !hidden && tagsValid(identity.Tags, grades) {
+		campus := map[string]string{"wushan": "五山", "university_town": "大学城", "international": "国际校区"}
+		gender := map[string]string{"male": "男生", "female": "女生"}
+		grade := slices.IndexFunc(grades.Items, func(item Item) bool { return item.Code == identity.Tags.Grade })
+		identity.Label = campus[identity.Tags.Campus] + grades.Items[grade].Label + gender[identity.Tags.Gender]
+		return identity, nil
+	}
+	return PublicIdentity{Mode: "anonymous", Label: "小鲤鱼", IsAuthor: identity.IsAuthor}, nil
+}
+
 func identityShape(i IdentityInput) bool {
 	switch i.Mode {
 	case "anonymous":

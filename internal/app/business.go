@@ -142,10 +142,11 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	}, ServiceConfig{
 
 		Auth: studentauth.Config{
-			SessionTTL:  cfg.SessionTTL,
-			ExchangeTTL: cfg.ExchangeTTL,
-			SessionKey:  cfg.SessionKey,
-			Command:     cmd,
+			ProfileGrades: businessGrades{cfg.Runtime}.options,
+			SessionTTL:    cfg.SessionTTL,
+			ExchangeTTL:   cfg.ExchangeTTL,
+			SessionKey:    cfg.SessionKey,
+			Command:       cmd,
 		},
 
 		Card:         businessCardConfig(cfg),
@@ -301,6 +302,28 @@ func businessResources(ctx context.Context, cfg RuntimeSettings) (ResourcesFile,
 }
 
 type businessGrades struct{ cfg RuntimeSettings }
+
+func (g businessGrades) options(ctx context.Context) []studentauth.GradeOption {
+	r, err := loadResources(ctx, g.cfg)
+	if err != nil {
+		return nil
+	}
+	options := make([]studentauth.GradeOption, 0, len(r.Catalog.Grades.Items))
+	for _, item := range r.Catalog.Grades.Items {
+		options = append(options, studentauth.GradeOption{Code: item.Code, Label: item.Label})
+	}
+	return options
+}
+
+// Label 返回当前年级字典中的展示文字。
+func (g businessGrades) Label(ctx context.Context, code string) string {
+	for _, item := range g.options(ctx) {
+		if item.Code == code {
+			return item.Label
+		}
+	}
+	return ""
+}
 
 // Allows 按当前已核验资源校验年级，资料读取失败不能放行新输入。
 func (g businessGrades) Allows(ctx context.Context, value string) (bool, error) {

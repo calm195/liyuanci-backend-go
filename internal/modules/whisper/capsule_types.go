@@ -9,7 +9,7 @@ type CapsuleInput struct {
 	SafetyNoticeAccepted bool      `json:"safety_notice_accepted"`
 }
 
-// Capsule 的正文仅供本人已解锁详情；创建、列表与终态命令始终返回空正文。
+// Capsule 的完整正文仅供本人已解锁详情，已解锁列表只提供前三个码点的摘要。
 type Capsule struct {
 	ID             string        `json:"id"`
 	Version        int64         `json:"version"`
@@ -17,6 +17,7 @@ type Capsule struct {
 	UnlockAt       string        `json:"unlock_at"`
 	ServerNow      string        `json:"server_now"`
 	CreatedAt      string        `json:"created_at"`
+	Preview        *string       `json:"preview"`
 	Body           *string       `json:"body"`
 	ReviewResult   *ReviewResult `json:"review_result"`
 	AllowedActions []string      `json:"allowed_actions"`

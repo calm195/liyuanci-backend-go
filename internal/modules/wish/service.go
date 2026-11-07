@@ -70,7 +70,7 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades
 
 func (s *Service) requestDigest(input ContentInput) (string, error) {
 	// JSON 会替换非法 UTF-8；摘要前拒绝，防止非法输入与合法替换字符共享成功回执。
-	values := []string{input.Category, input.Body, input.Campus}
+	values := []string{input.Category, input.Body, input.Campus, input.Title, input.RewardText}
 	if input.RewardMethod != nil {
 		values = append(values, *input.RewardMethod)
 	}

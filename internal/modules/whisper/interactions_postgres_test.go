@@ -201,16 +201,38 @@ func testWhisperInteractions(
 			200,
 		)
 		_, e = legacy.ReadNotification(ctx, token, uuid.NewString(), "", notice.ID, notice.Version)
-		if !errors.Is(e, command.ErrNotFound) {
-			t.Fatal("旧已读入口泄漏", e)
+		if !errors.Is(e, command.ErrVersionConflict) {
+			t.Fatal("统一已读入口未复核通知版本", e)
 		}
-		old, e := legacy.Notifications(ctx, token, "", chat.Query{Limit: 50})
+		timeline, e := legacy.Notifications(ctx, token, "", chat.Query{Limit: 50})
 		must(e)
-		for _, n := range old.Items {
+		found := false
+		for _, n := range timeline.Items {
 			if n.ID == notice.ID {
-				t.Fatal("旧列表泄漏")
+				found = true
+				if n.TargetKind == nil || *n.TargetKind != "post" || n.TargetRef == nil || *n.TargetRef != p.ID || n.CommentID == nil || *n.CommentID != c.ID || !n.Read {
+					t.Fatal("统一通知目标或已读状态错误", n)
+				}
+				_, e = legacy.ReadNotification(ctx, token, uuid.NewString(), "", n.ID, n.Version)
+				must(e)
 			}
 		}
+		if !found {
+			t.Fatal("统一通知遗漏暖评")
+		}
+		must(admin.Model(&entity.WhisperNotificationRef{}).Where("notification_id=?", notice.ID).Update("suppressed", true).Error)
+		hidden, e := legacy.Notifications(ctx, token, "", chat.Query{Limit: 50})
+		must(e)
+		for _, n := range hidden.Items {
+			if n.ID == notice.ID {
+				t.Fatal("已屏蔽通知仍在统一列表")
+			}
+		}
+		if _, e = legacy.ReadNotification(ctx, token, uuid.NewString(), "", notice.ID, notice.Version+1); !errors.Is(e, command.ErrNotFound) {
+			t.Fatal("已屏蔽通知仍可标记读取", e)
+		}
+		must(admin.Model(&entity.WhisperNotificationRef{}).Where("notification_id=?", notice.ID).Update("suppressed", false).Error)
+
 		request("whisperNotificationsList", "GET", "/me/whispers/notifications", otherToken, nil, 200)
 		_, e = s.ReadNotification(ctx, otherToken, uuid.NewString(), "", notice.ID, 1)
 		if !errors.Is(e, command.ErrNotFound) {

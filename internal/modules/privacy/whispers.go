@@ -135,7 +135,7 @@ func activateWhispers(ctx context.Context, db *gorm.DB, id string) error {
 			[]any{id},
 		},
 		{
-			"UPDATE public.whisper_post_versions SET public_body=NULL,public_identity=NULL,candidate_cipher=NULL WHERE post_id IN ?",
+			"UPDATE public.whisper_post_versions SET public_body=NULL,public_title=NULL,public_identity=NULL,candidate_cipher=NULL WHERE post_id IN ?",
 			[]any{g.posts},
 		},
 		{

@@ -49,6 +49,7 @@ func (s WhisperReviewSink) Append(ctx context.Context, db *gorm.DB, in whisper.R
 
 // WhisperAssessment 的 Body/Identity 仅用于公开内容；私密胶囊分类不得返回替换正文。
 type WhisperAssessment struct {
+	Title                                 string
 	Body                                  string
 	Identity                              whisper.IdentityInput
 	SchoolRelated, OrdinaryHit, CrisisHit bool
@@ -110,6 +111,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 	var r whisperSource
 	var rules rules
 	var body string
+	var title string
 	var identity whisper.IdentityInput
 	valid, input := false, false
 	prep := w.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
@@ -156,6 +158,9 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 			return e
 		}
 		body, identity, e = whisperDecrypt(ctx, db, w.codec, r)
+		if e == nil && r.registry.Kind == "whisper_post" {
+			title, e = whisperTitle(ctx, db, w.codec, r)
+		}
 		input = e == nil
 		return e
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
@@ -175,7 +180,21 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 					e = durable.ErrConfiguration
 				}
 			}()
-			return w.analyze(analysis, r, rules, body, identity)
+			result, e := w.analyze(analysis, r, rules, body, identity)
+			if e == nil && title != "" {
+				extra, failure := w.analyze(analysis, r, rules, title, identity)
+				if failure != nil {
+					return result, failure
+				}
+				if !text(extra.Body, 40) {
+					return result, command.ErrUnavailable
+				}
+				result.Title = extra.Body
+				result.CrisisHit = result.CrisisHit || extra.CrisisHit
+				result.OrdinaryHit = result.OrdinaryHit || extra.OrdinaryHit
+				result.SchoolRelated = result.SchoolRelated || extra.SchoolRelated
+			}
+			return result, e
 		}()
 		if e == nil {
 			e = analysis.Err()
@@ -391,6 +410,15 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 	if state == "approved" {
 		u["public_body"] = a.Body
 		u["public_identity"] = json.RawMessage(raw)
+	}
+	if r.registry.Kind == "whisper_post" {
+		u["public_title"] = nil
+		if state == "approved" {
+			if a.Title == "" {
+				a.Title = "未命名悄悄话"
+			}
+			u["public_title"] = a.Title
+		}
 	}
 	var model any = &entity.WhisperPostVersion{}
 	var resource any = &entity.WhisperPost{}

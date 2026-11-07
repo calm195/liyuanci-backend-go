@@ -27,6 +27,8 @@ type IdentityTags struct {
 
 // ContentInput 保留默认字段是否省略的区别，显式零天和空报答方式不能使用默认值兜底。
 type ContentInput struct {
+	Title        string        `json:"title,omitempty"`
+	RewardText   string        `json:"reward_text,omitempty"`
 	Category     string        `json:"category"`
 	Body         string        `json:"body"`
 	Campus       string        `json:"campus"`
@@ -37,6 +39,8 @@ type ContentInput struct {
 
 // Content 是已通过字段规则且补齐默认值的私有内容；不得直接当作公开投影。
 type Content struct {
+	Title        string
+	RewardText   string
 	Category     string
 	Body         string
 	Campus       string
@@ -80,7 +84,15 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 		utf8.RuneCountInString(input.Body) > 500 {
 		return out, command.ErrInvalid
 	}
+	if input.Title == "" {
+		input.Title = "未命名心愿"
+	}
+	if !utf8.ValidString(input.Title) || strings.TrimSpace(input.Title) == "" || utf8.RuneCountInString(input.Title) > 40 || !utf8.ValidString(input.RewardText) || utf8.RuneCountInString(input.RewardText) > 100 {
+		return out, command.ErrInvalid
+	}
 	out = Content{
+		Title:        input.Title,
+		RewardText:   input.RewardText,
 		Category:     input.Category,
 		Body:         input.Body,
 		Campus:       input.Campus,
@@ -88,10 +100,13 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 		DurationDays: 7,
 	}
 	if input.RewardMethod != nil {
-		if !slices.Contains([]string{"milk_tea", "meal", "reciprocal_gift", "skill_exchange", "sincere_thanks"}, *input.RewardMethod) {
+		if !slices.Contains([]string{"milk_tea", "meal", "reciprocal_gift", "skill_exchange", "sincere_thanks", "custom"}, *input.RewardMethod) {
 			return out, command.ErrInvalid
 		}
 		out.RewardMethod = *input.RewardMethod
+	}
+	if out.RewardMethod == "custom" && strings.TrimSpace(out.RewardText) == "" || out.RewardMethod != "custom" && out.RewardText != "" {
+		return Content{}, command.ErrInvalid
 	}
 	if input.DurationDays != nil {
 		if *input.DurationDays < 1 || *input.DurationDays > 30 {
