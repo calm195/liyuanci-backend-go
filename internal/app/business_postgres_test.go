@@ -374,7 +374,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		"POST",
 		"/me/verification-requests",
 		token,
-		verification.Input{StudentNumber: "synthetic-number", Name: "隔离合成姓名", AssetID: asset.AssetID},
+		verification.Input{StudentNumber: "209900000001", Name: "隔离合成姓名", AssetID: asset.AssetID},
 		202,
 		&verificationResult,
 	)

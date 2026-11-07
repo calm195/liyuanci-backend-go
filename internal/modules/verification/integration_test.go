@@ -74,7 +74,7 @@ func (limiter) Allow(context.Context, string) (bool, error) { return true, nil }
 type rules struct{}
 
 func (rules) Validate(_ context.Context, number, name string) error {
-	if !strings.HasPrefix(number, "SYNTHETIC_") || !strings.HasPrefix(name, "SYNTHETIC_") {
+	if !strings.HasPrefix(number, "2099") || !strings.HasPrefix(name, "SYNTHETIC_") {
 		return command.ErrInvalid
 	}
 	return nil
@@ -249,7 +249,7 @@ func TestPostgresVerification(t *testing.T) {
 	otherCard := makeAsset(other)
 	imageEnv, _ := codec.Encrypt(ctx, securedata.Binding{Purpose: "student_card", ObjectID: card, Version: 1}, image)
 	bucket.data, _ = json.Marshal(imageEnv)
-	input := verification.Input{Name: "SYNTHETIC_NAME", StudentNumber: "SYNTHETIC_NUMBER", AssetID: card}
+	input := verification.Input{Name: "SYNTHETIC_NAME", StudentNumber: "209900000001", AssetID: card}
 	if _, e = student.Submit(ctx, otherToken, "cross-owner", "review_test", input); !errors.Is(e, command.ErrNotFound) {
 		t.Fatal("跨账号图片未拒绝", e)
 	}
@@ -341,7 +341,7 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal("旧版本重提未拒绝", e)
 	}
 	version := rejected.Version
-	input.StudentNumber = "SYNTHETIC_CORRECTED_NUMBER"
+	input.StudentNumber = "209900000002"
 	input.ExpectedVersion = &version
 	resubmitted, e := student.Submit(ctx, token, "resubmit", "review_test", input)
 	if e != nil || resubmitted.Version != 3 || resubmitted.RequestID != result.RequestID || resubmitted.Reason != nil {
@@ -415,7 +415,7 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal("注册重复学号未拒绝", e)
 	}
 	// 驳回修正已原子释放原学号，另一个账号可重新绑定该原值。
-	secondInput.StudentNumber = "SYNTHETIC_NUMBER"
+	secondInput.StudentNumber = "209900000001"
 	second, e := student.Submit(ctx, otherToken, "other-submit", "review_test", secondInput)
 	if e != nil {
 		t.Fatal("旧学号未释放", e)
@@ -511,7 +511,7 @@ func TestPostgresVerification(t *testing.T) {
 		"POST",
 		"/api/v1/me/verification-requests",
 		token,
-		`{"student_number":"SYNTHETIC_NUMBER","name":"SYNTHETIC_NAME","asset_id":"`+card+`","expected_version":null}`,
+		`{"student_number":"209900000001","name":"SYNTHETIC_NAME","asset_id":"`+card+`","expected_version":null}`,
 	); w.Code != 400 {
 		t.Fatal("显式null版本未拒绝", w.Code)
 	}
@@ -539,7 +539,7 @@ func TestPostgresVerification(t *testing.T) {
 				token,
 				key,
 				"review_registration",
-				verification.Input{Name: "SYNTHETIC_SAME_NAME", StudentNumber: "SYNTHETIC_CONCURRENT_NUMBER", AssetID: card},
+				verification.Input{Name: "SYNTHETIC_SAME_NAME", StudentNumber: "209900000003", AssetID: card},
 			)
 			mu.Lock()
 			defer mu.Unlock()
@@ -559,7 +559,7 @@ func TestPostgresVerification(t *testing.T) {
 	// T011：队列超过一页时返回签名游标；篡改或跨主体游标必须400。
 	third, thirdToken := createStudent()
 	thirdCard := makeAsset(third)
-	thirdInput := verification.Input{Name: "SYNTHETIC_THIRD", StudentNumber: "SYNTHETIC_THIRD_NUMBER", AssetID: thirdCard}
+	thirdInput := verification.Input{Name: "SYNTHETIC_THIRD", StudentNumber: "209900000004", AssetID: thirdCard}
 	if _, e = student.Submit(ctx, thirdToken, "third-submit", "review_test", thirdInput); e != nil {
 		t.Fatal(e)
 	}
@@ -587,7 +587,7 @@ func TestPostgresVerification(t *testing.T) {
 	var rows []entity.IdentityReview
 	root.Find(&rows)
 	for _, r := range rows {
-		if bytes.Contains(r.DataCipher, []byte("SYNTHETIC_NAME")) || bytes.Contains(r.DataCipher, []byte("SYNTHETIC_NUMBER")) {
+		if bytes.Contains(r.DataCipher, []byte("SYNTHETIC_NAME")) || bytes.Contains(r.DataCipher, []byte("209900000001")) {
 			t.Fatal("材料明文落库")
 		}
 	}

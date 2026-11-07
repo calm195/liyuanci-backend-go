@@ -242,7 +242,7 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 	}()
 	defer s.done("submit", rid, time.Now(), &err)
 	if !validKey(key) || !validID(in.AssetID) || !utf8.ValidString(in.Name) || !utf8.ValidString(in.StudentNumber) || len(in.Name) > 256 ||
-		len(in.StudentNumber) > 128 ||
+		!validStudentNumber(in.StudentNumber) ||
 		strings.TrimSpace(in.Name) == "" ||
 		strings.TrimSpace(in.StudentNumber) == "" ||
 		in.ExpectedVersion != nil && *in.ExpectedVersion < 1 {
