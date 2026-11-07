@@ -7,6 +7,7 @@ import (
 
 // ResourceMaterial 映射外部下载资料元信息。
 type ResourceMaterial struct {
+	FileID         *string         `gorm:"column:file_id;type:uuid;comment:当前资料文件引用，空时使用外部下载链接" json:"-"`
 	ID             string          `gorm:"column:id;type:uuid;not null;comment:稳定资料标识;primaryKey;autoIncrement:false" json:"-"`
 	CategoryID     string          `gorm:"column:category_id;type:uuid;not null;comment:启用分类引用" json:"-"`
 	Title          string          `gorm:"column:title;type:text;not null;comment:规范标题" json:"-"`

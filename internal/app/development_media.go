@@ -13,7 +13,7 @@ import (
 // developmentMedia 保持开发API与worker使用同一腾讯云配置；本地文件和模拟扫描仅留给隔离集成。
 func developmentMedia(environment string, cfg DevelopmentSettings, logger *zap.Logger) (Objects, studentcard.Scanner, func(), error) {
 	if cfg.Tencent.Enabled {
-		client, err := openObjectGateway(RuntimeSettings{Tencent: cfg.Tencent, ProviderTimeout: cfg.ProviderTimeout}, 2*(1<<20)+65536, logger)
+		client, err := openObjectGateway(RuntimeSettings{Tencent: cfg.Tencent, ProviderTimeout: cfg.ProviderTimeout}, 20*(1<<20), logger)
 		if err != nil {
 			return nil, nil, nil, err
 		}

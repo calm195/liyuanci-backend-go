@@ -25,10 +25,11 @@ var (
 type Config struct {
 	Command command.Config
 	Key     []byte
+	Objects FileObjects
 }
 
 // Service 借用应用数据库和加密器，每次操作复核会话及岗位；不拥有依赖生命周期。
-// 只维护资料元数据和密文，不执行迁移或访问外部下载链接。
+// 维护元数据、下载密文和私有文件预约，通过显式对象接口访问COS；不访问用户提供的外部下载链接。
 type Service struct {
 	db    *gorm.DB
 	codec *securedata.Codec

@@ -115,6 +115,9 @@ func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, 
 		}
 		defer objects.Close()
 		pcfg.AvatarObjects = objects
+		if resourceObjects, ok := objects.(privacy.ResourceObjects); ok {
+			pcfg.ResourceObjects = resourceObjects
+		}
 	}
 	if scope == "evidence" {
 		pcfg.Key = cfg.EvidenceKey

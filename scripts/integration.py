@@ -15,6 +15,7 @@ import yaml_settings as yamlio
 ROOT = Path(__file__).resolve().parents[1]
 # 固定包与必需用例，运行后逐项核验实际结果；不接受外部数据库地址。
 SUITES = {
+    'adminauth': ('./internal/modules/adminauth', ('TestPostgresAdmin', 'TestPostgresDashboard')),
     'runtime': (
         './internal/app',
         ('TestPostgresLocalBusiness', 'TestPostgresWhisperRuntime', 'TestPostgresBusinessDatabaseRuntime',
@@ -43,6 +44,7 @@ SUITES = {
 }
 # 原地上下行/升级测试需要各自空库；只在本轮临时集群创建这些固定名称的数据库。
 MIGRATION_DATABASES = {
+    'adminauth_test_dsn': 'adminauth_test',
     'studentauth_test_dsn': 'studentauth_test',
     'migration_test_dsn': 'migration_test',
     'schema_test_dsn': 'schema_test',
@@ -243,6 +245,7 @@ def run(suite='all'):
             values = {
                 'whisper_text_test_dsn': dsn,
                 'studentauth_test_redis': f'127.0.0.1:{redisport}',
+                'adminauth_test_redis': f'127.0.0.1:{redisport}',
                 'whisper_redis_test_address': f'127.0.0.1:{redisport}',
                 'business_runtime_redis_address': f'127.0.0.1:{authport}',
                 'business_runtime_redis_password': redispassword,
@@ -254,7 +257,7 @@ def run(suite='all'):
             }
             values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           verification_test_dsn=dsn, studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
-            if suite in ('all', 'migration', 'studentauth'):
+            if suite in ('all', 'migration', 'studentauth', 'adminauth'):
                 for key, database in MIGRATION_DATABASES.items():
                     subprocess.run(
                         [

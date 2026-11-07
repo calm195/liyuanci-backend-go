@@ -3,6 +3,7 @@ package resourceplaza
 import (
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -55,13 +56,7 @@ func summaries(db *gorm.DB, rows []entity.ResourceMaterial) (map[string]map[stri
 		ResourceID, Kind string
 		Count            int64
 	}
-	e := db.Table("public.resource_feedback f").Select("f.resource_id,f.kind,count(*) AS count").
-		Joins("JOIN public.accounts a ON a.id=f.account_id AND a.lifecycle='active'").
-		Joins("JOIN public.resource_materials r ON r.id=f.resource_id AND r.content_version=f.content_version").
-		Where("f.resource_id IN ?", ids).
-		Group("f.resource_id,f.kind").
-		Scan(&counts).
-		Error
+	e := db.Raw("SELECT * FROM public.resource_feedback_summary(?::uuid[])", "{"+strings.Join(ids, ",")+"}").Scan(&counts).Error
 	for _, c := range counts {
 		out[c.ResourceID][c.Kind] = c.Count
 		out[c.ResourceID]["total"] = out[c.ResourceID]["total"].(int64) + c.Count
@@ -145,11 +140,11 @@ func (s *Service) audit(db *gorm.DB, a actor, op, id string, version int64, reas
 	return db.Create(&r).Error
 }
 
-// clearFeedback 与内容更新共用事务，同时移除旧反馈及其回执，防止重放恢复过期反馈。
+// clearFeedback 与内容更新共用事务移除旧反馈回执；历史反馈按内容版本保留，当前统计不会混入旧版。
 func clearFeedback(db *gorm.DB, id string) error {
 	if e := db.Exec("DELETE FROM public.command_receipts WHERE actor_kind='student' AND result_ref IN (SELECT id FROM public.resource_feedback WHERE resource_id=?)", id).
 		Error; e != nil {
 		return e
 	}
-	return db.Where("resource_id=?", id).Delete(&entity.ResourceFeedback{}).Error
+	return nil
 }

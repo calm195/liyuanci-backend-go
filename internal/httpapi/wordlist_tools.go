@@ -12,11 +12,21 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 )
 
 const builtinWordlistDraftRoute = "/wordlists/builtin/versions"
 
 func requestBodyLimit(c *gin.Context) int64 {
+	if c.Request.Method == http.MethodPost {
+		switch c.FullPath() {
+		case "/api/v1/admin/resource-files":
+			return resourceplaza.FileMaxBytes + (64 << 10)
+		case "/api/v1/me/avatar":
+			return studentauth.AvatarMaxBytes + (64 << 10)
+		}
+	}
 	if c.Request.Method == http.MethodPost && c.FullPath() == "/api/v1/admin"+builtinWordlistDraftRoute {
 		return 2 << 20
 	}

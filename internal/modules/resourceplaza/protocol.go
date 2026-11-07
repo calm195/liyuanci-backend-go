@@ -107,6 +107,7 @@ func Text(kind, v string) (string, error) {
 
 // Input 是固定路由白名单解析后的规范命令；未使用字段不参与客户端输入。
 type Input struct {
+	FileID                  string  `json:"file_id"`
 	Title                   string  `json:"title"`
 	CategoryID              string  `json:"category_id"`
 	Description             string  `json:"description"`
@@ -130,8 +131,8 @@ type Query struct {
 }
 
 var requestFields = map[string][]string{
-	"create":          {"title", "category_id", "download_url", "description", "extraction_code"},
-	"update":          {"title", "category_id", "download_url", "description", "extraction_code", "expected_version"},
+	"create":          {"title", "category_id", "download_url", "description", "extraction_code", "file_id"},
+	"update":          {"title", "category_id", "download_url", "description", "extraction_code", "file_id", "expected_version"},
 	"publish":         {"expected_version"},
 	"offline":         {"expected_version", "reason"},
 	"category_create": {"name", "sort_order"},
@@ -185,7 +186,7 @@ func ParseInput(op string, raw []byte) (out Input, err error) {
 	}
 	for _, k := range allowed {
 		_, ok := values[k]
-		optional := (op == "create" && (k == "description" || k == "extraction_code")) || (op == "category_create" && k == "sort_order")
+		optional := ((op == "create" || op == "update") && (k == "file_id" || (k == "download_url" || k == "extraction_code") && len(values["file_id"]) > 0)) || (op == "create" && (k == "description" || k == "extraction_code")) || (op == "category_create" && k == "sort_order")
 		if !ok && !optional {
 			return out, command.ErrInvalid
 		}
@@ -221,7 +222,7 @@ func ParseInput(op string, raw []byte) (out Input, err error) {
 		} else if json.Unmarshal(b, &v) != nil || string(b) == "null" {
 			return out, command.ErrInvalid
 		}
-		if k == "category_id" {
+		if k == "category_id" || k == "file_id" {
 			v, err = ID(v)
 		} else if k == "kind" {
 			if !slices.Contains([]string{"valid", "link_invalid", "outdated", "incomplete"}, v) {
@@ -234,6 +235,8 @@ func ParseInput(op string, raw []byte) (out Input, err error) {
 			return out, err
 		}
 		switch k {
+		case "file_id":
+			out.FileID = v
 		case "title":
 			out.Title = v
 		case "category_id":
@@ -253,6 +256,9 @@ func ParseInput(op string, raw []byte) (out Input, err error) {
 		case "kind":
 			out.Kind = v
 		}
+	}
+	if (op == "create" || op == "update") && out.FileID != "" && (out.DownloadURL != "" || out.ExtractionCode != nil) {
+		return out, command.ErrInvalid
 	}
 	if op == "category_create" {
 		out.Enabled = true
@@ -322,6 +328,12 @@ func normalizeInput(op string, in Input) (Input, error) {
 	}
 	selected := map[string]json.RawMessage{}
 	for _, k := range fields {
+		if k == "file_id" && in.FileID == "" {
+			continue
+		}
+		if in.FileID != "" && ((k == "download_url" && in.DownloadURL == "") || (k == "extraction_code" && in.ExtractionCode == nil)) {
+			continue
+		}
 		selected[k] = all[k]
 	}
 	b, e = json.Marshal(selected)

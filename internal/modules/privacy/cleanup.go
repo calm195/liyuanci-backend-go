@@ -562,6 +562,9 @@ func (s *Service) Run(ctx context.Context, scope string, interval time.Duration)
 		if scope == "account" && s.cfg.AvatarObjects != nil {
 			_ = s.cleanNextAvatar(ctx)
 		}
+		if scope == "account" && s.cfg.ResourceObjects != nil {
+			_ = s.cleanNextResourceFile(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return nil

@@ -16,11 +16,15 @@ import (
 func (s *serviceSet) buildResources(d ServiceDependencies, cfg ServiceConfig) error {
 	var e error
 	if cfg.Resources != nil {
-		s.studentResources, e = resourceplaza.New(d.WishDB, d.Logger, d.Codec, *cfg.Resources)
+		resourceConfig := *cfg.Resources
+		if objects, ok := d.Objects.(resourceplaza.FileObjects); ok {
+			resourceConfig.Objects = objects
+		}
+		s.studentResources, e = resourceplaza.New(d.WishDB, d.Logger, d.Codec, resourceConfig)
 		if e != nil {
 			return e
 		}
-		s.adminResources, e = resourceplaza.New(d.ReviewDB, d.Logger, d.Codec, *cfg.Resources)
+		s.adminResources, e = resourceplaza.New(d.ReviewDB, d.Logger, d.Codec, resourceConfig)
 		if e != nil {
 			return e
 		}

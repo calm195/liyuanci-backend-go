@@ -93,6 +93,10 @@ func (t *Tencent) Scan(ctx context.Context, image []byte, mime string) (approved
 	if len(job.Code) == 1 {
 		providerCode = safeTencentCode(job.Code[0])
 	}
+	// 只有已核对请求标识的明确图片不支持结果才归为输入错误，其它供应商故障保持可重试。
+	if len(job.DataID) == 1 && job.DataID[0] == dataID && len(job.Code) == 1 && job.Code[0] == "ResourceNotSupported" {
+		return false, command.ErrInvalid
+	}
 	// Result必须显式存在，防止缺失字段被Go零值解释为通过；请求标识用于核对单张响应。
 	if len(job.DataID) != 1 || job.DataID[0] != dataID || len(job.Code) != 0 || len(job.State) != 1 || job.State[0] != "Success" || len(job.Result) != 1 {
 		return false, command.ErrUnavailable

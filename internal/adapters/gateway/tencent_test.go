@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,6 +139,7 @@ func TestTencentImageResults(t *testing.T) {
 		{"结果缺失", "", false, true},
 		{"结果未知", "<Result>3</Result>", false, true},
 		{"错误码", "<Code>InvalidArgument</Code><Result>0</Result>", false, true},
+		{"图片不支持", "<Code>ResourceNotSupported</Code>", false, true},
 		{"局部失败", "<Result>0</Result><PornInfo><Code>12</Code><HitFlag>0</HitFlag></PornInfo>", false, true},
 		{"局部疑似", "<Result>0</Result><PornInfo><Code>0</Code><HitFlag>2</HitFlag></PornInfo>", false, false},
 		{"未完成", "<State>Failed</State><Result>0</Result>", false, true},
@@ -166,6 +168,9 @@ func TestTencentImageResults(t *testing.T) {
 				fmt.Fprintf(w, "<Response><JobsDetail><DataId>%s</DataId><State>Success</State>%s</JobsDetail></Response>", input.Input.DataID, tc.fields)
 			})
 			approved, err := client.Scan(context.Background(), []byte("规范化图片"), "image/png")
+			if tc.name == "图片不支持" && !errors.Is(err, command.ErrInvalid) {
+				t.Fatal("图片不支持未映射输入错误", err)
+			}
 			if approved != tc.approved || (err != nil) != tc.failure {
 				t.Fatalf("approved=%v err=%v", approved, err)
 			}

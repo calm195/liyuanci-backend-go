@@ -53,6 +53,13 @@ func (s *Service) Read(ctx context.Context, token, rid, op, id string, q Query, 
 			if e != nil {
 				return e
 			}
+			file, link, e := s.fileDownload(db, r)
+			if e != nil {
+				return e
+			}
+			if file != nil {
+				d.URL = link
+			}
 			copyText := d.URL
 			if d.Code != nil {
 				copyText += "\n提取码：" + *d.Code
@@ -63,15 +70,13 @@ func (s *Service) Read(ctx context.Context, token, rid, op, id string, q Query, 
 				"download_url":    d.URL,
 				"extraction_code": d.Code,
 				"copy_text":       copyText,
+				"file":            file,
 			}
 			return nil
 		}
-		stats := map[string]map[string]any{}
-		if admin {
-			stats, e = summaries(db, []entity.ResourceMaterial{r})
-			if e != nil {
-				return e
-			}
+		stats, e := summaries(db, []entity.ResourceMaterial{r})
+		if e != nil {
+			return e
 		}
 		out, e = s.project(db, a, r, true, stats, nil)
 		return e
@@ -166,12 +171,9 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 		}
 	}
 	// 摘要与分类批量读取，随后只做页内投影，避免为每条资料重复查询关联数据。
-	stats := map[string]map[string]any{}
-	if admin {
-		stats, e = summaries(db, rows)
-		if e != nil {
-			return out, e
-		}
+	stats, e := summaries(db, rows)
+	if e != nil {
+		return out, e
 	}
 	categoryIDs := []string{}
 	for _, r := range rows {

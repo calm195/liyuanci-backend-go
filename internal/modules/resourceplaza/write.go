@@ -251,6 +251,10 @@ func (s *Service) createMaterial(ctx context.Context, db *gorm.DB, a actor, op s
 		CreatedAt:      a.Now,
 		UpdatedAt:      a.Now,
 	}
+	r.FileID, e = bindFile(db, a, in.FileID, nil)
+	if e != nil {
+		return "", e
+	}
 	r.DownloadCipher, e = s.encrypt(ctx, "resource_download", r.ID, 1, download{in.DownloadURL, in.ExtractionCode})
 	if e != nil {
 		return "", e
@@ -264,7 +268,7 @@ func (s *Service) createMaterial(ctx context.Context, db *gorm.DB, a actor, op s
 	return r.ID, nil
 }
 
-// changeMaterial 处理资料改稿、上架与下架；改稿会推进内容版本并清理旧反馈。
+// changeMaterial 处理资料改稿、上架与下架；改稿推进内容版本，保留历史反馈并清理旧版回执。
 func (s *Service) changeMaterial(ctx context.Context, db *gorm.DB, a actor, op string, in Input, r entity.ResourceMaterial) (string, error) {
 	db = db.WithContext(ctx)
 	var e error
@@ -287,11 +291,21 @@ func (s *Service) changeMaterial(ctx context.Context, db *gorm.DB, a actor, op s
 		if e != nil {
 			return "", e
 		}
-		if r.Title == in.Title && r.Description == in.Description && r.CategoryID == in.CategoryID && sameDownload(d, in) {
+		if r.Title == in.Title && r.Description == in.Description && r.CategoryID == in.CategoryID && sameDownload(d, in) && ((r.FileID == nil && in.FileID == "") || (r.FileID != nil && *r.FileID == in.FileID)) {
 			return r.ID, nil
 		}
 		if r.Version == MaxInteger || r.ContentVersion == MaxInteger {
 			return "", command.ErrUnavailable
+		}
+		previousFile := r.FileID
+		r.FileID, e = bindFile(db, a, in.FileID, r.FileID)
+		if e != nil {
+			return "", e
+		}
+		if previousFile != nil && (r.FileID == nil || *previousFile != *r.FileID) {
+			if e = db.Model(&entity.ResourceFile{}).Where("id=?", *previousFile).Update("removable_after", a.Now.Add(10*time.Minute)).Error; e != nil {
+				return "", e
+			}
 		}
 		r.Title = in.Title
 		r.Description = in.Description

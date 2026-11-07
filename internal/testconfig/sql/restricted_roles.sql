@@ -522,3 +522,22 @@ GRANT UPDATE (avatar_id,avatar_url) ON public.accounts TO liyuanci_identity_main
 DROP POLICY IF EXISTS account_avatars_scope ON public.account_avatars;
 CREATE POLICY account_avatars_scope ON public.account_avatars TO liyuanci_api,liyuanci_identity_maintenance,liyuanci_privacy_maintenance USING(true) WITH CHECK(true);
 GRANT UPDATE (lifecycle_bound) ON public.command_receipts TO liyuanci_identity_maintenance;
+
+-- 资料文件只经管理员绑定，学生读取元信息，清理器处理未引用对象。
+ALTER TABLE public.resource_files OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.resource_files FROM PUBLIC;
+GRANT SELECT ON public.resource_files TO liyuanci_api;
+GRANT SELECT,INSERT,UPDATE ON public.resource_files TO liyuanci_admin_api;
+GRANT SELECT,UPDATE ON public.resource_files TO liyuanci_privacy_maintenance;
+GRANT SELECT ON public.resource_materials TO liyuanci_privacy_maintenance;
+DROP POLICY IF EXISTS resource_files_scope ON public.resource_files;
+CREATE POLICY resource_files_scope ON public.resource_files TO liyuanci_api,liyuanci_admin_api,liyuanci_privacy_maintenance USING(true) WITH CHECK(true);
+ALTER FUNCTION public.resource_feedback_summary(uuid[]) OWNER TO liyuanci_migrator;
+REVOKE ALL ON FUNCTION public.resource_feedback_summary(uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.resource_feedback_summary(uuid[]) TO liyuanci_api,liyuanci_admin_api;
+DROP POLICY IF EXISTS resource_feedback_aggregate ON public.resource_feedback;
+CREATE POLICY resource_feedback_aggregate ON public.resource_feedback FOR SELECT TO liyuanci_migrator USING(true);
+DROP POLICY IF EXISTS resource_materials_aggregate ON public.resource_materials;
+CREATE POLICY resource_materials_aggregate ON public.resource_materials FOR SELECT TO liyuanci_migrator USING(true);
+DROP POLICY IF EXISTS resource_materials_cleanup ON public.resource_materials;
+CREATE POLICY resource_materials_cleanup ON public.resource_materials FOR SELECT TO liyuanci_privacy_maintenance USING(true);

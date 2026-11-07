@@ -50,7 +50,7 @@ func (f *avatarFixture) AvatarURL(_ context.Context, key string) (string, error)
 
 func avatarPNG(t *testing.T, c color.Color) []byte {
 	t.Helper()
-	pixels := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	pixels := image.NewRGBA(image.Rect(0, 0, 32, 32))
 	pixels.Set(0, 0, c)
 	var data bytes.Buffer
 	if err := png.Encode(&data, pixels); err != nil {
@@ -67,6 +67,15 @@ func testAvatarCommands(t *testing.T, service *studentauth.Service, fixture *ava
 	second := avatarPNG(t, color.RGBA{B: 255, A: 255})
 	upload := func(key string, version int64, data []byte) (studentauth.Me, error) {
 		return service.UploadAvatar(ctx, user.Token, key, "", version, "image/png", bytes.NewReader(data))
+	}
+
+	// 过小图片须在预约和外部上传之前明确拒绝。
+	var tiny bytes.Buffer
+	if err := png.Encode(&tiny, image.NewRGBA(image.Rect(0, 0, 20, 20))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upload("avatar-tiny", user.Me.Version, tiny.Bytes()); !errors.Is(err, command.ErrInvalid) || fixture.puts.Load() != 0 {
+		t.Fatal("过小头像未拒绝", err)
 	}
 
 	type result struct {

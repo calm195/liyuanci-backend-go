@@ -150,9 +150,10 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 	default:
 		return out, ErrRateLimited
 	}
-	data, _, err := imageinput.Normalize(source, mediaType, AvatarMaxBytes, avatarMaxPixels)
+	data, validation, err := imageinput.Normalize(source, mediaType, AvatarMaxBytes, avatarMaxPixels)
 	defer clear(data)
-	if err != nil {
+	// 腾讯图片审核要求宽高均大于20像素；提前拒绝，避免把不支持的图片误报为结果未知。
+	if err != nil || validation.Width <= 20 || validation.Height <= 20 {
 		return out, command.ErrInvalid
 	}
 	digest := sha256.Sum256(data)
@@ -169,6 +170,9 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 	defer stop()
 	defer s.releaseAvatarLease(ctx, row)
 	passed, err := s.config.AvatarScanner.Scan(bounded, data, "image/png")
+	if errors.Is(err, command.ErrInvalid) {
+		return out, command.ErrInvalid
+	}
 	if err != nil {
 		return out, command.ErrUnavailable
 	}

@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +29,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
@@ -112,6 +115,7 @@ func TestPostgresHTTP(t *testing.T) {
 	cfg := resourceplaza.Config{
 		Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
 		Key:     bytes.Repeat([]byte{71}, 32),
+		Objects: resourceObjectsFixture{},
 	}
 	student, e := resourceplaza.New(api, log, codec, cfg)
 	must(e)
@@ -213,6 +217,76 @@ func TestPostgresHTTP(t *testing.T) {
 		map[string]any{"name": "数学", "sort_order": 2, "enabled": true, "expected_version": 1},
 		200,
 	).Data
+	// 文件上传使用合成对象网关，数据库预约、权限、绑定与替换均走真实事务。
+	file, uploadErr := admin.UploadFile(ctx, at, "file-one", "", "课程.pdf", strings.NewReader("%PDF-1.4\n合成资料"))
+	must(uploadErr)
+	again, uploadErr := admin.UploadFile(ctx, at, "file-one", "", "课程.pdf", strings.NewReader("%PDF-1.4\n合成资料"))
+	must(uploadErr)
+	if again.ID != file.ID {
+		t.Fatal("文件重试创建了重复对象")
+	}
+	_, uploadErr = admin.UploadFile(ctx, at, "file-one", "", "课程.pdf", strings.NewReader("%PDF-1.4\n不同内容"))
+	if uploadErr != command.ErrIdempotencyConflict {
+		t.Fatal("文件幂等冲突未拒绝", uploadErr)
+	}
+	_, uploadErr = admin.UploadFile(ctx, ct, "denied", "", "课程.pdf", strings.NewReader("%PDF-1.4\n资料"))
+	if uploadErr != command.ErrForbidden {
+		t.Fatal("越权文件上传未拒绝", uploadErr)
+	}
+	fileMaterial := call("POST", "/admin/resources", at, "file-material", map[string]any{"title": "文件资料", "category_id": cid, "file_id": file.ID}, 201).Data
+	fid := fileMaterial["id"].(string)
+	if fileMaterial["file"].(map[string]any)["id"] != file.ID {
+		t.Fatal("文件元信息未返回")
+	}
+	call("POST", "/admin/resources/"+fid+"/publish", at, "file-publish", map[string]any{"expected_version": 1}, 200)
+	fileDownload := call("GET", "/resources/"+fid+"/download-info?expected_version=2", ut, "", nil, 200).Data
+	if fileDownload["file"].(map[string]any)["name"] != "课程.pdf" || !strings.Contains(fileDownload["download_url"].(string), "signed.test") {
+		t.Fatal("未返回签名文件下载")
+	}
+	call("POST", "/admin/resources/"+fid+"/offline", at, "file-offline", map[string]any{"expected_version": 2, "reason": "替换文件"}, 200)
+	nextFile, uploadErr := admin.UploadFile(ctx, at, "file-two", "", "新版.pdf", strings.NewReader("%PDF-1.4\n新版资料"))
+	must(uploadErr)
+	replaced := call("PUT", "/admin/resources/"+fid+"/content", at, "file-replace", map[string]any{"title": "文件资料", "category_id": cid, "description": "", "file_id": nextFile.ID, "expected_version": 3}, 200).Data
+	if replaced["file"].(map[string]any)["id"] != nextFile.ID {
+		t.Fatal("文件未原子替换")
+	}
+
+	// 清理器失败后重试旧文件，当前仍引用的文件不得删除。
+	must(root.Model(&entity.ResourceFile{}).Where("id IN ?", []string{file.ID, nextFile.ID}).Update("removable_after", time.Now().Add(-time.Hour)).Error)
+	journalDirectory := t.TempDir()
+	must(os.Chmod(journalDirectory, 0700))
+	journal, journalErr := privacy.NewFileJournal(filepath.Join(journalDirectory, "cleanup.journal"), codec, log)
+	must(journalErr)
+	cleanupObjects := &resourceCleanupFixture{}
+	cleanupDB := open(dbdsn + " options='-c role=liyuanci_privacy_maintenance'")
+	cleaner, cleanerErr := privacy.New(cleanupDB, journal, codec, log, privacy.Config{Command: cfg.Command, Key: bytes.Repeat([]byte{72}, 32), ReceiptTTL: time.Hour, RetryDelay: time.Millisecond, ResourceObjects: cleanupObjects})
+	must(cleanerErr)
+	cleanupContext, stopCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- cleaner.Run(cleanupContext, "account", time.Millisecond) }()
+	deadline := time.Now().Add(5 * time.Second)
+	removed := int64(0)
+	for time.Now().Before(deadline) {
+		must(root.Model(&entity.ResourceFile{}).Where("id=? AND removed_at IS NOT NULL", file.ID).Count(&removed).Error)
+		if removed == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	stopCleanup()
+	must(<-cleanupDone)
+	if removed != 1 || cleanupObjects.calls.Load() != 2 {
+		t.Fatal("旧文件清理未重试成功", removed, cleanupObjects.calls.Load())
+	}
+	var liveFile entity.ResourceFile
+	must(root.Where("id=?", nextFile.ID).Take(&liveFile).Error)
+	if liveFile.RemovedAt != nil || liveFile.CleanupStartedAt != nil {
+		t.Fatal("当前文件被清理")
+	}
+	_, uploadErr = admin.UploadFile(ctx, at, "file-one", "", "课程.pdf", strings.NewReader("%PDF-1.4\n合成资料"))
+	if uploadErr != command.ErrConflict {
+		t.Fatal("清理后的旧预约允许重启上传", uploadErr)
+	}
 	input := map[string]any{
 		"title":           " ABC资料 ",
 		"category_id":     cid,
@@ -518,4 +592,24 @@ func TestPostgresHTTP(t *testing.T) {
 		t.Logf("隔离串行查询 %s n=100 P95=%s", path, samples[94])
 	}
 	t.Logf("真实PG/HTTP完成15操作、认证/权限、版本/幂等、反馈换版清理、分类引用、屏障与并发；独立库 %s", name)
+}
+
+// resourceObjectsFixture 明确模拟COS传输；不冒充真实供应商验证。
+type resourceObjectsFixture struct{}
+
+func (resourceObjectsFixture) PutResource(_ context.Context, _ string, data []byte, _ string) (string, error) {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", sum), nil
+}
+func (resourceObjectsFixture) ResourceURL(_ context.Context, key, _ string) (string, error) {
+	return "https://signed.test/" + key, nil
+}
+
+type resourceCleanupFixture struct{ calls atomic.Int64 }
+
+func (f *resourceCleanupFixture) RemoveResource(context.Context, string) error {
+	if f.calls.Add(1) == 1 {
+		return command.ErrUnavailable
+	}
+	return nil
 }

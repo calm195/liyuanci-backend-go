@@ -112,6 +112,7 @@ func businessModels() []any {
 
 		&entity.ResourceCategory{},
 		&entity.ResourceMaterial{},
+		&entity.ResourceFile{},
 		&entity.ResourceFeedback{},
 		&entity.ResourceAudit{},
 

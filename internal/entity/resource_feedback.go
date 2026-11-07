@@ -2,7 +2,7 @@ package entity
 
 import "time"
 
-// ResourceFeedback 映射资料当前内容版本学生反馈。
+// ResourceFeedback 映射资料各内容版本学生反馈，当前展示按内容版本筛选。
 type ResourceFeedback struct {
 	ID             string    `gorm:"column:id;type:uuid;not null;comment:反馈技术标识及幂等引用;primaryKey;autoIncrement:false" json:"-"`
 	ResourceID     string    `gorm:"column:resource_id;type:uuid;not null;comment:资料标识" json:"-"`

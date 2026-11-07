@@ -26,6 +26,7 @@ func RegisterResources(r *gin.Engine, student, admin ResourcesAPI) error {
 	if r == nil || student == nil || admin == nil {
 		return command.ErrInvalid
 	}
+	registerResourceFiles(r, admin)
 	// 学生与后台共享固定操作协议，但始终选择各自注入的领域服务重新授权。
 	routes := []struct {
 		method, path, op string

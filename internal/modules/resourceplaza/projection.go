@@ -71,6 +71,14 @@ func (s *Service) project(
 		if e != nil {
 			return nil, e
 		}
+		file, link, e := s.fileDownload(db, r)
+		if e != nil {
+			return nil, e
+		}
+		if file != nil {
+			d.URL = link
+		}
+		p["file"] = file
 		p["description"] = r.Description
 		p["download_url"] = d.URL
 		p["extraction_code"] = d.Code
@@ -78,6 +86,7 @@ func (s *Service) project(
 	} else {
 		p["description_excerpt"] = string([]rune(r.Description)[:min(120, len([]rune(r.Description)))])
 	}
+	p["feedback_summary"] = stats[r.ID]
 	if a.Admin {
 		p["status"] = r.Status
 		p["content_version"] = r.ContentVersion
@@ -90,7 +99,6 @@ func (s *Service) project(
 			actions = []string{"offline"}
 		}
 		p["allowed_actions"] = actions
-		p["feedback_summary"] = stats[r.ID]
 	} else if detail {
 		p["my_feedback"] = nil
 		var fs []entity.ResourceFeedback
