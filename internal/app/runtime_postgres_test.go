@@ -138,6 +138,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 			id,
 		).Error)
 	}
+	must(moderation.InitializeBuiltin(ctx, root))
 	must((&runtimeResources{}).rules(ctx, root))
 	// 生效指针仍在也不能接受归档快照；回滚保持后续真实进程的已发布环境。
 	func() {
@@ -424,7 +425,7 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var version int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&version).Error)
-	if version != 13 {
+	if version != 14 {
 		t.Fatal("运行入口改变迁移版本", version)
 	}
 	t.Logf("server及统一worker、本机密钥、Redis、数据库任务、禁用/重启/数据库删除恢复门禁通过；未使用外部审核、KMS或通知服务")

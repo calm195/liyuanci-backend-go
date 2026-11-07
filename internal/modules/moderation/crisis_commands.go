@@ -150,7 +150,15 @@ func (s *Service) EscalateCrisis(ctx context.Context, token, key, rid, source, i
 		if e != nil {
 			return "", e
 		}
-		ref, e := captureCrisis(ctx, db, s.codec, row, tx.Now())
+		var scan entity.ModerationScan
+		if e = db.Where("task_id=?", t).Take(&scan).Error; e != nil {
+			return "", e
+		}
+		evidence, e := readWordlistEvidence(ctx, s.codec, "moderation_projection", scan)
+		if e != nil {
+			return "", e
+		}
+		ref, e := captureCrisis(ctx, db, s.codec, row, tx.Now(), evidence)
 		if e != nil {
 			return "", e
 		}

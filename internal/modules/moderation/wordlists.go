@@ -21,6 +21,8 @@ type Wordlist struct {
 	Kind            string  `json:"kind"`
 	Status          string  `json:"status"`
 	BaseEffectiveID *string `json:"base_effective_id"`
+	UpstreamVersion string  `json:"upstream_version,omitempty"`
+	UpstreamDigest  string  `json:"upstream_digest,omitempty"`
 }
 
 // WordlistDetail 只在当前角色授权后返回完整词条。
@@ -30,7 +32,7 @@ type WordlistDetail struct {
 	DisabledEntries []string `json:"disabled_entries,omitempty"`
 }
 
-// WordlistPage 每页都包含三类一致快照的基准，不随分页遗漏。
+// WordlistPage 每页都包含全部一致快照的基准，不随分页遗漏。
 type WordlistPage struct {
 	Items      []Wordlist            `json:"items"`
 	NextCursor *string               `json:"next_cursor"`
@@ -52,7 +54,10 @@ type WordlistPublish struct {
 }
 
 func wordlist(row entity.WordlistVersion) Wordlist {
-	return Wordlist{row.ID, row.Version, row.Type, row.Status, row.BaseEffectiveID}
+	return Wordlist{
+		ID: row.ID, Version: row.Version, Kind: row.Type, Status: row.Status,
+		BaseEffectiveID: row.BaseEffectiveID, UpstreamVersion: row.UpstreamVersion, UpstreamDigest: row.UpstreamDigest,
+	}
 }
 
 func readList(db *gorm.DB, id string) (row entity.WordlistVersion, err error) {
@@ -69,7 +74,7 @@ func enabledEntries(db *gorm.DB, id string) ([]string, error) {
 	return out, e
 }
 
-// Wordlists 返回授权元数据和全部三类当前基准，游标绑定当前管理员与列表用途。
+// Wordlists 返回授权元数据和全部当前基准，游标绑定当前管理员与列表用途。
 func (s *Service) Wordlists(ctx context.Context, token, rid, cursor string, limit int) (out WordlistPage, err error) {
 	defer func() {
 		if err != nil {
@@ -93,11 +98,11 @@ func (s *Service) Wordlists(ctx context.Context, token, rid, cursor string, limi
 		if e = db.Order("kind").Find(&out.Heads).Error; e != nil {
 			return e
 		}
-		if len(out.Heads) != 3 {
+		if len(out.Heads) != 4 {
 			return command.ErrUnavailable
 		}
 		var rows []entity.WordlistVersion
-		q := db.Where("type IN ?", []string{"crisis", "school", "ordinary_violation"})
+		q := db.Where("type IN ?", []string{"crisis", "school", "ordinary_violation", builtinKind})
 		if after != "" {
 			q = q.Where("id>?", after)
 		}
@@ -138,6 +143,10 @@ func (s *Service) Wordlist(ctx context.Context, token, rid, id string) (out Word
 			return e
 		}
 		out.Wordlist = wordlist(row)
+		if row.Type == builtinKind {
+			out.Entries = []string{}
+			return audit(db, actor, id, "wordlist.detail")
+		}
 		var rows []entity.WordlistEntry
 		if e = db.Where("version_id=?", id).Order("entry").Find(&rows).Error; e != nil {
 			return e
@@ -202,17 +211,49 @@ func (s *Service) PublishWordlist(ctx context.Context, token, key, rid, id strin
 	return s.writeWordlist(ctx, token, key, rid, id, WordlistInput{}, input)
 }
 
-func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string, input WordlistInput, publish WordlistPublish) (out Wordlist, err error) {
-	op, path, request := "wordlist.create", "/api/v1/admin/wordlists/versions", any(input)
+type wordlistChange struct {
+	operation  string
+	path       string
+	request    any
+	kind       string
+	id         string
+	version    int64
+	publish    *WordlistPublish
+	buildDraft func(*gorm.DB, entity.WordlistHead, entity.WordlistVersion) (entity.WordlistVersion, []entity.WordlistEntry, error)
+}
+
+func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string, input WordlistInput, publish WordlistPublish) (Wordlist, error) {
 	if id != "" {
-		op = "wordlist.publish"
-		path = "/api/v1/admin/wordlists/" + id + "/publish"
-		request = publish
+		return s.changeWordlist(ctx, token, key, rid, wordlistChange{
+			operation: "wordlist.publish", path: "/api/v1/admin/wordlists/" + id + "/publish",
+			id: id, version: publish.ExpectedHeadVersion, request: publish, publish: &publish,
+		})
 	}
+	return s.changeWordlist(ctx, token, key, rid, wordlistChange{
+		operation: "wordlist.create", path: "/api/v1/admin/wordlists/versions",
+		kind: input.Kind, version: input.ExpectedVersion, request: input,
+		buildDraft: func(_ *gorm.DB, _ entity.WordlistHead, _ entity.WordlistVersion) (entity.WordlistVersion, []entity.WordlistEntry, error) {
+			sorted := append([]string(nil), input.Entries...)
+			slices.Sort(sorted)
+			disabled := make(map[string]bool, len(input.DisabledEntries))
+			for _, entry := range input.DisabledEntries {
+				disabled[entry] = true
+			}
+			entries := make([]entity.WordlistEntry, 0, len(sorted))
+			for _, entry := range sorted {
+				entries = append(entries, entity.WordlistEntry{Entry: entry, Action: input.Kind, Disabled: disabled[entry]})
+			}
+			return entity.WordlistVersion{}, entries, nil
+		},
+	})
+}
+
+// changeWordlist 统一加锁、并发检查、幂等及审计边界。派生版本的词条始终完整复制。
+func (s *Service) changeWordlist(ctx context.Context, token, key, rid string, change wordlistChange) (out Wordlist, err error) {
 	d := command.Definition{
-		Kind:         op,
+		Kind:         change.operation,
 		Method:       "POST",
-		ResourcePath: path,
+		ResourcePath: change.path,
 		ActorKind:    "admin",
 		AllowedRoles: []string{"super_admin", "review_operator"},
 		Discover: func(context.Context, *gorm.DB, command.Subject) (command.Discovery, error) {
@@ -222,11 +263,11 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
-		k := input.Kind
+		k := change.kind
 		var row entity.WordlistVersion
-		if id != "" {
+		if change.id != "" {
 			var e error
-			row, e = readList(db, id)
+			row, e = readList(db, change.id)
 			if e != nil {
 				return "", e
 			}
@@ -236,67 +277,41 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 		if e := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("kind=?", k).Take(&head).Error; e != nil {
 			return "", e
 		}
+		if head.Version != change.version {
+			return "", command.ErrVersionConflict
+		}
 		if head.Version == int64(^uint64(0)>>1) {
 			return "", command.ErrConflict
 		}
-		if id == "" {
-			if head.Version != input.ExpectedVersion {
-				return "", command.ErrVersionConflict
-			}
-			row = entity.WordlistVersion{
-				ID:              uuid.NewString(),
-				Type:            k,
-				Version:         1,
-				Status:          "draft",
-				BaseEffectiveID: head.EffectiveID,
-			}
-			if e := db.Create(&row).Error; e != nil {
+		// 等待分类锁期间其他发布可能归档目标，锁内按最新状态校验。
+		if change.id != "" {
+			var e error
+			row, e = readList(db, change.id)
+			if e != nil {
 				return "", e
 			}
-			sorted := append([]string(nil), input.Entries...)
-			slices.Sort(sorted)
-			disabled := make(map[string]bool, len(input.DisabledEntries))
-			for _, entry := range input.DisabledEntries {
-				disabled[entry] = true
-			}
-			for _, entry := range sorted {
-				if e := db.Create(&entity.WordlistEntry{
-					ID:        uuid.NewString(),
-					VersionID: row.ID,
-					Entry:     entry,
-					Action:    k,
-					Disabled:  disabled[entry],
-				}).Error; e != nil {
-					return "", e
-				}
+		}
+		if change.publish != nil {
+			if e := publishWordlist(db, &head, row, *change.publish); e != nil {
+				return "", e
 			}
 		} else {
-			if row.Version != publish.ExpectedVersion || head.Version != publish.ExpectedHeadVersion {
-				return "", command.ErrVersionConflict
-			}
-			if row.Status != "draft" || !sameID(row.BaseEffectiveID, head.EffectiveID) {
-				return "", command.ErrConflict
-			}
-			if head.EffectiveID != nil {
-				if e := db.Model(&entity.WordlistVersion{}).Where("id=? AND status='published'", *head.EffectiveID).
-					Updates(map[string]any{"status": "archived", "version": gorm.Expr("version+1")}).
-					Error; e != nil {
-					return "", e
-				}
-			}
-			if e := db.Model(&entity.WordlistVersion{}).Where("id=?", id).
-				Updates(map[string]any{"status": "published", "version": gorm.Expr("version+1")}).
-				Error; e != nil {
+			draft, entries, e := change.buildDraft(db, head, row)
+			if e != nil {
 				return "", e
 			}
-			head.EffectiveID = &row.ID
+			draft.ID, draft.Type, draft.Version, draft.Status, draft.BaseEffectiveID = uuid.NewString(), k, 1, "draft", head.EffectiveID
+			if e = createWordlistSnapshot(db, draft, entries); e != nil {
+				return "", e
+			}
+			row = draft
 		}
 		if e := db.Model(&entity.WordlistHead{}).Where("kind=?", k).
 			Updates(map[string]any{"version": head.Version + 1, "effective_id": head.EffectiveID}).
 			Error; e != nil {
 			return "", e
 		}
-		if e := audit(db, tx.Actor().ID, row.ID, op); e != nil {
+		if e := audit(db, tx.Actor().ID, row.ID, change.operation); e != nil {
 			return "", e
 		}
 		return row.ID, nil
@@ -309,9 +324,46 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 	_, err = s.engine.Execute(
 		ctx,
 		d,
-		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(request)},
+		command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: s.digest(change.request)},
 	)
 	return
+}
+
+func createWordlistSnapshot(db *gorm.DB, row entity.WordlistVersion, entries []entity.WordlistEntry) error {
+	if e := db.Create(&row).Error; e != nil {
+		return e
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	for i := range entries {
+		entries[i].ID, entries[i].VersionID = uuid.NewString(), row.ID
+	}
+	return db.CreateInBatches(entries, 500).Error
+}
+
+func publishWordlist(db *gorm.DB, head *entity.WordlistHead, row entity.WordlistVersion, publish WordlistPublish) error {
+	if row.Version != publish.ExpectedVersion {
+		return command.ErrVersionConflict
+	}
+	if row.Status != "draft" || !sameID(row.BaseEffectiveID, head.EffectiveID) {
+		return command.ErrConflict
+	}
+	if e := validateWordlistMatcher(db, row); e != nil {
+		return e
+	}
+	if head.EffectiveID != nil {
+		if e := db.Model(&entity.WordlistVersion{}).Where("id=? AND status='published'", *head.EffectiveID).
+			Updates(map[string]any{"status": "archived", "version": gorm.Expr("version+1")}).Error; e != nil {
+			return e
+		}
+	}
+	if e := db.Model(&entity.WordlistVersion{}).Where("id=?", row.ID).
+		Updates(map[string]any{"status": "published", "version": gorm.Expr("version+1")}).Error; e != nil {
+		return e
+	}
+	head.EffectiveID = &row.ID
+	return nil
 }
 
 func sameID(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }

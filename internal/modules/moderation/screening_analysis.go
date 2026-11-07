@@ -11,18 +11,25 @@ import (
 // analyze 只在词库命中或显式重审时调用原分析器。未命中候选保留原文和显式标签，
 // 不在此处写状态；消费者继续按原来的版本、资格、撤回与持久回执规则提交。
 func (w *Worker) analyze(ctx context.Context, source current, snapshot rules, input wish.Content) (out Assessment, err error) {
-	defer func() {
-		if err == nil {
-			out.CrisisHit = out.CrisisHit || hit(input.Body, snapshot.crisisEntries)
-			out.SchoolRelated = source.message == nil && (out.SchoolRelated || hit(input.Body, snapshot.schoolEntries))
-			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(input.Body, snapshot.ordinaryEntries) ||
-				source.message != nil && hit(input.Body, snapshot.schoolEntries)
-		}
-	}()
 	if err := ctx.Err(); err != nil {
 		return Assessment{}, err
 	}
-	if !snapshot.requiresReview(input.Body, source.task.PrivacyRecheck || source.task.CrisisRecheck) {
+	evaluation, err := snapshot.scan(input.Body)
+	if err != nil {
+		return Assessment{}, err
+	}
+	recheck := source.task.PrivacyRecheck || source.task.CrisisRecheck
+	school := evaluation.routesTo("school")
+	defer func() {
+		if err == nil {
+			out.wordlistEvaluation = &evaluation
+			out.CrisisHit = out.CrisisHit || evaluation.routesTo("crisis")
+			out.SchoolRelated = source.message == nil && (out.SchoolRelated || school)
+			out.OrdinaryHit = out.OrdinaryHit || recheck || evaluation.routesTo("ordinary_violation") ||
+				source.message != nil && school
+		}
+	}()
+	if !recheck && len(evaluation.Routes) == 0 {
 		return Assessment{Body: input.Body, Tags: input.IdentityTags, DetectorVersion: wordlistDetectorVersion}, nil
 	}
 	if source.message != nil {
@@ -42,18 +49,25 @@ func (w *Worker) analyze(ctx context.Context, source current, snapshot rules, in
 
 // analyze 对胶囊仅分类，不为私密正文创建公开替换投影。
 func (w *WhisperWorker) analyze(ctx context.Context, source whisperSource, snapshot rules, body string, identity whisper.IdentityInput) (out WhisperAssessment, err error) {
-	defer func() {
-		if err == nil {
-			out.CrisisHit = out.CrisisHit || hit(body, snapshot.crisisEntries)
-			out.OrdinaryHit = out.OrdinaryHit || source.task.PrivacyRecheck || source.task.CrisisRecheck || hit(body, snapshot.ordinaryEntries) ||
-				source.registry.Kind == "whisper_capsule" && hit(body, snapshot.schoolEntries)
-			out.SchoolRelated = source.registry.Kind != "whisper_capsule" && (out.SchoolRelated || hit(body, snapshot.schoolEntries))
-		}
-	}()
 	if err := ctx.Err(); err != nil {
 		return WhisperAssessment{}, err
 	}
-	if !snapshot.requiresReview(body, source.task.PrivacyRecheck || source.task.CrisisRecheck) {
+	evaluation, err := snapshot.scan(body)
+	if err != nil {
+		return WhisperAssessment{}, err
+	}
+	recheck := source.task.PrivacyRecheck || source.task.CrisisRecheck
+	school := evaluation.routesTo("school")
+	capsule := source.registry.Kind == "whisper_capsule"
+	defer func() {
+		if err == nil {
+			out.wordlistEvaluation = &evaluation
+			out.CrisisHit = out.CrisisHit || evaluation.routesTo("crisis")
+			out.OrdinaryHit = out.OrdinaryHit || recheck || evaluation.routesTo("ordinary_violation") || capsule && school
+			out.SchoolRelated = !capsule && (out.SchoolRelated || school)
+		}
+	}()
+	if !recheck && len(evaluation.Routes) == 0 {
 		if source.registry.Kind == "whisper_capsule" {
 			return WhisperAssessment{DetectorVersion: wordlistDetectorVersion}, nil
 		}

@@ -34,10 +34,11 @@ type WhisperReviewSummary struct {
 // WhisperReviewDetail 仅在精确当前普通命中案件并提交审计后返回。
 type WhisperReviewDetail struct {
 	WhisperReviewSummary
-	Title          string `json:"title,omitempty"`
-	Body           string `json:"body"`
-	SchoolRelated  bool   `json:"school_related"`
-	PrivacyRecheck bool   `json:"privacy_recheck"`
+	WordlistEvidence *WordlistEvidence `json:"wordlist_evidence,omitempty"`
+	Title            string            `json:"title,omitempty"`
+	Body             string            `json:"body"`
+	SchoolRelated    bool              `json:"school_related"`
+	PrivacyRecheck   bool              `json:"privacy_recheck"`
 }
 
 // WhisperReviewCommand 同时绑定案件版本和正文版本，拒绝覆盖迟到决定。
@@ -227,7 +228,11 @@ func (s *Service) WhisperReview(ctx context.Context, token, rid, id string) (out
 				return e
 			}
 		}
-		out = WhisperReviewDetail{WhisperReviewSummary: whisperSummary(r), Body: body, Title: title, SchoolRelated: scan.SchoolRelated, PrivacyRecheck: r.task.PrivacyRecheck}
+		evidence, e := readWordlistEvidence(ctx, s.codec, "whisper_moderation_projection", scan)
+		if e != nil {
+			return e
+		}
+		out = WhisperReviewDetail{WordlistEvidence: evidence, WhisperReviewSummary: whisperSummary(r), Body: body, Title: title, SchoolRelated: scan.SchoolRelated, PrivacyRecheck: r.task.PrivacyRecheck}
 		if r.task.Status == "human_required" {
 			out.AllowedActions = []string{"whisperAdminReviewDecide"}
 			var n int64

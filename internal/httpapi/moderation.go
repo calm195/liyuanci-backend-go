@@ -15,12 +15,17 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 )
 
-// ModerationService 只暴露正式契约已有的词库和普通审核案件操作。
+// ModerationService 暴露词库管理和普通审核案件操作。
 type ModerationService interface {
 	Wordlists(context.Context, string, string, string, int) (moderation.WordlistPage, error)
 	Wordlist(context.Context, string, string, string) (moderation.WordlistDetail, error)
 	CreateWordlist(context.Context, string, string, string, moderation.WordlistInput) (moderation.Wordlist, error)
 	PublishWordlist(context.Context, string, string, string, string, moderation.WordlistPublish) (moderation.Wordlist, error)
+	BuiltinWordlistEntries(context.Context, string, string, string, moderation.BuiltinWordlistFilter) (moderation.BuiltinWordlistPage, error)
+	BuiltinUpstreamChanges(context.Context, string, string, string, int, int) (moderation.BuiltinUpstreamChangesPage, error)
+	CreateBuiltinWordlist(context.Context, string, string, string, moderation.BuiltinWordlistInput) (moderation.Wordlist, error)
+	PreviewWordlist(context.Context, string, string, string, string) (moderation.WordlistPreview, error)
+	RestoreWordlist(context.Context, string, string, string, string, moderation.WordlistRestore) (moderation.Wordlist, error)
 	Cases(context.Context, string, string, string, int) (moderation.Page, error)
 	Case(context.Context, string, string, string) (moderation.Case, error)
 	Decide(context.Context, string, string, string, string, moderation.Decision) (moderation.Outcome, error)
@@ -73,7 +78,7 @@ func moderationJSON(c *gin.Context, target any, allowed ...string) error {
 	return json.Unmarshal(b, target)
 }
 
-// RegisterModeration 显式装配七项正式后台路由，不启用草案投影或内容下线/解除限制扩展。
+// RegisterModeration 显式装配词库管理和普通审核后台路由。
 func RegisterModeration(r *gin.Engine, s ModerationService) error {
 	if r == nil || s == nil {
 		return command.ErrInvalid
@@ -82,7 +87,7 @@ func RegisterModeration(r *gin.Engine, s ModerationService) error {
 	g.Use(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		c.Header("Pragma", "no-cache")
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, requestBodyLimit(c))
 		c.Next()
 	})
 	g.GET("/wordlists", func(c *gin.Context) {
@@ -155,6 +160,7 @@ func RegisterModeration(r *gin.Engine, s ModerationService) error {
 		}
 		adminResult(c, 200, out)
 	})
+	registerWordlistTools(g, s)
 	g.GET("/moderation-tasks", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {

@@ -31,7 +31,7 @@ func New(log *zap.Logger, ready Readiness) *gin.Engine {
 		c.Set("request_id", requestID)
 		// 仅已注册的学生卡上传路由在处理器内按文件预算限流；不能按客户端Content-Type放宽其他入口。
 		if c.Request.Method != http.MethodPost || c.FullPath() != studentCardUploadPath {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, requestBodyLimit(c))
 		}
 		// 外层中间件在异常恢复和处理函数结束后记录最终状态。
 		c.Next()

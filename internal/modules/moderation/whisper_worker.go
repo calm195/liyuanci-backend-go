@@ -54,6 +54,8 @@ type WhisperAssessment struct {
 	Identity                              whisper.IdentityInput
 	SchoolRelated, OrdinaryHit, CrisisHit bool
 	DetectorVersion                       string
+	WordlistEvidence                      *WordlistEvidence `json:",omitempty"`
+	wordlistEvaluation                    *WordlistEvaluation
 }
 
 // WhisperPublicAnalyzer 明确接受树洞种类和显式身份输入，不能借用旧业务标签推断身份。
@@ -68,12 +70,13 @@ type WhisperPrivateAnalyzer interface {
 
 // WhisperWorker 使用持久消费收据、事务外分析和锁内资格复核；不拥有连接池生命周期。
 type WhisperWorker struct {
-	db      *gorm.DB
-	logger  *zap.Logger
-	codec   *securedata.Codec
-	public  WhisperPublicAnalyzer
-	private WhisperPrivateAnalyzer
-	cfg     WorkerConfig
+	db        *gorm.DB
+	logger    *zap.Logger
+	codec     *securedata.Codec
+	public    WhisperPublicAnalyzer
+	private   WhisperPrivateAnalyzer
+	cfg       WorkerConfig
+	wordlists wordlistCache
 }
 
 // NewWhisperWorker 要求两个不同的分析边界均显式注入；未配置审核时不能启动真实消费者。
@@ -86,7 +89,7 @@ func NewWhisperWorker(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, 
 		copy := *cfg.Care
 		cfg.Care = &copy
 	}
-	w := &WhisperWorker{db, logger, codec, public, private, cfg}
+	w := &WhisperWorker{db: db, logger: logger, codec: codec, public: public, private: private, cfg: cfg}
 	_, e := w.consumer(nil, nil, nil)
 	return w, e
 }
@@ -153,7 +156,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		if e != nil || !ok || r.task.Status != "pending" {
 			return e
 		}
-		rules, e = readRules(db)
+		rules, e = readCachedRules(db, &w.wordlists)
 		if e != nil {
 			return e
 		}
@@ -180,7 +183,15 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 					e = durable.ErrConfiguration
 				}
 			}()
+			matcher, err := w.wordlists.compile(rules)
+			if err != nil {
+				return v, err
+			}
+			rules.matcher = matcher
+			evidence := rules.evidence()
 			result, e := w.analyze(analysis, r, rules, body, identity)
+			evidence.add("body", result.wordlistEvaluation)
+			result.WordlistEvidence = evidence
 			if e == nil && title != "" {
 				extra, failure := w.analyze(analysis, r, rules, title, identity)
 				if failure != nil {
@@ -190,6 +201,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 					return result, command.ErrUnavailable
 				}
 				result.Title = extra.Body
+				evidence.add("title", extra.wordlistEvaluation)
 				result.CrisisHit = result.CrisisHit || extra.CrisisHit
 				result.OrdinaryHit = result.OrdinaryHit || extra.OrdinaryHit
 				result.SchoolRelated = result.SchoolRelated || extra.SchoolRelated
@@ -295,7 +307,7 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 		taskState := "human_required"
 		var decision any
 		if a.CrisisHit {
-			if _, e = captureWhisperCrisis(ctx, db, w.codec, r, tx.Now()); e != nil {
+			if _, e = captureWhisperCrisis(ctx, db, w.codec, r, tx.Now(), a.WordlistEvidence); e != nil {
 				return "", e
 			}
 		} else if !a.SchoolRelated && !a.OrdinaryHit {

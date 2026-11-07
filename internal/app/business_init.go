@@ -100,6 +100,9 @@ func InitializeBusiness(
 			return e
 		}
 	}
+	if e = moderation.InitializeBuiltin(ctx, db); e != nil {
+		return e
+	}
 	if wordlists == nil {
 		return nil
 	}

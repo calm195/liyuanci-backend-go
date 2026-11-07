@@ -54,8 +54,9 @@ func decryptEvidence(ctx context.Context, codec *securedata.Codec, purpose, id s
 }
 
 type crisisSubject struct {
-	AccountID     string
-	StudentNumber string
+	AccountID        string
+	StudentNumber    string
+	WordlistEvidence *WordlistEvidence `json:",omitempty"`
 }
 
 // capturable 拒绝已取消、撤回、换版或删除的普通内容升格为永久证据。
@@ -75,7 +76,7 @@ func capturable(row current) bool {
 
 // captureCrisis 只保留该精确版本及作者学号；没有复制学生卡、对端身份或其他私聊。
 // 调用方已持账号及领域锁，证据、隔离和投递待办随原消费事务一起提交。
-func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, row current, now time.Time) (string, error) {
+func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, row current, now time.Time, evidence *WordlistEvidence) (string, error) {
 	var old entity.EvidenceCase
 	e := db.Where("kind='crisis' AND source_ref=?", row.registry.ID).Take(&old).Error
 	if e == nil {
@@ -93,7 +94,7 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 	if e != nil {
 		return "", e
 	}
-	subject := crisisSubject{AccountID: row.account.ID}
+	subject := crisisSubject{AccountID: row.account.ID, WordlistEvidence: evidence}
 	var secrets []entity.IdentitySecret
 	if e = db.Where("account_id=? AND purpose='student_number'", row.account.ID).Find(&secrets).Error; e != nil {
 		return "", e

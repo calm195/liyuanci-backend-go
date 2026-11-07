@@ -350,6 +350,9 @@ func InitializeDevelopment(ctx context.Context, cfg DevelopmentSettings, logger 
 	if e = adminDB.WithContext(ctx).Table("admin_accounts").Count(&count).Error; e != nil {
 		return command.ErrUnavailable
 	}
+	if e = moderation.InitializeBuiltin(ctx, db); e != nil {
+		return e
+	}
 	if count > 0 {
 		return nil
 	}

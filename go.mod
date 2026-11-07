@@ -7,6 +7,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/google/uuid v1.3.0
 	github.com/jackc/pgx/v5 v5.6.0
+	github.com/kirklin/go-swd v0.3.0
 	github.com/redis/go-redis/v9 v9.17.0
 	github.com/spf13/viper v1.21.0
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.76

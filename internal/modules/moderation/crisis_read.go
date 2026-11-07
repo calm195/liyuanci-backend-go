@@ -39,12 +39,13 @@ type CrisisPage struct {
 
 // EvidenceView 只投影该案独立证据正文及主体学号，不返回存储键或学生卡引用。
 type EvidenceView struct {
-	ID            string `json:"id"`
-	Version       int64  `json:"version"`
-	CaseID        string `json:"case_id"`
-	Body          string `json:"body"`
-	StudentNumber string `json:"student_number"`
-	Status        string `json:"status"`
+	WordlistEvidence *WordlistEvidence `json:"wordlist_evidence,omitempty"`
+	ID               string            `json:"id"`
+	Version          int64             `json:"version"`
+	CaseID           string            `json:"case_id"`
+	Body             string            `json:"body"`
+	StudentNumber    string            `json:"student_number"`
+	Status           string            `json:"status"`
 }
 
 func crisisSummary(c entity.EvidenceCrisisCase) CrisisView {
@@ -205,12 +206,13 @@ func (s *Service) CrisisEvidence(ctx context.Context, token, rid, id string) (ou
 			return e
 		}
 		out = EvidenceView{
-			ID:            item.ID,
-			Version:       ec.Version,
-			CaseID:        c.ID,
-			Body:          body,
-			StudentNumber: subject.StudentNumber,
-			Status:        c.Status,
+			WordlistEvidence: subject.WordlistEvidence,
+			ID:               item.ID,
+			Version:          ec.Version,
+			CaseID:           c.ID,
+			Body:             body,
+			StudentNumber:    subject.StudentNumber,
+			Status:           c.Status,
 		}
 		return crisisAction(ctx, db, s.codec, c, actor, "evidence_view", "限定证据授权查看", time.Now().UTC())
 	})

@@ -30,6 +30,8 @@ type Assessment struct {
 	Tags                                  wish.IdentityTags
 	SchoolRelated, OrdinaryHit, CrisisHit bool
 	DetectorVersion                       string
+	wordlistEvaluation                    *WordlistEvaluation
+	wordlistEvidence                      *WordlistEvidence
 }
 
 // Analyzer 对词库命中或需重审内容生成原文人工复核候选，允许重复调用且不能产生业务写入。
@@ -67,6 +69,7 @@ type Worker struct {
 	analyzer     Analyzer
 	logger       *zap.Logger
 	cfg          WorkerConfig
+	wordlists    wordlistCache
 }
 
 // NewWorker 显式构造心愿、应愿留言、私聊及还愿故事扫描消费者，不启动循环、不迁移或自动发布规则。
@@ -92,46 +95,65 @@ func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer A
 }
 
 type rules struct {
-	crisis, school, ordinary                      entity.WordlistVersion
+	crisis, school, ordinary, builtin             entity.WordlistVersion
+	builtinEntries                                []builtinRule
+	matcher                                       *wordlistMatchers
 	crisisEntries, schoolEntries, ordinaryEntries []string
 }
 
-func readRules(db *gorm.DB) (out rules, err error) {
+func readRules(db *gorm.DB) (rules, error) {
+	return readCachedRules(db, nil)
+}
+
+func readCachedRules(db *gorm.DB, cache *wordlistCache) (out rules, err error) {
 	for _, item := range []struct {
-		k       string
-		row     *entity.WordlistVersion
-		entries *[]string
+		kind string
+		row  *entity.WordlistVersion
 	}{
-		{"crisis", &out.crisis, &out.crisisEntries},
-		{"school", &out.school, &out.schoolEntries},
-		{"ordinary_violation", &out.ordinary, &out.ordinaryEntries},
+		{"crisis", &out.crisis},
+		{"school", &out.school},
+		{"ordinary_violation", &out.ordinary},
+		{builtinKind, &out.builtin},
 	} {
 		var head entity.WordlistHead
-		if err = db.Where("kind=?", item.k).Take(&head).Error; err != nil {
+		if err = db.Where("kind=?", item.kind).Take(&head).Error; err != nil {
 			return
 		}
 		if head.EffectiveID == nil {
+			// 完整服务在启动检查中要求内置基线。旧的独立领域测试可只初始化自定义词库。
+			if item.kind == builtinKind {
+				continue
+			}
 			return out, command.ErrUnavailable
 		}
-		if err = db.Where("id=? AND type=? AND status='published'", *head.EffectiveID, item.k).
+		if err = db.Where("id=? AND type=? AND status='published'", *head.EffectiveID, item.kind).
 			Take(item.row).Error; err != nil {
 			return
 		}
-		*item.entries, err = enabledEntries(db, item.row.ID)
+	}
+	if cache != nil {
+		out.matcher = cache.lookup(out)
+		if out.matcher != nil {
+			return
+		}
+	}
+	for _, item := range []struct {
+		id      string
+		entries *[]string
+	}{
+		{out.crisis.ID, &out.crisisEntries},
+		{out.school.ID, &out.schoolEntries},
+		{out.ordinary.ID, &out.ordinaryEntries},
+	} {
+		*item.entries, err = enabledEntries(db, item.id)
 		if err != nil {
 			return
 		}
 	}
-	return
-}
-
-func hit(body string, entries []string) bool {
-	for _, entry := range entries {
-		if strings.Contains(body, entry) {
-			return true
-		}
+	if out.builtin.ID != "" {
+		out.builtinEntries, err = builtinRules(db, out.builtin.ID)
 	}
-	return false
+	return
 }
 
 func subset(a, b wish.IdentityTags) bool {
@@ -326,7 +348,7 @@ func (w *Worker) prepareScan(ctx context.Context, event durable.Event) (out scan
 		if !ok || out.source.task.Status != "pending" {
 			return nil
 		}
-		out.snapshot, e = readRules(db)
+		out.snapshot, e = readCachedRules(db, &w.wordlists)
 		if e != nil {
 			return e
 		}
@@ -339,6 +361,12 @@ func (w *Worker) prepareScan(ctx context.Context, event durable.Event) (out scan
 
 // analyzeScan 在事务外执行安全分析并加密候选投影；异常或非法结果继续失败关闭。
 func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules, input wish.Content) (*entity.ModerationScan, *Assessment, error) {
+	matcher, err := w.wordlists.compile(snapshot)
+	if err != nil {
+		return nil, nil, durable.ErrTemporary
+	}
+	snapshot.matcher = matcher
+	evidence := snapshot.evidence()
 	analysis, stop := context.WithTimeout(ctx, w.cfg.AnalysisTimeout)
 	a, e := func() (a Assessment, e error) {
 		defer func() {
@@ -355,12 +383,14 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 	if e != nil {
 		return nil, nil, durable.ErrTemporary
 	}
+	evidence.add("body", a.wordlistEvaluation)
 	if source.application == nil && source.message == nil && source.story == nil {
 		for _, field := range []struct {
 			value  string
+			name   string
 			target *string
 			limit  int
-		}{{input.Title, &a.Title, 40}, {input.RewardText, &a.RewardText, 100}} {
+		}{{input.Title, "title", &a.Title, 40}, {input.RewardText, "reward_text", &a.RewardText, 100}} {
 			if field.value == "" {
 				continue
 			}
@@ -376,6 +406,7 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 				return nil, nil, durable.ErrConfiguration
 			}
 			*field.target = result.Body
+			evidence.add(field.name, result.wordlistEvaluation)
 			a.CrisisHit = a.CrisisHit || result.CrisisHit
 			a.SchoolRelated = a.SchoolRelated || result.SchoolRelated
 			a.OrdinaryHit = a.OrdinaryHit || result.OrdinaryHit
@@ -386,7 +417,7 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 		return nil, nil, durable.ErrConfiguration
 	}
 
-	candidate, _ := json.Marshal(reviewProjection{Body: a.Body, Tags: a.Tags, Title: a.Title, RewardText: a.RewardText})
+	candidate, _ := json.Marshal(reviewProjection{Body: a.Body, Tags: a.Tags, Title: a.Title, RewardText: a.RewardText, WordlistEvidence: evidence})
 	defer clear(candidate)
 	envelope, e := w.codec.Encrypt(ctx, securedata.Binding{
 		Purpose:  "moderation_projection",
@@ -400,6 +431,7 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 	if e != nil {
 		return nil, nil, durable.ErrConfiguration
 	}
+	a.wordlistEvidence = evidence
 	return &entity.ModerationScan{
 		TaskID:           source.task.ID,
 		CrisisVersion:    snapshot.crisis.ID,
@@ -467,7 +499,7 @@ func (w *Worker) applyScan(ctx context.Context, tx *command.Tx, work durable.Wor
 		return "", e
 	}
 	if a.CrisisHit {
-		if _, e = captureCrisis(ctx, db, w.codec, row, tx.Now()); e != nil {
+		if _, e = captureCrisis(ctx, db, w.codec, row, tx.Now(), a.wordlistEvidence); e != nil {
 			return "", e
 		}
 	} else if !a.SchoolRelated && !a.OrdinaryHit {

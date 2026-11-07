@@ -894,7 +894,7 @@ func TestModerationCore(t *testing.T) {
 			Data moderation.WordlistPage `json:"data"`
 		}
 		must(json.Unmarshal(rec.Body.Bytes(), &envelope))
-		if len(envelope.Data.Heads) != 3 || len(envelope.Data.Items) != 1 || envelope.Data.NextCursor == nil {
+		if len(envelope.Data.Heads) != 4 || len(envelope.Data.Items) != 1 || envelope.Data.NextCursor == nil {
 			t.Fatal("分页丢失三类基准")
 		}
 		if got := request("GET", "/api/v1/admin/wordlists", studentToken, nil).Code; got != 401 {

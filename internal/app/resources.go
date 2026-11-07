@@ -144,10 +144,10 @@ func (r *runtimeResources) check(ctx context.Context, db *gorm.DB) error {
 func (r *runtimeResources) rules(ctx context.Context, db *gorm.DB) error {
 	var count int64
 	// head代次用于并发控制，快照版本用于资源状态；发布后两者无需相等。
-	// 准入只接受三类生效指针实际引用的已发布快照，不接受草案或归档版本。
-	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind WHERE h.kind IN ('crisis','school','ordinary_violation') AND v.status='published'").
+	// 准入只接受自定义及内置词库生效指针实际引用的已发布快照，不接受草案或归档版本。
+	if e := db.WithContext(ctx).Raw("SELECT count(*) FROM public.wordlist_heads h JOIN public.wordlist_versions v ON v.id=h.effective_id AND v.type=h.kind WHERE h.kind IN ('crisis','school','ordinary_violation','builtin') AND v.status='published'").
 		Scan(&count).
-		Error; e != nil || count != 3 {
+		Error; e != nil || count != 4 {
 		return command.ErrUnavailable
 	}
 	return nil

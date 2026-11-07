@@ -35,12 +35,13 @@ type WhisperTimeline struct {
 // WhisperCrisisDetail 允许未实名来源的学号为空，独立证据不得复制学生卡。
 type WhisperCrisisDetail struct {
 	WhisperCrisisSummary
-	Body            string            `json:"body"`
-	StudentNumber   *string           `json:"student_number"`
-	IdentityStatus  string            `json:"identity_status"`
-	EvidenceScopeID string            `json:"evidence_scope_id"`
-	Timeline        []WhisperTimeline `json:"timeline"`
-	CareDelivery    string            `json:"care_delivery"`
+	WordlistEvidence *WordlistEvidence `json:"wordlist_evidence,omitempty"`
+	Body             string            `json:"body"`
+	StudentNumber    *string           `json:"student_number"`
+	IdentityStatus   string            `json:"identity_status"`
+	EvidenceScopeID  string            `json:"evidence_scope_id"`
+	Timeline         []WhisperTimeline `json:"timeline"`
+	CareDelivery     string            `json:"care_delivery"`
 }
 
 func whisperCrisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
@@ -140,6 +141,7 @@ func (s *Service) whisperCrisisDetail(ctx context.Context, db *gorm.DB, actor st
 	}
 	out = WhisperCrisisDetail{
 		WhisperCrisisSummary: whisperCrisisSummary(c),
+		WordlistEvidence:     subject.WordlistEvidence,
 		IdentityStatus:       "not_verified",
 		EvidenceScopeID:      c.EvidenceCaseID,
 		Timeline:             []WhisperTimeline{},
@@ -295,8 +297,14 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		if !whisperCurrent(r) {
 			return "", command.ErrNotFound
 		}
+		var evidence *WordlistEvidence
 		if source == "review" {
-			if _, e = ordinaryWhisper(db, r); e != nil {
+			scan, e := ordinaryWhisper(db, r)
+			if e != nil {
+				return "", e
+			}
+			evidence, e = readWordlistEvidence(ctx, s.codec, "whisper_moderation_projection", scan)
+			if e != nil {
 				return "", e
 			}
 		}
@@ -325,7 +333,7 @@ func (s *Service) EscalateWhisperCrisis(ctx context.Context, token, key, rid, so
 		if e = whisperPlain(ctx, s.codec, purpose, r.ID, r.ContentVersion, raw[0].Body, &body); e != nil {
 			return "", e
 		}
-		ref, e := captureWhisperCrisis(ctx, db, s.codec, r, tx.Now(), body)
+		ref, e := captureWhisperCrisis(ctx, db, s.codec, r, tx.Now(), evidence, body)
 		if e != nil {
 			return "", e
 		}

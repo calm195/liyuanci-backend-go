@@ -15,7 +15,7 @@ import (
 )
 
 // captureWhisperCrisis 将精确原文及最小学号证据与隔离同事务提交；未实名主体不伪造身份。
-func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource, now time.Time, capturedBody ...string) (string, error) {
+func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource, now time.Time, evidence *WordlistEvidence, capturedBody ...string) (string, error) {
 	var old entity.EvidenceCase
 	e := db.Where("kind='crisis' AND source_ref=?", r.registry.ID).Take(&old).Error
 	if e == nil {
@@ -47,7 +47,7 @@ func captureWhisperCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Co
 			return "", e
 		}
 	}
-	subject := crisisSubject{AccountID: r.OwnerID}
+	subject := crisisSubject{AccountID: r.OwnerID, WordlistEvidence: evidence}
 	identityStatus := "not_verified"
 	if r.account.Verification == "verified" {
 		var secrets []entity.IdentitySecret

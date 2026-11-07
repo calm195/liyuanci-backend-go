@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,12 +14,48 @@ import (
 
 type moderationStub struct {
 	ModerationService
-	creates int
+	creates          int
+	builtinOverrides int
 }
 
 func (s *moderationStub) CreateWordlist(context.Context, string, string, string, moderation.WordlistInput) (moderation.Wordlist, error) {
 	s.creates++
 	return moderation.Wordlist{ID: "synthetic-rule", Version: 1, Kind: "school", Status: "draft"}, nil
+}
+
+func (s *moderationStub) CreateBuiltinWordlist(_ context.Context, _, _, _ string, input moderation.BuiltinWordlistInput) (moderation.Wordlist, error) {
+	s.builtinOverrides = len(input.Overrides)
+	return moderation.Wordlist{ID: "synthetic-builtin", Version: 1, Kind: "builtin", Status: "draft"}, nil
+}
+
+func TestBuiltinWordlistBulkDraftBody(t *testing.T) {
+	const count = 16000
+	var body strings.Builder
+	body.WriteString(`{"expected_version":1,"overrides":[`)
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		fmt.Fprintf(&body, `{"id":"00000000-0000-4000-8000-%012d","enabled":false,"disposition":"hint"}`, i)
+	}
+	body.WriteString(`]}`)
+	if body.Len() <= 1<<20 {
+		t.Fatal("批量测试正文未达到通用请求上限")
+	}
+	stub := &moderationStub{}
+	router := New(zap.NewNop(), nil)
+	if err := RegisterModeration(router, stub); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/api/v1/admin/wordlists/builtin/versions", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Idempotency-Key", "key")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 201 || stub.builtinOverrides != count {
+		t.Fatalf("批量草稿状态 %d，收到 %d 条词条调整", rec.Code, stub.builtinOverrides)
+	}
 }
 
 func (s *moderationStub) Wordlists(context.Context, string, string, string, int) (moderation.WordlistPage, error) {
