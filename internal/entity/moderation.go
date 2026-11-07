@@ -7,6 +7,8 @@ import (
 
 // WordlistVersion 映射 public.wordlist_versions，字段注释描述数据库持久化语义。
 type WordlistVersion struct {
+	UpstreamVersion string    `gorm:"column:upstream_version;type:text;not null;default:'';comment:内置词库源制品版本" json:"-"`
+	UpstreamDigest  string    `gorm:"column:upstream_digest;type:text;not null;default:'';comment:内置源词库 SHA-256 摘要" json:"-"`
 	BaseEffectiveID *string   `gorm:"column:base_effective_id;type:uuid;comment:创建完整快照时的生效基准，发布时须与当前生效版本一致" json:"-"`
 	ID              string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
 	Type            string    `gorm:"column:type;type:text;not null;comment:词库用途类型，实际业务资料待交付" json:"-"`
@@ -20,11 +22,13 @@ func (WordlistVersion) TableName() string { return "public.wordlist_versions" }
 
 // WordlistEntry 映射 public.wordlist_entries，字段注释描述数据库持久化语义。
 type WordlistEntry struct {
-	ID        string `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	VersionID string `gorm:"column:version_id;type:uuid;not null;comment:所属词库版本" json:"-"`
-	Entry     string `gorm:"column:entry;type:text;not null;comment:规则词条，非用户输入" json:"-"`
-	Action    string `gorm:"column:action;type:text;not null;comment:命中后的稳定动作码，运营规则交付后验证" json:"-"`
-	Disabled  bool   `gorm:"column:disabled;not null;default:false;comment:是否从该版本的扫描规则中停用" json:"-"`
+	UpstreamLabel  string `gorm:"column:upstream_label;type:text;not null;default:'';comment:内置词条上游标签" json:"-"`
+	UpstreamAction string `gorm:"column:upstream_action;type:text;not null;default:'';comment:内置词条上游默认处置" json:"-"`
+	ID             string `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	VersionID      string `gorm:"column:version_id;type:uuid;not null;comment:所属词库版本" json:"-"`
+	Entry          string `gorm:"column:entry;type:text;not null;comment:规则词条，非用户输入" json:"-"`
+	Action         string `gorm:"column:action;type:text;not null;comment:命中后的稳定动作码，运营规则交付后验证" json:"-"`
+	Disabled       bool   `gorm:"column:disabled;not null;default:false;comment:是否从该版本的扫描规则中停用" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
