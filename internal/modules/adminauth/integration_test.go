@@ -103,6 +103,19 @@ func TestPostgresAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if restored, e := service.Restore(ctx, session.Token, "restore_success"); e != nil || restored.Token != session.Token || restored.Account.ID != root.ID {
+		t.Fatal("有效会话无法恢复", e)
+	}
+	restoreSession, e := service.Login(ctx, "synthetic-root", bootstrapPassword, "source-root", "restore_login")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = service.Logout(ctx, restoreSession.Token, "restore-logout", "restore_logout"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = service.Restore(ctx, restoreSession.Token, "restore_revoked"); e != adminauth.ErrUnauthenticated {
+		t.Fatal("撤销会话仍可恢复", e)
+	}
 	var tokenCount int64
 	digest := sha256.Sum256([]byte(session.Token))
 	if e := db.Raw("SELECT count(*) FROM public.sessions WHERE token_hash=?", digest[:]).Scan(&tokenCount).Error; e != nil || tokenCount != 1 {

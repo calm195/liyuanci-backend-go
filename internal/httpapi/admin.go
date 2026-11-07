@@ -38,6 +38,7 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 		c.Header("Pragma", "no-cache")
 		c.Next()
 	})
+	registerAdminRestore(group, service)
 	group.GET("/accounts", func(c *gin.Context) {
 		token, ok := bearer(c)
 		if !ok {
@@ -91,6 +92,10 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 		adminResult(c, http.StatusOK, out)
 	})
 	group.POST("/sessions", func(c *gin.Context) {
+		if !sameOriginSession(c) {
+			adminError(c, adminauth.ErrForbidden)
+			return
+		}
 		var input struct {
 			LoginName string `json:"login_name"`
 			Password  string `json:"password"`
@@ -104,6 +109,7 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 			adminError(c, err)
 			return
 		}
+		setAdminSessionCookie(c, out.Token, false)
 		adminResult(c, http.StatusOK, out)
 	})
 	group.POST("/accounts", func(c *gin.Context) {
@@ -145,6 +151,7 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 			adminError(c, err)
 			return
 		}
+		setAdminSessionCookie(c, "", true)
 		c.Status(http.StatusNoContent)
 	})
 	group.DELETE("/session", func(c *gin.Context) {
@@ -160,6 +167,7 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 			adminError(c, err)
 			return
 		}
+		setAdminSessionCookie(c, "", true)
 		c.Status(http.StatusNoContent)
 	})
 	return nil
