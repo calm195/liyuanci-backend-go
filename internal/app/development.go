@@ -303,6 +303,9 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	if e = httpapi.RegisterAdmin(router, admin); e != nil {
 		return nil, closeAll, e
 	}
+	if e = httpapi.RegisterAdminDashboard(router, admin); e != nil {
+		return nil, closeAll, e
+	}
 	return router, closeAll, nil
 }
 

@@ -68,7 +68,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		},
 	}
 	// 腾讯云按私有YAML显式装配；未配置时对象读写和图片审核均不可用。
-	b.gateway, e = openObjectGateway(cfg.Runtime, cfg.Card.MaxBytes*2+65536, log)
+	b.gateway, e = openObjectGateway(cfg.Runtime, max(cfg.Card.MaxBytes*2+65536, 20<<20), log)
 	if e != nil {
 		return nil, e
 	}
@@ -189,6 +189,9 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		return nil, e
 	}
 	if e = httpapi.RegisterAdmin(router, admin); e != nil {
+		return nil, e
+	}
+	if e = httpapi.RegisterAdminDashboard(router, admin); e != nil {
 		return nil, e
 	}
 	if e = whispers.register(router); e != nil {
