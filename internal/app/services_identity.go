@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/calm195/liyuanci-backend-go/internal/modules/dictionary"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
@@ -21,6 +22,10 @@ func (s *serviceSet) buildIdentity(d ServiceDependencies, cfg ServiceConfig) err
 		cfg.Auth.AvatarScanner = d.Scanner
 	}
 	cfg.Auth.VerificationRequests = true
+	s.dictionaries, e = dictionary.New(d.StudentDB, d.Logger, cfg.Auth.Command)
+	if e != nil {
+		return e
+	}
 	s.guide, e = moduleguide.New(d.StudentDB, d.Logger, cfg.Auth.Command)
 	if e != nil {
 		return e

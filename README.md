@@ -103,4 +103,12 @@ make integration
 make integration INTEGRATION_SUITE=whisper_text
 ```
 
-`make check` 不注入数据库配置，会跳过需要外部依赖的用例。`make integration` 创建并清理本轮临时原生PostgreSQL/Redis，按 `scripts/integration.py` 中的18类专项验证39个必需顶层用例，要求每个用例实际执行且通过；不使用现有开发库。覆盖账号、身份、命令锁、持久任务、心愿/匹配/聊天/故事、树洞/胶囊、治理、资料、迁移和运行入口。供应商与微信身份仍使用合成适配，不等同真实外部服务或真机验收。
+`make check` 不注入数据库配置，会跳过需要外部依赖的用例。`make integration` 创建并清理本轮临时原生PostgreSQL/Redis，按 `scripts/integration.py` 中的19类专项验证40个必需顶层用例，要求每个用例实际执行且通过；不使用现有开发库。覆盖账号、身份、命令锁、持久任务、心愿/匹配/聊天/故事、树洞/胶囊、治理、资料、迁移和运行入口。供应商与微信身份仍使用合成适配，不等同真实外部服务或真机验收。
+
+## 展示字典与举报类型
+
+`GET /api/v1/dictionaries` 返回数据库维护的全量展示字典与全局版本，不包含个人信息；历史标签即使停用仍返回。管理端通过 `/api/v1/admin/dictionaries` 读取、通过 `PUT /api/v1/admin/dictionaries/:type/:code` 修改名称与排序。仅超级管理员可写，必须提供当前 `expected_version` 和 `Idempotency-Key`；系统代码不能新增、删除或改名，只有资料反馈选项允许停用，状态和角色始终可见。展示修改不会改变权限、状态转换或固定反馈聚合字段。
+
+举报类型通过独立的 `GET /api/v1/admin/report-types`、`PUT /api/v1/admin/report-types/:code` 管理，直接读写现有 `report_types` 表。可创建、改名、发布及停用，禁止删除和改码；与展示字典共用全局发布版本及事务审计。重复命令不重复发布，返回当前最新快照。树洞配置和普通举报统一读取数据库已发布类型；资源YAML中的旧举报字段只保留解析兼容，不再参与运行权威或就绪比对。年级仍由现有YAML受控版本提供，未迁移其历史匿名标签语义。
+
+新增 `0018_display_dictionaries` 必须先在目标库显式执行迁移再发布三端代码；本轮本地验证不等同于现有开发或生产库已升级。

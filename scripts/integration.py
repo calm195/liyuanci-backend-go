@@ -22,6 +22,7 @@ SUITES = {
          'TestPostgresDevelopmentCommands', 'TestPostgresDevelopmentRecoveryGate')
     ),
     'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
+    'dictionary': ('./internal/modules/dictionary', ('TestPostgresDictionaries',)),
     'moduleguide': ('./internal/modules/moduleguide', ('TestPostgresGuide',)),
     'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle',)),
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),

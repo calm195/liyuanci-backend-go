@@ -108,6 +108,8 @@ func guardRollback(tx *gorm.DB) error {
 		}
 		predicate := "true"
 		switch table {
+		case "public.display_dictionaries", "public.display_dictionary_items":
+			predicate = "version <> 1"
 		case "public.interaction_block_policy":
 			predicate = "opaque_enabled OR switched_at IS NOT NULL"
 		case "public.module_guides":

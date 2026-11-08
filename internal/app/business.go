@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,7 +27,6 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
-	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
@@ -231,21 +229,8 @@ func (b *BusinessAPI) Ready(ctx context.Context) error {
 	if e := lookupReady(ctx, b.identityDB, b.keys); e != nil {
 		return e
 	}
-	catalog, e := businessResources(ctx, b.cfg.Runtime)
-	if e != nil {
+	if _, e := businessResources(ctx, b.cfg.Runtime); e != nil {
 		return e
-	}
-	var reports []whisper.Item
-	if b.runtime.database.WithContext(ctx).Raw("SELECT code,label FROM public.report_types WHERE published").
-		Scan(&reports).
-		Error != nil ||
-		len(reports) != len(catalog.Catalog.Reports) {
-		return command.ErrUnavailable
-	}
-	for _, item := range catalog.Catalog.Reports {
-		if !slices.Contains(reports, item) {
-			return command.ErrUnavailable
-		}
 	}
 	return nil
 }
@@ -310,7 +295,6 @@ func businessCardConfig(c config.Business) studentcard.Config {
 func businessResources(ctx context.Context, cfg RuntimeSettings) (ResourcesFile, error) {
 	r, e := loadResources(ctx, cfg)
 	if e != nil || !moderation.CareResourcesReady(r.Care) || r.Catalog.Grades.Version == nil || len(r.Catalog.Grades.Items) == 0 ||
-		len(r.Catalog.Reports) == 0 ||
 		r.Catalog.Help.Status != "ready" ||
 		r.Catalog.Help.Version == nil ||
 		r.Catalog.Help.VerifiedAt == nil ||

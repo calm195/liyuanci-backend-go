@@ -39,7 +39,7 @@ func buildWhisperServices(ctx context.Context, runtime *apiRuntime) (out *whispe
 		api,
 		log,
 		r.codec,
-		runtimeCatalog{cfg},
+		runtimeCatalog{cfg: cfg, db: api},
 		limiter,
 		moderation.WhisperReviewSink{Logger: log},
 		whisper.Config{

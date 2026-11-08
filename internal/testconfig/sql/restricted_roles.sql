@@ -545,3 +545,18 @@ DROP POLICY IF EXISTS resource_materials_aggregate ON public.resource_materials;
 CREATE POLICY resource_materials_aggregate ON public.resource_materials FOR SELECT TO liyuanci_migrator USING(true);
 DROP POLICY IF EXISTS resource_materials_cleanup ON public.resource_materials;
 CREATE POLICY resource_materials_cleanup ON public.resource_materials FOR SELECT TO liyuanci_privacy_maintenance USING(true);
+
+-- 展示字典由同一迁移身份拥有；隔离角色只读名称，审计不对学生开放。
+ALTER TABLE public.display_dictionaries OWNER TO liyuanci_migrator;
+ALTER TABLE public.display_dictionary_items OWNER TO liyuanci_migrator;
+ALTER TABLE public.display_dictionary_actions OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.display_dictionaries,public.display_dictionary_items,public.display_dictionary_actions FROM PUBLIC;
+GRANT SELECT ON public.display_dictionaries,public.display_dictionary_items TO liyuanci_api,liyuanci_admin_api;
+GRANT UPDATE ON public.display_dictionaries,public.display_dictionary_items TO liyuanci_admin_api;
+GRANT SELECT,INSERT ON public.display_dictionary_actions TO liyuanci_admin_api;
+DROP POLICY IF EXISTS display_dictionaries_scope ON public.display_dictionaries;
+CREATE POLICY display_dictionaries_scope ON public.display_dictionaries TO liyuanci_api,liyuanci_admin_api USING(true) WITH CHECK(true);
+DROP POLICY IF EXISTS display_dictionary_items_scope ON public.display_dictionary_items;
+CREATE POLICY display_dictionary_items_scope ON public.display_dictionary_items TO liyuanci_api,liyuanci_admin_api USING(true) WITH CHECK(true);
+DROP POLICY IF EXISTS display_dictionary_actions_scope ON public.display_dictionary_actions;
+CREATE POLICY display_dictionary_actions_scope ON public.display_dictionary_actions TO liyuanci_admin_api USING(true) WITH CHECK(true);

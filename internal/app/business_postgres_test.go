@@ -580,6 +580,21 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			t.Fatalf("数据库调度不得伪造MQ回执或重复消费: sent=%d receipts=%d", sent, receipts)
 		}
 	}
+	// 运营更新数据库举报类型后，无需修改资源文件或重启，且不影响就绪。
+	must(root.Exec("UPDATE public.report_types SET label='数据库发布名称' WHERE code='other'").Error)
+	if health("/readyz") != 200 {
+		t.Fatal("数据库举报类型发布错误地依赖旧YAML")
+	}
+	var configAfter whisper.ModuleConfig
+	request("GET", "/whispers/config", token, nil, 200, &configAfter)
+	if len(configAfter.ReportTypes) != 1 || configAfter.ReportTypes[0].Label != "数据库发布名称" {
+		t.Fatal("树洞未读取数据库举报类型")
+	}
+	must(root.Exec("UPDATE public.report_types SET published=false WHERE code='other'").Error)
+	request("GET", "/whispers/config", token, nil, 200, &configAfter)
+	if len(configAfter.ReportTypes) != 0 || health("/readyz") != 200 {
+		t.Fatal("停用举报类型未生效")
+	}
 	outage.Store(true)
 	if health("/readyz") != 200 || health("/healthz") != 200 {
 		t.Fatal("对象服务故障不应阻断其他业务就绪")
@@ -614,7 +629,7 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	oneShot(serverBin, false, "-config", appPath, "-check")
 	var latest int64
 	must(root.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error)
-	if latest != 17 {
+	if latest != 18 {
 		t.Fatal("运行入口改变迁移版本", latest)
 	}
 	t.Logf("完整生产API、五类worker诊断、认证上传/扫描/审核、普通心愿审核、悄悄鲤/暖评/抱抱/胶囊、恢复失败关闭通过；worker环境=%s，密钥/摘要为本机实现，图片/COS使用原生协议隔离TLS夹具，学校按策略直接通过", workerEnv)

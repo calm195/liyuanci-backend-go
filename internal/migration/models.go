@@ -7,6 +7,9 @@ import "github.com/calm195/liyuanci-backend-go/internal/entity"
 func businessModels() []any {
 	return []any{
 
+		&entity.DisplayDictionary{},
+		&entity.DisplayDictionaryItem{},
+		&entity.DisplayDictionaryAction{},
 		&entity.Account{},
 
 		&entity.AccountAvatar{},

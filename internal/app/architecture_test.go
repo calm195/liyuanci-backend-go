@@ -46,6 +46,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/identity",
 		"modules/moderation",
 		"modules/moduleguide",
+		"modules/dictionary",
 		"modules/privacy",
 		"modules/resourceplaza",
 		"modules/safety",
@@ -71,6 +72,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/chat",
 		"modules/moderation",
 		"modules/moduleguide",
+		"modules/dictionary",
 		"modules/privacy",
 		"modules/resourceplaza",
 		"modules/safety",
@@ -83,6 +85,7 @@ var allowedInternalImports = map[string][]string{
 	"migration": {"entity"},
 	// 模块说明独立维护版本与发布快照，复用权威命令授权和实体。
 	"modules/moduleguide": {"entity", "execution/command"},
+	"modules/dictionary":  {"entity", "execution/command"},
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。

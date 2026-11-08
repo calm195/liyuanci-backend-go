@@ -36,7 +36,7 @@ func TestVersionCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 17 {
+	if len(entries) != 18 {
 		t.Fatalf("迁移版本数量错误：%d", len(entries))
 	}
 	// 权限重放只能管理策略与授权，不能再偷偷创建表、字段或函数。

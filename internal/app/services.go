@@ -10,6 +10,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/dictionary"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
@@ -86,6 +87,7 @@ type ServiceConfig struct {
 // 字段显式列出，各职责构造器在全部成功后才交给HTTP注册边界。
 type serviceSet struct {
 	guide                             *moduleguide.Service
+	dictionaries                      *dictionary.Service
 	avatars                           bool
 	auth                              *studentauth.Service
 	cards                             *studentcard.Service
