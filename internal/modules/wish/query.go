@@ -23,6 +23,7 @@ import (
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
+	UnreadApplicationCount int `json:"unread_application_count,omitempty"`
 	// PeerDeleted只提供通用提示，不返回原应愿人的账号或身份。
 	PeerDeleted           bool                  `json:"peer_deleted,omitempty"`
 	StoryReviewResult     *contentreview.Result `json:"story_review_result,omitempty"`
@@ -31,6 +32,7 @@ type Result struct {
 	ContentVersion        int64                 `json:"content_version"`
 	State                 State                 `json:"current_state"`
 	AllowedActions        []string              `json:"allowed_actions"`
+	ApplicationInProgress bool                  `json:"application_in_progress,omitempty"`
 	ExpiresAt             *time.Time            `json:"expires_at"`
 	PrivacyReviewRequired bool                  `json:"privacy_review_required,omitempty"`
 	OwnContent            *ContentInput         `json:"own_content,omitempty"`
@@ -527,17 +529,24 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 		if actor != "" {
 			gate := applicationTarget(ctx, db, a, actor, now)
 			if gate == nil {
-				var count int64
-				if e = db.Model(&entity.Application{}).Where(
+				var row entity.Application
+				e = db.Where(
 					"wish_id=? AND applicant_id=? AND status IN ?",
 					id,
 					actor,
 					[]string{"pending_scan", "pending_review", "active"},
-				).Count(&count).Error; e != nil {
-					return e
-				}
-				if count == 0 {
+				).Take(&row).Error
+				switch {
+				case errors.Is(e, gorm.ErrRecordNotFound):
 					out.AllowedActions = append(out.AllowedActions, "postWishesIdApplications")
+				case e != nil:
+					return e
+				default:
+					// 只向申请人投影当前有效申请。失效记录仍由原去重和清理流程处理。
+					out.ApplicationInProgress, e = ApplicationEligible(ctx, db, row, now)
+					if e != nil {
+						return e
+					}
 				}
 			} else if !errors.Is(gate, command.ErrForbidden) && !errors.Is(gate, command.ErrConflict) && !errors.Is(gate, command.ErrBlockedInteraction) {
 				return gate
@@ -605,6 +614,12 @@ func (s *Service) Own(ctx context.Context, token, rid string, q Query) (out OwnP
 			result, e := s.ownResult(ctx, db, rid, now, a)
 			if e != nil {
 				return e
+			}
+			if result.State == Published && !result.PrivacyReviewRequired && ordinary(a.owner, a.snapshot) {
+				result.UnreadApplicationCount, e = unreadApplicationCount(ctx, db, r.ID, owner, now)
+				if e != nil {
+					return e
+				}
 			}
 			out.Items = append(out.Items, result)
 		}

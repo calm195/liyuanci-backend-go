@@ -326,11 +326,19 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 			Error; e != nil {
 			return e
 		}
-		if status == "active" {
+		if status == "active" && app.Status != "active" {
 			return db.Create(&entity.Notification{
 				ID:          uuid.NewString(),
 				RecipientID: row.wish.OwnerID,
 				Type:        "application_active",
+				TargetRef:   app.ID,
+			}).Error
+		}
+		if status == "rejected" && app.Status != "rejected" {
+			return db.Create(&entity.Notification{
+				ID:          uuid.NewString(),
+				RecipientID: app.ApplicantID,
+				Type:        "application_rejected",
 				TargetRef:   app.ID,
 			}).Error
 		}

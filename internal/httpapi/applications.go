@@ -178,7 +178,7 @@ func applicationQuery(c *gin.Context, own bool) (q wish.ApplicationQuery, err er
 	q.Limit = 20
 	allowed := []string{"cursor", "limit"}
 	if own {
-		allowed = append(allowed, "status")
+		allowed = append(allowed, "status", "application_id")
 	}
 	for name, values := range c.Request.URL.Query() {
 		if !slices.Contains(allowed, name) || len(values) != 1 || values[0] == "" {
@@ -186,6 +186,7 @@ func applicationQuery(c *gin.Context, own bool) (q wish.ApplicationQuery, err er
 		}
 	}
 	q.Status = c.Query("status")
+	q.ApplicationID = c.Query("application_id")
 	q.Cursor = c.Query("cursor")
 	if value, ok := c.GetQuery("limit"); ok {
 		q.Limit, err = strconv.Atoi(value)

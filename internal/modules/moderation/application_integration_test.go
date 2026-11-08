@@ -21,6 +21,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
@@ -76,6 +77,11 @@ func TestApplicationMatching(t *testing.T) {
 		wish.ServiceConfig{Command: cfg, ReceiptKey: []byte(strings.Repeat("a", 32))},
 	)
 	must(e)
+	chats, e := chat.New(api, logger, codec, chat.Config{
+		Command: cfg, Key: []byte(strings.Repeat("c", 32)), MaxBodyBytes: 65536,
+	})
+	must(e)
+	chats.SetApplicationNotificationTarget(wishes.ApplicationNotificationTarget)
 	reviews, e := moderation.New(
 		adminDB,
 		logger,
@@ -331,6 +337,16 @@ func TestApplicationMatching(t *testing.T) {
 		in := wish.ApplicationInput{Message: "待审秘密", WishContentVersion: 1}
 		a, e := wishes.Apply(ctx, applicant, key, "first", w.ID, in)
 		must(e)
+		mine, e := wishes.Detail(ctx, applicant, "applicant-detail", w.ID)
+		must(e)
+		anonymous, e := wishes.Detail(ctx, "", "public-detail", w.ID)
+		must(e)
+		own, e := wishes.OwnApplications(ctx, applicant, "own-title", wish.ApplicationQuery{Limit: 20})
+		must(e)
+		if !mine.ApplicationInProgress || anonymous.ApplicationInProgress || mine.Public == nil ||
+			len(own.Items) != 1 || own.Items[0].WishTitle == "" || own.Items[0].WishTitle != mine.Public.Title {
+			t.Fatal("申请人详情、公开详情或本人列表的申请投影错误")
+		}
 		replay, e := wishes.Apply(ctx, applicant, key, "replay", w.ID, in)
 		must(e)
 		if a.ID != replay.ID {
@@ -368,6 +384,11 @@ func TestApplicationMatching(t *testing.T) {
 		must(e)
 		if cancelled.Status != "withdrawn" {
 			t.Fatal("未撤销")
+		}
+		mine, e = wishes.Detail(ctx, applicant, "withdrawn-detail", w.ID)
+		must(e)
+		if mine.ApplicationInProgress {
+			t.Fatal("撤销后的详情仍显示申请中")
 		}
 		out, e := worker.Consume(ctx, old)
 		must(e)
@@ -419,6 +440,24 @@ func TestApplicationMatching(t *testing.T) {
 			own.Items[0].ReviewResult.RevisionSuggestion == nil {
 			t.Fatal("本人缺驳回建议")
 		}
+		notifications, e := chats.Notifications(ctx, applicant, "rejected-notifications", chat.Query{Limit: 20})
+		must(e)
+		if len(notifications.Items) != 1 || notifications.Items[0].Kind != "application_rejected" ||
+			notifications.Items[0].TargetKind == nil || *notifications.Items[0].TargetKind != "my_application" ||
+			notifications.Items[0].TargetRef == nil || *notifications.Items[0].TargetRef != a.ID ||
+			!strings.Contains(notifications.Items[0].Notice, "审核未通过") {
+			t.Fatalf("缺少精确的申请驳回通知：%+v", notifications.Items)
+		}
+		target, e := wishes.OwnApplications(ctx, applicant, "notification-target", wish.ApplicationQuery{Limit: 20, ApplicationID: a.ID})
+		must(e)
+		if len(target.Items) != 1 || target.Items[0].ID != a.ID {
+			t.Fatal("申请通知未定位本人申请")
+		}
+		target, e = wishes.OwnApplications(ctx, owner, "foreign-notification-target", wish.ApplicationQuery{Limit: 20, ApplicationID: a.ID})
+		must(e)
+		if len(target.Items) != 0 {
+			t.Fatal("申请通知深链泄漏其他人的申请")
+		}
 		a = apply(applicant, w, "学校命中留言")
 		scan("application", a.ID)
 		row = appRow(a.ID)
@@ -439,6 +478,36 @@ func TestApplicationMatching(t *testing.T) {
 		must(root.Model(&entity.Notification{}).Where("target_ref=? AND type='application_active'", a.ID).Count(&n).Error)
 		if n != 1 {
 			t.Fatal("站内兜底通知不唯一")
+		}
+		ownerWishes, e := wishes.Own(ctx, owner, "unread-queue", wish.Query{Limit: 20})
+		must(e)
+		if len(ownerWishes.Items) != 1 || ownerWishes.Items[0].UnreadApplicationCount != 1 {
+			t.Fatalf("本人心愿缺少新申请提醒：%+v", ownerWishes.Items)
+		}
+		notifications, e = chats.Notifications(ctx, owner, "owner-notifications", chat.Query{Limit: 20})
+		must(e)
+		if len(notifications.Items) != 1 || notifications.Items[0].TargetKind == nil ||
+			*notifications.Items[0].TargetKind != "wish_applications" || notifications.Items[0].TargetRef == nil ||
+			*notifications.Items[0].TargetRef != w.ID || !strings.Contains(notifications.Items[0].Notice, "《") {
+			t.Fatalf("新申请通知缺少标题或队列入口：%+v", notifications.Items)
+		}
+		queue, e := wishes.Applications(ctx, owner, "queue-receipts", w.ID, wish.ApplicationQuery{Limit: 20})
+		must(e)
+		if len(queue.Items) != 1 || len(queue.Items[0].UnreadNotices) != 1 {
+			t.Fatalf("申请队列缺少当前可读通知版本：%+v", queue.Items)
+		}
+		receipt := queue.Items[0].UnreadNotices[0]
+		read, e := chats.ReadNotification(ctx, owner, uuid.NewString(), "read-queue-notification", receipt.ID, receipt.Version)
+		must(e)
+		if !read.Read {
+			t.Fatal("申请通知未标记已读")
+		}
+		ownerWishes, e = wishes.Own(ctx, owner, "read-queue", wish.Query{Limit: 20})
+		must(e)
+		queue, e = wishes.Applications(ctx, owner, "queue-after-read", w.ID, wish.ApplicationQuery{Limit: 20})
+		must(e)
+		if len(ownerWishes.Items) != 1 || ownerWishes.Items[0].UnreadApplicationCount != 0 || len(queue.Items) != 1 {
+			t.Fatal("已读提醒必须清零，且申请仍须保留在待处理队列")
 		}
 	})
 	t.Run("资格拉黑到期及改版取消晚到", func(t *testing.T) {
@@ -593,6 +662,13 @@ func TestApplicationMatching(t *testing.T) {
 		must(root.Model(&entity.Notification{}).Where("target_ref=? AND type='application_accepted'", first.MatchID).Count(&n).Error)
 		if n != 1 {
 			t.Fatal("重放重复通知")
+		}
+		notifications, e := chats.Notifications(ctx, applicant, "accepted-notifications", chat.Query{Limit: 20})
+		must(e)
+		if len(notifications.Items) != 1 || notifications.Items[0].Kind != "application_accepted" ||
+			notifications.Items[0].TargetRef == nil || *notifications.Items[0].TargetRef != a.ID ||
+			!strings.Contains(notifications.Items[0].Notice, "《") {
+			t.Fatalf("已接受通知没有关联申请与心愿标题：%+v", notifications.Items)
 		}
 		row := wishRow(w.ID)
 		_, e = wishes.Rollback(
@@ -991,10 +1067,13 @@ func TestApplicationMatching(t *testing.T) {
 		if got := request("GET", "/api/v1/me/applications", applicant, ""); got.Code != 200 {
 			t.Fatal("本人列表失败", got.Code)
 		}
+		id := payload.Data.ID
+		if got := request("GET", "/api/v1/me/applications?application_id="+id, applicant, ""); got.Code != 200 || !strings.Contains(got.Body.String(), id) {
+			t.Fatalf("申请通知深链 HTTP 响应异常：%d %s", got.Code, got.Body.String())
+		}
 		if got := request("GET", "/api/v1/wishes/"+w.ID+"/applications", owner, ""); got.Code != 200 || strings.Contains(got.Body.String(), "HTTP留言") {
 			t.Fatal("许愿人待审泄漏")
 		}
-		id := payload.Data.ID
 		if got := request("POST", "/api/v1/applications/"+id+"/withdraw", applicant, `{"expected_version":1}`); got.Code != 200 {
 			t.Fatal("撤销HTTP失败", got.Code)
 		}

@@ -65,6 +65,40 @@ func (s *Service) OwnApplications(ctx context.Context, token, rid string, q Appl
 	return s.applications(ctx, token, rid, "", q)
 }
 
+// applicationWishTitle 只返回申请人当前能在详情看到的标题，不恢复已下架或私有版本。
+func (s *Service) applicationWishTitle(ctx context.Context, db *gorm.DB, rid, wishID, actor string, now time.Time) (string, error) {
+	a, err := readAggregate(ctx, db, wishID, false)
+	if errors.Is(err, command.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if a.snapshot.State == Published {
+		content, err := s.publicContent(rid, now, a)
+		if err != nil {
+			return "", nil
+		}
+		return content.Title, nil
+	}
+	switch a.snapshot.State {
+	case Matching, Realized, Fulfilled:
+		if !a.owner.Active || a.snapshot.PrivacyHeld || a.snapshot.Restricted || !reviewReady(a.snapshot) {
+			return "", nil
+		}
+		var count int64
+		err = db.WithContext(ctx).Model(&entity.Match{}).Where(
+			"wish_id=? AND helper_id=? AND status='current'", wishID, actor,
+		).Count(&count).Error
+		if err == nil && count == 1 {
+			return publicTitle(a.content), nil
+		}
+		return "", err
+	default:
+		return "", nil
+	}
+}
+
 // Applications 仅许愿人可读，过滤过期、旧内容、撤权、拉黑和屏障后的申请，不以陈旧active字段授权。
 func (s *Service) Applications(ctx context.Context, token, rid, id string, q ApplicationQuery) (ApplicationPage, error) {
 	if !validWishID(id) {
@@ -80,6 +114,9 @@ func (s *Service) applications(ctx context.Context, token, rid, id string, q App
 		}
 	}()
 	defer s.interactionDone("application.list", rid, time.Now(), &err)
+	if q.ApplicationID != "" && (id != "" || !validWishID(q.ApplicationID) || q.Cursor != "" || q.Status != "") {
+		return out, command.ErrInvalid
+	}
 	if q.Limit < 1 || q.Limit > 100 || q.Status != "" && (!validApplicationStatus(q.Status) || id != "") {
 		return out, command.ErrInvalid
 	}
@@ -112,6 +149,9 @@ func (s *Service) applications(ctx context.Context, token, rid, id string, q App
 			query := db.Model(&entity.Application{})
 			if id == "" {
 				query = query.Where("applicant_id=?", actor)
+				if q.ApplicationID != "" {
+					query = query.Where("id=?", q.ApplicationID)
+				}
 			} else {
 				query = query.Where("wish_id=? AND status='active'", id)
 			}
@@ -141,6 +181,19 @@ func (s *Service) applications(ctx context.Context, token, rid, id string, q App
 				}
 				if q.Status != "" && result.Status != q.Status {
 					continue
+				}
+				if id == "" {
+					result.WishTitle, e = s.applicationWishTitle(ctx, db, rid, row.WishID, actor, now)
+					if e != nil {
+						return e
+					}
+				} else {
+					e = unreadApplicationNotices(db.WithContext(ctx), actor).
+						Select("n.id, n.version").Where("n.target_ref=?", row.ID).
+						Scan(&result.UnreadNotices).Error
+					if e != nil {
+						return e
+					}
 				}
 				out.Items = append(out.Items, result)
 				positions = append(positions, row.ID)

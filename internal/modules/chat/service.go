@@ -32,11 +32,12 @@ type Config struct {
 
 // Service 不拥有数据库及密钥生命周期，命令事务内不调用通知网络。
 type Service struct {
-	db     *gorm.DB
-	engine *command.Engine
-	codec  *securedata.Codec
-	logger *zap.Logger
-	cfg    Config
+	applicationNotificationTarget func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref, title string, err error)
+	db                            *gorm.DB
+	engine                        *command.Engine
+	codec                         *securedata.Codec
+	logger                        *zap.Logger
+	cfg                           Config
 }
 
 // DeriveKey 从已有私有根密钥隔离聊天摘要和游标用途。
@@ -63,6 +64,11 @@ func New(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, cfg Config) (
 		logger: logger,
 		cfg:    cfg,
 	}, nil
+}
+
+// SetApplicationNotificationTarget 在装配阶段注入应愿领域的访问权限投影。
+func (s *Service) SetApplicationNotificationTarget(project func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref, title string, err error)) {
+	s.applicationNotificationTarget = project
 }
 
 func (s *Service) done(op, rid string, start time.Time, err *error) {

@@ -363,15 +363,44 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 	return
 }
 
-func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (Notification, error) {
+func (s *Service) notification(ctx context.Context, db *gorm.DB, row entity.Notification, now time.Time) (Notification, error) {
 	out := Notification{
 		ID:        row.ID,
 		Version:   row.Version,
 		Kind:      row.Type,
 		Read:      row.ReadAt != nil,
-		Notice:    "有新进展，请打开应用查看",
+		Notice:    "这条通知的详情暂不可查看。",
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 	}
+	switch row.Type {
+	case "application_active", "application_accepted", "application_rejected":
+		label := "心愿"
+		if s.applicationNotificationTarget != nil {
+			kind, ref, title, err := s.applicationNotificationTarget(ctx, db, row, now)
+			if err != nil {
+				return out, err
+			}
+			if kind != "" && ref != "" {
+				out.TargetKind, out.TargetRef = &kind, &ref
+			}
+			if title != "" {
+				label += "《" + title + "》"
+			}
+		}
+		switch row.Type {
+		case "application_active":
+			out.Notice = "你的" + label + "收到新的应愿申请。"
+		case "application_accepted":
+			out.Notice = "你对" + label + "的应愿申请已被许愿人接受。"
+		case "application_rejected":
+			out.Notice = "你对" + label + "的应愿留言审核未通过，可查看申请结果。"
+		}
+	case "message_reviewed":
+		out.Notice = "你发送的聊天消息未通过审核，请查看聊天。"
+	case "message_delivered":
+		out.Notice = "你收到了一条新聊天消息。"
+	}
+
 	if row.Type == "whisper_comment" || row.Type == "whisper_capsule_unlocked" {
 		var ref entity.WhisperNotificationRef
 		e := db.WithContext(ctx).Where("notification_id=? AND NOT suppressed", row.ID).Take(&ref).Error
@@ -422,16 +451,35 @@ func notification(ctx context.Context, db *gorm.DB, row entity.Notification) (No
 		if e == nil {
 			ref := a.ID
 			out.TargetRef = &ref
+			out.Notice = "你的申诉已处理，请查看申诉结果。"
+			if a.Status == "accepted" {
+				out.Notice = "你的申诉已通过，相关处置已撤销。"
+			} else if a.Status == "rejected" {
+				out.Notice = "你的申诉未通过，请查看申诉结果。"
+			}
 		}
 	}
-	if row.Type == "message_delivered" {
-		v, e := LoadConversation(ctx, db, row.TargetRef)
+	if row.Type == "message_delivered" || row.Type == "message_reviewed" {
+		conversationID := row.TargetRef
+		if row.Type == "message_reviewed" {
+			var message entity.Message
+			e := db.WithContext(ctx).Where("id=? AND sender_id=?", row.TargetRef, row.RecipientID).Take(&message).Error
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return out, nil
+			}
+			if e != nil {
+				return out, e
+			}
+			conversationID = message.ConversationID
+		}
+		v, e := LoadConversation(ctx, db, conversationID)
 		if e != nil && !errors.Is(e, command.ErrNotFound) {
 			return out, e
 		}
 		if e == nil && v.CanRead(row.RecipientID) {
-			ref := row.TargetRef
-			out.TargetRef = &ref
+			kind := "conversation"
+			out.TargetKind = &kind
+			out.TargetRef = &conversationID
 		}
 	}
 	return out, nil
@@ -474,7 +522,7 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 			rows = rows[:q.Limit]
 		}
 		for _, r := range rows {
-			item, e := notification(ctx, db, r)
+			item, e := s.notification(ctx, db, r, now)
 			if e != nil {
 				return e
 			}
@@ -558,7 +606,7 @@ func (s *Service) ReadNotification(ctx context.Context, token, key, rid, id stri
 			return e
 		}
 		var e error
-		out, e = notification(ctx, tx.DB(), row)
+		out, e = s.notification(ctx, tx.DB(), row, tx.Now())
 		return e
 	}
 	_, err = s.engine.Execute(

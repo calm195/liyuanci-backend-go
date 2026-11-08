@@ -28,13 +28,15 @@ type ApplicationInput struct {
 
 // ApplicationResult 按当前授权返回本人状态或许愿人可处理的最小已审投影。
 type ApplicationResult struct {
-	ID           string                `json:"id"`
-	Version      int64                 `json:"version"`
-	WishID       string                `json:"wish_id"`
-	Status       string                `json:"status"`
-	ReviewResult *contentreview.Result `json:"review_result,omitempty"`
-	Applicant    *PublicAuthor         `json:"applicant,omitempty"`
-	Message      *string               `json:"message,omitempty"`
+	UnreadNotices []ApplicationNoticeReceipt `json:"unread_notices,omitempty"`
+	ID            string                     `json:"id"`
+	Version       int64                      `json:"version"`
+	WishID        string                     `json:"wish_id"`
+	WishTitle     string                     `json:"wish_title,omitempty"`
+	Status        string                     `json:"status"`
+	ReviewResult  *contentreview.Result      `json:"review_result,omitempty"`
+	Applicant     *PublicAuthor              `json:"applicant,omitempty"`
+	Message       *string                    `json:"message,omitempty"`
 }
 
 // ApplicationPage 游标绑定主体、用途、心愿与状态筛选。
@@ -45,9 +47,10 @@ type ApplicationPage struct {
 
 // ApplicationQuery 仅本人查询允许状态筛选；许愿人列表固定只返回当前有效申请。
 type ApplicationQuery struct {
-	Status string
-	Cursor string
-	Limit  int
+	ApplicationID string
+	Status        string
+	Cursor        string
+	Limit         int
 }
 
 // AcceptInput 分别校验申请与心愿聚合版本，不能用内容版本代替。

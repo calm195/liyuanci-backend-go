@@ -47,6 +47,7 @@ func (s *serviceSet) buildInteraction(d ServiceDependencies, cfg ServiceConfig) 
 		if e != nil {
 			return e
 		}
+		s.chats.SetApplicationNotificationTarget(s.wishes.ApplicationNotificationTarget)
 	}
 	return nil
 }
