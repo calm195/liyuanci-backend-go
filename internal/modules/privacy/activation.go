@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -106,7 +107,16 @@ func hold(db *gorm.DB, kind, id string, required int64) error {
 	).Scan(&epoch).Error; e != nil {
 		return e
 	}
-	return db.Create(&entity.PrivacyHold{
+	// A prior deletion may already protect the same content. Keep the
+	// barrier active and advance its epoch so stale reviews cannot lift it.
+	return db.Clauses(clause.OnConflict{
+		Columns:     []clause.Column{{Name: "target_kind"}, {Name: "target_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "status = 'active'"}}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"hold_epoch":               gorm.Expr("EXCLUDED.hold_epoch"),
+			"required_content_version": gorm.Expr("GREATEST(privacy_holds.required_content_version, EXCLUDED.required_content_version)"),
+		}),
+	}).Create(&entity.PrivacyHold{
 		ID:                     uuid.NewString(),
 		TargetKind:             kind,
 		TargetID:               id,
