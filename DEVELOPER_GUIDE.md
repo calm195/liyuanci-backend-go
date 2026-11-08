@@ -16,8 +16,8 @@
 | 心愿与应愿 | 草稿 → 送审 → 审核通过 → 作者上架 → 应愿留言审核 → 同意匹配 | 审核通过只到 `ready`；上架需再次检查资格、有效期和活跃额度；一个心愿只能有一个当前匹配 |
 | 聊天与还愿 | 匹配会话 → 消息审核送达 → 确认实现 → 提交故事 → 故事审核公开 | 没有任意账号私聊；未审核消息不可送达；故事提交与故事公开是两个结果 |
 | 悄悄鲤 | 树洞送审并表达发布意图 → 审核公开 → 暖评/抱抱 | 树洞批准后可公开，没有心愿的单独上架步骤；匿名接口不能暴露账号关联 |
-| 时空胶囊 | 接受安全告知 → 加密封存 → 私密审核 → 到期后本人读取 | 到期且批准才可读；列表始终不返回正文；停机后任务需要补偿 |
-| 资料广场 | 认证用户查询/复制/反馈；后台维护分类与资料 | 资料下线后才能编辑；链接和提取码加密；后端不抓取外部网盘 |
+| 时空胶囊 | 接受安全告知 → 加密封存 → 私密审核 → 到期后本人读取 | 到期且批准才可读；列表仅提供已解锁合规内容的前三个码点摘要；停机后任务需要补偿 |
+| 资料广场 | 认证用户查询/下载/复制/反馈；后台维护分类、资料和版本化文件 | 资料下线后才能编辑；链接和提取码加密；后端不抓取外部网盘 |
 | 审核、安全与隐私 | 内容分流 → 人工复核或危机隔离；举报 → 处罚/申诉；注销 → 异步清理 | 普通审核岗与危机岗权限不同；解除处罚不复活内容；删除受理不等于清理完成 |
 
 详细状态、限制和回退规则见 [业务链路](FUNCTIONALITY.md)。需求与有效契约从 [模块索引](../docs/modules.md) 查起；实现状态和外部依赖分别看 [现状](../docs/development/backend/README.md)、[缺口](../docs/development/backend/defects.md) 和 [计划](../docs/development/backend/plan.md)。有源码实现不等于已通过真实供应商、真机或生产验收。
@@ -97,10 +97,10 @@ API 运行后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 
 ### 从一个需求进入开发流程
 
-1. **确认范围和基线。** 核对本仓库与 docs 的分支、完整 HEAD 和工作区；当前在 `codex/simplify-backend`，保护已有改动。按模块索引找到需求/契约，再从模块 `doc.go` 和现有用例确认输入、输出、资格、状态与失败语义。
+1. **确认范围和基线。** 核对本仓库与 docs 的分支、完整 HEAD 和工作区；日常使用 `develop`，保护已有改动，不因历史分支说明切换工作区。按模块索引找到需求/契约，再从模块 `doc.go` 和现有用例确认输入、输出、资格、状态与失败语义。
 2. **确定改动所属层。** 请求解析与状态码放 `httpapi`；业务规则和状态转换放所属 `modules`；查询放 repository 并使用 `WithContext`；接口定义在使用方，具体 Redis/HTTPS 实现放 `adapters`，由 `app` 显式注入。配置字段放 `config`，通过 `app` 转换为领域参数；新协作依赖要说明用途并更新架构检查。
 3. **实现一个完整用例。** 同时考虑成功、权限不足、旧版本、重复请求、资源归属，以及异步结果晚到。复用 `command` 的授权/锁/幂等机制和 `durable` 的租约/重试机制；运行操作通过注入的 `*zap.Logger` 记录中文结构化完成日志，失败也保留完成记录，不记录凭据、正文或个人数据。
-4. **涉及表结构时同步维护。** 更新独立实体、`internal/migration/models.go` 清单和明确的版本 SQL；表及每个字段都要有中文 `COMMENT ON`。当前未上线基线按九组管理，首次交付前按授权调整，交付后只追加迁移；`permissions` 只管权限，不定义结构。普通 API/worker 不执行 DDL，不使用 AutoMigrate。详见 [迁移说明](migrations/README.md)。
+4. **涉及表结构时同步维护。** 更新独立实体、`internal/migration/models.go` 清单和明确的版本 SQL；表及每个字段都要有中文 `COMMENT ON`。现有基线已交付，结构变更追加版本迁移，不改写已应用SQL及校验和；`permissions` 只管权限，不定义结构。普通 API/worker 不执行 DDL，不使用 AutoMigrate。详见 [迁移说明](migrations/README.md)。
 5. **先做相关验证，再执行交付检查。** 按下表选择命令，失败修复后复跑。单测覆盖业务行为与拒绝路径，异步变更补取消、重试和旧结果不能复活资源等场景；不要用健康检查代替业务验证。
 6. **更新说明并交付。** 同步受影响的运行说明和 docs 后端现状、缺陷、计划三份滚动文档，写清源码完整 SHA、实际验证和未测边界。获得当次提交授权后，先提交源码，再补 docs 精确版本；采用 Conventional Commits。提交、推送和部署分别按授权执行。
 
@@ -125,7 +125,7 @@ API 运行后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 | 登录后仍不能发帖或上架 | 分别核对认证、处罚、本人归属、当前状态及版本；微信会话只代表已登录 |
 | 修改后遇到版本冲突 | 重新读取当前资源，按契约使用新的期望版本；不要绕过版本检查或重放旧审核结果 |
 | 启动报结构或权限错误 | 核对所选数据库、应用账号与显式迁移结果；普通启动不会补表，也不会自动修复结构漂移 |
-| 删除停留在处理中 | 查账号/证据 worker、外部清理能力和恢复门禁；受理回执不代表完成，不清空删除账本 |
+| 删除停留在处理中 | 查账号/证据 worker、账本确认和恢复门禁；受理回执不代表完成，不清空删除账本 |
 
 开发中始终保留三条边界：PostgreSQL 是权威状态；客户端按钮、旧会话或幂等回执不能代替当前授权；异步成功必须对应仍然有效的当前业务版本。更多运行与工程细节按需查阅下文。
 
@@ -185,7 +185,7 @@ make worker KIND=account
 make worker KIND=evidence
 ```
 
-正式图片安全扫描接入腾讯云CI，未配置或故障失败关闭；学校权威校验直接通过；内容使用三类已发布词库，未命中原文通过，命中或显式重审保留原文交人工。微信仍使用真实接口，外部危机通知与全副本删除服务已移除。普通启动不迁移、不初始化账号、不重置任务或替换密钥。停止 API/worker 不停止 PostgreSQL、Redis。
+正式图片安全扫描接入腾讯云CI，未配置或故障失败关闭；学校权威校验直接通过；内容同时使用已发布内置词库和三类自定义词库，未命中原文通过，命中或显式重审保留原文交人工。微信仍使用真实接口，外部危机通知与全副本删除服务已移除。普通启动不迁移、不初始化账号、不重置任务或替换密钥。停止 API/worker 不停止 PostgreSQL、Redis。
 
 ## 4. 检查与集成
 
@@ -199,7 +199,7 @@ make integration              # 真实、一次性的原生PG/Redis与实际Go�
 
 `integration` 需要宿主安装 `initdb`、`pg_ctl`、`psql`、`redis-server`。它创建随机端口及临时集群，使用独立测试账号，退出后清理本轮进程和数据。供应商由隔离 TLS 夹具替代；通过不等于正式供应商、手机或生产容量验收。
 
-集成脚本核对Go结构化结果：八类专项中登记的顶层必需用例必须实际执行、全部通过且测试包正常完成；用例缺失、顶层或子用例跳过、失败及无法解析的结果均不能报成功。`durable` 覆盖工作/事件原子写入、数据库消费、补偿和受控重驱动；`wish_lifecycle` 覆盖实际上架路径的并发额度与到期规则。隐私受理、确认失败、恢复屏障及证据删除使用正式加密文件账本验证。普通`make check`仍允许未提供隔离依赖的集成用例跳过，不能单独作为真实中间件验收。
+集成脚本核对Go结构化结果：18类专项中登记的39个顶层必需用例必须实际执行、全部通过且测试包正常完成；用例缺失、顶层或子用例跳过、失败及无法解析的结果均不能报成功。`durable` 覆盖工作/事件原子写入、数据库消费、补偿和受控重驱动；`wish_lifecycle` 覆盖实际上架路径的并发额度与到期规则。隐私受理、确认失败、恢复屏障及证据删除使用正式加密文件账本验证。普通`make check`仍允许未提供隔离依赖的集成用例跳过，不能单独作为真实中间件验收。
 
 `/healthz` 表示进程存活，`/readyz` 表示已装配业务依赖可用。`make doctor` 连接依赖检查装配，不监听 HTTP。仅检查健康入口时可直接运行 `bin/server -config configs/common.yaml`；公共配置默认不连接数据库或Redis。开发/生产覆盖显式启用postgres与Redis，业务连接字段不能缺失。
 
@@ -222,7 +222,7 @@ make worker CONFIG=configs/production.yaml KIND=content
 
 数据库账户权限不区分学生或后台岗位；请求必须经过当前会话、账号状态及岗位授权函数。普通审核不能取得危机权限，学生不能调用后台方法。DB 账号拥有本库结构以支持同 DSN 显式迁移，普通 API/worker 不自动执行 DDL。
 
-项目尚未上线，当前初始化基线按九组模块 SQL 管理，不保留旧开发库升级兼容。开发库重建须另行授权，普通启动不会重置数据；首次正式交付后只追加迁移，不改写已应用 SQL 与校验和。
+项目已有部署记录，迁移链从0001延伸至0017；目标库实际版本须部署前只读核验。升级追加迁移，不改写已应用SQL与校验和；迁移前完成可用备份核验，开发库重建须另行授权，普通启动不会重置数据。
 
 ## 6. 无MQ原生生产装配
 
@@ -235,15 +235,16 @@ bin/worker -config configs/production.yaml -kind account -recover
 bin/worker -config configs/production.yaml -kind evidence -recover
 ```
 
-恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和外部对象保留/删除规则仍待存储服务确定。本分支没有执行部署、服务管理器安装或生产迁移。
+恢复完成前不开放读取和外发。文件账本与业务库是否具有独立故障域、灾备和外部对象保留/删除规则仍待存储服务确定。已有部署与迁移证据见[后端现状](../docs/development/backend/README.md)，不能据此推断目标机当前运行状态。
 
 ## 7. 代码组织与重构边界
 
-工程使用单个Go module，`cmd/`的4个入口只负责参数、信号和退出状态。`internal`按职责归为10个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
+工程使用单个Go module，`cmd/`的4个入口只负责参数、信号和退出状态。`internal`按职责归为11个一级目录；`modules`和`execution`只作路径分类，不包含汇总包。
 
 ```text
 internal/app/                  # 服务构造、入口装配、资源生命周期
 internal/config/               # 应用配置值、严格校验及稳定派生入口
+internal/contentquery/         # 公开候选、稳定分页和缓存边界
 internal/httpapi/              # HTTP路由、请求校验、响应映射
 internal/modules/              # 账号认证、心愿、聊天、树洞、治理、资料
 internal/execution/command/    # 授权复核、事务、跨域锁序和幂等
@@ -279,13 +280,13 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 微信Exchanger的HTTPS实现位于[gateway/wechat.go](internal/adapters/gateway/wechat.go)，登录Limiter的Redis实现位于[authrate](internal/adapters/redis/authrate/limiter.go)。领域只接收接口，app注入具体实现；架构检查拒绝Redis/Gin/Viper和直接YAML解析回流业务模块。删除账本保留在privacy的现有恢复边界内，锁、原子替换、fsync和历史意图协议不因目录调整改写。
 
-完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，65项业务模型清单位于[models.go](internal/migration/models.go)；实体清单仅用于字段存在性校验和整体空库回退保护，不执行AutoMigrate。64张业务表由9组版本SQL管理，技术账本独立定义。新增表同步模型、清单、版本SQL和中文对象注释，结构、权限与回退流程见[迁移说明](migrations/README.md)。
+完整路径白名单见[架构检查](internal/app/architecture_test.go)，逐包登记跨模块协作，禁止业务回引app、config、httpapi、adapters和migration。entity保持叶子包，业务模型清单位于[models.go](internal/migration/models.go)；实体清单仅用于字段存在性校验和整体空库回退保护，不执行AutoMigrate。业务表由连续版本SQL管理，技术账本独立定义；表数量以模型清单和迁移为准。新增表同步模型、清单、版本SQL和中文对象注释，结构、权限与回退流程见[迁移说明](migrations/README.md)。
 
 应用装配从[services.go](internal/app/services.go)读取显式依赖与配置，按身份、互动、治理分别构造服务，再由[routes.go](internal/app/routes.go)注册HTTP。树洞的构造与注册分别位于[services_whisper.go](internal/app/services_whisper.go)和[routes_whisper.go](internal/app/routes_whisper.go)。[api_runtime.go](internal/app/api_runtime.go)统一API结构检查、共享依赖和两域恢复准入，完整业务与独立树洞入口组合这些组件；API、worker和初始化共用[resources.go](internal/app/resources.go)的资源构造规则。
 
 宿主拥有自己打开的数据库、Redis和供应商资源，借用服务不得自行关闭；停止时先排空请求和后台任务，再逆序释放。普通启动不执行DDL。命令参数、HTTP契约、YAML字段与相对路径规则、密钥派生标签、任务协议、删除账本和恢复门禁属于兼容边界。
 
-相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行runtime、durable、wish_lifecycle、studentcard、resourceplaza、moderation、whisper_review、migration八类专项，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。
+相关迭代使用`make check-fast PACKAGES=./internal/modules/模块/...`；完整交付执行`make fmt`、`make check`、`make build`。装配与入口变动增加Python入口测试和受影响的原生集成。`make integration`通过临时PG/Redis执行脚本登记的18类专项、39个必需顶层用例，逐项拒绝缺失、跳过或失败的必需用例，退出清理本轮实例和数据；供应商使用合成夹具，不代表生产或真机验收。
 
 ## 8. 保留但尚未接入的维护与治理能力
 
@@ -304,6 +305,6 @@ internal/testconfig/           # 隔离集成测试的YAML输入
 
 开发API与完整业务API在开放路由前复用同一删除恢复检查：两域全部分页扫描，已确认历史也不能跳过；账号域恢复成功后证据目标仍存在时继续拒绝启动。原生runtime回归模拟第二页中的已确认账号/证据目标，验证两域重删及再次恢复旧目标后的失败关闭。`-check-config` 不连接依赖、不检查账本内容；在线检查才执行门禁。
 
-学生卡注册必须显式传入文件字节预算，HTTP总预算为文件上限加64KiB multipart开销；其余路由仍为1MiB，不能按客户端Content-Type豁免。回归覆盖精确文件边界、较大配置、超限图片、过量头部、额外部分以及超过1MiB的真实合成PNG经HTTP、规范化、加密和数据库暂存的完整链路。
+学生卡注册必须显式传入文件字节预算，HTTP总预算为文件上限加64KiB multipart开销；其他路由按装配的独立预算控制，默认1MiB；头像、资料文件、内置词库快照有专用上限，不能按客户端Content-Type豁免。回归覆盖精确文件边界、较大配置、超限图片、过量头部、额外部分以及超过1MiB的真实合成PNG经HTTP、规范化、加密和数据库暂存的完整链路。
 
 文件账本编码为临时快照后先校验32MiB完整文件上限，再fsync及原子替换；超限返回失败并保留旧账本，日志 `capacity_exceeded=true` 可用于告警。已确认意图不删除，满容量后既有任务确认和恢复仍可继续；新增意图被拒绝时，不得视为注销已受理。显式分段存储尚未实现，扩展前须验证旧意图全量迁移、原密钥、分页顺序、跨进程锁、fsync和中断恢复；禁止用清空文件或轮换主密钥临时腾挪容量。同机文件仍不代表独立故障域。

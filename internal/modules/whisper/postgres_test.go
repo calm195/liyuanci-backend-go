@@ -579,13 +579,18 @@ func TestPostgresWhisperText(t *testing.T) {
 	if help.Status != "unavailable" || help.Items == nil {
 		t.Fatal("缺援助资料泄漏示例")
 	}
-	if e = migration.Run(ctx, admin, log, "down"); e == nil || !strings.Contains(e.Error(), "生命周期回执") {
-		t.Fatal("生命周期回执未阻止回退", e)
+	// 当前迁移在任何业务表非空时整体拒绝回退，不再逐模块检查生命周期回执。
+	var beforeCount, retainedCount int64
+	must(admin.Table("public.whisper_posts").Count(&beforeCount).Error)
+	if beforeCount == 0 {
+		t.Fatal("回退保护测试缺少业务数据")
 	}
-	var retainedCount int64
+	if e = migration.Run(ctx, admin, log, "down"); e == nil || !strings.Contains(e.Error(), "拒绝整体回退") {
+		t.Fatal("非空业务库未阻止整体回退", e)
+	}
 	must(admin.Table("public.whisper_posts").Count(&retainedCount).Error)
-	if retainedCount == 0 {
-		t.Fatal("拒绝回退仍丢失业务数据")
+	if retainedCount != beforeCount {
+		t.Fatal("拒绝回退仍改变业务数据数量")
 	}
 	t.Log("真实PostgreSQL与API运行角色验证通过；审核批准、资料和KMS为隔离合成夹具，未启用模块")
 }

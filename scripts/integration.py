@@ -27,9 +27,22 @@ SUITES = {
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'verification': ('./internal/modules/verification', ('TestPostgresVerification',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
-    'moderation': ('./internal/modules/moderation', ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion')),
+    'moderation': (
+        './internal/modules/moderation',
+        ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion', 'TestApplicationMatching',
+         'TestChatDelivery', 'TestStorySharing', 'TestSafetyGovernance', 'TestAdminUsersQuery')
+    ),
     'whisper_review': ('./internal/modules/whisper', ('TestPostgresWhisperModeration',)),
     'studentauth': ('./internal/modules/studentauth', ('TestPostgresStudent',)),
+    'whisper_text': ('./internal/modules/whisper', ('TestPostgresWhisperText',)),
+    'redis_rate': ('./internal/adapters/redis/whisperrate', ('TestRedisWhisperAdmission',)),
+    'command': (
+        './internal/execution/command',
+        ('TestPostgresCommands', 'TestBackgroundPlan', 'TestPostgresWhisperLocks')
+    ),
+    'wish_draft': ('./internal/modules/wish', ('TestPostgresCreateDraft',)),
+    'wish_http': ('./internal/httpapi', ('TestPostgresWishHTTP',)),
+    'identity': ('./internal/modules/identity', ('TestPostgresIdentity',)),
     'migration': (
         './internal/migration',
         (
@@ -50,6 +63,10 @@ MIGRATION_DATABASES = {
     'schema_test_dsn': 'schema_test',
     'recovery_test_dsn': 'recovery_test',
     'story_publication_test_dsn': 'story_publication_test',
+    'command_test_dsn': 'command_test',
+    'identity_test_dsn': 'identity_test',
+    'wish_test_dsn': 'wish_test',
+    'wish_http_test_dsn': 'wish_http_test',
 }
 
 
@@ -244,6 +261,7 @@ def run(suite='all'):
             # 测试配置只引用本轮实例与已构建二进制，不接入已有业务或生产数据库。
             values = {
                 'whisper_text_test_dsn': dsn,
+                'whisper_command_test_dsn': dsn,
                 'studentauth_test_redis': f'127.0.0.1:{redisport}',
                 'adminauth_test_redis': f'127.0.0.1:{redisport}',
                 'whisper_redis_test_address': f'127.0.0.1:{redisport}',
@@ -257,7 +275,10 @@ def run(suite='all'):
             }
             values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           verification_test_dsn=dsn, studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
-            if suite in ('all', 'migration', 'studentauth', 'adminauth'):
+            if suite in (
+                'all', 'migration', 'studentauth', 'adminauth',
+                'command', 'wish_draft', 'wish_http', 'identity'
+            ):
                 for key, database in MIGRATION_DATABASES.items():
                     subprocess.run(
                         [

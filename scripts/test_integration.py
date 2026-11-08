@@ -2,6 +2,7 @@
 from contextlib import redirect_stdout
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import unittest
@@ -27,6 +28,18 @@ class IntegrationResultTests(unittest.TestCase):
 
     def complete(self):
         return [event('run', 'TestPostgresHTTP'), event('pass', 'TestPostgresHTTP'), event('pass')]
+
+    def test_moderation_integration_entries_are_registered(self):
+        # 扫描实际集成入口，避免新增聊天/治理回归仅在普通单测中被跳过。
+        folder = integration.ROOT / 'internal/modules/moderation'
+        required = set()
+        for source in folder.glob('*integration_test.go'):
+            required.update(re.findall(
+                r'^func (Test\w+)\(t \*testing.T\)', source.read_text(), re.MULTILINE
+            ))
+        registered = set(integration.SUITES['moderation'][1])
+        self.assertTrue(required)
+        self.assertFalse(required - registered, required - registered)
 
     def test_complete_run_preserves_test_output(self):
         events = self.complete()
