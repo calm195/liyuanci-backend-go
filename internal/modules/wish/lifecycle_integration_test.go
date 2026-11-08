@@ -300,6 +300,85 @@ func TestPostgresLifecycle(t *testing.T) {
 	if len(published) != 3 || waiting.ID == "" {
 		t.Fatal("额度错误", len(published), waiting)
 	}
+	// 热度相同按发布时间与 ID 排序，关键词和排序变化后拒绝旧游标。
+	filter := Query{Sort: "hot", Keyword: "已审正文", Limit: 2}
+	first, e := s.List(ctx, "discovery", filter)
+	if e != nil || len(first.Items) != 2 || first.NextCursor == nil {
+		t.Fatal(first, e)
+	}
+	filter.Cursor = *first.NextCursor
+	second, e := s.List(ctx, "discovery", filter)
+	if e != nil || len(second.Items) != 1 || second.NextCursor != nil ||
+		second.Items[0].ID == first.Items[0].ID || second.Items[0].ID == first.Items[1].ID {
+		t.Fatal(second, e)
+	}
+	filter.Keyword = "不存在的合成搜索词"
+	if _, e := s.List(ctx, "discovery", filter); !errors.Is(e, command.ErrInvalid) {
+		t.Fatal("允许跨搜索词使用游标", e)
+	}
+	t.Run("周榜只计近期有效应愿", func(t *testing.T) {
+		applicant, token := uuid.NewString(), uuid.NewString()
+		f.exec("INSERT INTO public.accounts(id,nickname,verification) VALUES (?,'合成应愿人','verified')", applicant)
+		hash := sha256.Sum256([]byte(token))
+		if e := f.root.Create(&entity.Session{ID: uuid.NewString(), AccountID: &applicant,
+			TokenHash: hash[:], AuthEpoch: 1, ExpiresAt: time.Now().Add(time.Hour)}).Error; e != nil {
+			t.Fatal(e)
+		}
+		target := published[2]
+		application, e := s.Apply(ctx, token, uuid.NewString(), "discovery", target.ID,
+			ApplicationInput{Message: "合成应愿说明", WishContentVersion: target.ContentVersion})
+		if e != nil {
+			t.Fatal(e)
+		}
+		before, e := s.Weekly(ctx, "discovery")
+		if e != nil || len(before.Items) != 0 {
+			t.Fatal("待审申请参与热度", before, e)
+		}
+		f.exec("UPDATE public.content_registry SET status='approved' WHERE kind='application' AND entity_id=?", application.ID)
+		f.exec("UPDATE public.moderation_tasks SET status='approved',decision='approved' WHERE id=(SELECT review_task_id FROM public.applications WHERE id=?)", application.ID)
+		f.exec("UPDATE public.applications SET status='active' WHERE id=?", application.ID)
+		weekly, e := s.Weekly(ctx, "discovery")
+		if e != nil || len(weekly.Items) != 1 || weekly.Items[0].ID != target.ID {
+			t.Fatal("有效应愿未进入周榜", weekly, e)
+		}
+		f.exec("UPDATE public.applications SET created_at=clock_timestamp()-interval '8 days' WHERE id=?", application.ID)
+		weekly, e = s.Weekly(ctx, "discovery")
+		if e != nil || len(weekly.Items) != 0 {
+			t.Fatal("历史应愿进入周榜", weekly, e)
+		}
+		total, e := s.List(ctx, "discovery", Query{Sort: "hot", Limit: 1})
+		if e != nil || len(total.Items) != 1 || total.Items[0].ID != target.ID {
+			t.Fatal("历史应愿未计入累计热度", total, e)
+		}
+	})
+	t.Run("详情打开逐次计入累计和周榜", func(t *testing.T) {
+		target := published[0]
+		if _, e := s.Detail(ctx, "", "discovery", target.ID); e != nil {
+			t.Fatal(e)
+		}
+		for range 2 {
+			if _, e := s.OpenDetail(ctx, "", "discovery", target.ID); e != nil {
+				t.Fatal(e)
+			}
+		}
+		var count int64
+		if e := f.root.Model(&entity.WishDetailView{}).Where("wish_id=?", target.ID).Count(&count).Error; e != nil || count != 2 {
+			t.Fatal("两次打开必须各计一分，普通查询不计分", count, e)
+		}
+		weekly, e := s.Weekly(ctx, "discovery")
+		if e != nil || len(weekly.Items) != 1 || weekly.Items[0].ID != target.ID {
+			t.Fatal("详情打开未进入周榜", weekly, e)
+		}
+		f.exec("UPDATE public.wish_detail_views SET viewed_at=clock_timestamp()-interval '8 days' WHERE wish_id=?", target.ID)
+		weekly, e = s.Weekly(ctx, "discovery")
+		if e != nil || len(weekly.Items) != 0 {
+			t.Fatal("历史详情打开进入周榜", weekly, e)
+		}
+		total, e := s.List(ctx, "discovery", Query{Sort: "hot", Limit: 1})
+		if e != nil || len(total.Items) != 1 || total.Items[0].ID != target.ID {
+			t.Fatal("两次历史详情打开应高于一次有效应愿", total, e)
+		}
+	})
 	var row entity.Wish
 	f.root.Where("id=?", waiting.ID).Take(&row)
 	if row.ExpiresAt != nil || row.PublishedAt != nil {

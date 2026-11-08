@@ -244,7 +244,7 @@ func (s *Service) ListCapsules(ctx context.Context, token, rid string, q Query) 
 		if len(rows) > q.Limit {
 			rows = rows[:q.Limit]
 			last := rows[len(rows)-1]
-			v := s.encodeCursor(cursor{scope, last.ID, last.CreatedAt})
+			v := s.encodeCursor(cursor{Scope: scope, ID: last.ID, At: last.CreatedAt})
 			out.NextCursor = &v
 		}
 		for _, c := range rows {

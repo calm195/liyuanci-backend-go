@@ -14,6 +14,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/contentreview"
@@ -64,6 +65,8 @@ type PublicContent struct {
 
 // Query 约束公开筛选或本人状态筛选；游标绑定路由、主体及筛选，不能跨视图复用。
 type Query struct {
+	Sort     string
+	Keyword  string
 	Category string
 	Campus   string
 	State    State
@@ -84,6 +87,7 @@ type OwnPage struct {
 }
 
 type pageCursor struct {
+	Score       int64     `json:"score,omitempty"`
 	Scope       string    `json:"scope"`
 	ID          string    `json:"id"`
 	PublishedAt time.Time `json:"published_at"`
@@ -126,7 +130,11 @@ func (s *Service) decodeCursor(value, scope string) (out pageCursor, err error) 
 }
 
 func queryScope(kind, owner string, q Query) string {
-	b, _ := json.Marshal([]any{kind, owner, q.Category, q.Campus, q.State})
+	fields := []any{kind, owner, q.Category, q.Campus, q.State}
+	if q.Sort == contentquery.SortHot || q.Keyword != "" {
+		fields = append(fields, q.Sort == contentquery.SortHot, q.Keyword)
+	}
+	b, _ := json.Marshal(fields)
 	return string(b)
 }
 
@@ -135,7 +143,7 @@ func validateQuery(q Query, own bool) error {
 		return command.ErrInvalid
 	}
 	if own {
-		if q.Category != "" || q.Campus != "" ||
+		if q.Sort != "" || q.Keyword != "" || q.Category != "" || q.Campus != "" ||
 			q.State != "" &&
 				!slices.Contains([]State{Draft, PendingReview, Rejected, Ready, Published, Matching, Realized, Fulfilled, Withdrawn, Expired}, q.State) {
 			return command.ErrInvalid
@@ -413,7 +421,16 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 }
 
 // Detail 对无token请求只给公开视图；显式坏token返回401，不降级游客绕过权限。
-func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result, err error) {
+func (s *Service) Detail(ctx context.Context, token, rid, id string) (Result, error) {
+	return s.detail(ctx, token, rid, id, false)
+}
+
+// OpenDetail 只为成功打开的公开心愿记录热度。
+func (s *Service) OpenDetail(ctx context.Context, token, rid, id string) (Result, error) {
+	return s.detail(ctx, token, rid, id, true)
+}
+
+func (s *Service) detail(ctx context.Context, token, rid, id string, trackView bool) (out Result, err error) {
 	start := time.Now()
 	defer func() {
 		if recover() != nil {
@@ -427,6 +444,7 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 	if !validWishID(id) {
 		return out, command.ErrInvalid
 	}
+	publicView := false
 	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
 		actor := ""
 		if token != "" {
@@ -442,6 +460,10 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 		}
 		if actor == a.row.OwnerID {
 			out, e = s.ownResult(ctx, db, rid, now, a)
+			if e == nil && trackView {
+				_, publicErr := s.publicContent(rid, now, a)
+				publicView = publicErr == nil
+			}
 			return e
 		}
 		if actor != "" && (a.snapshot.State == Matching || a.snapshot.State == Realized || a.snapshot.State == Fulfilled) {
@@ -491,6 +513,7 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 		if e != nil {
 			return command.ErrNotFound
 		}
+		publicView = true
 		out = Result{
 			PeerDeleted:    a.row.PeerDeleted,
 			ID:             id,
@@ -522,6 +545,9 @@ func (s *Service) Detail(ctx context.Context, token, rid, id string) (out Result
 		}
 		return nil
 	})
+	if err == nil && trackView && publicView {
+		s.recordWishDetailView(ctx, rid, id, out.ContentVersion)
+	}
 	return out, err
 }
 
@@ -588,83 +614,6 @@ func (s *Service) Own(ctx context.Context, token, rid string, q Query) (out OwnP
 }
 
 // List 游客广场只输出当前已审且未过期内容；过滤和游标都在可重复读快照内计算。
-func (s *Service) List(ctx context.Context, rid string, q Query) (out PublicPage, err error) {
-	start := time.Now()
-	defer func() {
-		if recover() != nil {
-			err = command.ErrInternal
-		}
-		s.queryDone("public_list", rid, start, &err)
-		if err != nil {
-			out = PublicPage{}
-		}
-	}()
-	if e := validateQuery(q, false); e != nil {
-		return out, e
-	}
-	scope := queryScope("public", "", q)
-	cursor, e := s.decodeCursor(q.Cursor, scope)
-	if e != nil {
-		return out, e
-	}
-	if cursor.ID != "" && cursor.PublishedAt.IsZero() {
-		return out, command.ErrInvalid
-	}
-	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
-		out.Items = []PublicContent{}
-		positions := []entity.Wish{}
-		for len(out.Items) <= q.Limit {
-			query := db.Model(&entity.Wish{}).Where("draft_deleted_at IS NULL AND state='published' AND expires_at>?", now)
-			if q.Category != "" {
-				query = query.Where("category=?", q.Category)
-			}
-			if q.Campus != "" {
-				query = query.Where("campus=?", q.Campus)
-			}
-			if cursor.ID != "" {
-				query = query.Where("published_at<? OR (published_at=? AND id<?)", cursor.PublishedAt, cursor.PublishedAt, cursor.ID)
-			}
-			var rows []entity.Wish
-			if e := query.Order("published_at DESC,id DESC").Limit(100).Find(&rows).Error; e != nil {
-				return e
-			}
-			if len(rows) == 0 {
-				break
-			}
-			for _, row := range rows {
-				cursor = pageCursor{Scope: scope, ID: row.ID, PublishedAt: *row.PublishedAt}
-				a, e := readAggregate(ctx, db, row.ID, false)
-				if e != nil {
-					return e
-				}
-				item, e := s.publicContent(rid, now, a)
-				if errors.Is(e, command.ErrNotFound) {
-					continue
-				}
-				if e != nil {
-					return e
-				}
-				out.Items = append(out.Items, item)
-				positions = append(positions, row)
-				if len(out.Items) > q.Limit {
-					break
-				}
-			}
-			if len(rows) < 100 {
-				break
-			}
-		}
-		if len(out.Items) > q.Limit {
-			row := positions[q.Limit-1]
-			next := s.encodeCursor(pageCursor{Scope: scope, ID: row.ID, PublishedAt: *row.PublishedAt})
-			out.NextCursor = &next
-			out.Items = out.Items[:q.Limit]
-		}
-		return nil
-	})
-	return out, err
-}
-
 func contentTitle(title string) string {
 	if title == "" {
 		return "未命名心愿"

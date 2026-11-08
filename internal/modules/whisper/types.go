@@ -111,10 +111,12 @@ type Page[T any] struct {
 	NextCursor *string `json:"next_cursor"`
 }
 
-// Query 只允许固定的时间与随机标识分页，不支持作者检索。
+// Query 只允许公开帖子匹配标题和正文，不支持作者检索。
 type Query struct {
-	Limit  int
-	Cursor string
+	Sort    string
+	Keyword string
+	Limit   int
+	Cursor  string
 }
 
 // NicknameLabel 表示当前可选已批准版本。

@@ -16,14 +16,20 @@ type Limiter struct {
 	client redis.UniversalClient
 	window time.Duration
 	limit  int
+	prefix string
 }
 
 // New 要求显式窗口/限额，避免把测试阈值变成生产策略。
 func New(client redis.UniversalClient, window time.Duration, limit int) (*Limiter, error) {
-	if client == nil || window < time.Millisecond || limit < 1 {
+	return NewScoped(client, "admin-login:", window, limit)
+}
+
+// NewScoped 为复用同一原子计数脚本的接口分配独立的键空间。
+func NewScoped(client redis.UniversalClient, prefix string, window time.Duration, limit int) (*Limiter, error) {
+	if client == nil || prefix == "" || window < time.Millisecond || limit < 1 {
 		return nil, command.ErrInvalid
 	}
-	return &Limiter{client: client, window: window, limit: limit}, nil
+	return &Limiter{client: client, window: window, limit: limit, prefix: prefix}, nil
 }
 
 // Allow 把计数与首次过期写入放在同一脚本中；错误只由服务操作边界记录稳定结果。
@@ -31,7 +37,7 @@ func (l *Limiter) Allow(ctx context.Context, key string) (bool, error) {
 	result, err := l.client.Eval(
 		ctx,
 		`local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) end; return n`,
-		[]string{"admin-login:" + key},
+		[]string{l.prefix + key},
 		l.window.Milliseconds(),
 	).Int64()
 	if err != nil {

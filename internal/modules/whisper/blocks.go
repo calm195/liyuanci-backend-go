@@ -236,7 +236,7 @@ func (s *Service) ListBlocks(ctx context.Context, token, rid string, q Query) (o
 		if len(rows) > q.Limit {
 			rows = rows[:q.Limit]
 			last := rows[len(rows)-1]
-			v := s.encodeCursor(cursor{scope, last.BlockID, last.CreatedAt})
+			v := s.encodeCursor(cursor{Scope: scope, ID: last.BlockID, At: last.CreatedAt})
 			out.NextCursor = &v
 		}
 		for _, b := range rows {

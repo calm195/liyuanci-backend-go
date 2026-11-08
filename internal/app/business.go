@@ -14,6 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/gateway"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/local"
 	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/authrate"
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/contentcache"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -33,17 +34,18 @@ import (
 
 // BusinessAPI 组合共享运行资源、树洞与完整业务服务；各岗位仍由领域授权隔离。
 type BusinessAPI struct {
-	runtime    *apiRuntime
-	whispers   *whisperServices
-	Router     *gin.Engine
-	cfg        config.Business
-	gateway    objectGateway
-	keys       *local.IdentityKeys
-	identityDB *gorm.DB
+	runtime       *apiRuntime
+	whispers      *whisperServices
+	Router        *gin.Engine
+	cfg           config.Business
+	gateway       objectGateway
+	keys          *local.IdentityKeys
+	identityDB    *gorm.DB
+	publicContent *PublicContentOptions
 }
 
 // OpenBusiness 装配本机密钥、词库审核及显式外部对象适配器；全部配置、结构、恢复、资料及依赖检查通过后才返回可监听路由。
-func OpenBusiness(ctx context.Context, cfg config.Business, environment string, client redis.UniversalClient, log *zap.Logger) (out *BusinessAPI, err error) {
+func OpenBusiness(ctx context.Context, cfg config.Business, environment string, client redis.UniversalClient, log *zap.Logger, contentOptions ...config.Content) (out *BusinessAPI, err error) {
 	if log == nil || config.ValidateBusiness(cfg, environment, "api") != nil {
 		return nil, command.ErrInvalid
 	}
@@ -119,8 +121,15 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	pconf := a.r.privacyConfig()
 	econf := pconf
 	econf.Key = cfg.Runtime.EvidenceKey
+	contentCfg := contentSettings(contentOptions)
+	b.publicContent = &PublicContentOptions{Cache: contentcache.New(client, contentCfg.CacheTTL)}
+	rate, e := contentRate(client, a.database, cfg.SessionKey, contentCfg)
+	if e != nil {
+		return nil, e
+	}
 	router, e := newServiceRouter(ServiceDependencies{
 
+		PublicContent:      b.publicContent,
 		StudentDB:          student,
 		ReviewDB:           a.database,
 		WishDB:             a.database,
@@ -166,9 +175,12 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 
 		Privacy:          &pconf,
 		EvidenceDeletion: &econf,
-	})
+	}, rate, contentInvalidation(b.publicContent))
 	if e != nil {
 		return nil, e
+	}
+	if e = router.SetTrustedProxies(contentCfg.TrustedProxies); e != nil {
+		return nil, command.ErrInvalid
 	}
 	password, e := config.ValidateSecret(cfg.AdminCreatePassword, 12)
 	if e != nil {
@@ -197,6 +209,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e = whispers.register(router); e != nil {
 		return nil, e
 	}
+	b.publicContent.attachWhisper(whispers.service)
 	b.Router = router
 	return b, nil
 }

@@ -22,6 +22,7 @@ type WishesAPI interface {
 	Withdraw(context.Context, string, string, string, string, int64) (wish.CreatedDraft, error)
 	Delete(context.Context, string, string, string, string, int64) error
 	Detail(context.Context, string, string, string) (wish.Result, error)
+	OpenDetail(context.Context, string, string, string) (wish.Result, error)
 	Own(context.Context, string, string, wish.Query) (wish.OwnPage, error)
 	List(context.Context, string, wish.Query) (wish.PublicPage, error)
 }
@@ -155,7 +156,11 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 				return
 			}
 		}
-		out, err := service.Detail(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
+		detail := service.Detail
+		if c.Query("view") == "1" {
+			detail = service.OpenDetail
+		}
+		out, err := detail(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
 		if err != nil {
 			adminError(c, err)
 			return
@@ -209,24 +214,30 @@ func wishMutationResult(c *gin.Context, status int, out wish.CreatedDraft) {
 	)
 }
 
-func wishQuery(c *gin.Context, own bool) (q wish.Query, err error) {
-	q.Limit = 20
-	allowed := []string{"cursor", "limit", "category", "campus"}
+func wishQuery(c *gin.Context, own bool) (wish.Query, error) {
+	allowed := []string{"cursor", "limit", "category", "campus", "sort", "keyword"}
 	if own {
 		allowed = []string{"cursor", "limit", "state"}
 	}
+	return wishPageQuery(c, allowed, 100)
+}
+
+func wishPageQuery(c *gin.Context, allowed []string, maxLimit int) (q wish.Query, err error) {
+	q.Limit = 20
 	for name, values := range c.Request.URL.Query() {
 		if !slices.Contains(allowed, name) || len(values) != 1 || values[0] == "" {
 			return q, command.ErrInvalid
 		}
 	}
 	q.Cursor = c.Query("cursor")
+	q.Sort = c.Query("sort")
+	q.Keyword = c.Query("keyword")
 	q.Category = c.Query("category")
 	q.Campus = c.Query("campus")
 	q.State = wish.State(c.Query("state"))
 	if raw, ok := c.GetQuery("limit"); ok {
 		n, e := strconv.Atoi(raw)
-		if e != nil || n < 1 || n > 100 {
+		if e != nil || n < 1 || n > maxLimit {
 			return q, command.ErrInvalid
 		}
 		q.Limit = n

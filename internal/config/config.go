@@ -14,6 +14,7 @@ type Config struct {
 	// MasterKey 是唯一可配置的应用主密钥；各领域子密钥只在内存派生。
 	MasterKey []byte
 	Business  Business
+	Content   Content
 	Whispers  Runtime
 	Worker    struct{ Kind string }
 	Bootstrap struct{ Login, WordlistsFile string }
@@ -57,6 +58,9 @@ func Load(path string) (Config, error) {
 	}
 	if c.Environment == "production" && c.Mode != "business" {
 		return c, fmt.Errorf("生产环境必须使用完整业务适配器")
+	}
+	if err := c.Content.validate(); err != nil {
+		return c, err
 	}
 	if err := c.Database.resolve(); err != nil {
 		return c, err
@@ -108,6 +112,7 @@ func Defaults() Config {
 	c.Database.Port, c.Database.SSLMode, c.Database.TimeZone = 5432, "disable", "UTC"
 	c.Database.ConnectTimeout = 5 * time.Second
 	c.Database.MaxOpen, c.Database.MaxIdle, c.Database.MaxLifetime = 10, 2, 30*time.Minute
+	c.Content = DefaultContent()
 	c.Redis.Address = "127.0.0.1:6379"
 	return c
 }

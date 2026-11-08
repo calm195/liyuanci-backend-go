@@ -68,7 +68,7 @@ func RegisterWhispers(r *gin.Engine, s WhisperService) error {
 				out, e = s.GetPost(ctx, token, rid, id, op == "own_get")
 			case "public_list", "own_list":
 				var q whisper.Query
-				q, e = whisperQuery(c)
+				q, e = whisperListQuery(c, op == "public_list")
 				if e == nil {
 					out, e = s.ListPosts(ctx, token, rid, op == "own_list", q)
 				}
@@ -181,7 +181,11 @@ func whisperBearer(c *gin.Context, required bool) (string, error) {
 	return token, nil
 }
 
-func whisperQuery(c *gin.Context) (q whisper.Query, err error) {
+func whisperQuery(c *gin.Context) (whisper.Query, error) {
+	return whisperListQuery(c, false)
+}
+
+func whisperListQuery(c *gin.Context, public bool) (q whisper.Query, err error) {
 	q.Limit = 20
 	for k, values := range c.Request.URL.Query() {
 		if len(values) != 1 {
@@ -199,6 +203,15 @@ func whisperQuery(c *gin.Context) (q whisper.Query, err error) {
 				return q, command.ErrInvalid
 			}
 			q.Cursor = values[0]
+		case "sort", "keyword":
+			if !public || values[0] == "" {
+				return q, command.ErrInvalid
+			}
+			if k == "sort" {
+				q.Sort = values[0]
+			} else {
+				q.Keyword = values[0]
+			}
 		default:
 			return q, command.ErrInvalid
 		}

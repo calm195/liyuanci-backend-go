@@ -11,7 +11,7 @@ import (
 
 // newServiceRouter 先构造完整业务服务集合，再一次注册路由；失败不返回半套入口。
 // 服务构造与HTTP注册分文件维护，宿主仍负责资源关闭和监听生命周期。
-func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine, err error) {
+func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gin.HandlerFunc) (out *gin.Engine, err error) {
 	if d.Logger == nil {
 		return nil, command.ErrInvalid
 	}
@@ -21,6 +21,7 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine
 		return nil, e
 	}
 	router := httpapi.New(d.Logger, d.Ready)
+	router.Use(middleware...)
 	if s.accountDeletion != nil {
 		if e = httpapi.RegisterPrivacy(router, s.accountDeletion); e != nil {
 			return nil, e
@@ -54,6 +55,13 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine
 		return nil, e
 	}
 	if s.wishes != nil {
+		publicContent := d.PublicContent
+		if publicContent == nil {
+			publicContent = &PublicContentOptions{}
+		}
+		if e = publicContent.register(router, s.wishes, cfg.Wish.MaxStoryBytes > 0); e != nil {
+			return nil, e
+		}
 		if e = httpapi.RegisterWishes(router, s.wishes); e != nil {
 			return nil, e
 		}
@@ -78,9 +86,13 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig) (out *gin.Engine
 		}
 	}
 	if s.contentReviews != nil {
-
 		if e = httpapi.RegisterModeration(router, s.contentReviews); e != nil {
 			return nil, e
+		}
+		if s.wishes != nil {
+			if e = httpapi.RegisterAdminWishContent(router, s.contentReviews, s.wishes); e != nil {
+				return nil, e
+			}
 		}
 	}
 	if s.studentResources != nil {

@@ -109,9 +109,11 @@ func (s *Service) Story(ctx context.Context, token, rid, id string) (out PublicC
 	if !validWishID(id) {
 		return out, command.ErrInvalid
 	}
+	var viewer string
 	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
 		if token != "" {
-			if _, e := currentReader(ctx, db, token, now); e != nil {
+			var e error
+			if viewer, e = currentReader(ctx, db, token, now); e != nil {
 				return e
 			}
 		}
@@ -119,73 +121,9 @@ func (s *Service) Story(ctx context.Context, token, rid, id string) (out PublicC
 		out, e = s.publicStory(ctx, db, id)
 		return e
 	})
-	return
-}
-
-// Stories 按当前稿件时间与标识降序分页，同一快照中复核资格，游标不携带正文。
-func (s *Service) Stories(ctx context.Context, rid, cursor string, limit int) (out PublicPage, err error) {
-	defer func() {
-		if err != nil {
-			out = PublicPage{}
-		}
-	}()
-	defer s.storyReadDone("stories.list", rid, time.Now(), &err)
-	if limit < 1 || limit > 50 {
-		return out, command.ErrInvalid
+	if err == nil && viewer != "" && viewer != out.Author.ID {
+		s.recordStoryView(ctx, rid, id, viewer, out.ContentVersion)
 	}
-	after, e := s.decodeCursor(cursor, "stories/public")
-	if e != nil {
-		return out, e
-	}
-	if after.ID != "" && after.PublishedAt.IsZero() {
-		return out, command.ErrInvalid
-	}
-	err = s.readTransaction(ctx, func(db *gorm.DB, _ time.Time) error {
-		out.Items = []PublicContent{}
-		positions := []pageCursor{}
-		for len(out.Items) <= limit {
-			q := db.Table("public.wishes AS w").Select("w.id,v.created_at AS position").
-				Joins("JOIN public.story_versions v ON v.wish_id=w.id AND v.story_version=w.current_story_version").
-				Where("w.state='fulfilled' AND w.current_story_version>0 AND w.draft_deleted_at IS NULL")
-			if after.ID != "" {
-				q = q.Where("v.created_at<? OR (v.created_at=? AND w.id<?)", after.PublishedAt, after.PublishedAt, after.ID)
-			}
-			var rows []struct {
-				ID       string
-				Position time.Time
-			}
-			if e := q.Order("v.created_at DESC,w.id DESC").Limit(100).Scan(&rows).Error; e != nil {
-				return e
-			}
-			if len(rows) == 0 {
-				break
-			}
-			for _, w := range rows {
-				after = pageCursor{Scope: "stories/public", ID: w.ID, PublishedAt: w.Position}
-				item, e := s.publicStory(ctx, db, w.ID)
-				if errors.Is(e, command.ErrNotFound) {
-					continue
-				}
-				if e != nil {
-					return e
-				}
-				out.Items = append(out.Items, item)
-				positions = append(positions, after)
-				if len(out.Items) > limit {
-					break
-				}
-			}
-			if len(rows) < 100 {
-				break
-			}
-		}
-		if len(out.Items) > limit {
-			next := s.encodeCursor(positions[limit-1])
-			out.NextCursor = &next
-			out.Items = out.Items[:limit]
-		}
-		return nil
-	})
 	return
 }
 

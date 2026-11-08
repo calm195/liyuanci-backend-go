@@ -37,6 +37,7 @@ type Objects interface {
 // ServiceDependencies 显式提供身份、互动、治理和资料模块的借用依赖；各模块可共用应用连接池，学生/后台授权由当前会话及领域函数执行。
 // 装配器不拥有池或供应商，宿主必须先停止 HTTP 并等待在途请求结束，再释放这些资源。
 type ServiceDependencies struct {
+	PublicContent *PublicContentOptions
 	// WishDB 与 CrisisDB 复用应用连接池；各领域方法仍复核会话、岗位及访问范围。
 	// WishDB 仅在显式启用心愿模块时必填。
 	// PrivacyDB及EvidenceDeletionDB借用同一应用池，按领域用途分别执行授权。

@@ -76,6 +76,9 @@ func businessModels() []any {
 
 		&entity.StoryVersion{},
 
+		&entity.StoryView{},
+		&entity.WishDetailView{},
+
 		&entity.ShareLink{},
 
 		&entity.ContentRegistry{},

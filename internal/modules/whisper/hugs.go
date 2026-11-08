@@ -69,13 +69,19 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 		if h.Version != in.ExpectedHugVersion {
 			return "", command.ErrVersionConflict
 		}
+		var activatedAt *time.Time
+		if in.Active {
+			now := tx.Now()
+			activatedAt = &now
+		}
 		if missing {
 			// 显式取消从未抱抱的对象也建立 false tombstone，阻断旧的 version=0 写入。
 			return id, tx.DB().WithContext(ctx).Exec(
-				"INSERT INTO public.whisper_hugs(post_id,actor_id,active,version) VALUES (?,?,?,1)",
+				"INSERT INTO public.whisper_hugs(post_id,actor_id,active,version,activated_at) VALUES (?,?,?,1,?)",
 				id,
 				tx.Actor().ID,
 				in.Active,
+				activatedAt,
 			).Error
 		}
 		if h.Active == in.Active {
@@ -84,7 +90,7 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 		return id, tx.DB().WithContext(ctx).Model(&entity.WhisperHug{}).
 			Where("post_id=? AND actor_id=?", id, tx.Actor().
 				ID).
-			Updates(map[string]any{"active": in.Active, "version": h.Version + 1}).
+			Updates(map[string]any{"active": in.Active, "version": h.Version + 1, "activated_at": activatedAt}).
 			Error
 	}
 	d.Resolve = func(ctx context.Context, tx *command.Tx, ref string) error {
@@ -96,7 +102,7 @@ func (s *Service) SetHug(ctx context.Context, token, key, rid, id string, in Hug
 			return e
 		}
 		out = HugResult{PostID: ref}
-		if e = countHugs(ctx, tx.DB(), ref, &out.HugCount); e != nil {
+		if e = countHugs(ctx, tx.DB(), ref, tx.Now(), &out.HugCount); e != nil {
 			return e
 		}
 		var h entity.WhisperHug

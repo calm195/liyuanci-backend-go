@@ -158,7 +158,7 @@ func (s *Service) publicPost(ctx context.Context, db *gorm.DB, now time.Time, id
 	if err = visibleCommentsQuery(ctx, db, id, out.ContentVersion, now).Count(&out.CommentCount).Error; err != nil {
 		return PublicPost{}, err
 	}
-	if e = countHugs(ctx, db, id, &out.HugCount); e != nil {
+	if e = countHugs(ctx, db, id, now, &out.HugCount); e != nil {
 		return PublicPost{}, e
 	}
 	if viewer.ID != "" {
@@ -226,70 +226,48 @@ func (s *Service) ListPosts(ctx context.Context, token, rid string, own bool, q 
 	if q.Limit < 1 || q.Limit > 50 {
 		return nil, command.ErrInvalid
 	}
-	c, e := s.resources(ctx)
-	if e != nil {
-		return nil, e
+	if !own {
+		page, e := s.discoverPosts(ctx, token, q, false)
+		if e != nil {
+			return nil, e
+		}
+		return page, nil
+	}
+	if q.Sort != "" || q.Keyword != "" {
+		return nil, command.ErrInvalid
 	}
 	err = s.transaction(ctx, func(db *gorm.DB, now time.Time) error {
-		viewer, e := reader(ctx, db, token, now, !own)
+		viewer, e := reader(ctx, db, token, now, false)
 		if e != nil {
 			return e
 		}
-		kind := "public"
-		if own {
-			kind = "own"
-		}
-		scope := s.scope(kind, viewer.ID)
+		scope := s.scope("own", viewer.ID)
 		position, e := s.decodeCursor(q.Cursor, scope)
 		if e != nil {
 			return e
 		}
-		candidates, e := postCandidates(ctx, db, own, viewer.ID, position, q.Limit+1)
+		candidates, e := ownPostCandidates(ctx, db, viewer.ID, position, q.Limit+1)
 		if e != nil {
 			return e
 		}
-		more := len(candidates) > q.Limit
-		if more {
+		page := Page[OwnerPost]{Items: []OwnerPost{}}
+		if len(candidates) > q.Limit {
 			candidates = candidates[:q.Limit]
-		}
-		ownPage := Page[OwnerPost]{Items: []OwnerPost{}}
-		publicPage := Page[PublicPost]{Items: []PublicPost{}}
-		for _, p := range candidates {
-			if own {
-				v, e := s.ownerPost(ctx, db, now, p.ID, viewer.ID)
-				if e != nil {
-					if errors.Is(e, command.ErrNotFound) {
-						continue
-					}
-					return e
-				}
-				ownPage.Items = append(ownPage.Items, v)
-			} else {
-				v, e := s.publicPost(ctx, db, now, p.ID, viewer, c)
-				if e != nil {
-					if errors.Is(e, command.ErrNotFound) {
-						continue
-					}
-					return e
-				}
-				publicPage.Items = append(publicPage.Items, v)
-			}
-		}
-		if more && len(candidates) > 0 {
 			last := candidates[len(candidates)-1]
-			at := last.CreatedAt
-			if !own {
-				at = *last.PublishedAt
+			next := s.encodeCursor(cursor{Scope: scope, ID: last.ID, At: last.CreatedAt})
+			page.NextCursor = &next
+		}
+		for _, p := range candidates {
+			v, e := s.ownerPost(ctx, db, now, p.ID, viewer.ID)
+			if errors.Is(e, command.ErrNotFound) {
+				continue
 			}
-			next := s.encodeCursor(cursor{Scope: scope, ID: last.ID, At: at})
-			ownPage.NextCursor = &next
-			publicPage.NextCursor = &next
+			if e != nil {
+				return e
+			}
+			page.Items = append(page.Items, v)
 		}
-		if own {
-			out = ownPage
-		} else {
-			out = publicPage
-		}
+		out = page
 		return nil
 	})
 	if err != nil {

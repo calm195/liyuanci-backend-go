@@ -16,7 +16,7 @@ type StoriesAPI interface {
 	SubmitStory(context.Context, string, string, string, string, wish.StoryInput) (wish.StoryAccepted, error)
 	UpdateStory(context.Context, string, string, string, string, wish.StoryUpdate) (wish.StoryAccepted, error)
 	WithdrawStory(context.Context, string, string, string, string, int64) (wish.CreatedDraft, error)
-	Stories(context.Context, string, string, int) (wish.PublicPage, error)
+	SearchStories(context.Context, string, wish.Query) (wish.PublicPage, error)
 	Story(context.Context, string, string, string) (wish.PublicContent, error)
 	CreateShare(context.Context, string, string, string, wish.ShareInput) (wish.ShareLink, error)
 	ResolveShare(context.Context, string, string, string) (wish.ShareTarget, error)
@@ -109,12 +109,12 @@ func RegisterStories(r *gin.Engine, s StoriesAPI) error {
 		adminResult(c, http.StatusAccepted, out)
 	})
 	g.GET("/stories", func(c *gin.Context) {
-		q, e := chatQuery(c, false)
+		q, e := wishPageQuery(c, []string{"cursor", "limit", "sort", "keyword"}, 50)
 		if e != nil {
 			adminError(c, e)
 			return
 		}
-		out, e := s.Stories(c.Request.Context(), c.GetString("request_id"), q.Cursor, q.Limit)
+		out, e := s.SearchStories(c.Request.Context(), c.GetString("request_id"), q)
 		if e != nil {
 			adminError(c, e)
 			return

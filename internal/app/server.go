@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/calm195/liyuanci-backend-go/internal/adapters/redis/contentcache"
 	"github.com/calm195/liyuanci-backend-go/internal/config"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/platform"
@@ -101,6 +102,10 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	}()
 	var whisperAPI *WhisperAPI
 	var businessAPI *BusinessAPI
+	var publicContent *PublicContentOptions
+	if development != nil || whisperSettings != nil {
+		publicContent = &PublicContentOptions{Cache: contentcache.New(resources.Redis, cfg.Content.CacheTTL)}
+	}
 	router := httpapi.New(log, func(ctx context.Context) error {
 		if whisperAPI != nil {
 			return whisperAPI.Ready(ctx)
@@ -112,7 +117,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	})
 	if businessSettings != nil {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		app, e := OpenBusiness(initCtx, *businessSettings, cfg.Environment, resources.Redis, log)
+		app, e := OpenBusiness(initCtx, *businessSettings, cfg.Environment, resources.Redis, log, cfg.Content)
 		cancel()
 		if e != nil {
 			return errors.New("完整业务依赖装配失败")
@@ -120,6 +125,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		businessAPI = app
 		defer func() { _ = app.Close() }()
 		router = app.Router
+		publicContent = app.publicContent
 	}
 	if cfg.Mode == "development" {
 		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -140,7 +146,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 				return whisperAPI.Ready(checkCtx)
 			}
 			return nil
-		})
+		}, publicContent)
 		cancel()
 		if e != nil {
 			log.Error("开发业务装配失败，请显式初始化数据库和凭据")
@@ -158,8 +164,22 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		}
 		defer func() { _ = app.Close() }()
 		whisperAPI = app
+		publicContent.AttachWhispers(app)
+		if cfg.Mode == "whispers" {
+			rate, rateErr := contentRate(resources.Redis, app.runtime.database, whisperSettings.RateKey, cfg.Content)
+			if rateErr != nil {
+				return errors.New("内容接口限流装配失败")
+			}
+			router.Use(rate, contentInvalidation(publicContent))
+			if e = router.SetTrustedProxies(cfg.Content.TrustedProxies); e != nil {
+				return errors.New("内容接口可信代理配置无效")
+			}
+		}
 		if e = app.Register(router); e != nil {
 			return errors.New("树洞路由装配失败")
+		}
+		if e = publicContent.RegisterWhisperOnly(router); e != nil {
+			return errors.New("热点榜单路由装配失败")
 		}
 	}
 	// 依赖诊断复用真实装配，但不绑定监听端口，也不进入服务循环。
@@ -180,6 +200,10 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		}
 		log.Info("业务依赖诊断完成", zap.String("result", "success"))
 		return nil
+	}
+	if publicContent != nil {
+		stopWarm := startContentWarm(ctx, log, cfg.Content.CacheTTL, publicContent.Warm)
+		defer stopWarm()
 	}
 	server := &http.Server{
 		Addr: cfg.Server.Address,

@@ -39,6 +39,7 @@ const (
 // DevelopmentSettings 是统一业务配置向本地适配器投影的运行参数，不提供独立YAML入口。
 type DevelopmentSettings struct {
 	Tencent                                                                     config.Tencent
+	Content                                                                     config.Content
 	ProviderTimeout                                                             time.Duration
 	LocalTest                                                                   bool
 	DatabaseDSN                                                                 string
@@ -56,6 +57,7 @@ func developmentSettings(app config.Config) (DevelopmentSettings, error) {
 	b, r := app.Business, app.Business.Runtime
 	cfg := DevelopmentSettings{
 		Tencent:             r.Tencent,
+		Content:             app.Content,
 		ProviderTimeout:     r.ProviderTimeout,
 		LocalTest:           true,
 		DatabaseDSN:         r.DatabaseDSN,
@@ -138,7 +140,7 @@ func developmentCommandConfig() command.Config {
 
 // OpenDevelopment 在监听前完整装配业务，失败逆序释放已开的池；成功后关闭责任转给 HTTP 宿主。
 // 开发期限和资源预算只在本入口生效；对象与扫描使用腾讯云，隔离集成才使用本地夹具，生产拒绝此入口。
-func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSettings, client redis.UniversalClient, logger *zap.Logger, ready httpapi.Readiness) (router *gin.Engine, closeAll func() error, err error) {
+func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSettings, client redis.UniversalClient, logger *zap.Logger, ready httpapi.Readiness, publicOptions ...*PublicContentOptions) (router *gin.Engine, closeAll func() error, err error) {
 	if logger == nil {
 		return nil, nil, command.ErrInvalid
 	}
@@ -242,8 +244,21 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	pc := developmentPrivacyConfig(cfg)
 	pc.Redactor = local.WhisperProvider{Logger: logger}
 	accountCfg, evidenceCfg := &pc, &pc
+	contentCfg := cfg.Content
+	if contentCfg.Window == 0 {
+		contentCfg = config.DefaultContent()
+	}
+	rate, e := contentRate(client, database, cfg.SessionKey, contentCfg)
+	if e != nil {
+		return nil, closeAll, e
+	}
+	var publicContent *PublicContentOptions
+	if len(publicOptions) != 0 {
+		publicContent = publicOptions[0]
+	}
 	router, e = newServiceRouter(ServiceDependencies{
-		PrivacyDB: privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
+		PublicContent: publicContent,
+		PrivacyDB:     privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
 		CrisisDB:  crisisDB,
 		StudentDB: database,
 		ReviewDB:  database,
@@ -292,9 +307,12 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 			ReceiptKey:    cfg.WishKey,
 			MaxStoryBytes: 64 << 10,
 		},
-	})
+	}, rate, contentInvalidation(publicContent))
 	if e != nil {
 		return nil, closeAll, e
+	}
+	if e = router.SetTrustedProxies(contentCfg.TrustedProxies); e != nil {
+		return nil, closeAll, command.ErrInvalid
 	}
 	admin, e := adminauth.New(database, limiter, logger, adminauth.Config{
 		SessionTTL:     8 * time.Hour,

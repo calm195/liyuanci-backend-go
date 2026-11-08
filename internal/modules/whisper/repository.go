@@ -251,32 +251,25 @@ func reviewTask(ctx context.Context, db *gorm.DB, id, contentID string, version 
 	return db.WithContext(ctx).Where("id=? AND content_id=? AND content_version=?", id, contentID, version).Take(out).Error
 }
 
-func countHugs(ctx context.Context, db *gorm.DB, id string, out *int64) error {
-	return db.WithContext(ctx).Table("public.whisper_hugs AS h").
+func countHugs(ctx context.Context, db *gorm.DB, id string, now time.Time, out *int64) error {
+	return activeHugs(db.WithContext(ctx), now).Where("h.post_id=?", id).Count(out).Error
+}
+
+func activeHugs(db *gorm.DB, now time.Time) *gorm.DB {
+	return db.Table("public.whisper_hugs AS h").
 		Joins("JOIN public.accounts a ON a.id=h.actor_id").
-		Where("h.post_id=? AND h.active AND a.lifecycle='active' AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=clock_timestamp() AND (p.ends_at IS NULL OR p.ends_at>clock_timestamp()))", id).
-		Count(out).
-		Error
+		Where("h.active AND a.lifecycle='active' AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?))", now, now)
 }
 
 func viewerHugs(ctx context.Context, db *gorm.DB, id, viewer string, out *[]entity.WhisperHug) error {
 	return db.WithContext(ctx).Where("post_id=? AND actor_id=?", id, viewer).Find(out).Error
 }
 
-func postCandidates(ctx context.Context, db *gorm.DB, own bool, actor string, position cursor, limit int) (out []entity.WhisperPost, err error) {
-	column := "published_at"
-	if own {
-		column = "created_at"
-	}
-	query := db.WithContext(ctx).Model(&entity.WhisperPost{}).Select("id," + column)
-	if own {
-		query = query.Where("owner_id=?", actor)
-	} else {
-		query = query.Where("published_content_version IS NOT NULL")
-	}
+func ownPostCandidates(ctx context.Context, db *gorm.DB, actor string, position cursor, limit int) (out []entity.WhisperPost, err error) {
+	query := db.WithContext(ctx).Model(&entity.WhisperPost{}).Select("id,created_at").Where("owner_id=?", actor)
 	if position.ID != "" {
-		query = query.Where("("+column+",id)<(?,?)", position.At, position.ID)
+		query = query.Where("(created_at,id)<(?,?)", position.At, position.ID)
 	}
-	err = query.Order(column + " DESC,id DESC").Limit(limit).Find(&out).Error
+	err = query.Order("created_at DESC,id DESC").Limit(limit).Find(&out).Error
 	return
 }

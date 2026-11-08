@@ -35,6 +35,7 @@ func (a *whisperServices) register(router *gin.Engine) (err error) {
 	for _, register := range []func() error{
 
 		func() error { return httpapi.RegisterWhispers(router, a.service) },
+		func() error { return httpapi.RegisterAdminWhisperContent(router, a.reviews, a.service) },
 		func() error { return httpapi.RegisterWhisperInteractions(router, a.service) },
 
 		func() error { return httpapi.RegisterWhisperCapsules(router, a.service) },

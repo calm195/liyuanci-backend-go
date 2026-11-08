@@ -276,7 +276,7 @@ func (s *Service) ListComments(ctx context.Context, token, rid, postID string, o
 			if !own {
 				at = *last.PublishedAt
 			}
-			v := s.encodeCursor(cursor{scope, last.ID, at})
+			v := s.encodeCursor(cursor{Scope: scope, ID: last.ID, At: at})
 			next = &v
 		}
 		if own {

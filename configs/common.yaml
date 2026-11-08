@@ -63,6 +63,14 @@ bootstrap:
   login: admin
   # 初始化词库数据YAML；相对configs目录解析，普通启动不发布。
   wordlistsfile: wordlists.yaml
+# 内容读接口共享额度，后台导出独立计数；时间参数必须带单位。
+content:
+  readlimit: 120
+  exportlimit: 12
+  window: 1m
+  cachettl: 45s
+  # 默认只使用直连对端地址。经反代部署时只填实际受信的代理地址或网段。
+  trustedproxies: []
 # 当前进程的默认任务职责。
 worker:
   # 业务进程类型：card/content/whispers/account/evidence。

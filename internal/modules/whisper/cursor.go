@@ -13,6 +13,7 @@ import (
 )
 
 type cursor struct {
+	Score int64     `json:"score,omitempty"`
 	Scope string    `json:"scope"`
 	ID    string    `json:"id"`
 	At    time.Time `json:"at"`

@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
@@ -37,12 +38,13 @@ type CreatedDraft struct {
 
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
-	db         *gorm.DB
-	config     ServiceConfig
-	engine     *command.Engine
-	policy     *Policy
-	codec      *securedata.Codec
-	receiptKey []byte
+	candidateCache contentquery.CandidateCache
+	db             *gorm.DB
+	config         ServiceConfig
+	engine         *command.Engine
+	policy         *Policy
+	codec          *securedata.Codec
+	receiptKey     []byte
 }
 
 // NewService 仅构造显式注入的心愿服务，不注册路由、不执行迁移。

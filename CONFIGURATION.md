@@ -23,6 +23,7 @@ Go进程通过 `config.Load` 一次读取统一配置快照，装配时只投影
 | `server` / `log` | HTTP 地址、读写/退出期限及日志级别 |
 | `database` | 主机、端口、库名、账号、口令、TLS、时区和连接超时，以及 `maxopen` / `maxidle` / `maxlifetime` 预算 |
 | `redis` | 地址、ACL 用户、内联原口令、逻辑库；生产必须鉴权 |
+| `content` | 公开内容读限流、后台导出限流、Redis 候选缓存及可信代理 |
 | `bootstrap` | 首个后台登录名与词库数据路径，仅显式初始化使用 |
 | `worker` | 默认职责 `kind`；`-kind` 选择执行哪种进程动作，内容审核策略不再提供切换项 |
 | `whispers` | 开发悄悄鲤适配；`localtest: true` 只在开发允许；生产使用下行配置 |
@@ -33,6 +34,14 @@ Go进程通过 `config.Load` 一次读取统一配置快照，装配时只投影
 详细中文注释直接写在 [common.yaml](configs/common.yaml)、[开发覆盖模板](configs/development.example.yaml) 和 [生产覆盖模板](configs/production.example.yaml)。`wordlists.yaml` 和 `resources.yaml` 是词库、公开资料数据，不是另一套应用参数。
 
 开发与生产共用 `business` / `business.runtime` 字段，已删除独立 `development:` 配置块和 `internal/config/development.go`。旧文件须将后台口令、微信凭据移至 `business`，账本、对象目录移至 `business.runtime`，关怀资料统一放入 `resourcesfile` 指向的版本化资源文件；旧块即使为空也会被拒绝。`mode: development` 仍选择开发适配器，其 `development/*` 密钥派生标签保持不变；配置字段归组不要求清空数据或更换主密钥。
+
+## 内容接口限流与预热
+
+`content.readlimit` 默认每个主体每分钟 120 次，覆盖心愿、还愿、悄悄话的公开列表和详情，以及热点榜单。`content.exportlimit` 默认每分钟 12 次，后台两种导出共享独立额度。`content.window` 可调整时间窗口。Redis 短时不可用时公开读继续查询数据库，后台导出暂时返回 503。超限返回 429 和 `Retry-After`。
+
+限流按有效会话所属账号分桶，匿名请求用来源 IP。默认只信任直连地址。经反向代理部署时，在环境覆盖的 `content.trustedproxies` 列出实际连接 API 的代理 IP 或 CIDR，代理须清理来自客户端的伪造转发头。
+
+`content.cachettl` 默认 45 秒。API 启动后异步预热，周期补齐热点与默认公开列表的排序候选。Redis 只存定位与排序字段，正文、评论、匿名身份和可见性仍以 PostgreSQL 当前状态为准。
 
 ## 后台账号口令
 

@@ -396,6 +396,26 @@ func testWhisperInteractions(
 		if h.MyHug.Version != 1 || h.HugCount != 1 {
 			t.Fatal(h)
 		}
+		contains := func(page whisper.Page[whisper.PublicPost]) bool {
+			for _, item := range page.Items {
+				if item.ID == p.ID {
+					return true
+				}
+			}
+			return false
+		}
+		weekly, e := s.Weekly(ctx, otherToken, "")
+		must(e)
+		if !contains(weekly) {
+			t.Fatal("新抱抱未进入周榜")
+		}
+		must(admin.Exec("UPDATE public.whisper_hugs SET activated_at=clock_timestamp()-interval '8 days' WHERE post_id=? AND actor_id=?", p.ID, other).Error)
+		weekly, e = s.Weekly(ctx, "", "")
+		must(e)
+		if contains(weekly) || current(p.ID).HugCount != 1 {
+			t.Fatal("七天窗口过滤错误")
+		}
+
 		h, e = s.SetHug(
 			ctx,
 			otherToken,
