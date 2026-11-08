@@ -29,6 +29,7 @@ func (s *serviceSet) buildInteraction(d ServiceDependencies, cfg ServiceConfig) 
 		if failureNew != nil {
 			return failureNew
 		}
+		s.wishes.SetShareCodes(d.ShareCodes)
 	}
 	if cfg.Chat != nil {
 		if s.wishes == nil {

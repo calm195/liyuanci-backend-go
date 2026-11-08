@@ -48,6 +48,7 @@ type ServiceDependencies struct {
 	CrisisDB           *gorm.DB
 	WishDB             *gorm.DB
 	Grades             wish.Grades
+	ShareCodes         wish.ShareCodes
 	StudentDB          *gorm.DB
 	ReviewDB           *gorm.DB
 	Logger             *zap.Logger

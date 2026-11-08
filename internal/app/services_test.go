@@ -318,7 +318,7 @@ func TestOptionalChatAssembly(t *testing.T) {
 	}
 }
 
-// TestStoryAssembly 验证八项入口整体装配，基础心愿配置不隐式启用故事。
+// TestStoryAssembly 验证故事与分享入口整体装配，基础心愿配置不隐式启用故事。
 func TestStoryAssembly(t *testing.T) {
 	d, cfg := dependencies(t)
 	other, _ := dependencies(t)
@@ -328,7 +328,7 @@ func TestStoryAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 49 {
+	if len(router.Routes()) != 50 {
 		t.Fatal("故事路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
@@ -337,6 +337,7 @@ func TestStoryAssembly(t *testing.T) {
 		{"PUT", "/api/v1/wishes/id/story"},
 		{"POST", "/api/v1/wishes/id/story/withdraw"},
 		{"POST", "/api/v1/share-links"},
+		{"GET", "/api/v1/share-links/ref/code?env_version=trial"},
 	} {
 		out := httptest.NewRecorder()
 		router.ServeHTTP(out, httptest.NewRequest(tc.method, tc.path, nil))

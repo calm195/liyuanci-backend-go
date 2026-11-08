@@ -39,6 +39,7 @@ type CreatedDraft struct {
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
 	candidateCache contentquery.CandidateCache
+	shareCodes     ShareCodes
 	db             *gorm.DB
 	config         ServiceConfig
 	engine         *command.Engine

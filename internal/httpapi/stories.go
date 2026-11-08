@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 
@@ -20,9 +21,10 @@ type StoriesAPI interface {
 	Story(context.Context, string, string, string) (wish.PublicContent, error)
 	CreateShare(context.Context, string, string, string, wish.ShareInput) (wish.ShareLink, error)
 	ResolveShare(context.Context, string, string, string) (wish.ShareTarget, error)
+	ShareCode(context.Context, string, string, string, string) (wish.ShareCode, error)
 }
 
-// RegisterStories 仅在应用明确启用故事技术预算后装配八项正式接口。
+// RegisterStories 仅在应用明确启用故事技术预算后装配故事与分享接口。
 func RegisterStories(r *gin.Engine, s StoriesAPI) error {
 	if r == nil || s == nil {
 		return command.ErrInvalid
@@ -162,6 +164,23 @@ func RegisterStories(r *gin.Engine, s StoriesAPI) error {
 		out, e := s.ResolveShare(c.Request.Context(), token, c.GetString("request_id"), c.Param("ref"))
 		if e != nil {
 			adminError(c, e)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
+	g.GET("/share-links/:ref/code", func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		query, err := url.ParseQuery(c.Request.URL.RawQuery)
+		if err != nil || len(query) != 1 || len(query["env_version"]) != 1 {
+			returnInvalid(c)
+			return
+		}
+		out, err := s.ShareCode(c.Request.Context(), token, c.GetString("request_id"), c.Param("ref"), query.Get("env_version"))
+		if err != nil {
+			adminError(c, err)
 			return
 		}
 		adminResult(c, http.StatusOK, out)

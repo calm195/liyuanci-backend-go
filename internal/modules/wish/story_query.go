@@ -133,7 +133,7 @@ type ShareInput struct {
 	ID         string `json:"id"`
 }
 
-// ShareLink 返回独立随机引用与小程序路由；实际微信能力由客户端集成提供。
+// ShareLink 返回独立随机引用与小程序业务页路由。
 type ShareLink struct {
 	Ref          string `json:"ref"`
 	MiniappRoute string `json:"miniapp_route"`
@@ -194,7 +194,7 @@ func (s *Service) CreateShare(ctx context.Context, token, key, rid string, in Sh
 		if e := tx.DB().WithContext(ctx).Where("id=? AND target_kind=? AND target_id=?", ref, in.TargetKind, in.ID).Take(&row).Error; e != nil {
 			return e
 		}
-		out = ShareLink{Ref: row.ID, MiniappRoute: "/pages/share/index?ref=" + row.ID}
+		out = ShareLink{Ref: row.ID, MiniappRoute: "/" + sharePage(row.TargetKind) + "?ref=" + row.ID}
 		return nil
 	}
 	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: in})
@@ -218,18 +218,11 @@ func (s *Service) ResolveShare(ctx context.Context, token, rid, ref string) (out
 				return e
 			}
 		}
-		var row entity.ShareLink
-		if e := db.Where("id=?", ref).Take(&row).Error; e != nil {
-			if errors.Is(e, gorm.ErrRecordNotFound) {
-				return command.ErrNotFound
-			}
-			return e
-		}
-		target, e := s.shareTarget(ctx, db, row.TargetKind, row.TargetID, rid, now)
+		kind, target, e := s.publicShare(ctx, db, rid, ref, now)
 		if e != nil {
 			return e
 		}
-		out = ShareTarget{TargetKind: row.TargetKind, Target: target}
+		out = ShareTarget{TargetKind: kind, Target: target}
 		// 资料年级单独用于卡片，并沿用账户当前隐藏标签的选择。
 		labels, ok := s.policy.grades.(interface {
 			Label(context.Context, string) string
@@ -257,4 +250,16 @@ func (s *Service) ResolveShare(ctx context.Context, token, rid, ref string) (out
 		return nil
 	})
 	return
+}
+
+func (s *Service) publicShare(ctx context.Context, db *gorm.DB, rid, ref string, now time.Time) (string, PublicContent, error) {
+	var row entity.ShareLink
+	if err := db.Where("id=?", ref).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", PublicContent{}, command.ErrNotFound
+		}
+		return "", PublicContent{}, err
+	}
+	target, err := s.shareTarget(ctx, db, row.TargetKind, row.TargetID, rid, now)
+	return row.TargetKind, target, err
 }

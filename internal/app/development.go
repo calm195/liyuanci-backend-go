@@ -184,11 +184,13 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		return nil, closeAll, e
 	}
 	var exchange studentauth.Exchanger = local.Unavailable{Logger: logger}
+	var shareCodes wish.ShareCodes
 	if cfg.WeChatAppID != "" {
-		exchange, e = gateway.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
+		wechat, e := gateway.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
 		if e != nil {
 			return nil, closeAll, e
 		}
+		exchange, shareCodes = wechat, wechat
 	}
 	objects, scanner, closeMedia, e := developmentMedia(environment, cfg, logger)
 	if e != nil {
@@ -259,20 +261,21 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	router, e = newServiceRouter(ServiceDependencies{
 		PublicContent: publicContent,
 		PrivacyDB:     privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
-		CrisisDB:  crisisDB,
-		StudentDB: database,
-		ReviewDB:  database,
-		WishDB:    database,
-		Logger:    logger,
-		Ready:     businessReady,
-		Exchange:  exchange,
-		Identity:  store,
-		Limiter:   limiter,
-		Codec:     codec,
-		Objects:   objects,
-		Scanner:   scanner,
-		Rules:     local.SchoolRules{Logger: logger},
-		Grades:    businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}},
+		CrisisDB:   crisisDB,
+		StudentDB:  database,
+		ReviewDB:   database,
+		WishDB:     database,
+		Logger:     logger,
+		Ready:      businessReady,
+		Exchange:   exchange,
+		ShareCodes: shareCodes,
+		Identity:   store,
+		Limiter:    limiter,
+		Codec:      codec,
+		Objects:    objects,
+		Scanner:    scanner,
+		Rules:      local.SchoolRules{Logger: logger},
+		Grades:     businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}},
 	}, ServiceConfig{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,

@@ -14,7 +14,8 @@ import (
 // allowedInternalImports 逐包登记生产依赖；新增模块或协作边须在此说明职责。
 // 使用完整相对包路径，分类目录不是包，叶子能力不能借父目录规则扩大权限。
 var allowedInternalImports = map[string][]string{
-	"adapters/gateway": {"execution/command"},
+	// 微信小程序码使用公共图片解码预算与 PNG 规范化。
+	"adapters/gateway": {"execution/command", "platform/imageinput"},
 	"adapters/local": {
 		"execution/command",
 		"modules/moderation",

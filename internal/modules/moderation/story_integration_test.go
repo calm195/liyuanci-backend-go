@@ -28,6 +28,12 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
 )
 
+type storyShareCode func(context.Context, string, string, string) ([]byte, error)
+
+func (f storyShareCode) MiniappCode(ctx context.Context, page, scene, env string) ([]byte, error) {
+	return f(ctx, page, scene, env)
+}
+
 // TestStorySharing 覆盖T023、REQ-004/007/008/015/018的真实PG、HTTP和MQ。
 // 身份、密钥、词库及文本分析均合成；确认实现走正式服务，注销生效由同锁序夹具模拟。
 func TestStorySharing(t *testing.T) {
@@ -975,7 +981,7 @@ func TestStorySharing(t *testing.T) {
 		}
 	})
 
-	t.Run("真实HTTP八接口严格输入", func(t *testing.T) {
+	t.Run("真实HTTP故事和分享接口严格输入", func(t *testing.T) {
 		f := matched()
 		r := httpapi.New(logger, nil)
 		must(httpapi.RegisterWishes(r, wishes))
@@ -1025,8 +1031,36 @@ func TestStorySharing(t *testing.T) {
 			Data wish.ShareLink `json:"data"`
 		}
 		must(json.Unmarshal(out.Body.Bytes(), &payload))
-		if out = request("GET", "/api/v1/share-links/"+payload.Data.Ref, "", ""); out.Code != 200 {
+		if payload.Data.MiniappRoute != "/pages/stories/index?ref="+payload.Data.Ref {
+			t.Fatal("故事分享未指向原业务页", payload.Data.MiniappRoute)
+		}
+		shareURL := "/api/v1/share-links/" + payload.Data.Ref
+		if out = request("GET", shareURL, "", ""); out.Code != 200 {
 			t.Fatal("解析HTTP失败", out.Code)
+		}
+		codeURL := shareURL + "/code?env_version=trial"
+		if out = request("GET", codeURL, "", ""); out.Code != 401 {
+			t.Fatal("匿名请求小程序码未拒绝", out.Code)
+		}
+		if out = request("GET", codeURL+"&env_version=release", f.owner, ""); out.Code != 400 {
+			t.Fatal("重复环境字段未拒绝", out.Code)
+		}
+		if out = request("GET", codeURL, f.owner, ""); out.Code != 503 {
+			t.Fatal("未装配微信时应返回服务不可用", out.Code)
+		}
+		var codeCalls int
+		wishes.SetShareCodes(storyShareCode(func(_ context.Context, page, scene, env string) ([]byte, error) {
+			codeCalls++
+			if page != "pages/stories/index" || scene != strings.ReplaceAll(payload.Data.Ref, "-", "") || env != "trial" {
+				t.Error("传给小程序码适配器的参数错误", page, scene, env)
+			}
+			return []byte("\x89PNG\r\n\x1a\n"), nil
+		}))
+		t.Cleanup(func() { wishes.SetShareCodes(nil) })
+		out = request("GET", codeURL, f.owner, "")
+		if out.Code != 200 || out.Header().Get("Cache-Control") != "no-store" ||
+			!strings.Contains(out.Body.String(), `"image_base64":"iVBORw0KGgo="`) || codeCalls != 1 {
+			t.Fatal("小程序码回执不完整", out.Code, out.Body.String())
 		}
 		body, _ = json.Marshal(wish.StoryUpdate{Body: "HTTP新稿", ExpectedVersion: wishRow(f.w.ID).Version})
 		if out = request("PUT", base+"/story", f.owner, string(body)); out.Code != 202 {
@@ -1035,6 +1069,9 @@ func TestStorySharing(t *testing.T) {
 		body, _ = json.Marshal(map[string]any{"expected_version": wishRow(f.w.ID).Version})
 		if out = request("POST", base+"/story/withdraw", f.owner, string(body)); out.Code != 200 {
 			t.Fatal("撤回HTTP失败", out.Code)
+		}
+		if out = request("GET", codeURL, f.owner, ""); out.Code != 404 || codeCalls != 1 {
+			t.Fatal("已撤回的内容仍能请求小程序码", out.Code, codeCalls)
 		}
 		if out = request("GET", "/api/v1/stories?limit=51", "", ""); out.Code != 400 {
 			t.Fatal("技术分页上限失效")

@@ -15,12 +15,14 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
-// WeChat 使用小程序wx.login取得的code调用固定微信服务端接口；不接受客户端OpenID或任意端点。
+// WeChat 调用固定微信服务端接口完成身份交换并生成小程序码，不接受客户端OpenID或任意端点。
 // 不持有客户端生命周期；装配方禁止在Transport中记录含凭据的请求URL。
 type WeChat struct {
 	client        *http.Client
 	appID, secret string
 	logger        *zap.Logger
+	codeSlots     chan struct{}
+	codeTokens    wechatCodeTokens
 }
 
 // NewWeChat 必须注入有界HTTP客户端和宿主从私有YAML读取的AppSecret；克隆客户端并禁止跳转，避免凭据随重定向外泄。
@@ -30,7 +32,13 @@ func NewWeChat(client *http.Client, appID, secret string, logger *zap.Logger) (*
 	}
 	clone := *client
 	clone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &WeChat{client: &clone, appID: appID, secret: secret, logger: logger}, nil
+	return &WeChat{
+		client:    &clone,
+		appID:     appID,
+		secret:    secret,
+		logger:    logger,
+		codeSlots: make(chan struct{}, 8),
+	}, nil
 }
 
 // Exchange 只返回后端使用的OpenID；微信session_key/UnionID及供应商错误正文不进入响应、持久层或日志。
