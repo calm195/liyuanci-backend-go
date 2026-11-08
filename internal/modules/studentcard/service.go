@@ -338,6 +338,15 @@ func (s *Service) Get(ctx context.Context, token, id, requestID string) (out Ass
 		if asset.OwnerID != account || asset.Status == "deleting" || asset.Status == "deleted" {
 			return command.ErrNotFound
 		}
+		if asset.ScanStatus == "pending" {
+			stopped, e := scanNeedsAttention(ctx, db, id)
+			if e != nil {
+				return e
+			}
+			if stopped {
+				return command.ErrUnavailable
+			}
+		}
 		out = Asset{AssetID: asset.ID, ScanStatus: asset.ScanStatus}
 		return nil
 	})

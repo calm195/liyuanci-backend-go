@@ -180,7 +180,11 @@ CI 须提前开通、绑定桶并创建审核策略。worker 在事务外提交�
 
 公共 `common.yaml` 默认foundation，数据库驱动留空、Redis关闭，可以直接启动健康端点；开发和生产示例分别显式启用postgres及Redis。已有业务私有覆盖若曾继承公共驱动，须补 `database.driver: postgres`；本机私有开发覆盖已补齐，原主密钥和凭据保持不变。`-check-config` 仍只校验配置，不连接或读取状态账本。
 
-HTTP普通请求保持1MiB上限；已注册的学生卡上传路由由装配显式传入图片预算（开发1MiB，完整业务使用 `business.card.maxbytes`，最大8MiB），额外预留64KiB multipart头部与边界。图片服务仍校验原图和规范化图片大小、像素、类型及唯一file部分；不能通过改变Content-Type放宽其他入口。
+HTTP普通请求保持1MiB上限；已注册的学生卡上传路由由装配显式传入图片预算（开发4MiB，完整业务使用 `business.card.maxbytes`，默认4MiB、配置安全上限8MiB），额外预留64KiB multipart头部与边界。图片服务仍校验原图和规范化图片大小、像素、类型及唯一file部分；不能通过改变Content-Type放宽其他入口。
+
+4MiB 学生卡部署预算：小程序上传总计 45s；Go HTTP 读取 45s、写入 55s（写入期限也覆盖读取），普通接口的 1MiB 请求体边界保持有效。生产及开发示例的共用供应商 HTTP 上限为 30s。学生卡租约 90s，扣除 5s 结果确认预算后外部阶段最多 85s；完整业务 worker 单轮上限 100s，共用该设置的其他任务也会继承该上限。覆盖旧私有 YAML 中相应的显式值，新上传统一使用 4MiB。正式 card worker 和后台审核读取保留历史 8MiB 兼容，以便处理上限调整前已受理的图片。
+
+如由 Nginx 代理，在 `/api/v1/me/student-card-assets` 上传路径保留原有代理及安全设置，并确保 `client_max_body_size` 至少 5m，以容纳 4MiB 图片及 multipart 开销。`client_body_timeout`、`proxy_send_timeout` 和 `proxy_read_timeout` 可分别保留或设为至少 60s，避免代理提前截断。审核由后台执行，上传接口在暂存入队后返回，无需把扫描任务预算设成上传等待时间。
 
 开发API与完整业务API共享两域历史删除门禁，扫描包含已确认意图。恢复快照带回账号或证据目标时，先运行 `worker -kind account -recover` 和 `worker -kind evidence -recover`，重删并检查通过后才启动API；只恢复一个域不能放行另一个域。普通初始化不代替恢复，不清空账本。
 

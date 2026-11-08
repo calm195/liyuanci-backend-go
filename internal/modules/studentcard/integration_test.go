@@ -418,6 +418,9 @@ func TestPostgresStudentCards(t *testing.T) {
 	if got := work(attention.AssetID); got.Status != "attention" {
 		t.Fatal("预算耗尽未转待办")
 	}
+	if got, e := api.Get(ctx, first.Token, attention.AssetID, "card_attention_state"); e != command.ErrUnavailable || got.AssetID != "" {
+		t.Fatal("耗尽扫描预算后不应继续返回等待扫描", e)
+	}
 	stale := upload("stale-card")
 	staleWork := work(stale.AssetID)
 	scan.hook = func() {
@@ -536,9 +539,9 @@ func TestPostgresStudentCards(t *testing.T) {
 	if rec := request("http-extra", true); rec.Code != 400 {
 		t.Fatal("额外multipart字段须拒绝", rec.Code)
 	}
-	t.Run("大于默认请求上限的合法图片", func(t *testing.T) {
-		// 随机像素只用于形成不可压缩的合成PNG，实际文件须大于旧1MiB限制且小于显式图片预算。
-		pixels := image.NewNRGBA(image.Rect(0, 0, 640, 640))
+	t.Run("四MiB预算下的合法大图", func(t *testing.T) {
+		// 随机像素只用于形成不可压缩的合成PNG，实际文件须大于3MiB且小于4MiB预算。
+		pixels := image.NewNRGBA(image.Rect(0, 0, 1000, 1000))
 		if _, err := rand.Read(pixels.Pix); err != nil {
 			t.Fatal(err)
 		}
@@ -547,8 +550,8 @@ func TestPostgresStudentCards(t *testing.T) {
 			t.Fatal(err)
 		}
 		largeConfig := cfg
-		largeConfig.MaxBytes, largeConfig.MaxPixels = 2<<20, 640*640
-		if imageData.Len() <= 1<<20 || int64(imageData.Len()) > largeConfig.MaxBytes {
+		largeConfig.MaxBytes, largeConfig.MaxPixels = 4<<20, 4_000_000
+		if imageData.Len() <= 3<<20 || int64(imageData.Len()) > largeConfig.MaxBytes {
 			t.Fatal("合成图片未覆盖预期边界", imageData.Len())
 		}
 		largeAPI, err := studentcard.New(apiDB, logger, sessions, codec, bucket, scan, largeConfig)
@@ -582,6 +585,22 @@ func TestPostgresStudentCards(t *testing.T) {
 		largeRouter.ServeHTTP(rec, req)
 		if rec.Code != 202 {
 			t.Fatal("合法大图片未完成加密暂存", rec.Code)
+		}
+		var uploaded struct {
+			Data studentcard.Asset `json:"data"`
+		}
+		if err = json.Unmarshal(rec.Body.Bytes(), &uploaded); err != nil || uploaded.Data.AssetID == "" {
+			t.Fatal("未返回学生卡资产", err)
+		}
+		largeWorker, err := studentcard.New(workerDB, logger, sessions, codec, bucket, &scanner{approved: true}, largeConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result, err := largeWorker.Process(ctx, work(uploaded.Data.AssetID).ID, "large_card_scan"); err != nil || !result.Applied {
+			t.Fatal("大图片未完成扫描", err)
+		}
+		if result, err := largeAPI.Get(ctx, first.Token, uploaded.Data.AssetID, "large_card_status"); err != nil || result.ScanStatus != "approved" {
+			t.Fatal("大图片扫描通过后未返回结果", err)
 		}
 	})
 	t.Run("扫描与数据库预算隔离", func(t *testing.T) {

@@ -38,6 +38,8 @@ business:
   # 原微信AppSecret，内联单行字符串；至少16字符。
   wechatsecret: ''
   runtime:
+    # 开发联调使用与生产一致的单次供应商请求预算。
+    providertimeout: 30s
     # 仅控制树洞与胶囊模块，不关闭其他业务或持久任务。
     enabled: true
     # 腾讯云原生COS与数据万象CI；启用前填写私有覆盖，普通启动不创建云资源。

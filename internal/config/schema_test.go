@@ -24,8 +24,13 @@ func TestTemplateSchema(t *testing.T) {
 				t.Fatal("环境或共享限流启用配置丢失")
 			}
 			if c.Business.Runtime.ResourcesFile != "resources.yaml" || c.Business.Runtime.Tasks.ScanInterval != time.Second ||
-				c.Business.Runtime.Tasks.OperationTimeout != time.Minute || c.Business.Runtime.Tasks.Consumer.Timeout != 5*time.Second {
+				c.Business.Runtime.Tasks.OperationTimeout != 100*time.Second || c.Business.Runtime.Tasks.Consumer.Timeout != 5*time.Second {
 				t.Fatal("公共资源或任务预算的层级不符")
+			}
+			if c.Business.Card.MaxBytes != 4<<20 || c.Business.Card.Lease != 90*time.Second ||
+				c.Business.Runtime.ProviderTimeout != 30*time.Second ||
+				c.Server.ReadTimeout != 45*time.Second || c.Server.WriteTimeout != 55*time.Second {
+				t.Fatal("学生卡图片或请求预算不符")
 			}
 		})
 	}

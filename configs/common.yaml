@@ -9,10 +9,10 @@ masterkey: ''
 server:
   # 监听或连接地址（host:port）；按当前配置块填写。
   address: 127.0.0.1:8080
-  # 读取HTTP请求的总超时，带单位，例如15s。
-  readtimeout: 15s
-  # 写入HTTP响应的总超时，带单位，例如30s。
-  writetimeout: 30s
+  # 读取HTTP请求的总超时，覆盖学生卡上传的请求读取预算。
+  readtimeout: 45s
+  # 写入HTTP响应的总超时，包含读取请求及完成图片校验、加密暂存并返回回执的时间。
+  writetimeout: 55s
   # 收到TERM后等待请求结束的上限，必须为正。
   shutdowntimeout: 15s
 # 技术日志设置；不得把正文、口令或DSN写入日志。
@@ -111,8 +111,8 @@ business:
     tasks:
       # 任务扫描/调度间隔；带单位，例如1s。
       scaninterval: 1s
-      # 整次工作处理上限；应大于内部事务与供应商调用预算。
-      operationtimeout: 1m
+      # 整次工作处理上限；给学生卡扫描租约之外的领取和调度留出时间。
+      operationtimeout: 100s
       # 消费者事务和重试边界；失败任务仍受持久状态约束。
       consumer:
         # 单次事务/操作总超时；时长必须带单位，例如5s。
@@ -154,13 +154,13 @@ business:
   # 学生卡图片解码、工作租约及重试约束。
   card:
     # 上传图片最大字节数；最高8MiB。
-    maxbytes: 1048576
+    maxbytes: 4194304
     # 图片最大像素总数；限制解码内存。
     maxpixels: 4000000
     # 单进程并发解码槽位；原生小规格建议1。
     decodeslots: 2
     # 工作租约时长；须大于数据库命令预算，并为最终确认预留该预算。
-    lease: 30s
+    lease: 90s
     # 重试前等待时长；带单位，例如1m。
     retrydelay: 1m
     # 该层操作最大尝试次数；耗尽后不能静默丢弃任务。

@@ -42,6 +42,8 @@ business:
   admincreatepassword: ''
   # 业务任务、外部对象存储与删除恢复的共用设置。
   runtime:
+    # 生产供应商单次 HTTP 调用上限，覆盖学生卡较大图片的送审。
+    providertimeout: 30s
     # 仅控制树洞与胶囊模块，不关闭其他业务或持久任务。
     enabled: true
     # 腾讯云原生COS与数据万象CI；启用前填写私有覆盖，普通启动不创建云资源。

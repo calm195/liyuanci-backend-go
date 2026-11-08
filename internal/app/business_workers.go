@@ -61,7 +61,12 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			err = command.ErrUnavailable
 		}
 	}()
-	b, e := openObjectGateway(c.Runtime, c.Card.MaxBytes*2+65536, log)
+	cardConfig := businessCardConfig(c)
+	if kind == "card" {
+		// 上限收紧仅影响新上传，历史待扫图片仍使用原有处理预算。
+		cardConfig.MaxBytes = historicalCardMaxBytes
+	}
+	b, e := openObjectGateway(c.Runtime, cardConfig.MaxBytes*2+65536, log)
 	if e != nil {
 		return e
 	}
@@ -85,7 +90,7 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 	}
 	var scanner workrunner.Scanner
 	if kind == "card" {
-		s, e := studentcard.New(db, log, workerSessions{}, r.codec, objectStore(b), imageScanner(b), businessCardConfig(c))
+		s, e := studentcard.New(db, log, workerSessions{}, r.codec, objectStore(b), imageScanner(b), cardConfig)
 		if e != nil {
 			return e
 		}

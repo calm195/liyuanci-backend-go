@@ -150,7 +150,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		},
 
 		Card:         businessCardConfig(cfg),
-		Verification: verification.Config{Command: cmd, ReceiptKey: cfg.VerificationKey, MaxCardBytes: cfg.Card.MaxBytes},
+		Verification: verification.Config{Command: cmd, ReceiptKey: cfg.VerificationKey, MaxCardBytes: historicalCardMaxBytes},
 
 		Wish: &wish.ServiceConfig{Command: cmd, ReceiptKey: cfg.WishKey, MaxStoryBytes: cfg.MaxTextBytes},
 
@@ -277,6 +277,9 @@ func lookupReady(ctx context.Context, db *gorm.DB, g *local.IdentityKeys) error 
 	}
 	return nil
 }
+
+// historicalCardMaxBytes 保留已受理学生卡的扫描与审核读取上限。
+const historicalCardMaxBytes = 8 << 20
 
 func businessCardConfig(c config.Business) studentcard.Config {
 	return studentcard.Config{

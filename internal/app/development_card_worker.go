@@ -76,11 +76,11 @@ func runCardWorker(ctx context.Context, environment string, cfg DevelopmentSetti
 	}
 	service, err := studentcard.New(db, logger, developmentWorkerSessions{}, codec, objects, scanner, studentcard.Config{
 		DecodeSlots: 1,
-		MaxBytes:    1 << 20,
+		MaxBytes:    developmentCardMaxBytes,
 		MaxPixels:   4_000_000,
 		ReceiptKey:  cfg.CardKey,
 		Command:     developmentCommandConfig(),
-		Lease:       30 * time.Second,
+		Lease:       developmentCardLease,
 		RetryDelay:  time.Minute,
 		MaxAttempts: 3,
 	})

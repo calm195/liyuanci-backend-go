@@ -44,7 +44,8 @@ func TestStudentCardBodyBudget(t *testing.T) {
 		{name: "文件小于上限", limit: 1 << 20, size: 1<<20 - 1, status: 202},
 		{name: "文件精确上限", limit: 1 << 20, size: 1 << 20, status: 202},
 		{name: "文件超过上限", limit: 1 << 20, size: 1<<20 + 1, status: 400},
-		{name: "配置较大文件", limit: 2 << 20, size: 2 << 20, status: 202},
+		{name: "四MiB精确上限", limit: 4 << 20, size: 4 << 20, status: 202},
+		{name: "超过四MiB一字节", limit: 4 << 20, size: 4<<20 + 1, status: 400},
 		{name: "协议开销超过预算", limit: 1 << 20, size: 1 << 20, largeHeader: true, status: 400},
 		{name: "不接受额外字段", limit: 1 << 20, size: 1 << 20, extra: true, status: 400},
 	} {

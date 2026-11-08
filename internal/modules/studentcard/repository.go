@@ -43,6 +43,19 @@ func readWork(ctx context.Context, db *gorm.DB, id string, lock bool) (entity.Wo
 	return out, e
 }
 
+// scanNeedsAttention 区分仍可重试的扫描和已耗尽重试预算的扫描。
+func scanNeedsAttention(ctx context.Context, db *gorm.DB, assetID string) (bool, error) {
+	route := Route()
+	var stopped bool
+	err := db.WithContext(ctx).Raw(`
+		SELECT EXISTS (
+			SELECT 1 FROM public.work_items
+			WHERE kind = ? AND target_kind = ? AND target_id = ? AND status = 'attention'
+		)
+	`, route.Kind, route.TargetKind, assetID).Scan(&stopped).Error
+	return stopped, err
+}
+
 func now(ctx context.Context, db *gorm.DB) (time.Time, error) {
 	var out time.Time
 	e := db.WithContext(ctx).Raw("SELECT clock_timestamp()").Scan(&out).Error

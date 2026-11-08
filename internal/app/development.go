@@ -31,6 +31,11 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
+const (
+	developmentCardMaxBytes = 4 << 20
+	developmentCardLease    = 90 * time.Second
+)
+
 // DevelopmentSettings 是统一业务配置向本地适配器投影的运行参数，不提供独立YAML入口。
 type DevelopmentSettings struct {
 	Tencent                                                                     config.Tencent
@@ -268,18 +273,18 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 		},
 		Card: studentcard.Config{
 			DecodeSlots: 2,
-			MaxBytes:    1 << 20,
+			MaxBytes:    developmentCardMaxBytes,
 			MaxPixels:   4_000_000,
 			ReceiptKey:  cfg.CardKey,
 			Command:     cmd,
-			Lease:       30 * time.Second,
+			Lease:       developmentCardLease,
 			RetryDelay:  time.Minute,
 			MaxAttempts: 3,
 		},
 		Verification: verification.Config{
 			Command:      cmd,
 			ReceiptKey:   cfg.VerificationKey,
-			MaxCardBytes: 1 << 20,
+			MaxCardBytes: developmentCardMaxBytes,
 		},
 		Chat: &chat.Config{Command: cmd, Key: chat.DeriveKey(cfg.WishKey), MaxBodyBytes: 64 << 10},
 		Wish: &wish.ServiceConfig{
