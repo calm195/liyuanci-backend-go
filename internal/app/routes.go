@@ -65,6 +65,7 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 		if e = publicContent.register(router, s.wishes, cfg.Wish.MaxStoryBytes > 0); e != nil {
 			return nil, e
 		}
+		httpapi.RegisterWishSupport(router, s.wishes.SetSupport)
 		if e = httpapi.RegisterWishes(router, s.wishes); e != nil {
 			return nil, e
 		}

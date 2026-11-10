@@ -254,7 +254,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	if e != nil {
 		return nil, closeAll, e
 	}
-	var publicContent *PublicContentOptions
+	publicContent := &PublicContentOptions{}
 	if len(publicOptions) != 0 {
 		publicContent = publicOptions[0]
 	}
@@ -332,6 +332,7 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	if e = httpapi.RegisterAdminDashboard(router, admin); e != nil {
 		return nil, closeAll, e
 	}
+	publicContent.registerAdminHot(router, admin)
 	return router, closeAll, nil
 }
 

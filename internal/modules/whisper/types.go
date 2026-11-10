@@ -86,6 +86,7 @@ type HugState struct {
 
 // PublicPost 只返回当前已批准版本及同步安全投影。
 type PublicPost struct {
+	HeatScore      int64          `json:"-"`
 	Title          string         `json:"title"`
 	ID             string         `json:"id"`
 	Version        int64          `json:"version"`

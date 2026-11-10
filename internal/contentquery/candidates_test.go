@@ -32,11 +32,11 @@ func TestCollectRefreshesHiddenCachedCandidate(t *testing.T) {
 			}
 			return fresh, nil
 		},
-		func(id string) (string, error) {
-			if id == "withdrawn" {
+		func(candidate Candidate) (string, error) {
+			if candidate.ID == "withdrawn" {
 				return "", command.ErrNotFound
 			}
-			return id, nil
+			return candidate.ID, nil
 		},
 	)
 	if err != nil || calls != 1 || !slices.Equal(items, []string{"new", "visible"}) || next.ID != "visible" ||

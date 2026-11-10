@@ -190,6 +190,13 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			adminError(c, err)
 			return
 		}
+		if len(c.Request.Header.Values("Authorization")) > 0 {
+			var ok bool
+			q.ViewerToken, ok = bearer(c)
+			if !ok {
+				return
+			}
+		}
 		out, err := service.List(c.Request.Context(), c.GetString("request_id"), q)
 		if err != nil {
 			adminError(c, err)

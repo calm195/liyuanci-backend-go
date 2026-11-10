@@ -9,6 +9,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
@@ -48,19 +49,27 @@ func (o *PublicContentOptions) RegisterWhisperOnly(router *gin.Engine) error {
 }
 
 func (o *PublicContentOptions) registerHot(router *gin.Engine) error {
-	return httpapi.RegisterContentHot(router,
-		func(ctx context.Context, rid string) (wish.PublicPage, error) {
-			if o.wishes == nil {
-				return wish.PublicPage{}, command.ErrUnavailable
-			}
-			return o.wishes.Weekly(ctx, rid)
-		},
-		func(ctx context.Context, token, rid string) (whisper.Page[whisper.PublicPost], error) {
-			if o.whispers == nil {
-				return whisper.Page[whisper.PublicPost]{}, whisper.ErrModuleUnavailable
-			}
-			return o.whispers.Weekly(ctx, token, rid)
-		})
+	return httpapi.RegisterContentHot(router, o.weeklyWishes, o.weeklyWhispers)
+}
+
+func (o *PublicContentOptions) weeklyWishes(ctx context.Context, rid string) (wish.PublicPage, error) {
+	if o.wishes == nil {
+		return wish.PublicPage{}, command.ErrUnavailable
+	}
+	return o.wishes.Weekly(ctx, rid)
+}
+
+func (o *PublicContentOptions) weeklyWhispers(ctx context.Context, token, rid string) (whisper.Page[whisper.PublicPost], error) {
+	if o.whispers == nil {
+		return whisper.Page[whisper.PublicPost]{}, whisper.ErrModuleUnavailable
+	}
+	return o.whispers.Weekly(ctx, token, rid)
+}
+
+func (o *PublicContentOptions) registerAdminHot(router *gin.Engine, admin *adminauth.Service) {
+	httpapi.RegisterAdminHot(router, admin.Restore, o.weeklyWishes, func(ctx context.Context, rid string) (whisper.Page[whisper.PublicPost], error) {
+		return o.weeklyWhispers(ctx, "", rid)
+	})
 }
 
 // Warm 以公开读入口填充候选缓存，同时复用当前资格判断。

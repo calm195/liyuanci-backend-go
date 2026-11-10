@@ -244,11 +244,13 @@ func TestOptionalWishAssembly(t *testing.T) {
 	if cfg.Auth.Wishes {
 		t.Fatal("修改调用方配置")
 	}
-	if len(router.Routes()) != 41 {
+	if len(router.Routes()) != 43 {
 		t.Fatal("心愿路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
 		{"POST", "/api/v1/wishes"},
+		{"PUT", "/api/v1/wishes/id/support"},
+		{"DELETE", "/api/v1/wishes/id/support"},
 		{"PUT", "/api/v1/wishes/id/content"},
 		{"POST", "/api/v1/wishes/id/submit-review"},
 		{"POST", "/api/v1/wishes/id/publish"},
@@ -290,7 +292,7 @@ func TestOptionalChatAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 48 {
+	if len(router.Routes()) != 50 {
 		t.Fatal("聊天路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
@@ -328,7 +330,7 @@ func TestStoryAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 50 {
+	if len(router.Routes()) != 52 {
 		t.Fatal("故事路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{

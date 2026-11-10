@@ -23,7 +23,8 @@ import (
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
-	UnreadApplicationCount int `json:"unread_application_count,omitempty"`
+	Support                *Support `json:"support,omitempty"`
+	UnreadApplicationCount int      `json:"unread_application_count,omitempty"`
 	// PeerDeleted只提供通用提示，不返回原应愿人的账号或身份。
 	PeerDeleted           bool                  `json:"peer_deleted,omitempty"`
 	StoryReviewResult     *contentreview.Result `json:"story_review_result,omitempty"`
@@ -50,6 +51,8 @@ type PublicAuthor struct {
 
 // PublicContent 只组合当前已审投影和公开元数据，不包含作者私有身份或原始密文。
 type PublicContent struct {
+	*Support
+	HeatScore      int64        `json:"-"`
 	Title          string       `json:"title"`
 	RewardText     string       `json:"reward_text,omitempty"`
 	ID             string       `json:"id"`
@@ -67,13 +70,14 @@ type PublicContent struct {
 
 // Query 约束公开筛选或本人状态筛选；游标绑定路由、主体及筛选，不能跨视图复用。
 type Query struct {
-	Sort     string
-	Keyword  string
-	Category string
-	Campus   string
-	State    State
-	Cursor   string
-	Limit    int
+	ViewerToken string
+	Sort        string
+	Keyword     string
+	Category    string
+	Campus      string
+	State       State
+	Cursor      string
+	Limit       int
 }
 
 // PublicPage 使用上架时间及随机ID的降序稳定游标。
@@ -462,9 +466,16 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 		}
 		if actor == a.row.OwnerID {
 			out, e = s.ownResult(ctx, db, rid, now, a)
-			if e == nil && trackView {
+			if e == nil {
 				_, publicErr := s.publicContent(rid, now, a)
 				publicView = publicErr == nil
+				if publicView {
+					state, readErr := readSupport(db, id, actor)
+					if readErr != nil {
+						return readErr
+					}
+					out.Support = &state
+				}
 			}
 			return e
 		}
@@ -516,7 +527,12 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 			return command.ErrNotFound
 		}
 		publicView = true
+		state, e := readSupport(db, id, actor)
+		if e != nil {
+			return e
+		}
 		out = Result{
+			Support:        &state,
 			PeerDeleted:    a.row.PeerDeleted,
 			ID:             id,
 			Version:        a.row.Version,

@@ -91,6 +91,7 @@ func businessModels() []any {
 
 		&entity.StoryView{},
 		&entity.WishDetailView{},
+		&entity.WishSupport{},
 
 		&entity.ShareLink{},
 

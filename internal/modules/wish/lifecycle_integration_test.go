@@ -379,6 +379,55 @@ func TestPostgresLifecycle(t *testing.T) {
 			t.Fatal("两次历史详情打开应高于一次有效应愿", total, e)
 		}
 	})
+	t.Run("心愿支持幂等、排序与周榜", func(t *testing.T) {
+		target := published[1].ID
+		if _, e := s.SetSupport(ctx, "", "support", target, true); !errors.Is(e, command.ErrUnauthenticated) {
+			t.Fatal("游客能够支持", e)
+		}
+		// 作者可支持自己的心愿，并发重试均应只返回一票。
+		var writes sync.WaitGroup
+		for range 6 {
+			writes.Go(func() {
+				state, e := s.SetSupport(ctx, f.token, "support", target, true)
+				if e != nil || !state.Supported || state.SupportCount != 1 {
+					t.Errorf("重复支持未保持一票：%+v %v", state, e)
+				}
+			})
+		}
+		writes.Wait()
+		detail, e := s.Detail(ctx, f.token, "support", target)
+		if e != nil || detail.Support == nil || !detail.Support.Supported || detail.Support.SupportCount != 1 {
+			t.Fatal("作者详情支持状态错误", detail.Support, e)
+		}
+		query := Query{Sort: SortSupport, ViewerToken: f.token, Limit: 1}
+		list, e := s.List(ctx, "support", query)
+		if e != nil || len(list.Items) != 1 || list.Items[0].ID != target || !list.Items[0].Supported || list.NextCursor == nil {
+			t.Fatal("支持排序或本人状态错误", list, e)
+		}
+		query.Cursor, query.Limit = *list.NextCursor, 2
+		list, e = s.List(ctx, "support", query)
+		if e != nil || len(list.Items) != 2 || list.Items[0].ID == target || list.Items[1].ID == target {
+			t.Fatal("支持排序游标错误", list, e)
+		}
+		weekly, e := s.Weekly(ctx, "support")
+		if e != nil || len(weekly.Items) != 1 || weekly.Items[0].ID != target || weekly.Items[0].HeatScore != 1 {
+			t.Fatal("支持应计入心愿周榜", weekly, e)
+		}
+		f.exec("UPDATE public.wish_supports SET created_at=clock_timestamp()-interval '8 days' WHERE wish_id=?", target)
+		if _, e = s.SetSupport(ctx, f.token, "support", target, true); e != nil {
+			t.Fatal(e)
+		}
+		weekly, e = s.Weekly(ctx, "support")
+		if e != nil || len(weekly.Items) != 0 {
+			t.Fatal("历史支持或重试不应计入周榜", weekly, e)
+		}
+		for range 2 {
+			state, e := s.SetSupport(ctx, f.token, "support", target, false)
+			if e != nil || state.Supported || state.SupportCount != 0 {
+				t.Fatal("重复取消应保持零票", state, e)
+			}
+		}
+	})
 	var row entity.Wish
 	f.root.Where("id=?", waiting.ID).Take(&row)
 	if row.ExpiresAt != nil || row.PublishedAt != nil {

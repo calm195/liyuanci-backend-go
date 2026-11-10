@@ -93,7 +93,7 @@ func Ordered(db, candidates *gorm.DB, after Candidate, hot bool) *gorm.DB {
 
 // Collect 按排序读取候选，再复核实际公开资格。命中已失效候选时立即回源并刷新缓存。
 func Collect[T any](ctx context.Context, cache CandidateCache, key string, after Candidate, limit int,
-	fetch func(Candidate, int) ([]Candidate, error), project func(string) (T, error),
+	fetch func(Candidate, int) ([]Candidate, error), project func(Candidate) (T, error),
 ) (items []T, next Candidate, err error) {
 	items = make([]T, 0, limit)
 	readCache := key != "" && cache != nil && after.ID == "" && ctx.Value(refreshKey{}) == nil
@@ -115,7 +115,7 @@ func Collect[T any](ctx context.Context, cache CandidateCache, key string, after
 		}
 		stale := false
 		for _, candidate := range batch {
-			item, e := project(candidate.ID)
+			item, e := project(candidate)
 			if errors.Is(e, command.ErrNotFound) || errors.Is(e, gorm.ErrRecordNotFound) {
 				if cached {
 					stale = true

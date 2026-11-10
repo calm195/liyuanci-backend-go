@@ -209,6 +209,7 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		return nil, e
 	}
 	b.publicContent.attachWhisper(whispers.service)
+	b.publicContent.registerAdminHot(router, admin)
 	b.Router = router
 	return b, nil
 }

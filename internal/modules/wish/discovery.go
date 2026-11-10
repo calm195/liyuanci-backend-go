@@ -20,7 +20,7 @@ func (s *Service) List(ctx context.Context, rid string, q Query) (PublicPage, er
 	return s.discoverWishes(ctx, rid, q, false)
 }
 
-// Weekly 读取最近七天有有效应愿的公开心愿。
+// Weekly 读取最近七天有有效应愿、浏览或支持的公开心愿。
 func (s *Service) Weekly(ctx context.Context, rid string) (PublicPage, error) {
 	return s.discoverWishes(ctx, rid, Query{Sort: contentquery.SortHot, Limit: contentquery.WeeklyLimit}, true)
 }
@@ -30,15 +30,20 @@ func (s *Service) discoverWishes(ctx context.Context, rid string, q Query, weekl
 	if e := validateQuery(q, false); e != nil {
 		return out, e
 	}
-	q.Keyword, err = contentquery.Normalize(q.Sort, q.Keyword)
+	sort := q.Sort
+	if sort == SortSupport {
+		sort = contentquery.SortTime
+	}
+	q.Keyword, err = contentquery.Normalize(sort, q.Keyword)
 	if err != nil {
 		return out, err
 	}
 	scope := queryScope("public", "", q)
 	key := ""
 	if weekly {
-		scope, key = contentquery.WishWeeklyKey, contentquery.WishWeeklyKey
-	} else if q.Keyword == "" && q.Category == "" && q.Campus == "" && q.Sort != contentquery.SortHot {
+		// 支持提交后立即反映在榜单中，避免并发读将旧候选重新写入缓存。
+		scope = contentquery.WishWeeklyKey
+	} else if q.Keyword == "" && q.Category == "" && q.Campus == "" && q.Sort != contentquery.SortHot && q.Sort != SortSupport {
 		key = contentquery.WishListKey
 	}
 	hot := q.Sort == contentquery.SortHot
@@ -54,6 +59,10 @@ func (s *Service) discoverWishes(ctx context.Context, rid string, q Query, weekl
 		if q.Keyword != "" {
 			query = query.Joins("JOIN public.wish_versions v ON v.wish_id=w.id AND v.content_version=w.current_content_version")
 			query = contentquery.Match(query, "COALESCE(NULLIF(v.public_title,''),'未命名心愿')", "v.public_body", q.Keyword)
+		}
+		supports := activeSupports(db).Select("count(*)").Where("ws.wish_id=w.id")
+		if q.Sort == SortSupport {
+			return query.Select("w.id,w.published_at AS at,(?) AS score", supports)
 		}
 		if !hot {
 			return query.Select("w.id,w.published_at AS at")
@@ -73,14 +82,21 @@ func (s *Service) discoverWishes(ctx context.Context, rid string, q Query, weekl
 			cutoff := now.Add(-7 * 24 * time.Hour)
 			score = score.Where("a.created_at>=? AND a.created_at<=?", cutoff, now)
 			views = views.Where("v.viewed_at>=? AND v.viewed_at<=?", cutoff, now)
+			supports = supports.Where("ws.created_at>=? AND ws.created_at<=?", cutoff, now)
+			return query.Select("w.id,w.published_at AS at,((?)+(?)+(?)) AS score", score, views, supports)
 		}
 		return query.Select("w.id,w.published_at AS at,((?)+(?)) AS score", score, views)
-	}, func(db *gorm.DB, now time.Time, id string) (PublicContent, error) {
+	}, func(db *gorm.DB, now time.Time, id, actor string) (PublicContent, error) {
 		a, e := readAggregate(ctx, db, id, false)
 		if e != nil {
 			return PublicContent{}, e
 		}
-		return s.publicContent(rid, now, a)
+		out, e := s.publicContent(rid, now, a)
+		if e == nil {
+			state, readErr := readSupport(db, id, actor)
+			out.Support, e = &state, readErr
+		}
+		return out, e
 	})
 }
 
@@ -118,22 +134,30 @@ func (s *Service) SearchStories(ctx context.Context, rid string, q Query) (out P
 		return query.Select(`w.id,v.created_at AS at,
 			(SELECT count(*) FROM public.story_views x JOIN public.accounts viewer ON viewer.id=x.viewer_id
 			 WHERE x.wish_id=w.id AND viewer.lifecycle='active') AS score`)
-	}, func(db *gorm.DB, _ time.Time, id string) (PublicContent, error) {
+	}, func(db *gorm.DB, _ time.Time, id, _ string) (PublicContent, error) {
 		return s.publicStory(ctx, db, id)
 	})
 }
 
 func (s *Service) discover(ctx context.Context, scope, key string, q Query, weekly bool,
 	base func(*gorm.DB, time.Time) *gorm.DB,
-	project func(*gorm.DB, time.Time, string) (PublicContent, error),
+	project func(*gorm.DB, time.Time, string, string) (PublicContent, error),
 ) (out PublicPage, err error) {
 	after, err := s.decodeCursor(q.Cursor, scope)
 	if err != nil || after.ID != "" && after.PublishedAt.IsZero() {
 		return out, command.ErrInvalid
 	}
 	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
+		actor := ""
+		if q.ViewerToken != "" {
+			var e error
+			actor, e = currentReader(ctx, db, q.ViewerToken, now)
+			if e != nil {
+				return e
+			}
+		}
 		fetch := func(position contentquery.Candidate, limit int) (rows []contentquery.Candidate, e error) {
-			query := contentquery.Ordered(db, base(db, now), position, q.Sort == contentquery.SortHot)
+			query := contentquery.Ordered(db, base(db, now), position, q.Sort == contentquery.SortHot || q.Sort == SortSupport)
 			if weekly {
 				query = query.Where("score>0")
 			}
@@ -141,8 +165,12 @@ func (s *Service) discover(ctx context.Context, scope, key string, q Query, week
 			return
 		}
 		position := contentquery.Candidate{ID: after.ID, At: after.PublishedAt, Score: after.Score}
-		items, next, e := contentquery.Collect(ctx, s.candidateCache, key, position, q.Limit, fetch, func(id string) (PublicContent, error) {
-			return project(db, now, id)
+		items, next, e := contentquery.Collect(ctx, s.candidateCache, key, position, q.Limit, fetch, func(candidate contentquery.Candidate) (PublicContent, error) {
+			item, err := project(db, now, candidate.ID, actor)
+			if weekly {
+				item.HeatScore = candidate.Score
+			}
+			return item, err
 		})
 		if e != nil {
 			return e

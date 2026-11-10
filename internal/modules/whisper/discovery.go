@@ -64,8 +64,12 @@ func (s *Service) discoverPosts(ctx context.Context, token string, q Query, week
 			return
 		}
 		position := contentquery.Candidate{ID: after.ID, At: after.At, Score: after.Score}
-		items, next, e := contentquery.Collect(ctx, s.candidateCache, key, position, q.Limit, fetch, func(id string) (PublicPost, error) {
-			return s.publicPost(ctx, db, now, id, viewer, catalog)
+		items, next, e := contentquery.Collect(ctx, s.candidateCache, key, position, q.Limit, fetch, func(candidate contentquery.Candidate) (PublicPost, error) {
+			item, err := s.publicPost(ctx, db, now, candidate.ID, viewer, catalog)
+			if weekly {
+				item.HeatScore = candidate.Score
+			}
+			return item, err
 		})
 		if e != nil {
 			return e
