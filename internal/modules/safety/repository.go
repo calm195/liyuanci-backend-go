@@ -52,6 +52,30 @@ func accountPlan(ctx context.Context, db *gorm.DB, accounts ...string) (p comman
 			p.Resources = append(p.Resources, command.Resource{Kind: command.ModerationTask, ID: t.ID})
 		}
 	}
+	var conversations []string
+	if err = db.Table("public.conversations AS c").
+		Joins("JOIN public.matchmaking_pairs p ON p.id=c.matchmaking_pair_id AND p.status='published'").
+		Where("p.id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id IN ?)", accounts).
+		Pluck("c.id", &conversations).Error; err != nil {
+		return
+	}
+	for _, id := range conversations {
+		q, e := chat.DiscoverConversation(ctx, db, id)
+		if e != nil {
+			return p, e
+		}
+		p = merge(p, q)
+		var pending []entity.Message
+		if err = db.Where("conversation_id=? AND status IN ('pending_scan','pending_review')", id).Find(&pending).Error; err != nil {
+			return
+		}
+		for _, m := range pending {
+			p.Resources = append(p.Resources, command.Resource{Kind: command.Message, ID: m.ID})
+			if m.ReviewTaskID != nil {
+				p.Resources = append(p.Resources, command.Resource{Kind: command.ModerationTask, ID: *m.ReviewTaskID})
+			}
+		}
+	}
 	return
 }
 
@@ -227,9 +251,7 @@ func visible(ctx context.Context, db *gorm.DB, c entity.ContentRegistry, actor s
 		if e != nil {
 			return e
 		}
-		if !v.CanRead(actor) {
-			return command.ErrNotFound
-		}
+		return v.AuthorizeRead(ctx, db, actor, now)
 	}
 	return nil
 }
@@ -310,7 +332,17 @@ func cancelRelationships(ctx context.Context, tx *command.Tx, a, b string) error
 	if e := cq.Find(&cs).Error; e != nil {
 		return e
 	}
-	for _, c := range cs {
+	pairs := db.Table("public.conversations AS c").Select("c.*").
+		Joins("JOIN public.matchmaking_pairs p ON p.id=c.matchmaking_pair_id AND p.status='published'").
+		Where("p.id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id=?)", a)
+	if b != "" {
+		pairs = pairs.Where("p.id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id=?)", b)
+	}
+	var pairConversations []entity.Conversation
+	if e := pairs.Find(&pairConversations).Error; e != nil {
+		return e
+	}
+	for _, c := range append(cs, pairConversations...) {
 		if e := db.Model(&entity.Conversation{}).Where("id=?", c.ID).
 			Updates(map[string]any{"write_epoch": gorm.Expr("write_epoch+1"), "version": gorm.Expr("version+1")}).
 			Error; e != nil {

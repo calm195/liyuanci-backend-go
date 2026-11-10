@@ -178,7 +178,8 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 		}
 		// 标题与会话列表一次读取，仅读取当前已审且未被隐私屏障撤销的投影。
 		titleProjection := `c.*,
- CASE WHEN v.moderation_status='approved' AND v.public_body IS NOT NULL
+ CASE WHEN c.matchmaking_pair_id IS NOT NULL THEN ma.title
+ WHEN v.moderation_status='approved' AND v.public_body IS NOT NULL
  AND NOT EXISTS (
   SELECT 1 FROM public.privacy_holds h
   WHERE h.target_kind='wish' AND h.target_id=w.id AND h.status='active'
@@ -189,12 +190,14 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
  ) THEN COALESCE(NULLIF(v.public_title,''),'未命名心愿')
  ELSE '未命名心愿' END AS wish_title`
 		query := db.Table("public.conversations AS c").Select(titleProjection).
-			Joins("JOIN public.matches m ON m.id=c.match_id").
-			Joins("JOIN public.accounts a ON a.id=m.requester_id AND a.lifecycle='active'").
-			Joins("JOIN public.accounts b ON b.id=m.helper_id AND b.lifecycle='active'").
-			Joins("JOIN public.wishes w ON w.id=m.wish_id AND w.draft_deleted_at IS NULL").
+			Joins("LEFT JOIN public.matches m ON m.id=c.match_id").
+			Joins("LEFT JOIN public.accounts a ON a.id=m.requester_id AND a.lifecycle='active'").
+			Joins("LEFT JOIN public.accounts b ON b.id=m.helper_id AND b.lifecycle='active'").
+			Joins("LEFT JOIN public.wishes w ON w.id=m.wish_id AND w.draft_deleted_at IS NULL").
 			Joins("LEFT JOIN public.wish_versions v ON v.wish_id=w.id AND v.content_version=w.current_content_version").
-			Where("(m.requester_id=? OR m.helper_id=?)", actor, actor)
+			Joins("LEFT JOIN public.matchmaking_pairs mp ON mp.id=c.matchmaking_pair_id").
+			Joins("LEFT JOIN public.matchmaking_activities ma ON ma.id=mp.activity_id").
+			Where("(a.id IS NOT NULL AND b.id IS NOT NULL AND w.id IS NOT NULL AND (m.requester_id=? OR m.helper_id=?)) OR ("+matchmakingConversationListFilter+")", actor, actor, actor, now, now)
 		if after.ID != "" {
 			query = query.Where("c.id<?", after.ID)
 		}
@@ -253,8 +256,8 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 		if e != nil {
 			return e
 		}
-		if !v.CanRead(actor) {
-			return command.ErrNotFound
+		if e = v.AuthorizeRead(ctx, db, actor, now); e != nil {
+			return e
 		}
 		after, e := s.decode(q.Cursor, "messages/"+actor+"/"+id)
 		if e != nil {
@@ -316,8 +319,8 @@ func (s *Service) MessageStatus(ctx context.Context, token, rid, id string) (out
 		if e != nil {
 			return e
 		}
-		if !v.CanRead(actor) {
-			return command.ErrNotFound
+		if e = v.AuthorizeRead(ctx, db, actor, now); e != nil {
+			return e
 		}
 		out = Status{MessageID: id, Status: m.Status}
 		if m.Status == "pending_scan" || m.Status == "pending_review" {
@@ -373,6 +376,17 @@ func (s *Service) notification(ctx context.Context, db *gorm.DB, row entity.Noti
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	switch row.Type {
+	case "matchmaking_review", "matchmaking_published", "matchmaking_ended":
+		if s.matchmakingNotificationTarget != nil {
+			kind, ref, err := s.matchmakingNotificationTarget(ctx, db, row, now)
+			if err != nil {
+				return out, err
+			}
+			if kind != "" && ref != "" {
+				out.TargetKind, out.TargetRef = &kind, &ref
+			}
+		}
+		out.Notice = "包分配活动状态已更新，请查看活动。"
 	case "application_active", "application_accepted", "application_rejected":
 		label := "心愿"
 		if s.applicationNotificationTarget != nil {
@@ -476,7 +490,14 @@ func (s *Service) notification(ctx context.Context, db *gorm.DB, row entity.Noti
 		if e != nil && !errors.Is(e, command.ErrNotFound) {
 			return out, e
 		}
-		if e == nil && v.CanRead(row.RecipientID) {
+		if e != nil {
+			return out, nil
+		}
+		e = v.AuthorizeRead(ctx, db, row.RecipientID, now)
+		if e != nil && !errors.Is(e, command.ErrNotFound) {
+			return out, e
+		}
+		if e == nil {
 			kind := "conversation"
 			out.TargetKind = &kind
 			out.TargetRef = &conversationID

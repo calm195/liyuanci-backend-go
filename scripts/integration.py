@@ -28,6 +28,7 @@ SUITES = {
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'verification': ('./internal/modules/verification', ('TestPostgresVerification',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
+    'matchmaking': ('./internal/modules/matchmaking', ('TestPostgresHTTP', 'TestPostgresHTTPTaskLibrary')),
     'moderation': (
         './internal/modules/moderation',
         ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion', 'TestApplicationMatching',
@@ -274,7 +275,7 @@ def run(suite='all'):
                 'whisper_content_binary': str(ROOT / 'bin/worker'),
                 'whisper_privacy_binary': str(ROOT / 'bin/worker'),
             }
-            values.update(resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
+            values.update(matchmaking_test_dsn=dsn, matchmaking_http_capture='/tmp/matchmaking-http.json', resource_test_dsn=dsn, moderation_test_dsn=dsn, durable_test_dsn=dsn, wish_lifecycle_test_dsn=dsn,
                           verification_test_dsn=dsn, studentcard_test_dsn=dsn, studentcard_test_redis=f'127.0.0.1:{redisport}')
             if suite in (
                 'all', 'migration', 'studentauth', 'adminauth',

@@ -19,6 +19,7 @@ var allowedInternalImports = map[string][]string{
 	"adapters/local": {
 		"execution/command",
 		"modules/moderation",
+		"modules/matchmaking",
 		"modules/privacy",
 		"modules/whisper",
 		"modules/wish",
@@ -46,6 +47,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/chat",
 		"modules/identity",
 		"modules/moderation",
+		"modules/matchmaking",
 		"modules/moduleguide",
 		"modules/dictionary",
 		"modules/privacy",
@@ -72,6 +74,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/adminauth",
 		"modules/chat",
 		"modules/moderation",
+		"modules/matchmaking",
 		"modules/moduleguide",
 		"modules/dictionary",
 		"modules/privacy",
@@ -87,6 +90,8 @@ var allowedInternalImports = map[string][]string{
 	// 模块说明独立维护版本与发布快照，复用权威命令授权和实体。
 	"modules/moduleguide": {"entity", "execution/command"},
 	"modules/dictionary":  {"entity", "execution/command"},
+	// 包分配通过注入词库检查复用审核规则，资料仅以信封密文保存。
+	"modules/matchmaking": {"entity", "execution/command", "platform/securedata"},
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。

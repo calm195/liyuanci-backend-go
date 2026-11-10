@@ -217,6 +217,7 @@ func TestPrivacyDeletion(t *testing.T) {
 		)
 		must(e)
 	}
+	t.Run("活动文本复用发布词库", func(t *testing.T) { verifyActivityTextRules(t, root) })
 	student := func() (string, string) {
 		t.Helper()
 		id, token := uuid.NewString(), uuid.NewString()
@@ -303,6 +304,7 @@ func TestPrivacyDeletion(t *testing.T) {
 		}
 		return out
 	}
+	t.Run("包分配注销清理与恢复重删", func(t *testing.T) { verifyMatchmakingPrivacy(t, root, service, codec, student, admin, adminToken) })
 	t.Run("资料反馈注销即退出统计且恢复备份重删", func(t *testing.T) {
 		owner, token := student()
 		peer, peerToken := student()

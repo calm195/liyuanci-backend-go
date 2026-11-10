@@ -20,6 +20,9 @@ type Snapshot struct {
 	Conversation      entity.Conversation
 	Match             entity.Match
 	Wish              entity.Wish
+	Activity          entity.MatchmakingActivity
+	Pair              entity.MatchmakingPair
+	PairMembersActive bool
 	Requester, Helper entity.Account
 }
 
@@ -32,6 +35,10 @@ func LoadConversation(ctx context.Context, db *gorm.DB, id string) (s Snapshot, 
 		}
 	}()
 	if err = db.Where("id=?", id).Take(&s.Conversation).Error; err != nil {
+		return
+	}
+	if s.Conversation.MatchmakingPairID != nil {
+		err = s.loadMatchmaking(db)
 		return
 	}
 	if err = db.Where("id=?", s.Conversation.MatchID).Take(&s.Match).Error; err != nil {
@@ -49,9 +56,14 @@ func LoadConversation(ctx context.Context, db *gorm.DB, id string) (s Snapshot, 
 
 // CanRead 在双方仍存续时允许原参与者读取终结会话；注销意图立即阻断读取。
 func (s Snapshot) CanRead(actor string) bool {
-	return (actor == s.Match.RequesterID || actor == s.Match.HelperID) && s.Requester.Lifecycle == "active" && s.Helper.Lifecycle == "active" &&
-		s.Wish.DraftDeletedAt == nil &&
-		s.Wish.OwnerID == s.Match.RequesterID
+	if (actor != s.Requester.ID && actor != s.Helper.ID) || s.Requester.Lifecycle != "active" || s.Helper.Lifecycle != "active" {
+		return false
+	}
+	if s.Conversation.MatchmakingPairID != nil {
+		return s.Activity.Status == "published" && s.Pair.Status == "published" && s.PairMembersActive &&
+			s.Requester.Verification == "verified" && s.Helper.Verification == "verified"
+	}
+	return s.Wish.DraftDeletedAt == nil && s.Wish.OwnerID == s.Match.RequesterID
 }
 
 // DiscoverConversation 返回统一锁序所需原双方账号及父资源。
@@ -63,14 +75,18 @@ func DiscoverConversation(ctx context.Context, db *gorm.DB, id string) (command.
 	if e != nil {
 		return command.Discovery{}, e
 	}
-	return command.Discovery{
-		Accounts: []string{s.Match.RequesterID, s.Match.HelperID},
-		Resources: []command.Resource{
-			{Kind: command.Wish, ID: s.Wish.ID},
-			{Kind: command.Match, ID: s.Match.ID},
-			{Kind: command.Conversation, ID: id},
-		},
-	}, nil
+	p := command.Discovery{
+		Accounts:  []string{s.Requester.ID, s.Helper.ID},
+		Resources: []command.Resource{{Kind: command.Conversation, ID: id}},
+	}
+	// 活动写命令已锁所有报名账号，双方账号锁也串行化发布、解除和聊天审核。
+	if s.Conversation.MatchmakingPairID == nil {
+		p.Resources = append(p.Resources,
+			command.Resource{Kind: command.Wish, ID: s.Wish.ID},
+			command.Resource{Kind: command.Match, ID: s.Match.ID},
+		)
+	}
+	return p, nil
 }
 
 func holdEpoch(ctx context.Context, db *gorm.DB, id string) (int64, error) {
@@ -85,8 +101,11 @@ func holdEpoch(ctx context.Context, db *gorm.DB, id string) (int64, error) {
 
 // Writable 在已有锁和当前时间下复核双方资格、处罚、拉黑及父内容屏障。
 func Writable(ctx context.Context, db *gorm.DB, s Snapshot, now time.Time) error {
-	if !s.CanRead(s.Requester.ID) || s.Match.Status != "current" || s.Wish.State != "matching" || s.Requester.Verification != "verified" ||
-		s.Helper.Verification != "verified" {
+	if !s.CanRead(s.Requester.ID) || s.Requester.Verification != "verified" || s.Helper.Verification != "verified" {
+		return command.ErrForbidden
+	}
+	isMatchmaking := s.Conversation.MatchmakingPairID != nil
+	if !isMatchmaking && (s.Match.Status != "current" || s.Wish.State != "matching") {
 		return command.ErrForbidden
 	}
 	db = db.WithContext(ctx)
@@ -114,6 +133,9 @@ func Writable(ctx context.Context, db *gorm.DB, s Snapshot, now time.Time) error
 	}
 	if n > 0 {
 		return command.ErrBlockedInteraction
+	}
+	if isMatchmaking {
+		return nil
 	}
 	if e := db.Table("public.content_restrictions AS r").
 		Joins("JOIN public.content_registry c ON c.id=r.content_id").
@@ -167,7 +189,7 @@ func EligibleMessage(ctx context.Context, db *gorm.DB, m entity.Message, now tim
 	if sender.ID != m.SenderID {
 		sender, peer = peer, sender
 	}
-	epoch, e := holdEpoch(ctx, db, s.Wish.ID)
+	epoch, e := s.parentHoldEpoch(ctx, db)
 	if e != nil {
 		return false, e
 	}

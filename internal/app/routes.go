@@ -108,5 +108,10 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 			return nil, e
 		}
 	}
+	if s.matchmaking != nil {
+		if e = httpapi.RegisterMatchmaking(router, s.matchmaking); e != nil {
+			return nil, e
+		}
+	}
 	return router, nil
 }

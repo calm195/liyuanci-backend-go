@@ -13,7 +13,12 @@ import (
 )
 
 // cleanGraph 只在已注销主体锁下发现普通清理边界，不把完整对端账号纳入删除集合。
-type cleanGraph struct{ posts, comments, capsules, nicknames, relatedComments, wishes, applications, matches, conversations, messages, contents, tasks, assets, notifications, works, refs []string }
+type cleanGraph struct {
+	matchmakingEnrollments, matchmakingPairs, matchmakingTasks []string
+	posts, comments, capsules, nicknames, relatedComments      []string
+	wishes, applications, matches, conversations, messages     []string
+	contents, tasks, assets, notifications, works, refs        []string
+}
 
 func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 	queries := []struct {
@@ -28,11 +33,9 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		{&g.matches, `SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?`},
 		{
 			&g.conversations,
-			`SELECT id FROM public.conversations WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)`,
-		},
-		{
-			&g.messages,
-			`SELECT id FROM public.messages WHERE sender_id=? OR conversation_id IN (SELECT c.id FROM public.conversations c JOIN public.matches m ON m.id=c.match_id WHERE m.requester_id=? OR m.helper_id=?)`,
+			`SELECT id FROM public.conversations
+WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)
+OR matchmaking_pair_id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id=?)`,
 		},
 		{&g.assets, `SELECT id FROM public.assets WHERE owner_id=?`},
 	}
@@ -46,6 +49,13 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		if err = db.Raw(q.sql, args...).Scan(q.dst).Error; err != nil {
 			return
 		}
+	}
+	if err = db.Model(&entity.Message{}).Where("sender_id=? OR conversation_id IN ?", id, g.conversations).
+		Pluck("id", &g.messages).Error; err != nil {
+		return
+	}
+	if err = collectMatchmaking(db, id, &g); err != nil {
+		return
 	}
 	if err = collectWhispers(db, id, &g); err != nil {
 		return
@@ -64,6 +74,9 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 	}
 	g.refs = append(g.refs, id)
 	for _, ids := range [][]string{
+		g.matchmakingEnrollments,
+		g.matchmakingPairs,
+		g.matchmakingTasks,
 		g.wishes,
 		g.applications,
 		g.matches,
@@ -151,6 +164,8 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.Notification{}, "id IN ?", []any{g.notifications}},
 		{&entity.CareCard{}, "recipient_id=?", []any{id}},
 		{&entity.AccessAudit{}, "subject_ref IN ?", []any{g.refs}},
+		{&entity.MatchmakingAudit{}, "actor_id=? OR subject_ref IN ?", []any{id, g.refs}},
+		{&entity.MatchmakingOpen{}, "account_id=? OR task_id IN ?", []any{id, g.matchmakingTasks}},
 		{&entity.ResourceFeedback{}, "account_id=?", []any{id}},
 		{
 			&entity.CommandReceipt{},
@@ -179,6 +194,8 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.ModerationScan{}, "task_id IN ?", []any{g.tasks}},
 		{&entity.Message{}, "id IN ?", []any{g.messages}},
 		{&entity.Conversation{}, "id IN ?", []any{g.conversations}},
+		{&entity.MatchmakingPair{}, "id IN ?", []any{g.matchmakingPairs}},
+		{&entity.MatchmakingEnrollment{}, "id IN ?", []any{g.matchmakingEnrollments}},
 		{&entity.Match{}, "id IN ?", []any{g.matches}},
 		{&entity.Application{}, "id IN ?", []any{g.applications}},
 		{&entity.StoryVersion{}, "wish_id IN ?", []any{g.wishes}},
@@ -338,20 +355,29 @@ func (s *Service) reconcileOne(ctx context.Context, in Intent) error {
 			}
 		}
 		if len(jobs) > 0 {
-			if jobs[0].Phase != "completed" || exists == 0 {
+			remaining := exists
+			if in.Scope == "account" {
+				remaining, e = AccountRemaining(ctx, db, in.Target)
+				if e != nil {
+					return e
+				}
+			}
+			// 恢复中的verifying/completed回执不能越过重新出现的主体或普通副本。
+			if remaining == 0 || (jobs[0].Phase != "completed" && jobs[0].Phase != "verifying") {
 				return nil
 			}
-			// 已确认删除不能因恢复快照中残留completed回执跳过仍存在的目标。
-			if in.Scope == "account" {
-				e = activateAccount(ctx, tx, in.Target)
-			} else {
-				e = activateEvidence(ctx, db, in.Target)
-			}
-			if e != nil {
-				return e
+			if exists > 0 {
+				if in.Scope == "account" {
+					e = activateAccount(ctx, tx, in.Target)
+				} else {
+					e = activateEvidence(ctx, db, in.Target)
+				}
+				if e != nil {
+					return e
+				}
 			}
 			var subject *string
-			if in.Scope == "account" {
+			if in.Scope == "account" && exists > 0 {
 				subject = &in.Target
 			}
 			return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).Updates(map[string]any{
@@ -503,6 +529,20 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 				return e
 			}
 		}
+		if scope == "account" {
+			if exists == 0 {
+				if e = cleanAccount(db, in.Target); e != nil {
+					return e
+				}
+			}
+			remaining, e := AccountRemaining(bounded, db, in.Target)
+			if e != nil {
+				return e
+			}
+			if remaining != 0 {
+				return command.ErrUnavailable
+			}
+		}
 		return db.Model(&entity.DeletionJob{}).Where("job_id=?", in.ID).
 			Updates(map[string]any{"phase": "verifying", "subject_ref": nil, "error_code": nil, "remaining_counts": emptyJSON()}).
 			Error
@@ -516,6 +556,17 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 }
 
 func (s *Service) finish(ctx context.Context, id string) error {
+	// 完成回执前再核对普通残留，恢复快照或前序清理失败不得被确认为完成。
+	var job entity.DeletionJob
+	if err := s.db.WithContext(ctx).Where("job_id=?", id).Take(&job).Error; err != nil {
+		return err
+	}
+	if job.Scope == "account" && job.TargetRef != nil {
+		remaining, err := AccountRemaining(ctx, s.db, *job.TargetRef)
+		if err != nil || remaining != 0 {
+			return s.deferJob(ctx, id, "database_cleanup_unavailable")
+		}
+	}
 	// 先确认恢复日志，再清空业务目标；两者之间崩溃由verifying工作继续，不提前报告完成。
 	if e := s.journal.Confirm(ctx, id); e != nil {
 		return s.deferJob(ctx, id, "journal_confirmation_unavailable")

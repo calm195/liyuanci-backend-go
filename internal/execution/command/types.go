@@ -82,6 +82,8 @@ const (
 type ResourceKind string
 
 const (
+	// MatchmakingActivity 串行化同活动报名、配对和任务发布。
+	MatchmakingActivity ResourceKind = "matchmaking_activity"
 	// ResourceCategory 在资料之前锁定分类。
 	ResourceCategory ResourceKind = "resource_category"
 	// ResourceMaterial 在分类后锁定资料并串行反馈。

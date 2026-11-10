@@ -194,7 +194,7 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 			}
 		}
 		var held int64
-		if row.story == nil {
+		if row.story == nil && row.wish.ID != "" {
 			if e = db.Model(&entity.PrivacyHold{}).Where(
 				"target_kind='wish' AND target_id=? AND ((status='active' AND NOT (? AND required_content_version<=?)) OR hold_epoch>?)",
 				row.wish.ID,
@@ -312,7 +312,7 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				return "", e
 			}
 			epoch = holds.Epoch
-		} else {
+		} else if row.wish.ID != "" {
 			if e = db.Model(&entity.PrivacyHold{}).Select("coalesce(max(hold_epoch),0)").
 				Where("target_kind='wish' AND target_id=?", row.wish.ID).
 				Scan(&epoch).

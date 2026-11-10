@@ -87,12 +87,13 @@ func (Match) TableName() string { return "public.matches" }
 
 // Conversation 映射 public.conversations，字段注释描述数据库持久化语义。
 type Conversation struct {
-	Version         int64     `gorm:"column:version;not null;default:1;comment:会话聚合版本" json:"-"`
-	ID              string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	MatchID         string    `gorm:"column:match_id;type:uuid;not null;unique;comment:唯一对应的匹配关系" json:"-"`
-	WriteEpoch      int64     `gorm:"column:write_epoch;type:bigint;not null;default:1;comment:写权限代次，旧异步任务必须复核" json:"-"`
-	NextDeliverySeq int64     `gorm:"column:next_delivery_seq;type:bigint;not null;default:1;comment:下一送达序号，仅在送达事务中更新" json:"-"`
-	CreatedAt       time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	Version           int64     `gorm:"column:version;not null;default:1;comment:会话聚合版本" json:"-"`
+	ID                string    `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	MatchID           string    `gorm:"column:match_id;type:uuid;unique;default:null;comment:心愿会话对应的唯一匹配关系" json:"-"`
+	MatchmakingPairID *string   `gorm:"column:matchmaking_pair_id;type:uuid;unique;comment:包分配会话对应的唯一已发布配对" json:"-"`
+	WriteEpoch        int64     `gorm:"column:write_epoch;type:bigint;not null;default:1;comment:写权限代次，旧异步任务必须复核" json:"-"`
+	NextDeliverySeq   int64     `gorm:"column:next_delivery_seq;type:bigint;not null;default:1;comment:下一送达序号，仅在送达事务中更新" json:"-"`
+	CreatedAt         time.Time `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

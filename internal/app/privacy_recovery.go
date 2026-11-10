@@ -70,6 +70,13 @@ func checkDeletionRecovery(ctx context.Context, db *gorm.DB, journal recoveryJou
 			if e = db.WithContext(ctx).Model(model).Where("id=?", in.Target).Count(&n).Error; e != nil {
 				return command.ErrUnavailable
 			}
+			if scope == "account" {
+				var err error
+				n, err = privacy.AccountRemaining(ctx, db, in.Target)
+				if err != nil {
+					return command.ErrUnavailable
+				}
+			}
 			if n != 0 {
 				return command.ErrUnavailable
 			}

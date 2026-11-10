@@ -11,6 +11,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/httpapi"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/dictionary"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/matchmaking"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
@@ -87,6 +88,7 @@ type ServiceConfig struct {
 // serviceSet 只持有已构造的领域服务，不拥有连接池、供应商或调度协程。
 // 字段显式列出，各职责构造器在全部成功后才交给HTTP注册边界。
 type serviceSet struct {
+	matchmaking                       *matchmaking.Service
 	guide                             *moduleguide.Service
 	dictionaries                      *dictionary.Service
 	avatars                           bool
@@ -155,6 +157,9 @@ func buildServices(d ServiceDependencies, cfg ServiceConfig) (out *serviceSet, e
 		return nil, err
 	}
 	if err = out.buildModeration(d, cfg); err != nil {
+		return nil, err
+	}
+	if err = out.buildMatchmaking(d, cfg); err != nil {
 		return nil, err
 	}
 	return out, nil

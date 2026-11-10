@@ -560,3 +560,42 @@ DROP POLICY IF EXISTS display_dictionary_items_scope ON public.display_dictionar
 CREATE POLICY display_dictionary_items_scope ON public.display_dictionary_items TO liyuanci_api,liyuanci_admin_api USING(true) WITH CHECK(true);
 DROP POLICY IF EXISTS display_dictionary_actions_scope ON public.display_dictionary_actions;
 CREATE POLICY display_dictionary_actions_scope ON public.display_dictionary_actions TO liyuanci_admin_api USING(true) WITH CHECK(true);
+
+-- 包分配隔离权限夹具复用活动锁；应用内仍按当前会话、岗位及成员关系复核。
+DO $$
+DECLARE item text;
+BEGIN
+ FOREACH item IN ARRAY ARRAY['matchmaking_activities','matchmaking_enrollments','matchmaking_pairs','matchmaking_members','matchmaking_templates','matchmaking_tasks','matchmaking_opens','matchmaking_audits'] LOOP
+  EXECUTE format('ALTER TABLE public.%I OWNER TO liyuanci_migrator',item);
+  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC',item);
+
+ END LOOP;
+END $$;
+
+GRANT SELECT,UPDATE ON public.matchmaking_activities TO liyuanci_api,liyuanci_admin_api,liyuanci_privacy_maintenance;
+GRANT INSERT ON public.matchmaking_activities TO liyuanci_admin_api;
+GRANT SELECT,INSERT,UPDATE ON public.matchmaking_enrollments TO liyuanci_api;
+GRANT SELECT,UPDATE ON public.matchmaking_enrollments TO liyuanci_admin_api;
+GRANT SELECT,UPDATE ON public.matchmaking_pairs,public.matchmaking_members TO liyuanci_api;
+GRANT SELECT,INSERT,UPDATE ON public.matchmaking_pairs,public.matchmaking_members TO liyuanci_admin_api;
+GRANT SELECT,UPDATE,DELETE ON public.matchmaking_enrollments,public.matchmaking_pairs,public.matchmaking_members TO liyuanci_privacy_maintenance;
+GRANT SELECT ON public.matchmaking_templates,public.matchmaking_tasks TO liyuanci_api;
+GRANT SELECT,INSERT,DELETE ON public.matchmaking_templates TO liyuanci_admin_api;
+GRANT SELECT,INSERT ON public.matchmaking_tasks TO liyuanci_admin_api;
+GRANT SELECT,DELETE ON public.matchmaking_tasks,public.matchmaking_opens,public.matchmaking_audits TO liyuanci_privacy_maintenance;
+GRANT SELECT,INSERT ON public.matchmaking_opens TO liyuanci_api;
+GRANT INSERT ON public.matchmaking_audits TO liyuanci_api,liyuanci_admin_api;
+GRANT SELECT ON public.matchmaking_audits TO liyuanci_admin_api;
+
+-- 包分配发布创建会话；审核角色只能读取配对授权快照。
+GRANT INSERT ON public.conversations TO liyuanci_admin_api;
+GRANT SELECT ON public.matchmaking_activities,public.matchmaking_enrollments,public.matchmaking_pairs,public.matchmaking_members TO liyuanci_domain_worker,liyuanci_crisis_api;
+
+-- 独立每日任务库只允许包分配运营侧读写。
+ALTER TABLE public.matchmaking_task_library OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.matchmaking_task_library FROM PUBLIC;
+GRANT SELECT,INSERT,UPDATE ON public.matchmaking_task_library TO liyuanci_admin_api;
+
+ALTER TABLE public.matchmaking_profiles OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.matchmaking_profiles FROM PUBLIC;
+GRANT SELECT,INSERT,UPDATE ON public.matchmaking_profiles TO liyuanci_api;

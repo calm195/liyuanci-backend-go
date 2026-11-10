@@ -30,6 +30,11 @@ func accountPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discove
 		return p, e
 	}
 	p = merge(p, tree)
+	matchmaking, e := matchmakingPlan(ctx, db, id)
+	if e != nil {
+		return p, e
+	}
+	p = merge(p, matchmaking)
 	var wishes []string
 	if err = db.Model(&entity.Wish{}).Where(
 		"owner_id=? OR id IN (SELECT wish_id FROM public.applications WHERE applicant_id=?) OR id IN (SELECT wish_id FROM public.matches WHERE requester_id=? OR helper_id=?)",
@@ -133,6 +138,9 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	if e := db.Where("id=?", id).Take(&a).Error; e != nil {
 		return e
 	}
+	if e := activateMatchmaking(ctx, db, id); e != nil {
+		return e
+	}
 	if a.Lifecycle == "deleting" {
 		return activateWhispers(ctx, db, id)
 	}
@@ -198,12 +206,15 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 		}
 	}
 	// 取消全部相关普通内容任务和投递；已送达序号不改写，双方读取由主体生命周期拒绝。
+	const relatedConversations = `SELECT id FROM public.conversations
+WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)
+OR matchmaking_pair_id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id=?)`
 	statements := []string{
 		`UPDATE public.identity_reviews SET status='cancelled',version=version+1 WHERE account_id=? AND status='pending'`,
 		`UPDATE public.assets SET status='deleting',version=version+1 WHERE owner_id=?`,
 		`UPDATE public.applications SET status='invalidated',public_message_cipher=NULL,cancel_reason='account_deleted',version=version+1 WHERE applicant_id=? OR wish_id IN (SELECT id FROM public.wishes WHERE owner_id=?) OR (status IN ('pending_scan','pending_review','active') AND wish_id IN (SELECT wish_id FROM public.matches WHERE helper_id=?))`,
-		`UPDATE public.messages SET status='cancelled',version=version+1 WHERE status IN ('pending_scan','pending_review') AND conversation_id IN (SELECT c.id FROM public.conversations c JOIN public.matches m ON m.id=c.match_id WHERE m.requester_id=? OR m.helper_id=?)`,
-		`UPDATE public.conversations SET write_epoch=write_epoch+1,version=version+1 WHERE match_id IN (SELECT id FROM public.matches WHERE requester_id=? OR helper_id=?)`,
+		`UPDATE public.messages SET status='cancelled',version=version+1 WHERE status IN ('pending_scan','pending_review') AND conversation_id IN (` + relatedConversations + `)`,
+		`UPDATE public.conversations SET write_epoch=write_epoch+1,version=version+1 WHERE id IN (` + relatedConversations + `)`,
 		`UPDATE public.matches SET status='ended',ended_at=clock_timestamp(),version=version+1 WHERE status='current' AND (requester_id=? OR helper_id=?)`,
 	}
 	for _, sql := range statements {
@@ -215,8 +226,8 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	sql := `SELECT id FROM public.content_registry WHERE author_id=?
  OR (kind IN ('wish','story') AND entity_id IN (SELECT id FROM public.wishes WHERE owner_id=? OR id IN (SELECT wish_id FROM public.matches WHERE helper_id=?)))
  OR (kind='application' AND entity_id IN (SELECT id FROM public.applications WHERE applicant_id=? OR cancel_reason='account_deleted' AND wish_id IN (SELECT wish_id FROM public.matches WHERE helper_id=?) OR wish_id IN (SELECT id FROM public.wishes WHERE owner_id=?)))
- OR (kind='message' AND entity_id IN (SELECT msg.id FROM public.messages msg JOIN public.conversations c ON c.id=msg.conversation_id JOIN public.matches m ON m.id=c.match_id WHERE m.requester_id=? OR m.helper_id=?))`
-	if e := db.Raw(sql, id, id, id, id, id, id, id, id).Scan(&contents).Error; e != nil {
+ OR (kind='message' AND entity_id IN (SELECT id FROM public.messages WHERE conversation_id IN (` + relatedConversations + `)))`
+	if e := execSubjectScan(db, sql, id, &contents); e != nil {
 		return e
 	}
 	var tasks, assets, works []string

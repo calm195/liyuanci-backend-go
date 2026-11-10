@@ -32,6 +32,7 @@ type Config struct {
 
 // Service 不拥有数据库及密钥生命周期，命令事务内不调用通知网络。
 type Service struct {
+	matchmakingNotificationTarget func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref string, err error)
 	applicationNotificationTarget func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref, title string, err error)
 	db                            *gorm.DB
 	engine                        *command.Engine
@@ -191,10 +192,7 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 		if e != nil {
 			return e
 		}
-		if !v.CanRead(tx.Actor().ID) {
-			return command.ErrNotFound
-		}
-		return nil
+		return v.AuthorizeRead(ctx, tx.DB(), tx.Actor().ID, tx.Now())
 	}
 	d.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
 		db := tx.DB().WithContext(ctx)
@@ -233,7 +231,7 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 		if peer.ID == tx.Actor().ID {
 			peer = v.Helper
 		}
-		hold, e := holdEpoch(ctx, db, v.Wish.ID)
+		hold, e := v.parentHoldEpoch(ctx, db)
 		if e != nil {
 			return "", e
 		}
@@ -303,4 +301,9 @@ func (s *Service) Send(ctx context.Context, token, key, rid, id string, in Messa
 	}
 	_, err = s.engine.Execute(ctx, d, command.Input{Token: token, IdempotencyKey: key, RequestID: rid, Request: digest})
 	return
+}
+
+// SetMatchmakingNotificationTarget 在装配时注入包分配当前目标授权投影。
+func (s *Service) SetMatchmakingNotificationTarget(project func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref string, err error)) {
+	s.matchmakingNotificationTarget = project
 }

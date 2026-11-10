@@ -6,6 +6,16 @@ import "github.com/calm195/liyuanci-backend-go/internal/entity"
 // 恢复日志和集成探针由各自入口管理，不能混入业务库结构校验；本清单不会创建或修改表结构。
 func businessModels() []any {
 	return []any{
+		&entity.MatchmakingActivity{},
+		&entity.MatchmakingEnrollment{},
+		&entity.MatchmakingProfile{},
+		&entity.MatchmakingPair{},
+		&entity.MatchmakingMember{},
+		&entity.MatchmakingTemplate{},
+		&entity.MatchmakingLibraryTask{},
+		&entity.MatchmakingTask{},
+		&entity.MatchmakingOpen{},
+		&entity.MatchmakingAudit{},
 
 		&entity.DisplayDictionary{},
 		&entity.DisplayDictionaryItem{},

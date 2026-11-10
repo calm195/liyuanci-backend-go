@@ -355,6 +355,62 @@ func TestChatDelivery(t *testing.T) {
 			t.Fatal("非发送者可查待审状态", e)
 		}
 	})
+	t.Run("包分配会话使用现有自动及人工审核", func(t *testing.T) {
+		a, aToken := student()
+		b, bToken := student()
+		now := time.Now()
+		activityID, pairID, conversationID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+		must(root.Create(&entity.MatchmakingActivity{
+			ID: activityID, Version: 1, Title: "合成聊天活动", Description: "合成聊天活动说明", Status: "published",
+			PublishedAt: &now, Campuses: json.RawMessage(`[]`), RegistrationOpensAt: now.Add(-4 * time.Hour),
+			RegistrationClosesAt: now.Add(-3 * time.Hour), ResultsAt: now.Add(-2 * time.Hour), StartsAt: now.Add(-time.Hour),
+			EndsAt: now.Add(time.Hour), Days: 1, CreatedAt: now,
+		}).Error)
+		must(root.Create(&entity.MatchmakingPair{
+			ID: pairID, ActivityID: activityID, Version: 1, Status: "published", Score: 80, ScoreDetails: json.RawMessage(`{}`),
+			Algorithm: "legacy-fixed-v1", PublishedAt: &now, CreatedAt: now,
+		}).Error)
+		for _, account := range []string{a, b} {
+			enrollmentID := uuid.NewString()
+			must(root.Create(&entity.MatchmakingEnrollment{
+				ID: enrollmentID, ActivityID: activityID, AccountID: account, Version: 1, ProfileVersion: 1, Status: "approved",
+				ProfileCipher: json.RawMessage(`{}`), CreatedAt: now,
+			}).Error)
+			must(root.Create(&entity.MatchmakingMember{
+				PairID: pairID, EnrollmentID: enrollmentID, ActivityID: activityID, AccountID: account, ProfileVersion: 1, Active: true,
+			}).Error)
+		}
+		must(root.Create(&entity.Conversation{ID: conversationID, MatchmakingPairID: &pairID, CreatedAt: now}).Error)
+		first, e := chats.Send(ctx, aToken, uuid.NewString(), "pair-chat-first", conversationID, chat.MessageInput{
+			ClientMessageID: uuid.NewString(), Body: "合成问候", ExpectedWriteEpoch: 1,
+		})
+		must(e)
+		scan("message", first.MessageID)
+		second, e := chats.Send(ctx, bToken, uuid.NewString(), "pair-chat-second", conversationID, chat.MessageInput{
+			ClientMessageID: uuid.NewString(), Body: "普通命中 包分配合成问候", ExpectedWriteEpoch: 1,
+		})
+		must(e)
+		scan("message", second.MessageID)
+		pending := task(second.MessageID)
+		c, e := reviews.Case(ctx, adminToken, "pair-chat-detail", pending.ID)
+		must(e)
+		if c.Body != "普通命中 包分配合成问候" {
+			t.Fatal("包分配会话待审消息正文未正确投影")
+		}
+		result, e := reviews.Decide(ctx, adminToken, uuid.NewString(), "pair-chat-approve", pending.ID,
+			moderation.Decision{Decision: "approved", ExpectedVersion: pending.Version})
+		must(e)
+		if result.BusinessOutcome != "delivered" {
+			t.Fatal("包分配会话人工终审未送达", result)
+		}
+		for i, token := range []string{aToken, bToken} {
+			messages, e := chats.Messages(ctx, token, "pair-chat-delivery", conversationID, chat.Query{Limit: 20})
+			must(e)
+			if len(messages.Items) != 2 || !messages.Items[i].ViewerIsSender || messages.Items[1-i].ViewerIsSender {
+				t.Fatal("双向包分配聊天未正确送达", messages)
+			}
+		}
+	})
 	t.Run("客户端不透明标识与同请求幂等", func(t *testing.T) {
 		f := matched()
 		in := chat.MessageInput{ClientMessageID: "opaque-local-1", Body: strings.Repeat("文", 501), ExpectedWriteEpoch: 1}
