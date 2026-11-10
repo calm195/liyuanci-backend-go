@@ -15,6 +15,7 @@ type Account struct {
 	Verification     string          `gorm:"column:verification;type:text;not null;default:'unverified';comment:学生资格审核状态，身份绑定本身不代表审核通过" json:"-"`
 	AuthEpoch        int64           `gorm:"column:auth_epoch;type:bigint;not null;default:1;comment:权限代次，变更后用于撤销旧会话授权" json:"-"`
 	Version          int64           `gorm:"column:version;type:bigint;not null;default:1;comment:聚合状态版本，用于命令期望版本校验" json:"-"`
+	MBTI             string          `gorm:"column:mbti;type:text;not null;default:'';comment:本人填写的人格类型，空值为未设置" json:"-"`
 	Nickname         string          `gorm:"column:nickname;type:text;not null;comment:用户昵称，不得为空白" json:"-"`
 	HideIdentityTags bool            `gorm:"column:hide_identity_tags;type:boolean;not null;default:false;comment:是否隐藏公开身份标签" json:"-"`
 	CreatedAt        time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:账号创建时间，以带时区时间保存" json:"-"`

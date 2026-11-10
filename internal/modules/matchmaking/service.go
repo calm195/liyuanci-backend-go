@@ -227,7 +227,7 @@ func unused(db *gorm.DB, id string) (bool, error) {
 }
 
 func (s *Service) validateEnrollmentProfile(ctx context.Context, p Profile) error {
-	if !validProfile(p) || !slices.Contains(campusCodes, p.Campus) || !slices.Contains(s.cfg.Grades(ctx), p.Grade) || !slices.Contains(educationCodes, p.Education) {
+	if !validProfile(p) || !slices.Contains(campusCodes, p.Campus) || !slices.Contains(s.cfg.Grades(ctx), p.Grade) {
 		return command.ErrInvalid
 	}
 	return nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -15,19 +14,19 @@ import (
 )
 
 var campusCodes = []string{"wushan", "university_town", "international"}
-var educationCodes = []string{"本科生", "研究生", "博士生"}
 
 // AccountProfile 是本人可编辑的账号资料，Ready 表示资料已足以报名。
 type AccountProfile struct {
-	Version int64    `json:"version"`
-	Profile *Profile `json:"profile,omitempty"`
-	Ready   bool     `json:"ready"`
+	Version        int64    `json:"version"`
+	AccountVersion int64    `json:"account_version"`
+	Profile        *Profile `json:"profile,omitempty"`
+	Ready          bool     `json:"ready"`
 }
 
 // ProfileInput 使用乐观版本保护账号资料的并发保存。
 type ProfileInput struct {
-	ExpectedVersion int64   `json:"expected_version"`
-	Profile         Profile `json:"profile"`
+	ExpectedVersion int64       `json:"expected_version"`
+	Profile         Preferences `json:"profile"`
 }
 
 func profileBinding(row entity.MatchmakingProfile) securedata.Binding {
@@ -39,10 +38,15 @@ func profileBinding(row entity.MatchmakingProfile) securedata.Binding {
 }
 
 func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error) {
+	var account entity.Account
+	if err := db.Select("nickname", "identity_tags", "mbti", "version").Where("id=?", id).Take(&account).Error; err != nil {
+		return AccountProfile{}, err
+	}
+	result := AccountProfile{AccountVersion: account.Version}
 	var row entity.MatchmakingProfile
 	if err := db.Where("account_id=?", id).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return AccountProfile{}, nil
+			return result, nil
 		}
 		return AccountProfile{}, err
 	}
@@ -57,13 +61,31 @@ func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error)
 	}
 	defer clear(raw)
 	var profile Profile
-	if err = json.Unmarshal(raw, &profile); err != nil {
+	if err = json.Unmarshal(raw, &profile.Preferences); err != nil {
 		return AccountProfile{}, err
 	}
+	var tags struct {
+		Campus string `json:"campus"`
+		Gender string `json:"gender"`
+		Grade  string `json:"grade"`
+	}
+	if err = json.Unmarshal(account.IdentityTags, &tags); err != nil {
+		return AccountProfile{}, err
+	}
+	// 报名预览与提交都使用锁内读取的账号资料，既有报名快照独立保留。
+	profile.Name, profile.MBTI = account.Nickname, account.MBTI
+	profile.Gender, profile.Campus, profile.Grade = tags.Gender, tags.Campus, tags.Grade
+	if profile.Gender == "undisclosed" {
+		profile.Gender = ""
+	}
+	if profile.Campus == "any" {
+		profile.Campus = ""
+	}
 	profile.Consent = true
-	ready := s.validateEnrollmentProfile(ctx, profile) == nil
+	result.Ready = s.validateEnrollmentProfile(ctx, profile) == nil
 	profile.Consent = false
-	return AccountProfile{Version: row.Version, Profile: &profile, Ready: ready}, nil
+	result.Version, result.Profile = row.Version, &profile
+	return result, nil
 }
 
 // ReadProfile 仅返回当前账号的资料，不读取历史报名快照。
@@ -77,11 +99,10 @@ func (s *Service) ReadProfile(ctx context.Context, token, rid string) (out Accou
 	return out, err
 }
 
-// SaveProfile 允许先保存部分资料，例如单独维护人格标签。
+// SaveProfile 只维护包分配专用资料，通用字段由账号资料入口维护。
 func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input ProfileInput) (out Receipt, err error) {
 	defer s.done("profile_save", rid, time.Now(), &err)
-	input.Profile.Consent = false
-	if input.ExpectedVersion < 0 || !s.validAccountProfile(ctx, input.Profile) {
+	if input.ExpectedVersion < 0 || !validAccountProfile(input.Profile) {
 		return Receipt{}, command.ErrInvalid
 	}
 	return s.write(ctx, token, key, rid, "", "profile_save", "PUT", "/api/v1/matchmaking/profile", input, func(tx *command.Tx, _ entity.MatchmakingActivity) (string, error) {
@@ -96,8 +117,8 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 			return "", command.ErrVersionConflict
 		}
 		p := input.Profile
-		if p.Name != "" || p.Introduction != "" || p.Wechat != "" {
-			if err = s.cfg.CheckText(ctx, tx.DB(), p.Name+"\n"+p.Introduction+"\n"+p.Wechat); err != nil {
+		if p.Introduction != "" || p.Wechat != "" {
+			if err = s.cfg.CheckText(ctx, tx.DB(), p.Introduction+"\n"+p.Wechat); err != nil {
 				return "", err
 			}
 		}
@@ -125,15 +146,8 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 	}, nil)
 }
 
-func (s *Service) validAccountProfile(ctx context.Context, p Profile) bool {
-	if !optionalText(p.Name, 32) || !optionalText(p.Introduction, 500) || !optionalText(p.Wechat, 64) {
-		return false
-	}
-	if p.MBTI != "" && !slices.Contains(mbtis, p.MBTI) ||
-		p.Gender != "" && !slices.Contains([]string{"male", "female"}, p.Gender) ||
-		p.Campus != "" && !slices.Contains(campusCodes, p.Campus) ||
-		p.Education != "" && !slices.Contains(educationCodes, p.Education) ||
-		p.Grade != "" && !slices.Contains(s.cfg.Grades(ctx), p.Grade) {
+func validAccountProfile(p Preferences) bool {
+	if !optionalText(p.Introduction, 500) || !optionalText(p.Wechat, 64) {
 		return false
 	}
 	return validOptionalRange(p.Age, p.AgeMin, p.AgeMax, 18, 80) &&

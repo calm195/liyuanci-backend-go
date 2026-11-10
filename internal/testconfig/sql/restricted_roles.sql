@@ -177,7 +177,7 @@ GRANT SELECT, INSERT, UPDATE ON public.student_login_exchanges TO liyuanci_ident
 GRANT SELECT, INSERT ON public.sessions TO liyuanci_identity_maintenance;
 GRANT UPDATE (revoked_at) ON public.sessions TO liyuanci_identity_maintenance;
 GRANT INSERT ON public.accounts TO liyuanci_identity_maintenance;
-GRANT UPDATE (nickname, hide_identity_tags, version) ON public.accounts TO liyuanci_identity_maintenance;
+GRANT UPDATE (nickname, hide_identity_tags, version, mbti) ON public.accounts TO liyuanci_identity_maintenance;
 GRANT SELECT, INSERT ON public.command_receipts TO liyuanci_identity_maintenance;
 GRANT UPDATE (request_hash, result_ref, expires_at) ON public.command_receipts TO liyuanci_identity_maintenance;
 GRANT EXECUTE ON FUNCTION public.lock_command_account(uuid) TO liyuanci_identity_maintenance;

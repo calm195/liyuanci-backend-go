@@ -44,7 +44,7 @@ func validActivity(v ActivityInput) bool {
 }
 
 func validProfile(p Profile) bool {
-	return text(p.Name, 32) && slices.Contains([]string{"male", "female"}, p.Gender) && text(p.Education, 32) && text(p.Grade, 32) && (p.MBTI == "" || slices.Contains(mbtis, p.MBTI)) &&
+	return text(p.Name, 40) && slices.Contains([]string{"male", "female"}, p.Gender) && text(p.Grade, 32) && (p.MBTI == "" || slices.Contains(mbtis, p.MBTI)) &&
 		p.Age >= 18 && p.Age <= 80 && p.AgeMin >= 18 && p.AgeMax <= 80 && p.AgeMin <= p.AgeMax &&
 		p.Height >= 100 && p.Height <= 250 && p.HeightMin >= 100 && p.HeightMax <= 250 && p.HeightMin <= p.HeightMax &&
 		p.Weight >= 50 && p.Weight <= 500 && p.WeightMin >= 50 && p.WeightMax <= 500 && p.WeightMin <= p.WeightMax &&

@@ -188,7 +188,7 @@ func decoded[T any](t *testing.T, value json.RawMessage) T {
 }
 
 func profile(name, gender string) matchmaking.Profile {
-	return matchmaking.Profile{Name: name, Gender: gender, Education: "本科生", Grade: "undergraduate_3", Campus: "wushan", MBTI: "INFP", Age: 21, AgeMin: 18, AgeMax: 25, Height: 175, HeightMin: 150, HeightMax: 190, Weight: 130, WeightMin: 90, WeightMax: 160, Wechat: "synthetic_" + gender, Introduction: "喜欢阅读和散步", Consent: true}
+	return matchmaking.Profile{Name: name, Gender: gender, Grade: "undergraduate_3", Campus: "wushan", MBTI: "INFP", Preferences: matchmaking.Preferences{Age: 21, AgeMin: 18, AgeMax: 25, Height: 175, HeightMin: 150, HeightMax: 190, Weight: 130, WeightMin: 90, WeightMax: 160, Wechat: "synthetic_" + gender, Introduction: "喜欢阅读和散步"}, Consent: true}
 }
 
 func activityInput() matchmaking.ActivityInput {
@@ -216,9 +216,14 @@ func (f *fixture) command(id, action string, want int) {
 
 func (f *fixture) enroll(id string, who actor, p matchmaking.Profile, version int64) string {
 	f.t.Helper()
+	tags, err := json.Marshal(map[string]string{"gender": p.Gender, "campus": p.Campus, "grade": p.Grade})
+	must(f.t, err)
+	must(f.t, f.db.Model(&entity.Account{}).Where("id=?", who.id).Updates(map[string]any{
+		"nickname": p.Name, "mbti": p.MBTI, "identity_tags": json.RawMessage(tags),
+	}).Error)
 	current := decoded[matchmaking.AccountProfile](f.t, f.call("GET", "/matchmaking/profile", who, "", nil, 200))
-	f.call("PUT", "/matchmaking/profile", who, uuid.NewString(), matchmaking.ProfileInput{ExpectedVersion: current.Version, Profile: p}, 200)
-	return decoded[matchmaking.Receipt](f.t, f.call("PUT", studentPath(id)+"/enrollment", who, uuid.NewString(), matchmaking.EnrollmentInput{ExpectedVersion: version, ProfileVersion: current.Version + 1, Consent: true}, 200)).ID
+	f.call("PUT", "/matchmaking/profile", who, uuid.NewString(), matchmaking.ProfileInput{ExpectedVersion: current.Version, Profile: p.Preferences}, 200)
+	return decoded[matchmaking.Receipt](f.t, f.call("PUT", studentPath(id)+"/enrollment", who, uuid.NewString(), matchmaking.EnrollmentInput{ExpectedVersion: version, ProfileVersion: current.Version + 1, AccountVersion: current.AccountVersion, Consent: true}, 200)).ID
 }
 
 func (f *fixture) review(id, enrollment string, version int64) {
@@ -280,11 +285,14 @@ func TestPostgresHTTP(t *testing.T) {
 	f.command(id, "publish", 200)
 	f.call("GET", "/matchmaking/activities?page=1&limit=20", a, "", nil, 200)
 	f.call("GET", "/admin/matchmaking/activities?page=1&limit=20", f.admin, "", nil, 200)
-	f.call("PUT", studentPath(id)+"/enrollment", outsider, "unverified", matchmaking.EnrollmentInput{ProfileVersion: 1, Consent: true}, 403)
+	f.call("PUT", studentPath(id)+"/enrollment", outsider, "unverified", matchmaking.EnrollmentInput{ProfileVersion: 1, AccountVersion: 1, Consent: true}, 403)
+	f.call("PUT", "/matchmaking/profile", a, "reject-shared-fields", json.RawMessage(
+		`{"expected_version":0,"profile":{"name":"重复昵称","mbti":"INTJ","education":"本科生"}}`,
+	), 400)
 	pa := profile("合成甲", "male")
 	blockedProfile := pa
 	blockedProfile.Introduction = "合成禁止词"
-	f.call("PUT", "/matchmaking/profile", a, "blocked-profile", matchmaking.ProfileInput{Profile: blockedProfile}, 409)
+	f.call("PUT", "/matchmaking/profile", a, "blocked-profile", matchmaking.ProfileInput{Profile: blockedProfile.Preferences}, 409)
 	aID := f.enroll(id, a, pa, 0)
 	before := f.detail(id, a)
 	if before.Enrollment == nil || before.Enrollment.Eligible || before.Enrollment.Status != "pending" {
@@ -303,12 +311,23 @@ func TestPostgresHTTP(t *testing.T) {
 	pb := profile("合成乙", "female")
 	pb.Campus, pb.MBTI, pb.Wechat = "international", "", ""
 	bID := f.enroll(id, b, pb, 0)
-	f.call("PUT", "/matchmaking/profile", b, "personality-change", matchmaking.ProfileInput{ExpectedVersion: 1, Profile: matchmaking.Profile{MBTI: "INTJ"}}, 200)
+	beforeAccountEdit := decoded[matchmaking.AccountProfile](t, f.call("GET", "/matchmaking/profile", b, "", nil, 200))
+	must(t, f.db.Model(&entity.Account{}).Where("id=?", b.id).Updates(map[string]any{
+		"mbti": "INTJ", "version": gorm.Expr("version + 1"),
+	}).Error)
 	current := decoded[matchmaking.AccountProfile](t, f.call("GET", "/matchmaking/profile", b, "", nil, 200))
-	if current.Profile == nil || current.Ready || current.Profile.MBTI != "INTJ" || f.detail(id, b).Enrollment.Profile.MBTI != "" {
-		t.Fatal("人格标签更新改动报名快照或部分资料可直接报名")
+	if current.Profile == nil || !current.Ready || current.Profile.MBTI != "INTJ" ||
+		current.Profile.Name != pb.Name || current.Profile.Campus != pb.Campus ||
+		current.Version != beforeAccountEdit.Version || current.AccountVersion == beforeAccountEdit.AccountVersion ||
+		f.detail(id, b).Enrollment.Profile.MBTI != "" {
+		t.Fatal("报名应读取当前账号资料，且修改不得影响已提交快照")
 	}
-	f.call("PUT", studentPath(id)+"/enrollment", b, "stale-profile", matchmaking.EnrollmentInput{ExpectedVersion: 1, ProfileVersion: 1, Consent: true}, 409)
+	f.call("PUT", studentPath(id)+"/enrollment", b, "stale-account", matchmaking.EnrollmentInput{
+		ExpectedVersion: 1, ProfileVersion: current.Version, AccountVersion: beforeAccountEdit.AccountVersion, Consent: true,
+	}, 409)
+	f.call("PUT", studentPath(id)+"/enrollment", b, "stale-profile", matchmaking.EnrollmentInput{
+		ExpectedVersion: 1, ProfileVersion: current.Version + 1, AccountVersion: current.AccountVersion, Consent: true,
+	}, 409)
 	must(t, f.db.Model(&entity.Account{}).Where("id=?", b.id).Update("verification", "unverified").Error)
 	f.call("POST", adminPath(id)+"/enrollments/"+bID+"/review", f.admin, "ineligible-review", matchmaking.ReviewInput{ExpectedVersion: 1, Decision: "approved"}, 409)
 	if f.workspace(id).Activity.ID != id {
@@ -353,7 +372,7 @@ func TestPostgresHTTP(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	// 只在隔离夹具调整活动时钟边界，业务请求仍走真实数据库时间判断。
 	must(t, f.db.Model(&entity.MatchmakingActivity{}).Where("id=?", id).Updates(map[string]any{"registration_closes_at": now.Add(-30 * time.Minute)}).Error)
-	f.call("PUT", studentPath(id)+"/enrollment", a, "after-close", matchmaking.EnrollmentInput{ExpectedVersion: 4, ProfileVersion: 2, Consent: true}, 409)
+	f.call("PUT", studentPath(id)+"/enrollment", a, "after-close", matchmaking.EnrollmentInput{ExpectedVersion: 4, ProfileVersion: 2, AccountVersion: 1, Consent: true}, 409)
 	candidates := decoded[struct {
 		Items []matchmaking.Candidate `json:"items"`
 	}](t, f.call("GET", adminPath(id)+"/candidates/"+aID, f.admin, "", nil, 200))

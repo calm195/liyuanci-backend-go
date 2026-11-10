@@ -238,7 +238,7 @@ func (s *Service) SaveTemplates(ctx context.Context, token, key, rid, id string,
 
 // Enroll 在报名窗口提交完整资料，修改重新审核，不允许修改已进入配对的资料。
 func (s *Service) Enroll(ctx context.Context, token, key, rid, id string, input EnrollmentInput) (Receipt, error) {
-	if !validID(id) || input.ExpectedVersion < 0 || input.ProfileVersion < 1 || !input.Consent {
+	if !validID(id) || input.ExpectedVersion < 0 || input.ProfileVersion < 1 || input.AccountVersion < 1 || !input.Consent {
 		return Receipt{}, command.ErrInvalid
 	}
 	return s.write(ctx, token, key, rid, id, "enroll", "PUT", "/api/v1/matchmaking/activities/"+id+"/enrollment", input, func(tx *command.Tx, a entity.MatchmakingActivity) (string, error) {
@@ -249,7 +249,7 @@ func (s *Service) Enroll(ctx context.Context, token, key, rid, id string, input 
 		if err != nil {
 			return "", err
 		}
-		if personal.Version != input.ProfileVersion {
+		if personal.Version != input.ProfileVersion || personal.AccountVersion != input.AccountVersion {
 			return "", command.ErrVersionConflict
 		}
 		profile := *personal.Profile

@@ -11,7 +11,7 @@ import (
 )
 
 func ruleProfile() Profile {
-	return Profile{Name: "合成参与者", Gender: "male", Education: "本科生", Grade: "undergraduate_3", Campus: "wushan", MBTI: "INFP", Age: 21, AgeMin: 18, AgeMax: 25, Height: 175, HeightMin: 150, HeightMax: 190, Weight: 130, WeightMin: 90, WeightMax: 160, Wechat: "synthetic", Introduction: "喜欢阅读和散步", Consent: true}
+	return Profile{Name: "合成参与者", Gender: "male", Grade: "undergraduate_3", Campus: "wushan", MBTI: "INFP", Preferences: Preferences{Age: 21, AgeMin: 18, AgeMax: 25, Height: 175, HeightMin: 150, HeightMax: 190, Weight: 130, WeightMin: 90, WeightMax: 160, Wechat: "synthetic", Introduction: "喜欢阅读和散步"}, Consent: true}
 }
 
 func ruleActivity() ActivityInput {

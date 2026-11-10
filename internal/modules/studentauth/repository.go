@@ -136,7 +136,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me, error) {
 	var rows []Me
 	if e := db.WithContext(ctx).Model(&entity.Account{}).
-		Select("id,version,nickname,verification,hide_identity_tags,avatar_id,avatar_url,identity_tags").
+		Select("id,version,nickname,verification,hide_identity_tags,avatar_id,avatar_url,identity_tags,mbti").
 		Where("id=? AND lifecycle='active'", id).
 		Find(&rows).
 		Error; e != nil {
@@ -173,6 +173,9 @@ func replaceProfile(ctx context.Context, db *gorm.DB, id string, input ProfileIn
 		"nickname":           input.Nickname,
 		"hide_identity_tags": *input.HideIdentityTags,
 		"version":            gorm.Expr("version + 1"),
+	}
+	if input.MBTI != nil {
+		updates["mbti"] = *input.MBTI
 	}
 	if input.AvatarURL != nil {
 		updates["avatar_url"] = gorm.Expr("CASE WHEN avatar_id IS NULL THEN ? ELSE avatar_url END", *input.AvatarURL)

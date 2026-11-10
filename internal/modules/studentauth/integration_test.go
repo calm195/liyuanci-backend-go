@@ -322,7 +322,7 @@ func TestPostgresStudent(t *testing.T) {
 		"/api/v1/me/profile",
 		first.Token,
 		"http-profile",
-		`{"nickname":"新昵称","hide_identity_tags":false,"expected_version":2,"avatar_url":"https://example.com/avatar.png","identity_tags":{"campus":"wushan","gender":"undisclosed","grade":"undergraduate_3"}}`,
+		`{"nickname":"新昵称","mbti":"INFP","hide_identity_tags":false,"expected_version":2,"avatar_url":"https://example.com/avatar.png","identity_tags":{"campus":"wushan","gender":"undisclosed","grade":"undergraduate_3"}}`,
 	); rec.Code != 200 {
 		t.Fatal("资料HTTP失败", rec.Code)
 	}
@@ -330,7 +330,7 @@ func TestPostgresStudent(t *testing.T) {
 	if e != nil || profile.AvatarURL != "https://example.com/avatar.png" || profile.IdentityTags.Campus != "wushan" || profile.IdentityTags.Gender != "undisclosed" {
 		t.Fatal("头像和标签未正确回读", profile, e)
 	}
-	if profile.IdentityTags.Grade == nil || *profile.IdentityTags.Grade != "undergraduate_3" || len(profile.GradeOptions) != 1 {
+	if profile.MBTI != "INFP" || profile.IdentityTags.Grade == nil || *profile.IdentityTags.Grade != "undergraduate_3" || len(profile.GradeOptions) != 1 {
 		t.Fatal("年级未回读", profile)
 	}
 	for _, tc := range []struct {
@@ -339,11 +339,15 @@ func TestPostgresStudent(t *testing.T) {
 	}{
 		{`{"nickname":"旧客户端","hide_identity_tags":false,"expected_version":3,"identity_tags":{"campus":"wushan"}}`, 200},
 		{`{"nickname":"无效年级","hide_identity_tags":false,"expected_version":4,"identity_tags":{"campus":"wushan","grade":"invalid"}}`, 400},
+		{`{"nickname":"无效人格类型","mbti":"XXXX","hide_identity_tags":false,"expected_version":4}`, 400},
 		{`{"nickname":"清除年级","hide_identity_tags":false,"expected_version":4,"identity_tags":{"campus":"wushan","grade":""}}`, 200},
 	} {
 		rec := request("PUT", "/api/v1/me/profile", first.Token, uuid.NewString(), tc.body)
 		if rec.Code != tc.code || tc.code == 200 && strings.Contains(rec.Body.String(), `"grade":"undergraduate_3"`) != strings.Contains(tc.body, "旧客户端") {
 			t.Fatal("年级兼容或清除失败", rec.Code, rec.Body.String())
+		}
+		if tc.code == 200 && !strings.Contains(rec.Body.String(), `"mbti":"INFP"`) {
+			t.Fatal("省略MBTI时必须保留已保存值", rec.Body.String())
 		}
 	}
 	// 身份已暂存后会话写失败，也不能留下孤立账号或返回token。

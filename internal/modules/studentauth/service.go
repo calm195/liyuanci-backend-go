@@ -70,6 +70,7 @@ type Me struct {
 	ID               string        `json:"id"`
 	Version          int64         `json:"version"`
 	Nickname         string        `json:"nickname,omitempty"`
+	MBTI             string        `json:"mbti"`
 	Verification     string        `json:"verification"`
 	HideIdentityTags bool          `json:"hide_identity_tags"`
 	AllowedActions   []string      `json:"allowed_actions" gorm:"-"`
@@ -100,6 +101,7 @@ type ProfileInput struct {
 	AvatarURL        *string      `json:"avatar_url,omitempty"`
 	IdentityTags     *ProfileTags `json:"identity_tags,omitempty"`
 	Nickname         string       `json:"nickname"`
+	MBTI             *string      `json:"mbti,omitempty"`
 	HideIdentityTags *bool        `json:"hide_identity_tags"`
 	ExpectedVersion  int64        `json:"expected_version"`
 }
@@ -383,6 +385,14 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 	}
 	if !utf8.ValidString(input.Nickname) || utf8.RuneCountInString(input.Nickname) > 40 {
 		return out, command.ErrInvalid
+	}
+	if input.MBTI != nil && *input.MBTI != "" {
+		value := *input.MBTI
+		if len(value) != 4 || !strings.ContainsRune("IE", rune(value[0])) ||
+			!strings.ContainsRune("NS", rune(value[1])) || !strings.ContainsRune("FT", rune(value[2])) ||
+			!strings.ContainsRune("JP", rune(value[3])) {
+			return out, command.ErrInvalid
+		}
 	}
 	if input.IdentityTags != nil && (!slices.Contains([]string{"", "wushan", "university_town", "international", "any"}, input.IdentityTags.Campus) || !slices.Contains([]string{"", "male", "female", "undisclosed"}, input.IdentityTags.Gender)) {
 		return out, command.ErrInvalid
