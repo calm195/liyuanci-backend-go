@@ -12,6 +12,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/education"
 )
 
 type exchangeReceipt struct {
@@ -136,7 +137,7 @@ func authorize(ctx context.Context, db *gorm.DB, token string) (id string, now t
 func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me, error) {
 	var rows []Me
 	if e := db.WithContext(ctx).Model(&entity.Account{}).
-		Select("id,version,nickname,verification,hide_identity_tags,avatar_id,avatar_url,identity_tags,mbti").
+		Select("id,version,nickname,verification,hide_identity_tags,avatar_id,avatar_url,identity_tags,mbti,enrollment_year,education_level,grade_override").
 		Where("id=? AND lifecycle='active'", id).
 		Find(&rows).
 		Error; e != nil {
@@ -146,6 +147,14 @@ func projection(ctx context.Context, db *gorm.DB, id string, now time.Time) (Me,
 		return Me{}, command.ErrUnauthenticated
 	}
 	out := rows[0]
+	legacy := ""
+	if out.IdentityTags.Grade != nil {
+		legacy = *out.IdentityTags.Grade
+	}
+	grade := education.GradeCode(out.EnrollmentYear, out.EducationLevel, out.GradeOverride, legacy, now)
+	if grade != "" {
+		out.IdentityTags.Grade = &grade
+	}
 	out.AllowedActions = []string{"deleteAuthSession"}
 	var restrictions int64
 	if e := db.WithContext(ctx).Model(&entity.Penalty{}).Where(
@@ -173,6 +182,15 @@ func replaceProfile(ctx context.Context, db *gorm.DB, id string, input ProfileIn
 		"nickname":           input.Nickname,
 		"hide_identity_tags": *input.HideIdentityTags,
 		"version":            gorm.Expr("version + 1"),
+	}
+	if input.EnrollmentYear != nil {
+		updates["enrollment_year"] = *input.EnrollmentYear
+	}
+	if input.EducationLevel != nil {
+		updates["education_level"] = *input.EducationLevel
+	}
+	if input.GradeOverride != nil {
+		updates["grade_override"] = *input.GradeOverride
 	}
 	if input.MBTI != nil {
 		updates["mbti"] = *input.MBTI

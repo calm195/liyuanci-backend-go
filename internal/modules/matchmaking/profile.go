@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/education"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -40,7 +42,7 @@ func profileBinding(row entity.MatchmakingProfile) securedata.Binding {
 
 func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error) {
 	var account entity.Account
-	if err := db.Select("nickname", "identity_tags", "mbti", "version").Where("id=?", id).Take(&account).Error; err != nil {
+	if err := db.Select("nickname", "identity_tags", "mbti", "version", "enrollment_year", "education_level", "grade_override").Where("id=?", id).Take(&account).Error; err != nil {
 		return AccountProfile{}, err
 	}
 	selections, err := readTraitSelections(db, id)
@@ -79,7 +81,18 @@ func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error)
 	}
 	// 报名预览与提交都使用锁内读取的账号资料，既有报名快照独立保留。
 	profile.Name, profile.MBTI = account.Nickname, account.MBTI
-	profile.Gender, profile.Campus, profile.Grade = tags.Gender, tags.Campus, tags.Grade
+	profile.Gender, profile.Campus = tags.Gender, tags.Campus
+	var now time.Time
+	if err = db.Raw("SELECT clock_timestamp()").Scan(&now).Error; err != nil {
+		return AccountProfile{}, err
+	}
+	profile.EnrollmentYear, profile.EducationLevel, profile.GradeOverride = account.EnrollmentYear, account.EducationLevel, account.GradeOverride
+	profile.Grade = education.GradeCode(account.EnrollmentYear, account.EducationLevel, account.GradeOverride, tags.Grade, now)
+	if education.ValidGradeCode(profile.Grade) {
+		profile.GradeLabel = education.Label(profile.Grade)
+	}
+	profile.PreferredCampuses = uniqueCodes(profile.PreferredCampuses)
+	profile.PreferredMBTI = uniqueCodes(profile.PreferredMBTI)
 	if profile.Gender == "undisclosed" {
 		profile.Gender = ""
 	}
@@ -133,6 +146,23 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 			return "", command.ErrVersionConflict
 		}
 		p := input.Profile
+		// 省略偏好字段保留已保存值；显式空数组恢复不限。
+		if !fresh && (p.PreferredCampuses == nil || p.PreferredMBTI == nil) {
+			previous, e := s.accountProfile(tx.DB(), id)
+			if e != nil {
+				return "", e
+			}
+			if previous.Profile != nil {
+				if p.PreferredCampuses == nil {
+					p.PreferredCampuses = previous.Profile.PreferredCampuses
+				}
+				if p.PreferredMBTI == nil {
+					p.PreferredMBTI = previous.Profile.PreferredMBTI
+				}
+			}
+		}
+		p.PreferredCampuses = uniqueCodes(p.PreferredCampuses)
+		p.PreferredMBTI = uniqueCodes(p.PreferredMBTI)
 		if p.Introduction != "" || p.Wechat != "" {
 			if err = s.cfg.CheckText(ctx, tx.DB(), p.Introduction+"\n"+p.Wechat); err != nil {
 				return "", err
@@ -169,6 +199,9 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 }
 
 func validAccountProfile(p Preferences) bool {
+	if !validPreferenceCodes(p.PreferredCampuses, campusCodes) || !validPreferenceCodes(p.PreferredMBTI, mbtis) {
+		return false
+	}
 	if _, err := normalizeTraits(p.PersonalTraits); err != nil {
 		return false
 	}
@@ -192,4 +225,27 @@ func validOptionalRange(value, lower, upper, min, max int) bool {
 		(lower == 0 || in(lower, min, max)) &&
 		(upper == 0 || in(upper, min, max)) &&
 		(lower == 0 || upper == 0 || lower <= upper)
+}
+
+func validPreferenceCodes(values, allowed []string) bool {
+	if len(values) > 64 {
+		return false
+	}
+	for _, value := range values {
+		if !slices.Contains(allowed, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func uniqueCodes(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if !slices.Contains(out, value) {
+			out = append(out, value)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

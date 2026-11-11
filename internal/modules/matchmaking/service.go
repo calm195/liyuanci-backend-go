@@ -14,6 +14,7 @@ import (
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/education"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -118,6 +119,11 @@ func (s *Service) decrypt(ctx context.Context, row entity.MatchmakingEnrollment)
 	}
 	defer clear(raw)
 	err = json.Unmarshal(raw, &out)
+	if out.GradeLabel == "" && education.ValidGradeCode(out.Grade) {
+		out.GradeLabel = education.Label(out.Grade)
+	}
+	out.PreferredCampuses = uniqueCodes(out.PreferredCampuses)
+	out.PreferredMBTI = uniqueCodes(out.PreferredMBTI)
 	if out.PersonalTraits == nil {
 		out.PersonalTraits = []string{}
 	}
@@ -234,7 +240,7 @@ func unused(db *gorm.DB, id string) (bool, error) {
 }
 
 func (s *Service) validateEnrollmentProfile(ctx context.Context, p Profile) error {
-	if !validProfile(p) || !slices.Contains(campusCodes, p.Campus) || !slices.Contains(s.cfg.Grades(ctx), p.Grade) {
+	if !validProfile(p) || !slices.Contains(campusCodes, p.Campus) || (!slices.Contains(s.cfg.Grades(ctx), p.Grade) && !(p.EnrollmentYear != 0 && education.ValidGradeCode(p.Grade))) {
 		return command.ErrInvalid
 	}
 	return nil

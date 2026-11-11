@@ -35,30 +35,36 @@ type ActivitySummary struct {
 
 // Profile 是报名资料；仅本人、授权运营及有效配对对象可以读取。
 type Profile struct {
-	Name   string `json:"name"`
-	Gender string `json:"gender"`
-	Grade  string `json:"grade"`
-	Campus string `json:"campus"`
-	MBTI   string `json:"mbti"`
+	Name           string `json:"name"`
+	Gender         string `json:"gender"`
+	Grade          string `json:"grade"`
+	GradeLabel     string `json:"grade_label,omitempty"`
+	EnrollmentYear int    `json:"enrollment_year"`
+	EducationLevel string `json:"education_level"`
+	GradeOverride  string `json:"grade_override"`
+	Campus         string `json:"campus"`
+	MBTI           string `json:"mbti"`
 	Preferences
 	Consent bool `json:"consent"`
 }
 
 // Preferences 是单独维护并加密保存的活动专用资料。
 type Preferences struct {
-	PersonalTraits []string `json:"personal_traits"`
-	IdealTraits    []string `json:"ideal_traits"`
-	Age            int      `json:"age"`
-	AgeMin         int      `json:"age_min"`
-	AgeMax         int      `json:"age_max"`
-	Height         int      `json:"height"`
-	HeightMin      int      `json:"height_min"`
-	HeightMax      int      `json:"height_max"`
-	Weight         int      `json:"weight"`
-	WeightMin      int      `json:"weight_min"`
-	WeightMax      int      `json:"weight_max"`
-	Wechat         string   `json:"wechat"`
-	Introduction   string   `json:"introduction"`
+	PreferredCampuses []string `json:"preferred_campuses"`
+	PreferredMBTI     []string `json:"preferred_mbti"`
+	PersonalTraits    []string `json:"personal_traits"`
+	IdealTraits       []string `json:"ideal_traits"`
+	Age               int      `json:"age"`
+	AgeMin            int      `json:"age_min"`
+	AgeMax            int      `json:"age_max"`
+	Height            int      `json:"height"`
+	HeightMin         int      `json:"height_min"`
+	HeightMax         int      `json:"height_max"`
+	Weight            int      `json:"weight"`
+	WeightMin         int      `json:"weight_min"`
+	WeightMax         int      `json:"weight_max"`
+	Wechat            string   `json:"wechat"`
+	Introduction      string   `json:"introduction"`
 }
 
 // EnrollmentInput 新报名版本为零，修改必须绑定当前报名版本。
@@ -115,6 +121,8 @@ type PairInput struct {
 
 // ScoreDetails 明确每项推荐分数，分数不代表关系保证。
 type ScoreDetails struct {
+	PreferredCampus float64  `json:"preferred_campus"`
+	PreferredMBTI   float64  `json:"preferred_mbti"`
 	PersonalToIdeal []string `json:"personal_to_ideal"`
 	IdealToPersonal []string `json:"ideal_to_personal"`
 	Traits          int      `json:"traits"`
@@ -131,7 +139,7 @@ type Pair struct {
 	ID             string       `json:"id"`
 	Version        int64        `json:"version"`
 	Status         string       `json:"status"`
-	Score          int          `json:"score"`
+	Score          float64      `json:"score"`
 	ScoreDetails   ScoreDetails `json:"score_details"`
 	Algorithm      string       `json:"algorithm"`
 	Enrollments    []string     `json:"enrollments,omitempty"`
@@ -175,7 +183,7 @@ type Workspace struct {
 // Candidate 包含合格候选及可解释分数。
 type Candidate struct {
 	Enrollment   Enrollment   `json:"enrollment"`
-	Score        int          `json:"score"`
+	Score        float64      `json:"score"`
 	ScoreDetails ScoreDetails `json:"score_details"`
 }
 

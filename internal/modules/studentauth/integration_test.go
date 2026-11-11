@@ -350,6 +350,35 @@ func TestPostgresStudent(t *testing.T) {
 			t.Fatal("省略MBTI时必须保留已保存值", rec.Body.String())
 		}
 	}
+
+	// 教育元数据在本人投影中自动计算，手动覆盖不改写原始入学信息。
+	academicYear := time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60)).Year()
+	if time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60)).Month() < time.September {
+		academicYear--
+	}
+	for index, tc := range []struct {
+		extra, grade string
+		code         int
+	}{
+		{fmt.Sprintf(`"enrollment_year":%d,"education_level":"undergraduate","grade_override":""`, academicYear-1), "undergraduate_2", 200},
+		{`"grade_override":"undergraduate_1"`, "undergraduate_1", 200},
+		{`"education_level":"master"`, "", 400},
+		{`"grade_override":""`, "undergraduate_2", 200},
+		{fmt.Sprintf(`"enrollment_year":%d`, academicYear-7), "undergraduate_8", 200},
+	} {
+		current, failure := service.Current(ctx, first.Token, "education-read")
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		body := fmt.Sprintf(`{"nickname":"教育合成账号","hide_identity_tags":false,"expected_version":%d,%s}`, current.Version, tc.extra)
+		rec := request("PUT", "/api/v1/me/profile", first.Token, fmt.Sprintf("education-profile-%d", index), body)
+		if rec.Code != tc.code {
+			t.Fatalf("教育字段写入失败 %d %s", rec.Code, rec.Body.String())
+		}
+		if tc.code == 200 && !strings.Contains(rec.Body.String(), `"grade":"`+tc.grade+`"`) {
+			t.Fatalf("自动年级错误 %s", rec.Body.String())
+		}
+	}
 	// 身份已暂存后会话写失败，也不能留下孤立账号或返回token。
 	var beforeAccounts, afterAccounts int64
 	if e = db.Table("public.accounts").Count(&beforeAccounts).Error; e != nil {

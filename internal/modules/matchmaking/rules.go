@@ -54,7 +54,7 @@ func validProfile(p Profile) bool {
 func in(value, min, max int) bool { return value >= min && value <= max }
 
 // Score 保留旧版权重，使用完整的双方区间而非旧版误读的下限。
-func Score(a, b Profile) (int, ScoreDetails) {
+func Score(a, b Profile) (float64, ScoreDetails) {
 	d := ScoreDetails{MBTI: 18, Age: 12, Campus: 12.5, Height: 7.5, Weight: 5}
 	i, j := slices.Index(mbtis, a.MBTI), slices.Index(mbtis, b.MBTI)
 	if i >= 0 && j >= 0 {
@@ -75,7 +75,10 @@ func Score(a, b Profile) (int, ScoreDetails) {
 	d.PersonalToIdeal = traitIntersection(a.PersonalTraits, b.IdealTraits)
 	d.IdealToPersonal = traitIntersection(a.IdealTraits, b.PersonalTraits)
 	d.Traits = 5 * (len(d.PersonalToIdeal) + len(d.IdealToPersonal))
-	return int(d.MBTI+d.Age+d.Campus+d.Height+d.Weight) + d.Traits, d
+	d.PreferredCampus = preferenceScore(a.PreferredCampuses, b.Campus, b.PreferredCampuses, a.Campus, 5)
+	d.PreferredMBTI = preferenceScore(a.PreferredMBTI, b.MBTI, b.PreferredMBTI, a.MBTI, 10)
+	// 保留旧基础分截断规则，仅新增偏好允许半分。
+	return float64(int(d.MBTI+d.Age+d.Campus+d.Height+d.Weight)+d.Traits) + d.PreferredCampus + d.PreferredMBTI, d
 }
 
 // unlockAt 首日从活动开始时刻解锁，后续日期使用北京时间自然日零点。
@@ -164,4 +167,16 @@ func traitIntersection(a, b []string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// preferenceScore 按两个方向分别命中再平均，空集合表示不限。
+func preferenceScore(first []string, peer string, second []string, own string, weight float64) float64 {
+	score := 0.0
+	if len(first) == 0 || slices.Contains(first, peer) {
+		score += weight
+	}
+	if len(second) == 0 || slices.Contains(second, own) {
+		score += weight
+	}
+	return score / 2
 }

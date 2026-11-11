@@ -7,6 +7,9 @@ import (
 
 // Account 映射 public.accounts，字段注释描述数据库持久化语义。
 type Account struct {
+	EnrollmentYear   int             `gorm:"column:enrollment_year;not null;default:0;comment:入学年份，零表示尚未补全" json:"-"`
+	EducationLevel   string          `gorm:"column:education_level;not null;default:'';comment:学历层级，空表示尚未补全" json:"-"`
+	GradeOverride    string          `gorm:"column:grade_override;not null;default:'';comment:手动年级代码，空表示自动计算" json:"-"`
 	AvatarID         *string         `gorm:"column:avatar_id;type:uuid;comment:当前私有头像标识，空时可展示存量头像地址" json:"-"`
 	AvatarURL        string          `gorm:"column:avatar_url;type:text;not null;default:'';comment:用户设置的头像地址" json:"-"`
 	IdentityTags     json.RawMessage `gorm:"column:identity_tags;type:jsonb;not null;default:'{}';comment:用户自选公开标签，不是认证身份" json:"-"`

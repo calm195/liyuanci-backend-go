@@ -617,3 +617,6 @@ GRANT EXECUTE ON FUNCTION public.lock_command_accounts(uuid[]) TO liyuanci_api,l
 ALTER TABLE public.matchmaking_auto_jobs OWNER TO liyuanci_migrator;
 GRANT SELECT,INSERT,UPDATE ON public.matchmaking_auto_jobs TO liyuanci_admin_api,liyuanci_domain_worker;
 GRANT SELECT,UPDATE,DELETE ON public.matchmaking_auto_jobs TO liyuanci_privacy_maintenance;
+
+-- 本人教育资料与昵称同属资料编辑，窄身份只增加这三个字段的写入权。
+GRANT UPDATE (enrollment_year,education_level,grade_override) ON public.accounts TO liyuanci_identity_maintenance;

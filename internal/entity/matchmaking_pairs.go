@@ -11,7 +11,7 @@ type MatchmakingPair struct {
 	ActivityID   string          `gorm:"column:activity_id;comment:所属活动" json:"-"`
 	Version      int64           `gorm:"column:version;comment:配对乐观版本" json:"-"`
 	Status       string          `gorm:"column:status;comment:配对状态" json:"-"`
-	Score        int             `gorm:"column:score;comment:冻结推荐分数" json:"-"`
+	Score        float64         `gorm:"column:score;comment:冻结推荐分数" json:"-"`
 	ScoreDetails json.RawMessage `gorm:"column:score_details;comment:分项得分;type:jsonb" json:"-"`
 	Algorithm    string          `gorm:"column:algorithm;comment:评分规则版本" json:"-"`
 	PublishedAt  *time.Time      `gorm:"column:published_at;comment:发布时刻;autoCreateTime:false;autoUpdateTime:false" json:"-"`

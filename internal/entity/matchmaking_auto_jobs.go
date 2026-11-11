@@ -21,7 +21,7 @@ type MatchmakingAutoJob struct {
 	PairedCount      int             `gorm:"column:paired_count;comment:配对组数"`
 	UnmatchedCount   int             `gorm:"column:unmatched_count;comment:合格落单人数"`
 	ExcludedCount    int             `gorm:"column:excluded_count;comment:排除人数"`
-	TotalScore       int             `gorm:"column:total_score;comment:总分"`
+	TotalScore       float64         `gorm:"column:total_score;comment:总分"`
 	Error            string          `gorm:"column:error;comment:安全错误说明"`
 	CreatedAt        time.Time       `gorm:"column:created_at;comment:创建时间"`
 	ExpiresAt        time.Time       `gorm:"column:expires_at;comment:确认过期时间"`

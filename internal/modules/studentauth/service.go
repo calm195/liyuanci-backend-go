@@ -22,6 +22,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/education"
 	identitydata "github.com/calm195/liyuanci-backend-go/internal/modules/identity"
 )
 
@@ -63,6 +64,9 @@ type Config struct {
 
 // Me 仅包含本人非敏感资料及当前可用操作，不回显完整身份字段。
 type Me struct {
+	EnrollmentYear   int           `json:"enrollment_year"`
+	EducationLevel   string        `json:"education_level"`
+	GradeOverride    string        `json:"grade_override"`
 	AvatarID         *string       `json:"avatar_id,omitempty"`
 	AvatarURL        string        `json:"avatar_url"`
 	GradeOptions     []GradeOption `json:"grade_options,omitempty" gorm:"-"`
@@ -98,6 +102,9 @@ type ProfileTags struct {
 
 // ProfileInput 不允许修改学号、认证状态或角色，省略新增字段保留原值。
 type ProfileInput struct {
+	EnrollmentYear   *int         `json:"enrollment_year,omitempty"`
+	EducationLevel   *string      `json:"education_level,omitempty"`
+	GradeOverride    *string      `json:"grade_override,omitempty"`
 	AvatarURL        *string      `json:"avatar_url,omitempty"`
 	IdentityTags     *ProfileTags `json:"identity_tags,omitempty"`
 	Nickname         string       `json:"nickname"`
@@ -419,6 +426,22 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 			if guard.Version != input.ExpectedVersion {
 				return "", command.ErrVersionConflict
 			}
+			var account entity.Account
+			if e := tx.DB().Select("enrollment_year", "education_level", "grade_override").Where("id=?", guard.ID).Take(&account).Error; e != nil {
+				return "", e
+			}
+			if input.EnrollmentYear != nil {
+				account.EnrollmentYear = *input.EnrollmentYear
+			}
+			if input.EducationLevel != nil {
+				account.EducationLevel = *input.EducationLevel
+			}
+			if input.GradeOverride != nil {
+				account.GradeOverride = *input.GradeOverride
+			}
+			if !education.Valid(account.EnrollmentYear, account.EducationLevel, account.GradeOverride, tx.Now()) {
+				return "", command.ErrInvalid
+			}
 			if input.IdentityTags != nil && input.IdentityTags.Grade != nil && *input.IdentityTags.Grade != "" {
 				if s.config.ProfileGrades == nil {
 					return "", command.ErrUnavailable
@@ -427,7 +450,7 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 				if len(options) == 0 {
 					return "", command.ErrUnavailable
 				}
-				if !slices.ContainsFunc(options, func(option GradeOption) bool {
+				if !(account.EnrollmentYear != 0 && education.ValidGradeCode(*input.IdentityTags.Grade)) && !slices.ContainsFunc(options, func(option GradeOption) bool {
 					return option.Code == *input.IdentityTags.Grade
 				}) {
 					return "", command.ErrInvalid
@@ -482,7 +505,10 @@ func (s *Service) Logout(ctx context.Context, token, key, requestID string) (err
 func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.Time) (Me, error) {
 	out, e := projection(ctx, db, id, at)
 	if e == nil && s.config.ProfileGrades != nil {
-		out.GradeOptions = s.config.ProfileGrades(ctx)
+		out.GradeOptions = slices.Clone(s.config.ProfileGrades(ctx))
+		if out.IdentityTags.Grade != nil && education.ValidGradeCode(*out.IdentityTags.Grade) && !slices.ContainsFunc(out.GradeOptions, func(option GradeOption) bool { return option.Code == *out.IdentityTags.Grade }) {
+			out.GradeOptions = append(out.GradeOptions, GradeOption{Code: *out.IdentityTags.Grade, Label: education.Label(*out.IdentityTags.Grade)})
+		}
 	}
 	if e == nil && out.AvatarID != nil {
 		out.AvatarURL = ""

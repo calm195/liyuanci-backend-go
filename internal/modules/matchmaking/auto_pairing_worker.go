@@ -59,7 +59,7 @@ func autoSolution(ctx context.Context, snapshot pairingSnapshot, seed int64) (Au
 				continue
 			}
 			score, _ := Score(first.Profile, second.Profile)
-			edges = append(edges, autoPairingEdge{Left: a, Right: b, Score: score})
+			edges = append(edges, autoPairingEdge{Left: a, Right: b, Score: int(score * 2)})
 			degree[a]++
 			degree[b]++
 		}
@@ -135,7 +135,7 @@ func (w *AutoWorker) ProcessNext(ctx context.Context) (out durable.Consumption, 
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	// 准备阶段失败也交给持久消费者，孤儿目标会取消、临时故障按原任务重试。
 	result := emptyAutoResult()
-	if job.Status == "running" && snapshot.Fingerprint == job.InputHash && time.Now().Before(job.ExpiresAt) {
+	if job.Algorithm == autoAlgorithm && job.Status == "running" && snapshot.Fingerprint == job.InputHash && time.Now().Before(job.ExpiresAt) {
 		result, prepare = autoSolution(ctx, snapshot, job.Seed)
 	}
 	if ctx.Err() != nil {
@@ -168,7 +168,7 @@ func (w *AutoWorker) ProcessNext(ctx context.Context) (out durable.Consumption, 
 			if e != nil {
 				return "", e
 			}
-			if !tx.Now().Before(row.ExpiresAt) || !autoWindow(current.Activity, tx.Now()) || current.Fingerprint != row.InputHash || snapshot.Fingerprint != row.InputHash {
+			if row.Algorithm != autoAlgorithm || !tx.Now().Before(row.ExpiresAt) || !autoWindow(current.Activity, tx.Now()) || current.Fingerprint != row.InputHash || snapshot.Fingerprint != row.InputHash {
 				e = tx.DB().Model(&row).Updates(map[string]any{"status": "stale", "version": row.Version + 1, "error": "参与资料或资格已变化，请重新生成", "result_cipher": nil}).Error
 				return durable.Complete, e
 			}
@@ -189,7 +189,7 @@ func (w *AutoWorker) ProcessNext(ctx context.Context) (out durable.Consumption, 
 			if e != nil {
 				return "", e
 			}
-			total := 0
+			total := 0.0
 			for _, p := range result.Pairs {
 				total += p.Score
 			}

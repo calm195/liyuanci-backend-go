@@ -33,6 +33,11 @@ func TestPostgresHTTPAutoPairing(t *testing.T) {
 			gender = "female"
 		}
 		p := profile(fmt.Sprintf("合成自动%d", i), gender)
+		p.PreferredCampuses = []string{"wushan"}
+		if gender == "male" {
+			p.PreferredCampuses = []string{"international"}
+		}
+		p.PreferredMBTI = []string{"INFP"}
 		p.PersonalTraits = []string{"温柔"}
 		p.IdealTraits = []string{"温柔"}
 		enrollment := f.enroll(activity, a, p, 0)
@@ -69,7 +74,7 @@ func TestPostgresHTTPAutoPairing(t *testing.T) {
 		t.Fatalf("方案统计错误：%+v", ready)
 	}
 	for _, p := range ready.Pairs {
-		if p.ScoreDetails.Traits != 10 {
+		if p.ScoreDetails.Traits != 10 || p.ScoreDetails.PreferredCampus != 2.5 || p.ScoreDetails.PreferredMBTI != 10 || p.Score != float64(int(p.Score))+0.5 {
 			t.Fatal("自动计分未使用双向标签")
 		}
 	}
@@ -117,6 +122,9 @@ func TestPostgresHTTPAutoPairing(t *testing.T) {
 	}
 	f.call("PUT", "/matchmaking/profile", actors[0], "clear-personal", map[string]any{"expected_version": account.Version, "profile": map[string]any{"personal_traits": []string{}}}, 200)
 	account = decoded[matchmaking.AccountProfile](t, f.call("GET", "/matchmaking/profile", actors[0], "", nil, 200))
+	if len(account.Profile.PreferredCampuses) != 1 || account.Profile.PreferredCampuses[0] != "international" || len(account.Profile.PreferredMBTI) != 1 {
+		t.Fatal("省略偏好未保留原值")
+	}
 	if len(account.Profile.PersonalTraits) != 0 || len(account.Profile.IdealTraits) != 1 {
 		t.Fatal("清空个人特质影响理想型")
 	}
@@ -133,6 +141,17 @@ func TestPostgresHTTPAutoPairing(t *testing.T) {
 	if detail.Heat != 6 {
 		t.Fatal("词条详情all热度未按账号去重")
 	}
+	// 显式空集合恢复不限，不改变既有报名快照和已保存配对。
+	f.call("PUT", "/matchmaking/profile", actors[0], "clear-preferences", map[string]any{"expected_version": account.Version, "profile": map[string]any{"preferred_campuses": []string{}, "preferred_mbti": []string{}}}, 200)
+	cleared := decoded[matchmaking.AccountProfile](t, f.call("GET", "/matchmaking/profile", actors[0], "", nil, 200))
+	if len(cleared.Profile.PreferredCampuses) != 0 || len(cleared.Profile.PreferredMBTI) != 0 {
+		t.Fatal("空集合未清除偏好")
+	}
+	must(t, f.db.Model(&entity.Account{}).Where("id=?", actors[0].id).Updates(map[string]any{"enrollment_year": 2019, "education_level": "undergraduate", "grade_override": "undergraduate_2"}).Error)
+	educated := decoded[matchmaking.AccountProfile](t, f.call("GET", "/matchmaking/profile", actors[0], "", nil, 200))
+	if educated.Profile.Grade != "undergraduate_2" || educated.Profile.GradeLabel != "大二" || educated.Profile.EnrollmentYear != 2019 {
+		t.Fatal("共享账号年级投影不一致")
+	}
 	// 孤儿工作应被持久消费者取消，不能永久阻塞后续任务。
 	orphan := generate("orphan-job")
 	must(t, f.db.Where("id=?", orphan).Delete(&entity.MatchmakingAutoJob{}).Error)
@@ -140,6 +159,16 @@ func TestPostgresHTTPAutoPairing(t *testing.T) {
 	must(t, e)
 	if !outcome.Cancelled {
 		t.Fatal("孤儿预览任务未取消")
+	}
+
+	// 升级前遗留的空方案也不能绕过算法版本校验。
+	legacy := generate("legacy-empty-job")
+	must(t, f.db.Model(&entity.MatchmakingAutoJob{}).Where("id=?", legacy).Updates(map[string]any{"algorithm": "legacy-algorithm", "status": "ready"}).Error)
+	var legacyRow entity.MatchmakingAutoJob
+	must(t, f.db.Where("id=?", legacy).Take(&legacyRow).Error)
+	f.call("POST", prefix+"/"+legacy+"/apply", f.admin, "legacy-apply", matchmaking.AutoApplyInput{ExpectedVersion: legacyRow.Version, ActivityVersion: legacyRow.ActivityVersion}, 409)
+	if read(legacy).Status != "stale" {
+		t.Fatal("旧算法任务未失效")
 	}
 
 }

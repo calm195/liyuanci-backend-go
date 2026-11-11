@@ -77,22 +77,22 @@ func TestScoreUsesBothCompletePreferenceRanges(t *testing.T) {
 	a, b := ruleProfile(), ruleProfile()
 	a.MBTI, b.MBTI = "INFP", "ENFJ"
 	n, details := Score(a, b)
-	if n != 100 || details.Age != 20 || details.Height != 15 || details.Weight != 10 {
-		t.Fatalf("相互满足区间应得满分：%d %+v", n, details)
+	if n != 115 || details.Age != 20 || details.Height != 15 || details.Weight != 10 {
+		t.Fatalf("相互满足区间应得满分：%v %+v", n, details)
 	}
 	// 只调整上限即可改变匹配结果，覆盖旧版忽略上限的错误。
 	a.AgeMax, a.HeightMax, a.WeightMax = 20, 170, 120
 	n, details = Score(a, b)
-	if details.Age != 12 || details.Height != 7.5 || details.Weight != 5 || n != 79 {
-		t.Fatalf("一方超出期望上限仍获得满分：%d %+v", n, details)
+	if details.Age != 12 || details.Height != 7.5 || details.Weight != 5 || n != 94 {
+		t.Fatalf("一方超出期望上限仍获得满分：%v %+v", n, details)
 	}
 	for _, first := range mbtis {
 		for _, second := range mbtis {
 			a.MBTI, b.MBTI = first, second
 			forward, _ := Score(a, b)
 			backward, _ := Score(b, a)
-			if forward != backward || forward < 0 || forward > 100 {
-				t.Fatalf("评分不对称或越界：%s/%s %d/%d", first, second, forward, backward)
+			if forward != backward || forward < 0 || forward > 115 {
+				t.Fatalf("评分不对称或越界：%s/%s %v/%v", first, second, forward, backward)
 			}
 		}
 	}

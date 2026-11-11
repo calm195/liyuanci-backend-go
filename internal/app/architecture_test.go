@@ -62,9 +62,11 @@ var allowedInternalImports = map[string][]string{
 		"platform/securedata",
 		"platform/yamlconfig",
 	},
-	"contentquery":         {"execution/command"},
-	"config":               {"platform/securedata", "platform/yamlconfig"},
-	"entity":               {},
+	"contentquery": {"execution/command"},
+	"config":       {"platform/securedata", "platform/yamlconfig"},
+	"entity":       {},
+	// 入学年级供账号投影和包分配快照共享，保持纯计算叶子能力。
+	"modules/education":    {},
 	"execution/command":    {"entity"},
 	"execution/durable":    {"entity", "execution/command"},
 	"execution/workrunner": {"execution/durable"},
@@ -91,7 +93,7 @@ var allowedInternalImports = map[string][]string{
 	"modules/moduleguide": {"entity", "execution/command"},
 	"modules/dictionary":  {"entity", "execution/command"},
 	// 包分配通过注入词库检查复用审核规则，资料仅以信封密文保存。
-	"modules/matchmaking": {"entity", "execution/command", "execution/durable", "platform/securedata"},
+	"modules/matchmaking": {"modules/education", "entity", "execution/command", "execution/durable", "platform/securedata"},
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
@@ -123,7 +125,7 @@ var allowedInternalImports = map[string][]string{
 		"platform/securedata",
 	},
 	// 登录复用身份检索和黑名单协议策略。
-	"modules/studentauth": {"entity", "execution/command", "modules/blockpolicy", "modules/identity", "platform/imageinput"},
+	"modules/studentauth": {"modules/education", "entity", "execution/command", "modules/blockpolicy", "modules/identity", "platform/imageinput"},
 	// 学生卡工作处理复核当前学生会话。
 	"modules/studentcard": {"entity", "execution/command", "execution/durable", "modules/studentauth", "platform/imageinput", "platform/securedata"},
 	// 资格认证使用统一身份绑定与检索锁。

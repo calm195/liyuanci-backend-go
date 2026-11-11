@@ -19,7 +19,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
-const autoAlgorithm = "max-cardinality-weight-traits-v1"
+const autoAlgorithm = "max-cardinality-weight-preferences-v2"
 
 // AutoPerson 只包含预览必需的报名标识和昵称。
 type AutoPerson struct {
@@ -31,7 +31,7 @@ type AutoPerson struct {
 type AutoPair struct {
 	First        AutoPerson   `json:"first"`
 	Second       AutoPerson   `json:"second"`
-	Score        int          `json:"score"`
+	Score        float64      `json:"score"`
 	ScoreDetails ScoreDetails `json:"score_details"`
 }
 
@@ -63,7 +63,7 @@ type AutoJob struct {
 	PairedCount      int       `json:"paired_count"`
 	UnmatchedCount   int       `json:"unmatched_count"`
 	ExcludedCount    int       `json:"excluded_count"`
-	TotalScore       int       `json:"total_score"`
+	TotalScore       float64   `json:"total_score"`
 	Error            string    `json:"error"`
 	CreatedAt        time.Time `json:"created_at"`
 	ExpiresAt        time.Time `json:"expires_at"`
@@ -180,7 +180,7 @@ func (s *Service) ReadAutoJob(ctx context.Context, token, rid, id, jobID string)
 			if e != nil {
 				return e
 			}
-			if !r.Now.Before(row.ExpiresAt) || snapshot.Fingerprint != row.InputHash || !autoWindow(snapshot.Activity, r.Now) {
+			if row.Algorithm != autoAlgorithm || !r.Now.Before(row.ExpiresAt) || snapshot.Fingerprint != row.InputHash || !autoWindow(snapshot.Activity, r.Now) {
 				// 行状态和密文同事务作废；轮询不会交付已失效的个人预览。
 				if e = db.Model(&row).Updates(map[string]any{"status": "stale", "version": row.Version + 1, "error": "参与资料或资格已变化，请重新生成", "result_cipher": nil}).Error; e != nil {
 					return e
@@ -219,7 +219,7 @@ func (s *Service) ApplyAutoJob(ctx context.Context, token, key, rid, id, jobID s
 		if job.Version != input.ExpectedVersion || a.Version != input.ActivityVersion || job.ActivityVersion != a.Version {
 			return "", command.ErrVersionConflict
 		}
-		if job.Status != "ready" || !tx.Now().Before(job.ExpiresAt) || !autoWindow(a, tx.Now()) {
+		if job.Algorithm != autoAlgorithm || job.Status != "ready" || !tx.Now().Before(job.ExpiresAt) || !autoWindow(a, tx.Now()) {
 			return "", command.ErrConflict
 		}
 		snapshot, e := s.pairingSnapshot(ctx, tx.DB(), id, tx.Now())
