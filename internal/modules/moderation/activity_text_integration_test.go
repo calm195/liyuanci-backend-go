@@ -62,6 +62,18 @@ func verifyActivityTextRules(t *testing.T, root *gorm.DB) {
 			must(err)
 		}
 	}
+	for _, spec := range []struct {
+		body    string
+		pending bool
+	}{
+		{"合成普通介绍", false}, {"学校命中", true}, {"普通命中", true}, {"危机命中", true}, {"合成内置提示词", true}, {"合成内置拦截词", true}, {"合成停用内置词", false},
+	} {
+		pending, evidence, err := checker.ScanTrait(ctx, tx, spec.body)
+		must(err)
+		if pending != spec.pending || len(evidence) == 0 {
+			t.Fatalf("特质词库分流错误：%s %v", spec.body, pending)
+		}
+	}
 	// 同一检查器已缓存快照后，内置指针丢失仍须失败关闭。
 	must(tx.Model(&entity.WordlistHead{}).Where("kind='builtin'").Update("effective_id", nil).Error)
 	if err := checker.Check(ctx, tx, "合成普通介绍"); !errors.Is(err, command.ErrUnavailable) {

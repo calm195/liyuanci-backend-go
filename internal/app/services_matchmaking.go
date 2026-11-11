@@ -27,6 +27,7 @@ func (s *serviceSet) buildMatchmaking(d ServiceDependencies, cfg ServiceConfig) 
 		Command:   cfg.Auth.Command,
 		Grades:    grades,
 		CheckText: checker.Check,
+		ScanTrait: checker.ScanTrait,
 	})
 	if err != nil {
 		return err

@@ -10,6 +10,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/matchmaking"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
@@ -91,6 +92,15 @@ func RunContentWorker(ctx context.Context, environment string, cfg DevelopmentSe
 			err = command.ErrUnavailable
 		}
 	}()
+	auto, e := matchmaking.NewAutoWorker(db, logger, codec, durable.ConsumerConfig{Timeout: 10 * time.Second, LockTimeout: time.Second, RetryDelay: time.Second, MaxAttempts: 3})
+	if e != nil {
+		return e
+	}
+	autoRunner, e := workrunner.OpenDatabase(ctx, auto, logger, time.Second, 30*time.Second)
+	if e != nil {
+		return e
+	}
+	defer autoRunner.Close()
 	logger.Info(
 		"开发内容工作进程启动完成",
 		zap.Bool("manual_review", true),

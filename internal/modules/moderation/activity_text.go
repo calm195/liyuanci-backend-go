@@ -2,6 +2,7 @@ package moderation
 
 import (
 	"context"
+	"encoding/json"
 
 	"gorm.io/gorm"
 
@@ -28,4 +29,22 @@ func (c *ActivityTextChecker) Check(ctx context.Context, db *gorm.DB, body strin
 		return command.ErrReviewPending
 	}
 	return nil
+}
+
+// ScanTrait 为特质独立审核保留真实词库命中证据；任何命中均交由人工处理。
+func (c *ActivityTextChecker) ScanTrait(ctx context.Context, db *gorm.DB, body string) (bool, json.RawMessage, error) {
+	snapshot, err := readCachedRules(db.WithContext(ctx), &c.cache)
+	if err != nil || snapshot.builtin.ID == "" {
+		return false, nil, command.ErrUnavailable
+	}
+	matcher, err := c.cache.compile(snapshot)
+	if err != nil {
+		return false, nil, command.ErrUnavailable
+	}
+	evaluation := matcher.scan(body)
+	evidence, err := json.Marshal(struct {
+		WordlistEvaluation
+		Versions [4]string `json:"wordlist_versions"`
+	}{evaluation, snapshot.versionIDs()})
+	return len(evaluation.Matches) > 0 || len(evaluation.Routes) > 0, evidence, err
 }

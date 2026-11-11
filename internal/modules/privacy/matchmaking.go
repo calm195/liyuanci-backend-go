@@ -28,6 +28,19 @@ func matchmakingPlan(ctx context.Context, db *gorm.DB, id string) (p command.Dis
 // activateMatchmaking 受理注销即撤销双方访问，幸存者独立报名保留供后续人工处理。
 func activateMatchmaking(ctx context.Context, db *gorm.DB, id string) error {
 	db = db.WithContext(ctx)
+	// 报名仍存在时先撤销所有相关预览，含已应用方案，避免清理后保留姓名与标签副本。
+	// 与账号和活动共用锁序；重复恢复不重复推进已经清空的任务版本。
+	activities := db.Model(&entity.MatchmakingEnrollment{}).Select("activity_id").Where("account_id=?", id)
+	if err := db.Model(&entity.MatchmakingAutoJob{}).
+		Where("activity_id IN (?) AND (result_cipher IS NOT NULL OR status <> 'stale')", activities).
+		Updates(map[string]any{
+			"result_cipher": nil,
+			"status":        "stale",
+			"error":         "参与成员已注销",
+			"version":       gorm.Expr("version+1"),
+		}).Error; err != nil {
+		return err
+	}
 	var pairs []string
 	if err := db.Model(&entity.MatchmakingMember{}).Where("account_id=?", id).Pluck("pair_id", &pairs).Error; err != nil {
 		return err
@@ -74,6 +87,7 @@ func AccountRemaining(ctx context.Context, db *gorm.DB, id string) (int64, error
 	}{
 		{&entity.Account{}, "id=?", []any{id}},
 		{&entity.MatchmakingEnrollment{}, "account_id=?", []any{id}},
+		{&entity.MatchmakingTraitSelection{}, "account_id=?", []any{id}},
 		{&entity.MatchmakingMember{}, "account_id=?", []any{id}},
 		{&entity.MatchmakingOpen{}, "account_id=?", []any{id}},
 		{&entity.MatchmakingAudit{}, "actor_id=? OR subject_ref=?", []any{id, id}},

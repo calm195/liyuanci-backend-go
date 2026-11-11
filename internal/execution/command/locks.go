@@ -68,6 +68,8 @@ func rank(kind ResourceKind) int {
 		return 19
 	case MatchmakingActivity:
 		return 20
+	case MatchmakingTrait:
+		return 21
 	default:
 		return -1
 	}
@@ -155,22 +157,30 @@ func (e *Engine) lock(ctx context.Context, db *gorm.DB, subject Subject, discove
 			tx.actor.AuthEpoch = guards[0].AuthEpoch
 		}
 	}
-	for _, id := range discovery.Accounts {
+
+	if len(discovery.Accounts) > 0 {
 		var guards []Guard
-		if err := db.Raw("SELECT id,lifecycle,verification,auth_epoch,version FROM public.lock_command_account(?)", id).Scan(&guards).Error; err != nil {
+		// 数据库函数按排序后的完整集合逐个加锁，减少大活动的网络往返且保持统一锁序。
+		if err := db.Raw("SELECT id,lifecycle,verification,auth_epoch,version FROM public.lock_command_accounts(?::uuid[])", "{"+strings.Join(discovery.Accounts, ",")+"}").Scan(&guards).Error; err != nil {
 			return nil, err
 		}
-		if len(guards) != 1 {
-			if subject.Kind == "student" && id == subject.ID {
-				return nil, ErrUnauthenticated
-			}
-			return nil, ErrNotFound
+		for _, guard := range guards {
+			tx.guards[guard.ID] = guard
 		}
-		tx.guards[id] = guards[0]
-		if subject.Kind == "student" && id == subject.ID {
-			tx.actor.AuthEpoch = guards[0].AuthEpoch
+		for _, id := range discovery.Accounts {
+			guard, ok := tx.guards[id]
+			if !ok {
+				if subject.Kind == "student" && id == subject.ID {
+					return nil, ErrUnauthenticated
+				}
+				return nil, ErrNotFound
+			}
+			if subject.Kind == "student" && id == subject.ID {
+				tx.actor.AuthEpoch = guard.AuthEpoch
+			}
 		}
 	}
+
 	return tx, nil
 }
 
@@ -183,6 +193,9 @@ func (t *Tx) lockResources(resources []Resource) error {
 		switch ref.Kind {
 		case MatchmakingActivity:
 			model = &entity.MatchmakingActivity{}
+			columns = append(columns, "version")
+		case MatchmakingTrait:
+			model = &entity.MatchmakingTrait{}
 			columns = append(columns, "version")
 		case ResourceCategory:
 			model = &entity.ResourceCategory{}

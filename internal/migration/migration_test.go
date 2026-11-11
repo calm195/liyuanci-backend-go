@@ -115,8 +115,12 @@ func TestPostgresMigrations(t *testing.T) {
 ) missing`).Scan(&missingComments).Error; err != nil || missingComments != 0 {
 		t.Fatalf("表或字段缺少数据库注释：%d，错误：%v", missingComments, err)
 	}
+	entries, loadErr := loadVersions()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
 	var count int64
-	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != 23 {
+	if err = db.Table("schema_migrations").Count(&count).Error; err != nil || count != int64(len(entries)) {
 		t.Fatalf("迁移账本版本数量不符：%v", err)
 	}
 	for _, statement := range []string{

@@ -50,7 +50,40 @@ VALUES ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-00000000
        ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','draft',80,'{}','legacy',NULL,now());
 `).Error)
 	}
+	if baseline == 25 {
+		must(db.Exec(`
+INSERT INTO public.accounts(id,nickname) VALUES
+('00000000-0000-4000-8000-000000000011','合成选用者'),
+('00000000-0000-4000-8000-000000000012','合成未受影响者');
+INSERT INTO public.matchmaking_traits(id,name,status,version,evidence,reason,created_at) VALUES
+('00000000-0000-4000-8000-000000000021','合成拒绝词','rejected',2,'{}','保留审核依据',now()),
+('00000000-0000-4000-8000-000000000022','合成通过词','approved',1,'{}','',now());
+INSERT INTO public.matchmaking_trait_selections(account_id,trait_id,created_at) VALUES
+('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000021',now()),
+('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000022',now()),
+('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000022',now());
+`).Error)
+	}
 	must(RunApplication(ctx, db, log, "up"))
+	if baseline == 25 {
+		var rejectedCount, approvedCount, version int64
+		must(db.Model(&entity.MatchmakingTraitSelection{}).Where("trait_id=?", "00000000-0000-4000-8000-000000000021").Count(&rejectedCount).Error)
+		must(db.Model(&entity.MatchmakingTraitSelection{}).Where("trait_id=?", "00000000-0000-4000-8000-000000000022").Count(&approvedCount).Error)
+		must(db.Model(&entity.Account{}).Select("version").Where("id=?", "00000000-0000-4000-8000-000000000011").Scan(&version).Error)
+		if rejectedCount != 0 || approvedCount != 2 || version != 2 {
+			t.Fatal("历史驳回清理错误", rejectedCount, approvedCount, version)
+		}
+		must(db.Model(&entity.Account{}).Select("version").Where("id=?", "00000000-0000-4000-8000-000000000012").Scan(&version).Error)
+		if version != 1 {
+			t.Fatal("未选用驳回词的账号版本被修改")
+		}
+		var trait entity.MatchmakingTrait
+		must(db.Where("id=?", "00000000-0000-4000-8000-000000000021").Take(&trait).Error)
+		if trait.Status != "rejected" || trait.Reason != "保留审核依据" {
+			t.Fatal("清理删除了审核依据")
+		}
+	}
+
 	if baseline == 19 {
 		var pairs []string
 		must(db.Table("public.conversations").Where("matchmaking_pair_id IS NOT NULL").Pluck("matchmaking_pair_id", &pairs).Error)

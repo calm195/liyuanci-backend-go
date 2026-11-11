@@ -95,52 +95,9 @@ func ordinaryScan(db *gorm.DB, id string) (out entity.ModerationScan, err error)
 	return
 }
 
-// Cases 列表只开放心愿、应愿留言、私聊及故事的普通命中案件，危机正文不因普通审核权限而开放。
-func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit int) (out Page, err error) {
-	defer func() {
-		if err != nil {
-			out = Page{}
-		}
-	}()
-	defer s.done("cases.list", rid, time.Now(), &err)
-	if limit < 1 || limit > 100 {
-		return out, command.ErrInvalid
-	}
-	out.Items = []Summary{}
-	err = s.transaction(ctx, func(db *gorm.DB) error {
-		actor, e := s.authorize(db.Statement.Context, db, token, command.Discovery{})
-		if e != nil {
-			return e
-		}
-		after, e := s.after(actor, "cases", cursor)
-		if e != nil {
-			return e
-		}
-		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").
-			Select("t.id,t.version,t.status,c.kind,t.content_version").
-			Joins("JOIN public.moderation_scans s ON s.task_id=t.id").
-			Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message','story')").
-			Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").
-			Where("NOT EXISTS(SELECT 1 FROM public.content_restrictions r WHERE r.content_id=c.id AND r.kind='crisis' AND r.active) AND NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
-		if after != "" {
-			q = q.Where("t.id>?", after)
-		}
-		var rows []Summary
-		if e = q.Order("t.id").Limit(limit + 1).Scan(&rows).Error; e != nil {
-			return e
-		}
-		if len(rows) > limit {
-			rows = rows[:limit]
-			next := s.cursor(actor, "cases", rows[len(rows)-1].ID)
-			out.NextCursor = &next
-		}
-		out.Items = rows
-		if out.Items == nil {
-			out.Items = []Summary{}
-		}
-		return nil
-	})
-	return
+// Cases 兼容原有领域调用，默认仅返回需人工审核的案件。
+func (s *Service) Cases(ctx context.Context, token, rid, cursor string, limit int) (Page, error) {
+	return s.QueryCases(ctx, token, rid, CaseQuery{Cursor: cursor, Limit: limit})
 }
 
 // Case 只返回案件精确原版本；旧版本、已删除内容和危机案件返回404且不解密。

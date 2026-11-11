@@ -11,6 +11,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/workrunner"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/matchmaking"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
@@ -131,6 +132,17 @@ func RunBusinessWorker(ctx context.Context, c config.Business, environment, kind
 			err = command.ErrUnavailable
 		}
 	}()
+	if kind == "content" {
+		auto, e := matchmaking.NewAutoWorker(db, log, r.codec, durable.ConsumerConfig(c.Runtime.Tasks.Consumer))
+		if e != nil {
+			return e
+		}
+		autoRunner, e := workrunner.OpenDatabase(startup, auto, log, c.Runtime.Tasks.ScanInterval, max(c.Runtime.Tasks.OperationTimeout, 30*time.Second))
+		if e != nil {
+			return e
+		}
+		defer autoRunner.Close()
+	}
 	stopHeartbeat := platform.StartHeartbeat(ctx, log, "business-"+kind)
 	defer stopHeartbeat()
 	log.Info("业务工作进程启动完成", zap.String("kind", kind), zap.String("result", "success"))

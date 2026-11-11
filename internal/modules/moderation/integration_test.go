@@ -985,6 +985,91 @@ func TestModerationCore(t *testing.T) {
 		checkReceipt(event)
 	})
 
+	t.Run("案件查询默认待审编号筛选与全局优先分页", func(t *testing.T) {
+		var queryTask, queryContent, queryEntity string
+		for _, status := range []string{"human_required", "approved", "rejected"} {
+			draft, event := submit("普通命中 查询筛选合成")
+			_, e := worker.Consume(ctx, event)
+			must(e)
+			if status == "human_required" {
+				queryTask, queryEntity = event.AggregateID, draft.ID
+				must(root.Model(&entity.ModerationTask{}).Select("content_id").Where("id=?", queryTask).Scan(&queryContent).Error)
+			} else {
+				detail, e := service.Case(ctx, adminToken, "query-fixture", event.AggregateID)
+				must(e)
+				_, e = service.Decide(ctx, adminToken, uuid.NewString(), "query-fixture", event.AggregateID, moderation.Decision{ExpectedVersion: detail.Version, Decision: status, Reason: "合成原因", RevisionSuggestion: "合成建议"})
+				must(e)
+			}
+		}
+		defaults, e := service.QueryCases(ctx, adminToken, "query-default", moderation.CaseQuery{Limit: 100})
+		must(e)
+		if len(defaults.Items) == 0 {
+			t.Fatal("默认待审队列为空")
+		}
+		for _, item := range defaults.Items {
+			if item.Status != "human_required" {
+				t.Fatal("默认混入已处理案件")
+			}
+		}
+		for _, id := range []string{queryTask, queryContent, queryEntity} {
+			page, e := service.QueryCases(ctx, adminToken, "query-id", moderation.CaseQuery{Q: strings.ToUpper(id), Kind: "wish"})
+			must(e)
+			if len(page.Items) != 1 || page.Items[0].ID != queryTask {
+				t.Fatalf("编号搜索错误：%s %+v", id, page)
+			}
+		}
+		page, e := service.QueryCases(ctx, adminToken, "query-body", moderation.CaseQuery{Q: "查询筛选合成"})
+		must(e)
+		if len(page.Items) != 0 {
+			t.Fatal("元数据搜索意外解密正文")
+		}
+		seen := map[string]bool{}
+		cursor := ""
+		processedSeen := false
+		for i := 0; i < 200; i++ {
+			page, e := service.QueryCases(ctx, adminToken, "query-all", moderation.CaseQuery{Status: "all", Cursor: cursor, Limit: 1})
+			must(e)
+			for _, item := range page.Items {
+				if seen[item.ID] {
+					t.Fatal("稳定分页重复案件")
+				}
+				seen[item.ID] = true
+				if item.Status == "human_required" && processedSeen {
+					t.Fatal("需审核案件排在已处理案件之后")
+				}
+				processedSeen = processedSeen || item.Status != "human_required"
+			}
+			if page.NextCursor == nil {
+				break
+			}
+			cursor = *page.NextCursor
+			_, e = service.QueryCases(ctx, adminToken, "cross-filter", moderation.CaseQuery{Status: "approved", Cursor: cursor, Limit: 1})
+			if e != command.ErrInvalid {
+				t.Fatal("游标允许跨筛选复用", e)
+			}
+			if i == 199 {
+				t.Fatal("分页未收敛")
+			}
+		}
+		if !processedSeen || !seen[queryTask] {
+			t.Fatal("全部筛选漏掉待审或已处理案件")
+		}
+		var crisisID string
+		must(root.Model(&entity.ModerationScan{}).Select("task_id").Where("crisis_hit").Limit(1).Scan(&crisisID).Error)
+		if crisisID == "" {
+			t.Fatal("缺少危机隔离夹具")
+		}
+		page, e = service.QueryCases(ctx, adminToken, "query-crisis", moderation.CaseQuery{Q: crisisID, Status: "all"})
+		must(e)
+		if len(page.Items) != 0 {
+			t.Fatal("编号搜索绕过危机隔离")
+		}
+		_, e = service.QueryCases(ctx, studentToken, "query-student", moderation.CaseQuery{Status: "all"})
+		if e != command.ErrForbidden && e != command.ErrUnauthenticated {
+			t.Fatal("学生可搜索审核队列", e)
+		}
+	})
+
 	for _, entry := range logs.All() {
 		if strings.Contains(entry.Message, "SYNTHETIC_PROVIDER_SECRET") || strings.Contains(entry.Message, "合成个人姓名") {
 			t.Fatal("敏感数据进入日志")

@@ -27,6 +27,7 @@ type ModerationService interface {
 	PreviewWordlist(context.Context, string, string, string, string) (moderation.WordlistPreview, error)
 	RestoreWordlist(context.Context, string, string, string, string, moderation.WordlistRestore) (moderation.Wordlist, error)
 	Cases(context.Context, string, string, string, int) (moderation.Page, error)
+	QueryCases(context.Context, string, string, moderation.CaseQuery) (moderation.Page, error)
 	Case(context.Context, string, string, string) (moderation.Case, error)
 	Decide(context.Context, string, string, string, string, moderation.Decision) (moderation.Outcome, error)
 }
@@ -166,11 +167,11 @@ func RegisterModeration(r *gin.Engine, s ModerationService) error {
 		if !ok {
 			return
 		}
-		cursor, limit, ok := moderationPage(c)
+		query, ok := moderationCasesQuery(c)
 		if !ok {
 			return
 		}
-		out, e := s.Cases(c.Request.Context(), token, c.GetString("request_id"), cursor, limit)
+		out, e := s.QueryCases(c.Request.Context(), token, c.GetString("request_id"), query)
 		if e != nil {
 			adminError(c, e)
 			return

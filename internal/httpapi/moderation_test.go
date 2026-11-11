@@ -141,3 +141,31 @@ func TestModerationHTTPBoundary(t *testing.T) {
 		t.Fatal("协议失败仍调用业务写入")
 	}
 }
+
+func (s *moderationStub) QueryCases(_ context.Context, _, _ string, input moderation.CaseQuery) (moderation.Page, error) {
+	return moderation.Page{Items: []moderation.Summary{{ID: input.Q, Status: input.Status, Kind: input.Kind}}}, nil
+}
+
+// TestModerationCasesQueryHTTP 验证新筛选严格解析、原接口路径与默认分页。
+func TestModerationCasesQueryHTTP(t *testing.T) {
+	router := New(zap.NewNop(), nil)
+	if err := RegisterModeration(router, &moderationStub{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query  string
+		status int
+	}{
+		{"?q=abc&status=all&kind=wish&limit=1", 200},
+		{"", 200}, {"?q=a&q=b", 400}, {"?status=all&status=approved", 400}, {"?unknown=x", 400},
+		{"?limit=0", 400}, {"?limit=101", 400}, {"?cursor=", 400}, {"?q=%GG", 400},
+	} {
+		req := httptest.NewRequest("GET", "/api/v1/admin/moderation-tasks"+tc.query, nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Fatalf("%s: %d %s", tc.query, rec.Code, rec.Body.String())
+		}
+	}
+}

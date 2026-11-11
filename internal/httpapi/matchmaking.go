@@ -175,6 +175,12 @@ func RegisterMatchmaking(r *gin.Engine, s MatchmakingAPI) error {
 			adminResult(c, 200, out)
 		})
 	}
+	if auto, ok := s.(MatchmakingAutoAPI); ok {
+		registerMatchmakingAuto(r, auto)
+	}
+	if traits, ok := s.(MatchmakingTraitsAPI); ok {
+		registerMatchmakingTraits(r, traits)
+	}
 	return nil
 }
 

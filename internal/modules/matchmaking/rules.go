@@ -72,7 +72,10 @@ func Score(a, b Profile) (int, ScoreDetails) {
 	if in(a.Weight, b.WeightMin, b.WeightMax) && in(b.Weight, a.WeightMin, a.WeightMax) {
 		d.Weight = 10
 	}
-	return int(d.MBTI + d.Age + d.Campus + d.Height + d.Weight), d
+	d.PersonalToIdeal = traitIntersection(a.PersonalTraits, b.IdealTraits)
+	d.IdealToPersonal = traitIntersection(a.IdealTraits, b.PersonalTraits)
+	d.Traits = 5 * (len(d.PersonalToIdeal) + len(d.IdealToPersonal))
+	return int(d.MBTI+d.Age+d.Campus+d.Height+d.Weight) + d.Traits, d
 }
 
 // unlockAt 首日从活动开始时刻解锁，后续日期使用北京时间自然日零点。
@@ -149,4 +152,16 @@ func assignTasks(a entity.MatchmakingActivity, pair string, templates []Template
 		out = append(out, entity.MatchmakingTask{ID: uuid.NewString(), PairID: pair, DayIndex: day, Kind: v.Kind, Body: v.Body, UnlocksAt: unlockAt(a.StartsAt, day)})
 	}
 	return out, nil
+}
+
+// traitIntersection 以规范化后的报名快照去重计算命中，不依赖当前个人资料。
+func traitIntersection(a, b []string) []string {
+	out := []string{}
+	for _, name := range a {
+		if slices.Contains(b, name) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

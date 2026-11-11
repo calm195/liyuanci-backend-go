@@ -601,3 +601,19 @@ GRANT SELECT,INSERT,UPDATE ON public.matchmaking_task_library TO liyuanci_admin_
 ALTER TABLE public.matchmaking_profiles OWNER TO liyuanci_migrator;
 REVOKE ALL ON public.matchmaking_profiles FROM PUBLIC;
 GRANT SELECT,INSERT,UPDATE ON public.matchmaking_profiles TO liyuanci_api;
+
+-- 理想型特质的隔离测试权限与生产单账号结构分开维护。
+ALTER TABLE public.matchmaking_traits OWNER TO liyuanci_migrator;
+ALTER TABLE public.matchmaking_trait_selections OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.matchmaking_traits, public.matchmaking_trait_selections FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.matchmaking_traits TO liyuanci_api, liyuanci_admin_api;
+GRANT SELECT, INSERT, DELETE ON public.matchmaking_trait_selections TO liyuanci_api;
+GRANT SELECT ON public.matchmaking_trait_selections TO liyuanci_admin_api;
+GRANT SELECT, DELETE ON public.matchmaking_trait_selections TO liyuanci_privacy_maintenance;
+
+-- 批量账号锁复用原guard函数和同一授权角色，不扩大账号字段读取范围。
+ALTER FUNCTION public.lock_command_accounts(uuid[]) OWNER TO liyuanci_migrator;
+GRANT EXECUTE ON FUNCTION public.lock_command_accounts(uuid[]) TO liyuanci_api,liyuanci_admin_api,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_identity_maintenance,liyuanci_crisis_api;
+ALTER TABLE public.matchmaking_auto_jobs OWNER TO liyuanci_migrator;
+GRANT SELECT,INSERT,UPDATE ON public.matchmaking_auto_jobs TO liyuanci_admin_api,liyuanci_domain_worker;
+GRANT SELECT,UPDATE,DELETE ON public.matchmaking_auto_jobs TO liyuanci_privacy_maintenance;

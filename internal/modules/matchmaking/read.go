@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -156,6 +156,8 @@ func (s *Service) projectEnrollment(ctx context.Context, db *gorm.DB, row entity
 
 func (s *Service) projectPair(ctx context.Context, db *gorm.DB, p entity.MatchmakingPair, now time.Time, admin bool) (Pair, error) {
 	out := Pair{ID: p.ID, Version: p.Version, Status: p.Status, Score: p.Score, Algorithm: p.Algorithm, Reason: p.Reason}
+	out.ScoreDetails.PersonalToIdeal = []string{}
+	out.ScoreDetails.IdealToPersonal = []string{}
 	if err := json.Unmarshal(p.ScoreDetails, &out.ScoreDetails); err != nil {
 		return out, err
 	}
@@ -259,6 +261,10 @@ func (s *Service) Read(ctx context.Context, token, rid, id string) (out Detail, 
 		if e != nil {
 			return e
 		}
+		// 命中词包含对方资料，必须与对方资料本身遵守同一访问边界。
+		matchedPersonal, matchedIdeal := v.ScoreDetails.PersonalToIdeal, v.ScoreDetails.IdealToPersonal
+		v.ScoreDetails.PersonalToIdeal = []string{}
+		v.ScoreDetails.IdealToPersonal = []string{}
 		// 解除原因只显示通用提示，避免向对方泄露运营记录。
 		if p.Status == "ended" {
 			v.Reason = "配对已解除"
@@ -285,6 +291,8 @@ func (s *Service) Read(ctx context.Context, token, rid, id string) (out Detail, 
 			return nil
 		}
 		out.Pair.Accessible = true
+		out.Pair.ScoreDetails.PersonalToIdeal = matchedPersonal
+		out.Pair.ScoreDetails.IdealToPersonal = matchedIdeal
 		for _, m := range members {
 			if m.AccountID == r.ID {
 				continue
@@ -410,48 +418,21 @@ func (s *Service) Candidates(ctx context.Context, token, rid, id, enrollmentID s
 		if a.Status != "published" || !r.Now.Before(a.EndsAt) {
 			return command.ErrConflict
 		}
-		first, p, e := s.candidateProfile(ctx, db, id, enrollmentID, r.Now)
+
+		snapshot, e := s.pairingSnapshot(ctx, db, id, r.Now)
 		if e != nil {
 			return e
 		}
-		rows := []entity.MatchmakingEnrollment{}
-		if e = db.Where("activity_id=? AND status='approved' AND id<>?", id, enrollmentID).Find(&rows).Error; e != nil {
+		out, e = candidatesFromSnapshot(snapshot, enrollmentID)
+		if e != nil {
 			return e
 		}
-		for _, row := range rows {
-			v, e := s.projectEnrollment(ctx, db, row, r.Now)
-			if e != nil {
-				return e
-			}
-			if !v.Eligible || v.Profile == nil || p.Gender == v.Profile.Gender {
-				continue
-			}
-			no, e := blocked(db, first.AccountID, row.AccountID)
-			if e != nil {
-				return e
-			}
-			if no {
-				continue
-			}
-			score, details := Score(p, *v.Profile)
-			out = append(out, Candidate{Enrollment: v, Score: score, ScoreDetails: details})
+		audits := make([]entity.AccessAudit, 0, len(out)+1)
+		for _, subject := range append([]string{enrollmentID}, candidateIDs(out)...) {
+			audits = append(audits, entity.AccessAudit{ID: uuid.NewString(), ActorID: r.ID, SubjectRef: subject, Purpose: "matchmaking.candidates", At: r.Now, Outcome: "allowed"})
 		}
-		sort.Slice(out, func(i, j int) bool {
-			if out[i].Score == out[j].Score {
-				return out[i].Enrollment.ID < out[j].Enrollment.ID
-			}
-			return out[i].Score > out[j].Score
-		})
-		if len(out) > 50 {
-			out = out[:50]
-		}
-		if e = recordAccess(db, r.ID, first.ID, "matchmaking.candidates", r.Now); e != nil {
+		if e = db.Create(&audits).Error; e != nil {
 			return e
-		}
-		for _, candidate := range out {
-			if e = recordAccess(db, r.ID, candidate.Enrollment.ID, "matchmaking.candidates", r.Now); e != nil {
-				return e
-			}
 		}
 		return nil
 	})
@@ -487,4 +468,12 @@ func NotificationTarget(ctx context.Context, db *gorm.DB, row entity.Notificatio
 		return "", "", nil
 	}
 	return "matchmaking", id, nil
+}
+
+func candidateIDs(values []Candidate) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, v.Enrollment.ID)
+	}
+	return out
 }

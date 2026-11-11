@@ -35,6 +35,11 @@ func (s *Service) write(
 		}
 	}
 	definition.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
+		if review, ok := input.(traitReviewCommand); ok {
+			plan := command.Discovery{Resources: []command.Resource{{Kind: command.MatchmakingTrait, ID: review.ID}}}
+			err := db.WithContext(ctx).Model(&entity.MatchmakingTraitSelection{}).Where("trait_id=?", review.ID).Pluck("account_id", &plan.Accounts).Error
+			return plan, err
+		}
 		return discover(ctx, db, id)
 	}
 	var current entity.MatchmakingActivity
@@ -72,6 +77,10 @@ func (s *Service) write(
 			}
 		case "pair", "pair_end":
 			query = tx.DB().Model(&entity.MatchmakingPair{}).Where("id=? AND activity_id=?", ref, id)
+		case "auto_create", "auto_apply":
+			query = tx.DB().Model(&entity.MatchmakingAutoJob{}).Where("id=? AND activity_id=?", ref, id)
+		case "trait_review":
+			query = tx.DB().Model(&entity.MatchmakingTrait{}).Where("id=?", ref)
 		case "library_create", "library_save":
 			query = tx.DB().Model(&entity.MatchmakingLibraryTask{}).Where("id=?", ref)
 		case "task_open":
@@ -274,7 +283,7 @@ func (s *Service) Enroll(ctx context.Context, token, key, rid, id string, input 
 			if err = tx.DB().Model(&entity.MatchmakingEnrollment{}).Where("activity_id=?", id).Count(&total).Error; err != nil {
 				return "", err
 			}
-			if total >= 1000 {
+			if total >= 2000 {
 				return "", command.ErrConflict
 			}
 			row = entity.MatchmakingEnrollment{ID: uuid.NewString(), ActivityID: id, AccountID: tx.Actor().ID, CreatedAt: tx.Now()}

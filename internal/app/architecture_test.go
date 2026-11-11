@@ -91,7 +91,7 @@ var allowedInternalImports = map[string][]string{
 	"modules/moduleguide": {"entity", "execution/command"},
 	"modules/dictionary":  {"entity", "execution/command"},
 	// 包分配通过注入词库检查复用审核规则，资料仅以信封密文保存。
-	"modules/matchmaking": {"entity", "execution/command", "platform/securedata"},
+	"modules/matchmaking": {"entity", "execution/command", "execution/durable", "platform/securedata"},
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。

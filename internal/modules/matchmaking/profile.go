@@ -17,10 +17,11 @@ var campusCodes = []string{"wushan", "university_town", "international"}
 
 // AccountProfile 是本人可编辑的账号资料，Ready 表示资料已足以报名。
 type AccountProfile struct {
-	Version        int64    `json:"version"`
-	AccountVersion int64    `json:"account_version"`
-	Profile        *Profile `json:"profile,omitempty"`
-	Ready          bool     `json:"ready"`
+	Version         int64            `json:"version"`
+	AccountVersion  int64            `json:"account_version"`
+	Profile         *Profile         `json:"profile,omitempty"`
+	Ready           bool             `json:"ready"`
+	TraitSelections []TraitSelection `json:"trait_selections"`
 }
 
 // ProfileInput 使用乐观版本保护账号资料的并发保存。
@@ -42,7 +43,11 @@ func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error)
 	if err := db.Select("nickname", "identity_tags", "mbti", "version").Where("id=?", id).Take(&account).Error; err != nil {
 		return AccountProfile{}, err
 	}
-	result := AccountProfile{AccountVersion: account.Version}
+	selections, err := readTraitSelections(db, id)
+	if err != nil {
+		return AccountProfile{}, err
+	}
+	result := AccountProfile{AccountVersion: account.Version, TraitSelections: selections}
 	var row entity.MatchmakingProfile
 	if err := db.Where("account_id=?", id).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -80,6 +85,17 @@ func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error)
 	}
 	if profile.Campus == "any" {
 		profile.Campus = ""
+	}
+	profile.IdealTraits = []string{}
+	profile.PersonalTraits = []string{}
+	for _, selection := range selections {
+		if selection.Status == "approved" {
+			if selection.Purpose == "personal" {
+				profile.PersonalTraits = append(profile.PersonalTraits, selection.Name)
+			} else {
+				profile.IdealTraits = append(profile.IdealTraits, selection.Name)
+			}
+		}
 	}
 	profile.Consent = true
 	result.Ready = s.validateEnrollmentProfile(ctx, profile) == nil
@@ -122,6 +138,12 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 				return "", err
 			}
 		}
+		if err = s.saveTraitSelections(ctx, tx.DB(), id, p, tx.Now()); err != nil {
+			return "", err
+		}
+		// 当前选择以关系表为准，密文不重复保存待审核标签。
+		p.IdealTraits = nil
+		p.PersonalTraits = nil
 		row.AccountID = id
 		row.Version++
 		raw, err := json.Marshal(p)
@@ -147,6 +169,12 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 }
 
 func validAccountProfile(p Preferences) bool {
+	if _, err := normalizeTraits(p.PersonalTraits); err != nil {
+		return false
+	}
+	if _, err := normalizeTraits(p.IdealTraits); err != nil {
+		return false
+	}
 	if !optionalText(p.Introduction, 500) || !optionalText(p.Wechat, 64) {
 		return false
 	}

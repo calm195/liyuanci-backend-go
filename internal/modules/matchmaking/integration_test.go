@@ -99,9 +99,19 @@ func setup(t *testing.T) *fixture {
 	must(t, migration.Run(context.Background(), db, log, "up"))
 	codec, err := securedata.New(syntheticKeys{}, log)
 	must(t, err)
+	var traitCreationBarrier sync.WaitGroup
+	traitCreationBarrier.Add(2)
 	service, err := matchmaking.New(db, log, codec, matchmaking.Config{
 		Command: command.Config{Timeout: 10 * time.Second, LockTimeout: time.Second, ReceiptTTL: time.Hour, MaxAttempts: 3},
 		Grades:  func(context.Context) []string { return []string{"undergraduate_3"} },
+		ScanTrait: func(_ context.Context, _ *gorm.DB, value string) (bool, json.RawMessage, error) {
+			if value == "并发特质" {
+				traitCreationBarrier.Done()
+				traitCreationBarrier.Wait()
+			}
+			pending := strings.Contains(value, "待审")
+			return pending, json.RawMessage(`{"matches":[],"routes":[]}`), nil
+		},
 		CheckText: func(_ context.Context, _ *gorm.DB, value string) error {
 			if strings.Contains(value, "合成禁止词") {
 				return command.ErrReviewPending
@@ -441,8 +451,10 @@ func TestPostgresHTTP(t *testing.T) {
 	if len(originalTasks) != 6 || !reflect.DeepEqual(originalTasks, replayTasks) {
 		t.Fatal("发布重放修改任务标识、正文或解锁快照")
 	}
+	// 注入包含双向命中词的旧配对，验证词条与对方资料同受访问门禁约束。
+	must(t, f.db.Model(&entity.MatchmakingPair{}).Where("activity_id=?", id).Update("score_details", json.RawMessage(`{"mbti":30,"age":20,"campus":25,"height":15,"weight":10,"traits":10,"personal_to_ideal":["真诚"],"ideal_to_personal":["温柔"]}`)).Error)
 	prestart := f.detail(id, a)
-	if prestart.Pair == nil || prestart.Pair.Accessible || prestart.Pair.Peer != nil || len(prestart.Tasks) != 0 {
+	if prestart.Pair == nil || prestart.Pair.Accessible || prestart.Pair.Peer != nil || len(prestart.Pair.ScoreDetails.PersonalToIdeal)+len(prestart.Pair.ScoreDetails.IdealToPersonal) != 0 || len(prestart.Tasks) != 0 {
 		t.Fatal("活动开始前提前展示对方或任务")
 	}
 	f.template(id, items, 409)
@@ -450,7 +462,7 @@ func TestPostgresHTTP(t *testing.T) {
 	// 已生成任务时间属于不可变快照，测试通过显式夹具把首项置于当前可查看边界。
 	must(t, f.db.Model(&entity.MatchmakingTask{}).Where("day_index=1 AND pair_id IN (SELECT id FROM public.matchmaking_pairs WHERE activity_id=?)", id).Update("unlocks_at", now.Add(-time.Minute)).Error)
 	active := f.detail(id, a)
-	if active.Pair == nil || !active.Pair.Accessible || active.Pair.Peer == nil || len(active.Tasks) != 3 {
+	if active.Pair == nil || !active.Pair.Accessible || active.Pair.Peer == nil || len(active.Pair.ScoreDetails.PersonalToIdeal) != 1 || len(active.Pair.ScoreDetails.IdealToPersonal) != 1 || len(active.Tasks) != 3 {
 		t.Fatal("活动开始后未显示合法配对和任务")
 	}
 	if active.Tasks[0].Body != items[0].Body || !active.Tasks[0].CanOpen || active.Tasks[1].Body != "" || active.Tasks[1].Kind != "" || active.Tasks[1].CanOpen {
@@ -489,7 +501,7 @@ func TestPostgresHTTP(t *testing.T) {
 	assertHidden := func() {
 		t.Helper()
 		value := f.detail(id, a)
-		if value.Pair == nil || value.Pair.Accessible || value.Pair.Peer != nil || len(value.Tasks) != 0 {
+		if value.Pair == nil || value.Pair.Accessible || value.Pair.Peer != nil || len(value.Pair.ScoreDetails.PersonalToIdeal)+len(value.Pair.ScoreDetails.IdealToPersonal) != 0 || len(value.Tasks) != 0 {
 			t.Fatal("当前资格失效后仍泄露对方或任务")
 		}
 	}

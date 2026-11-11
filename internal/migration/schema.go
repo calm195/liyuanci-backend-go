@@ -132,5 +132,9 @@ func guardRollback(tx *gorm.DB) error {
 			}
 		}
 	}
+	// 空库检查已在排他锁内完成，恢复行安全设置供包含只读断言的版本回退执行。
+	if err := tx.Exec("SET LOCAL row_security = on").Error; err != nil {
+		return err
+	}
 	return nil
 }

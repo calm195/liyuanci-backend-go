@@ -22,6 +22,7 @@ type Config struct {
 	Command   command.Config
 	Grades    func(context.Context) []string
 	CheckText func(context.Context, *gorm.DB, string) error
+	ScanTrait func(context.Context, *gorm.DB, string) (bool, json.RawMessage, error)
 }
 
 // Service 借用数据库、命令引擎和加密器，不拥有其生命周期。
@@ -117,6 +118,12 @@ func (s *Service) decrypt(ctx context.Context, row entity.MatchmakingEnrollment)
 	}
 	defer clear(raw)
 	err = json.Unmarshal(raw, &out)
+	if out.PersonalTraits == nil {
+		out.PersonalTraits = []string{}
+	}
+	if out.IdealTraits == nil {
+		out.IdealTraits = []string{}
+	}
 	return out, err
 }
 

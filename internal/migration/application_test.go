@@ -77,6 +77,7 @@ func schemaSnapshot(t *testing.T, db *gorm.DB) []string {
 func TestPostgresApplicationMigrations(t *testing.T) {
 	t.Run("从0018升级并建立包分配题库冻结字段", func(t *testing.T) { verifyMatchmakingUpgrade(t, 18) })
 	t.Run("从0019升级并补建已发布配对会话", func(t *testing.T) { verifyMatchmakingUpgrade(t, 19) })
+	t.Run("从0025升级清理历史驳回标签", func(t *testing.T) { verifyMatchmakingUpgrade(t, 25) })
 	admin, db := applicationSchemaDB(t)
 	ctx, log := context.Background(), zap.NewNop()
 	// 超级用户会在最后权限步骤被拒绝，前面的DDL及账本必须一起消失。

@@ -28,7 +28,9 @@ SUITES = {
     'studentcard': ('./internal/modules/studentcard', ('TestPostgresStudentCards',)),
     'verification': ('./internal/modules/verification', ('TestPostgresVerification',)),
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
-    'matchmaking': ('./internal/modules/matchmaking', ('TestPostgresHTTP', 'TestPostgresHTTPTaskLibrary')),
+    'matchmaking_auto_concurrency': ('./internal/modules/matchmaking', ('TestPostgresAutoPairingConcurrentApply',)),
+    'matchmaking_privacy': ('./internal/modules/privacy', ('TestMatchmakingAutoPreviewErasedOnDeletion',)),
+    'matchmaking': ('./internal/modules/matchmaking', ('TestPostgresHTTP', 'TestPostgresHTTPTaskLibrary', 'TestPostgresHTTPTraits', 'TestPostgresHTTPAutoPairing')),
     'moderation': (
         './internal/modules/moderation',
         ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion', 'TestApplicationMatching',

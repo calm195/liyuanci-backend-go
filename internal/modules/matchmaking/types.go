@@ -46,17 +46,19 @@ type Profile struct {
 
 // Preferences 是单独维护并加密保存的活动专用资料。
 type Preferences struct {
-	Age          int    `json:"age"`
-	AgeMin       int    `json:"age_min"`
-	AgeMax       int    `json:"age_max"`
-	Height       int    `json:"height"`
-	HeightMin    int    `json:"height_min"`
-	HeightMax    int    `json:"height_max"`
-	Weight       int    `json:"weight"`
-	WeightMin    int    `json:"weight_min"`
-	WeightMax    int    `json:"weight_max"`
-	Wechat       string `json:"wechat"`
-	Introduction string `json:"introduction"`
+	PersonalTraits []string `json:"personal_traits"`
+	IdealTraits    []string `json:"ideal_traits"`
+	Age            int      `json:"age"`
+	AgeMin         int      `json:"age_min"`
+	AgeMax         int      `json:"age_max"`
+	Height         int      `json:"height"`
+	HeightMin      int      `json:"height_min"`
+	HeightMax      int      `json:"height_max"`
+	Weight         int      `json:"weight"`
+	WeightMin      int      `json:"weight_min"`
+	WeightMax      int      `json:"weight_max"`
+	Wechat         string   `json:"wechat"`
+	Introduction   string   `json:"introduction"`
 }
 
 // EnrollmentInput 新报名版本为零，修改必须绑定当前报名版本。
@@ -113,11 +115,14 @@ type PairInput struct {
 
 // ScoreDetails 明确每项推荐分数，分数不代表关系保证。
 type ScoreDetails struct {
-	MBTI   float64 `json:"mbti"`
-	Age    float64 `json:"age"`
-	Campus float64 `json:"campus"`
-	Height float64 `json:"height"`
-	Weight float64 `json:"weight"`
+	PersonalToIdeal []string `json:"personal_to_ideal"`
+	IdealToPersonal []string `json:"ideal_to_personal"`
+	Traits          int      `json:"traits"`
+	MBTI            float64  `json:"mbti"`
+	Age             float64  `json:"age"`
+	Campus          float64  `json:"campus"`
+	Height          float64  `json:"height"`
+	Weight          float64  `json:"weight"`
 }
 
 // Pair 对学生只投影有效关系中的对方资料，后台可读取报名引用。

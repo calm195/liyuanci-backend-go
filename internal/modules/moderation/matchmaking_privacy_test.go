@@ -35,6 +35,12 @@ func verifyMatchmakingPrivacy(t *testing.T, root *gorm.DB, service *privacy.Serv
 	now := time.Now()
 	activityID, pairID, taskID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	conversationID := uuid.NewString()
+	trait := entity.MatchmakingTrait{ID: uuid.NewString(), Name: "合成隐私特质", Status: "approved", Version: 1, Evidence: json.RawMessage(`{"matches":[],"routes":[]}`), CreatedAt: now}
+	must(root.Create(&trait).Error)
+	ownerTrait := entity.MatchmakingTraitSelection{AccountID: owner, TraitID: trait.ID, CreatedAt: now}
+	peerTrait := entity.MatchmakingTraitSelection{AccountID: peer, TraitID: trait.ID, CreatedAt: now}
+	must(root.Create(&ownerTrait).Error)
+	must(root.Create(&peerTrait).Error)
 	activity := entity.MatchmakingActivity{ID: activityID, Version: 1, Title: "合成活动", Description: "合成活动说明", Status: "published", PublishedAt: &now, TasksPublishedAt: &now, Campuses: json.RawMessage(`["wushan"]`), RegistrationOpensAt: now.Add(-4 * time.Hour), RegistrationClosesAt: now.Add(-3 * time.Hour), ResultsAt: now.Add(-2 * time.Hour), StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Days: 1, CreatedAt: now}
 	must(root.Create(&activity).Error)
 	enrollments := []entity.MatchmakingEnrollment{}
@@ -109,6 +115,11 @@ func verifyMatchmakingPrivacy(t *testing.T, root *gorm.DB, service *privacy.Serv
 	must(root.Where("id=?", owner).Take(&account).Error)
 	accepted, err := service.Request(ctx, token, uuid.NewString(), "matchmaking-delete", privacy.DeletionInput{Confirmation: "delete_account", ExpectedVersion: 1})
 	must(err)
+	traitStats, err := matchmakingService.ReadTraits(ctx, adminToken, "privacy-traits", matchmaking.TraitQuery{Q: "合成隐私特质"})
+	must(err)
+	if len(traitStats.Items) != 1 || traitStats.Items[0].Heat != 1 {
+		t.Fatal("注销受理未立即退出特质热度")
+	}
 	var activated entity.MatchmakingActivity
 	must(root.Where("id=?", activityID).Take(&activated).Error)
 	if activated.Version != activity.Version+1 {
@@ -157,6 +168,7 @@ func verifyMatchmakingPrivacy(t *testing.T, root *gorm.DB, service *privacy.Serv
 			where string
 			arg   any
 		}{
+			{&entity.MatchmakingTraitSelection{}, "account_id=?", owner},
 			{&entity.MatchmakingPair{}, "id=?", pairID}, {&entity.MatchmakingMember{}, "pair_id=?", pairID},
 			{&entity.Conversation{}, "id=?", conversationID}, {&entity.Message{}, "id=?", sent.MessageID},
 			{&entity.ContentRegistry{}, "entity_id=?", sent.MessageID},
@@ -172,6 +184,10 @@ func verifyMatchmakingPrivacy(t *testing.T, root *gorm.DB, service *privacy.Serv
 			}
 		}
 		var n int64
+		must(root.Model(&entity.MatchmakingTraitSelection{}).Where("account_id=? AND trait_id=?", peer, trait.ID).Count(&n).Error)
+		if n != 1 {
+			t.Fatal("幸存用户特质选用被删除")
+		}
 		must(root.Model(&entity.MatchmakingEnrollment{}).Where("id=? AND status='approved'", enrollments[1].ID).Count(&n).Error)
 		if n != 1 {
 			t.Fatal("幸存报名被删除")
@@ -206,7 +222,7 @@ func verifyMatchmakingPrivacy(t *testing.T, root *gorm.DB, service *privacy.Serv
 		t.Fatal("包分配删除回执未完成")
 	}
 	// 模拟恢复已确认删除前的同事务数据，包含幸存方查看和管理员回执。
-	for _, v := range []any{&account, &enrollments[0], &pair, &members, &conversation, &task, &opens, &audit, &access, &notice, &receipts} {
+	for _, v := range []any{&account, &ownerTrait, &enrollments[0], &pair, &members, &conversation, &task, &opens, &audit, &access, &notice, &receipts} {
 		must(root.Create(v).Error)
 	}
 	_, err = service.Recover(ctx, "", 100, "account")

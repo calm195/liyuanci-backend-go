@@ -73,7 +73,7 @@ func (s *Service) SetPair(ctx context.Context, token, key, rid, id string, input
 		if err != nil {
 			return "", err
 		}
-		pair := entity.MatchmakingPair{ID: uuid.NewString(), ActivityID: id, Version: 1, Status: "draft", Score: score, ScoreDetails: raw, Algorithm: "legacy-fixed-v1", CreatedAt: tx.Now()}
+		pair := entity.MatchmakingPair{ID: uuid.NewString(), ActivityID: id, Version: 1, Status: "draft", Score: score, ScoreDetails: raw, Algorithm: "traits-bidirectional-v1", CreatedAt: tx.Now()}
 		if err = tx.DB().Create(&pair).Error; err != nil {
 			return "", err
 		}
