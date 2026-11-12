@@ -1,6 +1,6 @@
-# 鲤愿池 Go 后端
+# 鲤源池 Go 后端
 
-面向校园用户的心愿互助、匿名交流与资料服务。API 与后台任务独立运行，PostgreSQL 保存业务权威数据及持久任务，Redis 提供共享限流和公开候选缓存。工程使用 Go 1.25+
+面向校园用户的心愿互助、匿名交流与资料服务。API 与后台任务独立运行，PostgreSQL 保存业务权威数据及持久任务，Redis 提供共享限流和公开候选缓存。工程使用 Go 1.27.4+
 
 开发入门与工程约定见 [开发者指南](DEVELOPER_GUIDE.md)，配置字段见 [配置说明](CONFIGURATION.md)，详细业务状态见 [功能链路](FUNCTIONALITY.md)，实际验证与交付边界见 [后端现状](../docs/development/backend/README.md)。
 
@@ -35,7 +35,7 @@ FUNCTIONALITY.md              # 业务链路、状态与权限规则
 
 ### 本地业务环境
 
-安装 Go 1.25+、Python 3，以及已启动的原生 PostgreSQL、Redis。数据库管理员须先创建专用业务库和拥有本库对象的普通应用账号，禁止超级用户、BYPASSRLS 或集群管理权限。
+安装 Go 1.27.4+、Python 3，以及已启动的原生 PostgreSQL、Redis。数据库管理员须先创建专用业务库和拥有本库对象的普通应用账号，禁止超级用户、BYPASSRLS 或集群管理权限。
 
 ```sh
 python3 -m pip install --target .local/tools/python -r scripts/requirements.txt
@@ -99,6 +99,8 @@ API 启动后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 ```sh
 make fmt
 make check
+make lint       # 锁定版本的 Staticcheck
+make vuln       # Go 官方可达漏洞检查
 make build
 python3 -m unittest discover -s scripts -p 'test_*.py'
 make integration
@@ -106,7 +108,7 @@ make integration
 make integration INTEGRATION_SUITE=whisper_text
 ```
 
-`make check` 不注入数据库配置，会跳过需要外部依赖的用例。`make integration` 创建并清理本轮临时原生PostgreSQL/Redis，按 `scripts/integration.py` 的专项清单验证必需顶层用例，要求每个用例实际执行且通过；不使用现有开发库。完整清单覆盖账号、身份、命令锁、持久任务、心愿/匹配/聊天/故事、树洞/胶囊、治理、资料、包分配、迁移和运行入口。本轮包分配迁移实际运行了 `matchmaking`、`moderation`、`migration`、`runtime` 四个受影响专项，未将完整清单视为本轮全部重测。供应商与微信身份仍使用合成适配，不等同真实外部服务或真机验收。
+`make check` 不注入数据库配置，会跳过需要外部依赖的用例。`make integration` 创建并清理本轮临时原生PostgreSQL/Redis，按 `scripts/integration.py` 的专项清单验证必需顶层用例，要求每个用例实际执行且通过；不使用现有开发库。完整清单覆盖账号、身份、命令锁、持久任务、心愿/匹配/聊天/故事、树洞/胶囊、治理、资料、包分配、迁移和运行入口。本轮全仓审核运行全部23组专项、48个必需顶层用例，详情见[审核记录](../docs/reviews/full-code-review-2026-11-13.md)。供应商与微信身份仍使用合成适配，不等同真实外部服务或真机验收。
 
 ## 展示字典与举报类型
 

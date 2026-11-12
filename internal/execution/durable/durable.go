@@ -49,15 +49,19 @@ type Event struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// 固定协议表达式只编译一次，避免每个工作条目及路由字段重复分配。
+var (
+	identifierPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	routePattern      = regexp.MustCompile(`^[a-z][a-z0-9_.]{0,63}$`)
+)
+
 func validID(s string) bool {
-	ok, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, s)
-	return ok
+	return identifierPattern.MatchString(s)
 }
 
 func validRoute(r Route) bool {
 	for _, value := range []string{r.Kind, r.TargetKind, r.EventType} {
-		ok, _ := regexp.MatchString(`^[a-z][a-z0-9_.]{0,63}$`, value)
-		if !ok {
+		if !routePattern.MatchString(value) {
 			return false
 		}
 	}

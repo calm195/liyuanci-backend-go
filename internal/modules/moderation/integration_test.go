@@ -93,29 +93,6 @@ func (a *analyzer) set(failure bool, hook func()) {
 	a.hook = hook
 }
 
-type handler struct {
-	worker *moderation.Worker
-	seen   chan durable.Consumption
-	mu     sync.Mutex
-	failed bool
-}
-
-func (h *handler) Consume(ctx context.Context, event durable.Event) (durable.Consumption, error) {
-	out, e := h.worker.Consume(ctx, event)
-	select {
-	case h.seen <- out:
-	case <-ctx.Done():
-		return durable.Consumption{}, durable.ErrTemporary
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if e == nil && out.Applied && !h.failed {
-		h.failed = true
-		return durable.Consumption{}, durable.ErrTemporary
-	}
-	return out, e
-}
-
 // TestModerationCore 验证 T016/REQ-008、015、017、018、019 的真实PG核心，外部文本分析明确合成。
 func TestModerationCore(t *testing.T) {
 	dsn := testconfig.Value("moderation_test_dsn")

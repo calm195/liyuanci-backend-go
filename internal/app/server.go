@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -25,7 +24,7 @@ type ServerOptions struct {
 // RunServer 装配并运行HTTP宿主；离线检查不打开任何外部依赖。
 // ctx由入口的信号控制，取消后先等待请求结束，再逆序释放业务池、供应商和共享客户端。
 // 本函数不迁移数据库、不初始化账号，也不替换历史密钥或删除意图。
-func RunServer(ctx context.Context, options ServerOptions) error {
+func RunServer(ctx context.Context, options ServerOptions) (err error) {
 	if options.Check && options.CheckConfig {
 		return errors.New("检查模式不能同时指定")
 	}
@@ -43,6 +42,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 	// Sync 在资源清理后执行，确保最后的生命周期日志也被刷新。
 	// 无缓冲的标准输出可能不支持 fsync，此时没有待刷新的缓冲日志。
 	defer func() { _ = log.Sync() }()
+	defer finish(log, "server_run", time.Now(), &err)
 	// 先完成各运行模式的配置投影与校验，离线诊断到此阶段不访问外部依赖。
 	var businessSettings *config.Business
 	if cfg.Mode == "business" {
@@ -93,13 +93,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		zap.Bool("database_enabled", resources.DB != nil),
 		zap.Bool("redis_enabled", resources.Redis != nil),
 	)
-	defer func() {
-		if err := resources.Close(); err != nil {
-			log.Error("资源清理失败")
-			return
-		}
-		log.Info("资源清理完成")
-	}()
+	defer closeServerResource(log, "shared_resources_close", resources.Close, &err)
 	var whisperAPI *WhisperAPI
 	var businessAPI *BusinessAPI
 	var publicContent *PublicContentOptions
@@ -123,7 +117,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 			return errors.New("完整业务依赖装配失败")
 		}
 		businessAPI = app
-		defer func() { _ = app.Close() }()
+		defer closeServerResource(log, "business_api_close", app.Close, &err)
 		router = app.Router
 		publicContent = app.publicContent
 	}
@@ -152,7 +146,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 			log.Error("开发业务装配失败，请显式初始化数据库和凭据")
 			return errors.New("开发业务装配失败")
 		}
-		defer func() { _ = closeBusiness() }()
+		defer closeServerResource(log, "development_api_close", closeBusiness, &err)
 		router = businessRouter
 	}
 	if whisperSettings != nil {
@@ -162,7 +156,7 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		if e != nil {
 			return errors.New("树洞依赖装配失败")
 		}
-		defer func() { _ = app.Close() }()
+		defer closeServerResource(log, "whisper_api_close", app.Close, &err)
 		whisperAPI = app
 		publicContent.AttachWhispers(app)
 		if cfg.Mode == "whispers" {
@@ -215,40 +209,4 @@ func RunServer(ctx context.Context, options ServerOptions) error {
 		IdleTimeout:       60 * time.Second,
 	}
 	return serveHTTP(ctx, server, cfg.Server.ShutdownTimeout, log)
-}
-
-// serveHTTP 绑定成功后才报告启动，收到取消后先排空请求再允许宿主释放业务依赖。
-func serveHTTP(ctx context.Context, server *http.Server, shutdownTimeout time.Duration, log *zap.Logger) error {
-	// 先绑定监听地址再记录启动成功，避免地址冲突时误报就绪。
-	listener, err := net.Listen("tcp", server.Addr)
-	if err != nil {
-		log.Error("服务启动失败", zap.Error(err))
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
-	log.Info("服务启动完成", zap.String("address", listener.Addr().String()))
-	// 存活心跳独立于业务ready，停止函数等待日志协程退出。
-	stopHeartbeat := platform.StartHeartbeat(ctx, log, "api")
-	defer stopHeartbeat()
-	select {
-	case err := <-done:
-		if !errors.Is(err, http.ErrServerClosed) {
-			log.Error("服务运行失败", zap.Error(err))
-			return err
-		}
-		return nil
-	case <-ctx.Done():
-	}
-	// 先等待 HTTP 请求结束，再由延迟清理逻辑关闭共享客户端。
-	log.Info("开始关闭服务")
-	shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := server.Shutdown(shutdown); err != nil {
-		_ = server.Close()
-		log.Error("服务关闭失败", zap.Error(err))
-		return err
-	}
-	log.Info("服务关闭完成")
-	return nil
 }

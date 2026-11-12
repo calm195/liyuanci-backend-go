@@ -8,7 +8,7 @@
 
 ### 先理解项目在做什么
 
-鲤愿池面向校园用户，核心是通过认证的学生发布心愿、其他学生应愿、双方匹配沟通并完成还愿；同时提供匿名树洞、本人时空胶囊、资料广场，以及后台认证、审核和安全治理。
+鲤源池面向校园用户，核心是通过认证的学生发布心愿、其他学生应愿、双方匹配沟通并完成还愿；同时提供匿名树洞、本人时空胶囊、资料广场，以及后台认证、审核和安全治理。
 
 | 业务 | 正常流程 | 开发时必须保留的规则 |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ flowchart TD
 
 ### 跑通第一个开发环境
 
-先安装 Go 1.25+ 和 Python 3；业务运行还需要已启动的原生 PostgreSQL、Redis，以及管理员创建的专用业务库和普通应用账号。应用账号拥有本库对象，但不能有超级用户、BYPASSRLS 或集群管理权限。第一次准备按下面顺序操作，已有环境从配置核对开始，不重复生成配置或初始化数据。
+先安装 Go 1.27.4+ 和 Python 3；业务运行还需要已启动的原生 PostgreSQL、Redis，以及管理员创建的专用业务库和普通应用账号。应用账号拥有本库对象，但不能有超级用户、BYPASSRLS 或集群管理权限。第一次准备按下面顺序操作，已有环境从配置核对开始，不重复生成配置或初始化数据。
 
 ```sh
 python3 -m pip install --target .local/tools/python -r scripts/requirements.txt
@@ -149,7 +149,7 @@ configs/
 
 ## 2. 本地准备
 
-安装 Go 1.25+、Python 3、PostgreSQL 和 Redis。在仓库目录执行：
+安装 Go 1.27.4+、Python 3、PostgreSQL 和 Redis。在仓库目录执行：
 
 ```sh
 python3 -m pip install --target .local/tools/python -r scripts/requirements.txt

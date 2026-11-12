@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -691,7 +690,7 @@ func TestCrisisCare(t *testing.T) {
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, req)
 			if rr.Code != tc.status {
-				t.Fatal(fmt.Sprintf("%s: %d %s", tc.path, rr.Code, rr.Body.String()))
+				t.Fatalf("%s: %d %s", tc.path, rr.Code, rr.Body.String())
 			}
 			if rr.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("敏感响应可缓存")

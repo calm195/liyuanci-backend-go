@@ -14,6 +14,8 @@ jobs:
       - run: python3 -m pip install --target .local/tools/python -r scripts/requirements.txt
       - run: go mod download
       - run: make check
+      - run: make lint
+      - run: make vuln
       - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - run: sudo apt-get update && sudo apt-get install -y postgresql redis-server
       - run: make integration

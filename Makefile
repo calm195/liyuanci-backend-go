@@ -3,7 +3,7 @@ KIND ?= content
 ENVIRONMENT ?= development
 PACKAGES ?= ./...
 INTEGRATION_SUITE ?= all
-.PHONY: run build test fmt fmt-check vet check check-fast tidy configure check-config doctor migrate init worker wordlists integration
+.PHONY: run build test fmt fmt-check vet check check-fast lint vuln tidy configure check-config doctor migrate init worker wordlists integration
 run:
 	python3 scripts/manage.py run --config $(CONFIG)
 configure:
@@ -31,6 +31,10 @@ fmt-check:
 vet:
 	go vet ./...
 check: fmt-check vet test
+lint:
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 check-fast: fmt-check
 	go test $(PACKAGES)
 tidy:

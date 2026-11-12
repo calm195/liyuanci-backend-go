@@ -302,7 +302,7 @@ func TestPostgresHTTP(t *testing.T) {
 	call("GET", "/resources/"+id, ut, "", nil, 404)
 	call("GET", "/admin/resources", at, "", nil, 200)
 	call("GET", "/admin/resources/"+id, at, "", nil, 200)
-	res = call("POST", "/admin/resources/"+id+"/publish", at, "pub1", map[string]any{"expected_version": 1}, 200).Data
+	call("POST", "/admin/resources/"+id+"/publish", at, "pub1", map[string]any{"expected_version": 1}, 200)
 	replay := call("POST", "/admin/resources", at, "r1", input, 201).Data
 	if replay["id"] != id || replay["status"] != "published" {
 		t.Fatal("创建重放应返回当前状态")
