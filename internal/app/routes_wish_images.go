@@ -24,7 +24,7 @@ func (s *serviceSet) registerWishImages(router *gin.Engine) error {
 		if e != nil {
 			return e
 		}
-		httpapi.RegisterAdminWishImages(router, func(ctx context.Context, token, rid, caseID, wishID, imageID string) ([]byte, error) {
+		httpapi.RegisterAdminWishImages(router, func(ctx context.Context, token, rid, caseID, wishID, imageID, variant string) ([]byte, error) {
 			if (caseID == "") == (wishID == "") {
 				return nil, command.ErrInvalid
 			}
@@ -51,7 +51,7 @@ func (s *serviceSet) registerWishImages(router *gin.Engine) error {
 			if e := authorize(); e != nil {
 				return nil, e
 			}
-			data, e := s.wishes.ReadReviewedImage(ctx, imageID)
+			data, e := s.wishes.ReadReviewedImageVariant(ctx, imageID, variant)
 			if e != nil {
 				return nil, e
 			}

@@ -38,18 +38,20 @@ type CreatedDraft struct {
 
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
-	imageObjects   ImageObjects
-	imageScanner   ImageScanner
-	avatarReader   AvatarReader
-	imageSlots     chan struct{}
-	candidateCache contentquery.CandidateCache
-	shareCodes     ShareCodes
-	db             *gorm.DB
-	config         ServiceConfig
-	engine         *command.Engine
-	policy         *Policy
-	codec          *securedata.Codec
-	receiptKey     []byte
+	imageObjects     ImageObjects
+	imageScanner     ImageScanner
+	avatarReader     AvatarReader
+	imageSlots       chan struct{}
+	imageReads       *imageCache
+	imageRenderSlots chan struct{}
+	candidateCache   contentquery.CandidateCache
+	shareCodes       ShareCodes
+	db               *gorm.DB
+	config           ServiceConfig
+	engine           *command.Engine
+	policy           *Policy
+	codec            *securedata.Codec
+	receiptKey       []byte
 }
 
 // NewService 仅构造显式注入的心愿服务，不注册路由、不执行迁移。
@@ -66,13 +68,15 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades
 		return nil, err
 	}
 	return &Service{
-		imageSlots: make(chan struct{}, 2),
-		db:         db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
-		config:     cfg,
-		engine:     engine,
-		policy:     policy,
-		codec:      codec,
-		receiptKey: append([]byte(nil), cfg.ReceiptKey...),
+		imageSlots:       make(chan struct{}, 2),
+		imageReads:       newImageCache(),
+		imageRenderSlots: make(chan struct{}, 2),
+		db:               db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
+		config:           cfg,
+		engine:           engine,
+		policy:           policy,
+		codec:            codec,
+		receiptKey:       append([]byte(nil), cfg.ReceiptKey...),
 	}, nil
 }
 

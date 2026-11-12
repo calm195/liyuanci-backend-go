@@ -18,7 +18,7 @@ import (
 // WishImageAPI 以独立授权边界上传与读取心愿图片。
 type WishImageAPI interface {
 	UploadImage(context.Context, string, string, string, string, io.Reader) (wish.Image, error)
-	ReadImage(context.Context, string, string, string, string) ([]byte, error)
+	ReadImageVariant(context.Context, string, string, string, string, string) ([]byte, error)
 }
 
 // WishIdentityCapability 将新客户端能力传入领域投影，旧客户端不获得半匿名作者结构。
@@ -91,19 +91,19 @@ func RegisterWishImages(r *gin.Engine, service WishImageAPI) error {
 		if !ok {
 			return
 		}
-		data, e := service.ReadImage(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"), c.Query("wish_id"))
+		data, e := service.ReadImageVariant(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"), c.Query("wish_id"), c.Query("variant"))
 		defer clear(data)
 		if e != nil {
 			adminError(c, e)
 			return
 		}
-		c.Data(http.StatusOK, "image/png", data)
+		c.Data(http.StatusOK, http.DetectContentType(data), data)
 	})
 	return nil
 }
 
 // RegisterAdminWishImages 由应用提供案件授权和图片读取协作，不允许对象ID单独授权。
-func RegisterAdminWishImages(r *gin.Engine, read func(context.Context, string, string, string, string, string) ([]byte, error)) {
+func RegisterAdminWishImages(r *gin.Engine, read func(context.Context, string, string, string, string, string, string) ([]byte, error)) {
 	r.GET("/api/v1/admin/wish-images/:id", func(c *gin.Context) {
 		c.Header("Cache-Control", "private, no-store")
 		c.Header("X-Content-Type-Options", "nosniff")
@@ -111,12 +111,12 @@ func RegisterAdminWishImages(r *gin.Engine, read func(context.Context, string, s
 		if !ok {
 			return
 		}
-		data, e := read(c.Request.Context(), token, c.GetString("request_id"), c.Query("case_id"), c.Query("wish_id"), c.Param("id"))
+		data, e := read(c.Request.Context(), token, c.GetString("request_id"), c.Query("case_id"), c.Query("wish_id"), c.Param("id"), c.Query("variant"))
 		defer clear(data)
 		if e != nil {
 			adminError(c, e)
 			return
 		}
-		c.Data(http.StatusOK, "image/png", data)
+		c.Data(http.StatusOK, http.DetectContentType(data), data)
 	})
 }

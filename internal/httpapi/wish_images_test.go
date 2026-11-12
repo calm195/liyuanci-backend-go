@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"image"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"math/rand"
@@ -19,15 +20,41 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
-type wishImageBudgetSpy struct{ size int }
+type wishImageBudgetSpy struct {
+	size    int
+	variant string
+	data    []byte
+}
 
 func (s *wishImageBudgetSpy) UploadImage(_ context.Context, _, _, _, _ string, r io.Reader) (wish.Image, error) {
 	data, e := io.ReadAll(r)
 	s.size = len(data)
 	return wish.Image{ID: uuid.NewString(), ScanState: "approved"}, e
 }
-func (*wishImageBudgetSpy) ReadImage(context.Context, string, string, string, string) ([]byte, error) {
+func (s *wishImageBudgetSpy) ReadImageVariant(_ context.Context, _, _, _, _, variant string) ([]byte, error) {
+	s.variant = variant
+	if s.data != nil {
+		return bytes.Clone(s.data), nil
+	}
 	return nil, command.ErrNotFound
+}
+
+// TestWishImageVariantResponse 验证新增规格透传、真实图片媒体类型及继续禁用客户端共享缓存。
+func TestWishImageVariantResponse(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 32, 32)), nil); err != nil {
+		t.Fatal(err)
+	}
+	s := &wishImageBudgetSpy{data: encoded.Bytes()}
+	router := New(zap.NewNop(), func(context.Context) error { return nil })
+	if err := RegisterWishImages(router, s); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/wish-images/test?variant=thumbnail", nil))
+	if response.Code != 200 || s.variant != "thumbnail" || response.Header().Get("Content-Type") != "image/jpeg" || response.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatal("展示图响应不符", response.Code, s.variant, response.Header())
+	}
 }
 
 // TestWishImageMultipartBudget 验证外层预算允许大于1MiB的合法PNG传到图片领域，超限仍拒绝。

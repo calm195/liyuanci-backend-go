@@ -76,7 +76,7 @@ func readAvatar(ctx context.Context, tx *command.Tx, id string) (row entity.Acco
 	return
 }
 
-func (s *Service) reserveAvatar(ctx context.Context, input command.Input, upload avatarUpload, size int64) (row entity.AccountAvatar, err error) {
+func (s *Service) reserveAvatar(ctx context.Context, input command.Input, upload avatarUpload, size int64, objectVersion string) (row entity.AccountAvatar, err error) {
 	// 持久预约先于COS上传。即使进程退出，独立清理进程也能找到可能存在的对象。
 	definition := avatarCommand("student.avatar.reserve", "POST", "/api/v1/me/avatar/reservation")
 	definition.Apply = func(ctx context.Context, tx *command.Tx) (string, error) {
@@ -89,7 +89,7 @@ func (s *Service) reserveAvatar(ctx context.Context, input command.Input, upload
 			ID:             id,
 			OwnerID:        &owner,
 			ObjectKey:      "avatars/" + id + ".png",
-			ObjectVersion:  upload.Digest,
+			ObjectVersion:  objectVersion,
 			ByteSize:       size,
 			RemovableAfter: tx.Now().Add(avatarReservationTTL),
 		}
@@ -159,7 +159,14 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 	digest := sha256.Sum256(data)
 	upload := avatarUpload{Version: expected, Digest: "sha256:" + hex.EncodeToString(digest[:])}
 	input := command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: upload}
-	row, err := s.reserveAvatar(ctx, input, upload, int64(len(data)))
+	// 回执摘要继续使用原规范化内容，使升级前的同键重试仍能识别同一次上传。
+	display, _, err := imageinput.Display(data, 256, true)
+	defer clear(display)
+	if err != nil {
+		return out, command.ErrInvalid
+	}
+	displayDigest := sha256.Sum256(display)
+	row, err := s.reserveAvatar(ctx, input, upload, int64(len(display)), "sha256:"+hex.EncodeToString(displayDigest[:]))
 	if err != nil {
 		return out, err
 	}
@@ -179,7 +186,12 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 	if !passed {
 		return out, command.ErrInvalid
 	}
-	version, err := s.config.AvatarObjects.PutAvatar(bounded, row.ObjectKey, data)
+	// 升级前尚未安装的预约可能已写入旧原图，继续使用该预约的原始字节完成幂等安装。
+	object := display
+	if row.ObjectVersion == upload.Digest {
+		object = data
+	}
+	version, err := s.config.AvatarObjects.PutAvatar(bounded, row.ObjectKey, object)
 	if err != nil || version != row.ObjectVersion {
 		return out, command.ErrUnavailable
 	}

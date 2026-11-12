@@ -24,8 +24,9 @@ import (
 )
 
 type wishImageMemory struct {
-	mu   sync.Mutex
-	data map[string][]byte
+	mu    sync.Mutex
+	data  map[string][]byte
+	opens int
 }
 
 func (m *wishImageMemory) PutOnce(_ context.Context, key string, data []byte) (string, error) {
@@ -41,6 +42,7 @@ func (m *wishImageMemory) PutOnce(_ context.Context, key string, data []byte) (s
 func (m *wishImageMemory) Open(_ context.Context, key, version string) (io.ReadCloser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.opens++
 	data, ok := m.data[key]
 	if !ok {
 		return nil, command.ErrNotFound
@@ -166,6 +168,19 @@ func TestPostgresWishImages(t *testing.T) {
 		t.Fatal("公开图片不可读", e)
 	}
 	clear(data)
+	for _, variant := range []string{"thumbnail", "preview", "thumbnail"} {
+		display, err := s.ReadImageVariant(ctx, "", "cached-display", ids[0], created.ID, variant)
+		if err != nil || len(display) == 0 {
+			t.Fatal("展示图读取失败", variant, err)
+		}
+		clear(display)
+	}
+	if objects.opens != 1 {
+		t.Fatal("同图原图和展示图重复回源", objects.opens)
+	}
+	if _, err := s.ReadImageVariant(ctx, "", "invalid-display", ids[0], created.ID, "unbounded"); !errors.Is(err, command.ErrInvalid) {
+		t.Fatal("未知展示规格被接受", err)
+	}
 	if _, e = s.ReadImage(WithIdentityCapability(ctx, false), "", "legacy-image", ids[0], created.ID); !errors.Is(e, command.ErrNotFound) {
 		t.Fatal("旧客户端通过图片旁路读取半匿名内容", e)
 	}
@@ -200,6 +215,11 @@ func TestPostgresWishImages(t *testing.T) {
 	if _, e = s.ReadImage(ctx, "", "withdrawn-image", ids[0], created.ID); !errors.Is(e, command.ErrNotFound) {
 		t.Fatal("下架图片仍公开", e)
 	}
+	for _, variant := range []string{"thumbnail", "preview"} {
+		if _, err := s.ReadImageVariant(ctx, "", "withdrawn-cached", ids[0], created.ID, variant); !errors.Is(err, command.ErrNotFound) {
+			t.Fatal("已缓存展示图绕过下架", variant, err)
+		}
+	}
 	updated, e := s.Detail(ctx, f.token, "updated", created.ID)
 	if e != nil || len(updated.Images) != 3 || updated.OwnContent.IdentityMode != "semi" {
 		t.Fatal("旧客户端改稿丢图片或匿名", e)
@@ -232,6 +252,9 @@ func TestPostgresWishImages(t *testing.T) {
  SELECT ?,id,'violation',? FROM public.content_registry WHERE kind='wish' AND entity_id=? AND content_version=?`, restriction, uuid.NewString(), created.ID, pending.ContentVersion)
 		if _, e = s.ReadImage(ctx, f.token, "restricted-preview", ids[0], ""); !errors.Is(e, command.ErrNotFound) {
 			t.Fatal("缓存上传URL绕过治理屏障", e)
+		}
+		if _, e = s.ReadImageVariant(ctx, f.token, "restricted-thumbnail", ids[0], "", "thumbnail"); !errors.Is(e, command.ErrNotFound) {
+			t.Fatal("缓存缩略图绕过治理屏障", e)
 		}
 		if _, e = s.ReadImage(ctx, f.token, "restricted-shared-source", ids[0], sharedSource.ID); !errors.Is(e, command.ErrNotFound) {
 			t.Fatal("复制引用绕过原来源治理屏障", e)

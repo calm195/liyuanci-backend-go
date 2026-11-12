@@ -22,6 +22,8 @@ type avatarFixture struct {
 	unavailable atomic.Bool
 	entered     chan struct{}
 	resume      chan struct{}
+	width       atomic.Int64
+	height      atomic.Int64
 }
 
 func (f *avatarFixture) Scan(context.Context, []byte, string) (bool, error) {
@@ -29,6 +31,12 @@ func (f *avatarFixture) Scan(context.Context, []byte, string) (bool, error) {
 }
 
 func (f *avatarFixture) PutAvatar(ctx context.Context, _ string, data []byte) (string, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	f.width.Store(int64(config.Width))
+	f.height.Store(int64(config.Height))
 	if f.puts.Add(1) == 1 {
 		close(f.entered)
 		select {
@@ -118,6 +126,14 @@ func testAvatarCommands(t *testing.T, service *studentauth.Service, fixture *ava
 	updated, err := upload("avatar-retry", current.Version, second)
 	if err != nil || updated.AvatarID == nil || *updated.AvatarID == *current.AvatarID {
 		t.Fatalf("同键重试未安装新头像：%v", err)
+	}
+	var large bytes.Buffer
+	if err := png.Encode(&large, image.NewRGBA(image.Rect(0, 0, 800, 400))); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = upload("avatar-large", updated.Version, large.Bytes())
+	if err != nil || fixture.width.Load() != 256 || fixture.height.Load() != 128 {
+		t.Fatal("头像未按展示尺寸保存", err, fixture.width.Load(), fixture.height.Load())
 	}
 	removed, err := service.DeleteAvatar(ctx, user.Token, "avatar-remove", "", updated.Version)
 	if err != nil || removed.AvatarID != nil || removed.AvatarURL != "" || removed.Version != updated.Version+1 {

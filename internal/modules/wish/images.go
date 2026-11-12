@@ -352,15 +352,20 @@ func imageReferencesBlocked(ctx context.Context, db *gorm.DB, images []string) (
 
 // ReadImage 在外部读取前后复核权限，撤下或屏障不能通过旧URL继续读取。
 func (s *Service) ReadImage(ctx context.Context, token, rid, id, wishID string) (data []byte, err error) {
+	return s.ReadImageVariant(ctx, token, rid, id, wishID, "")
+}
+
+// ReadImageVariant 的展示图和原图共享完整权限边界，缓存不能绕过下架、换图或治理。
+func (s *Service) ReadImageVariant(ctx context.Context, token, rid, id, wishID, variant string) (data []byte, err error) {
 	defer s.queryDone("wish.image.read", rid, time.Now(), &err)
-	if !validWishID(id) || wishID != "" && !validWishID(wishID) {
+	if !validWishID(id) || wishID != "" && !validWishID(wishID) || !validImageVariant(variant) {
 		return nil, command.ErrInvalid
 	}
 	row, err := s.authorizeImage(ctx, token, id, wishID)
 	if err != nil {
 		return nil, err
 	}
-	data, err = s.readImageObject(ctx, row)
+	data, err = s.readImageVariant(ctx, row, variant)
 	if err != nil {
 		return nil, err
 	}
@@ -373,23 +378,38 @@ func (s *Service) ReadImage(ctx context.Context, token, rid, id, wishID string) 
 
 // ReadReviewedImage 仅供已经复核案件和精确图片归属的后台装配入口读取，不注册为无授权路由。
 func (s *Service) ReadReviewedImage(ctx context.Context, id string) ([]byte, error) {
+	return s.ReadReviewedImageVariant(ctx, id, "")
+}
+
+// ReadReviewedImageVariant 由后台装配层在读取前后复核当前案件权限。
+func (s *Service) ReadReviewedImageVariant(ctx context.Context, id, variant string) ([]byte, error) {
+	if !validImageVariant(variant) {
+		return nil, command.ErrInvalid
+	}
 	var row entity.WishImage
 	if e := s.db.WithContext(ctx).Where("id=? AND installed_at IS NOT NULL AND removed_at IS NULL", id).Take(&row).Error; e != nil {
 		return nil, command.ErrNotFound
 	}
-	return s.readImageObject(ctx, row)
+	return s.readImageVariant(ctx, row, variant)
 }
 
 func (s *Service) readImageObject(ctx context.Context, row entity.WishImage) ([]byte, error) {
 	if s.imageObjects == nil {
 		return nil, command.ErrUnavailable
 	}
-	reader, e := s.imageObjects.Open(ctx, row.ObjectKey, row.ObjectVersion)
-	if e != nil {
-		return nil, command.ErrUnavailable
-	}
-	defer reader.Close()
-	raw, e := io.ReadAll(io.LimitReader(reader, ImageMaxBytes*2+1))
+	raw, e := s.imageReads.load(ctx, imageCacheKey(row, "original"), func() ([]byte, error) {
+		reader, err := s.imageObjects.Open(ctx, row.ObjectKey, row.ObjectVersion)
+		if err != nil {
+			return nil, command.ErrUnavailable
+		}
+		defer reader.Close()
+		data, err := io.ReadAll(io.LimitReader(reader, ImageMaxBytes*2+1))
+		if err != nil || len(data) > ImageMaxBytes*2 {
+			clear(data)
+			return nil, command.ErrUnavailable
+		}
+		return data, nil
+	})
 	defer clear(raw)
 	if e != nil || len(raw) > ImageMaxBytes*2 {
 		return nil, command.ErrUnavailable

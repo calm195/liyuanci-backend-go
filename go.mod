@@ -13,6 +13,7 @@ require (
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.76
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.40.0
+	golang.org/x/image v0.30.0
 	golang.org/x/text v0.28.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
