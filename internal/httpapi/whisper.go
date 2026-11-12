@@ -334,15 +334,22 @@ func decodeWhisperPost(data []byte, action string) (out whisper.PostInput, err e
 		if len(identity) != 3 || identity["tags"] == nil || identity["dictionary_version"] == nil {
 			return out, command.ErrInvalid
 		}
-		tags, e := whisperObject(identity["tags"], []string{"campus", "grade", "gender"})
+		tags, e := wishObject(identity["tags"], []string{"campus", "grade", "gender"})
 		if e != nil {
 			return out, e
 		}
 		out.Identity.Tags = &whisper.Tags{}
-		if json.Unmarshal(tags["campus"], &out.Identity.Tags.Campus) != nil || json.Unmarshal(tags["grade"], &out.Identity.Tags.Grade) != nil ||
-			json.Unmarshal(tags["gender"], &out.Identity.Tags.Gender) != nil ||
-			json.Unmarshal(identity["dictionary_version"], &out.Identity.DictionaryVersion) != nil ||
-			*out.Identity.DictionaryVersion < 1 {
+		if len(tags) == 0 {
+			return out, command.ErrInvalid
+		}
+		for key, dst := range map[string]*string{"campus": &out.Identity.Tags.Campus, "grade": &out.Identity.Tags.Grade, "gender": &out.Identity.Tags.Gender} {
+			if raw, ok := tags[key]; ok {
+				if string(raw) == "null" || json.Unmarshal(raw, dst) != nil || *dst == "" {
+					return out, command.ErrInvalid
+				}
+			}
+		}
+		if json.Unmarshal(identity["dictionary_version"], &out.Identity.DictionaryVersion) != nil || out.Identity.DictionaryVersion == nil || *out.Identity.DictionaryVersion < 1 {
 			return out, command.ErrInvalid
 		}
 	case "named":

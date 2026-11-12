@@ -12,9 +12,9 @@ import (
 
 // Tags 是用户显式选择的受控标签，不推断学生资料。
 type Tags struct {
-	Campus string `json:"campus"`
-	Grade  string `json:"grade"`
-	Gender string `json:"gender"`
+	Campus string `json:"campus,omitempty"`
+	Grade  string `json:"grade,omitempty"`
+	Gender string `json:"gender,omitempty"`
 }
 
 // IdentityInput 三种互斥档位由 HTTP 与领域共同校验。
@@ -86,6 +86,8 @@ type HugState struct {
 
 // PublicPost 只返回当前已批准版本及同步安全投影。
 type PublicPost struct {
+	ViewCount      int64          `json:"view_count"`
+	Favorited      bool           `json:"favorited"`
 	HeatScore      int64          `json:"-"`
 	Title          string         `json:"title"`
 	ID             string         `json:"id"`
@@ -114,10 +116,11 @@ type Page[T any] struct {
 
 // Query 只允许公开帖子匹配标题和正文，不支持作者检索。
 type Query struct {
-	Sort    string
-	Keyword string
-	Limit   int
-	Cursor  string
+	RootCommentID string
+	Sort          string
+	Keyword       string
+	Limit         int
+	Cursor        string
 }
 
 // NicknameLabel 表示当前可选已批准版本。

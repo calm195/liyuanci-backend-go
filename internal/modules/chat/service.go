@@ -34,6 +34,7 @@ type Config struct {
 type Service struct {
 	matchmakingNotificationTarget func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref string, err error)
 	applicationNotificationTarget func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref, title string, err error)
+	commentNotificationTarget     func(context.Context, *gorm.DB, entity.Notification, time.Time) (wishID, commentID string, err error)
 	db                            *gorm.DB
 	engine                        *command.Engine
 	codec                         *securedata.Codec
@@ -70,6 +71,11 @@ func New(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, cfg Config) (
 // SetApplicationNotificationTarget 在装配阶段注入应愿领域的访问权限投影。
 func (s *Service) SetApplicationNotificationTarget(project func(context.Context, *gorm.DB, entity.Notification, time.Time) (kind, ref, title string, err error)) {
 	s.applicationNotificationTarget = project
+}
+
+// SetCommentNotificationTarget 注入评论领域的实时公开资格，避免通知与详情使用不同权限判断。
+func (s *Service) SetCommentNotificationTarget(project func(context.Context, *gorm.DB, entity.Notification, time.Time) (wishID, commentID string, err error)) {
+	s.commentNotificationTarget = project
 }
 
 func (s *Service) done(op, rid string, start time.Time, err *error) {

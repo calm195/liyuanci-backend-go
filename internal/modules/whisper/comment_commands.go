@@ -19,7 +19,7 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 	if (!create && (!ValidID(commentID) || in.ExpectedVersion < 1)) || (create && !ValidID(postID)) || in.ExpectedPostVersion < 1 ||
 		in.ExpectedCommentsEpoch < 1 ||
 		!validText(in.Body, 1, 500) ||
-		!identityShape(in.Identity) {
+		!identityShape(in.Identity) || !replyShape(in.RootCommentID, in.ReplyToCommentID) {
 		return out, command.ErrInvalid
 	}
 	method, path, kind := "PUT", "/api/v1/me/whispers/comments/"+commentID, "whisper.comment.update"
@@ -35,7 +35,21 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		RetainReceipt: true,
 	}
 	d.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		return interactionPlan(ctx, db, postID, commentID)
+		p, e := interactionPlan(ctx, db, postID, commentID)
+		if e != nil {
+			return p, e
+		}
+		if !create {
+			var c entity.WhisperComment
+			if e = db.WithContext(ctx).Where("id=?", commentID).Take(&c).Error; e != nil {
+				return p, e
+			}
+			if e = discoverReply(ctx, db, &p, c.RootCommentID, c.ReplyToCommentID); e != nil {
+				return p, e
+			}
+		}
+		e = discoverReply(ctx, db, &p, in.RootCommentID, in.ReplyToCommentID)
+		return p, e
 	}
 	d.Authorize = func(ctx context.Context, tx *command.Tx) error {
 		if create {
@@ -84,6 +98,22 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e != nil {
 			return "", e
 		}
+		check := entity.WhisperComment{PostID: &postID, AuthorID: tx.Actor().ID, ParentContentVersion: parent.post.CurrentContentVersion, RootCommentID: in.RootCommentID, ReplyToCommentID: in.ReplyToCommentID}
+		if !create {
+			var prior entity.WhisperComment
+			if e = tx.DB().Where("id=?", commentID).Take(&prior).Error; e != nil {
+				return "", e
+			}
+			if in.RootCommentID != nil && (prior.RootCommentID == nil || *prior.RootCommentID != *in.RootCommentID || prior.ReplyToCommentID == nil || *prior.ReplyToCommentID != *in.ReplyToCommentID) {
+				return "", command.ErrInvalid
+			}
+			check.RootCommentID, check.ReplyToCommentID = prior.RootCommentID, prior.ReplyToCommentID
+		}
+		if ok, e := ReplyContextEligible(ctx, tx.DB(), check, tx.Now()); e != nil {
+			return "", e
+		} else if !ok {
+			return "", command.ErrBlockedInteraction
+		}
 		if e = s.validateIdentity(ctx, tx.DB(), tx.Actor().ID, in.Identity); e != nil {
 			return "", e
 		}
@@ -94,7 +124,8 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 				ctx,
 				tx.DB(),
 				&entity.WhisperComment{
-					ID:                   id,
+					ID:            id,
+					RootCommentID: in.RootCommentID, ReplyToCommentID: in.ReplyToCommentID,
 					PostID:               &postID,
 					AuthorID:             tx.Actor().ID,
 					ParentContentVersion: parent.post.CurrentContentVersion,

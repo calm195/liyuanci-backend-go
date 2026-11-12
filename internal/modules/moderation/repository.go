@@ -18,15 +18,17 @@ import (
 )
 
 type current struct {
-	story        *entity.StoryVersion
-	message      *entity.Message
-	conversation chat.Snapshot
-	application  *entity.Application
-	task         entity.ModerationTask
-	registry     entity.ContentRegistry
-	wish         entity.Wish
-	content      entity.WishVersion
-	account      entity.Account
+	comment        *entity.WishComment
+	commentVersion entity.WishCommentVersion
+	story          *entity.StoryVersion
+	message        *entity.Message
+	conversation   chat.Snapshot
+	application    *entity.Application
+	task           entity.ModerationTask
+	registry       entity.ContentRegistry
+	wish           entity.Wish
+	content        entity.WishVersion
+	account        entity.Account
 }
 
 func load(db *gorm.DB, id string) (out current, err error) {
@@ -42,10 +44,27 @@ func load(db *gorm.DB, id string) (out current, err error) {
 	if err = db.Where(
 		"id=? AND kind IN ? AND content_version=?",
 		out.task.ContentID,
-		[]string{"wish", "application", "message", "story"},
+		[]string{"wish", "wish_comment", "application", "message", "story"},
 		out.task.ContentVersion,
 	).Take(&out.registry).Error; err != nil {
 		return fail(err)
+	}
+	if out.registry.Kind == "wish_comment" {
+		var c entity.WishComment
+		if err = db.Where("id=? AND author_id=?", out.registry.EntityID, out.registry.AuthorID).Take(&c).Error; err != nil {
+			return fail(err)
+		}
+		out.comment = &c
+		if err = db.Where("comment_id=? AND content_version=?", c.ID, out.task.ContentVersion).Take(&out.commentVersion).Error; err != nil {
+			return fail(err)
+		}
+		if err = db.Where("id=?", c.WishID).Take(&out.wish).Error; err != nil {
+			return fail(err)
+		}
+		if err = db.Where("id=?", c.AuthorID).Take(&out.account).Error; err != nil {
+			return fail(err)
+		}
+		return out, nil
 	}
 	if out.registry.Kind == "story" {
 		var v entity.StoryVersion
@@ -125,6 +144,11 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 	if e != nil {
 		return command.Discovery{}, e
 	}
+	if row.comment != nil {
+		p, e := wish.DiscoverWishComment(ctx, db, row.wish.ID, row.comment.ID, nil, nil)
+		p.Resources = append(p.Resources, command.Resource{Kind: command.ModerationTask, ID: id})
+		return p, e
+	}
 	if row.story != nil {
 		return wish.DiscoverStory(ctx, db, row.wish.ID)
 	}
@@ -158,6 +182,9 @@ func discover(ctx context.Context, db *gorm.DB, id string) (command.Discovery, e
 }
 
 func currentBinding(row current) bool {
+	if row.comment != nil {
+		return row.comment.ContentVersion == row.task.ContentVersion && row.commentVersion.ReviewTaskID == row.task.ID
+	}
 	if row.story != nil {
 		return row.wish.CurrentStoryVersion == row.task.ContentVersion && row.story.ReviewTaskID != nil && *row.story.ReviewTaskID == row.task.ID
 	}
@@ -176,6 +203,12 @@ func currentBinding(row current) bool {
 
 // eligible 在账号和资源锁后复核当前任务绑定、资格、处罚及全部历史版本限制，不从旧事件恢复正文。
 func eligible(db *gorm.DB, row current) (bool, error) {
+	if row.comment != nil {
+		if !currentBinding(row) {
+			return false, nil
+		}
+		return wish.WishCommentEligible(db.Statement.Context, db, *row.comment, row.task)
+	}
 	if row.story != nil {
 		return wish.StoryEligible(db.Statement.Context, db, row.wish, *row.story, row.task)
 	}
@@ -252,6 +285,12 @@ func eligible(db *gorm.DB, row current) (bool, error) {
 }
 
 func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision string, body *string, tags []byte, extra ...reviewProjection) error {
+	if row.comment != nil {
+		if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
+			return e
+		}
+		return wish.ApplyWishCommentReview(db.Statement.Context, db, *row.comment, row.commentVersion, decision, body)
+	}
 	if row.story != nil {
 		if e := db.Model(&entity.ContentRegistry{}).Where("id=?", row.registry.ID).Update("status", decision).Error; e != nil {
 			return e
@@ -370,6 +409,11 @@ func setReview(db *gorm.DB, codec *securedata.Codec, row current, decision strin
 	state := "ready"
 	if decision == "rejected" {
 		state = "rejected"
+	}
+	if decision == "rejected" {
+		if e := db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: row.wish.OwnerID, Type: "wish_rejected", TargetRef: row.wish.ID}).Error; e != nil {
+			return e
+		}
 	}
 	if (row.task.CrisisRecheck || row.task.PrivacyRecheck && row.wish.PeerDeleted) &&
 		slices.Contains([]string{"matching", "realized", "fulfilled"}, row.wish.State) {

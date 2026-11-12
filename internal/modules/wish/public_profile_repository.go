@@ -12,7 +12,7 @@ import (
 )
 
 func readProfile(ctx context.Context, db *gorm.DB, target string) (out ProfileSummary, err error) {
-	err = db.WithContext(ctx).Model(&entity.Account{}).Select("id,nickname").Where("id=? AND lifecycle='active'", target).Take(&out).Error
+	err = db.WithContext(ctx).Model(&entity.Account{}).Select("id,nickname,avatar_url,avatar_id").Where("id=? AND lifecycle='active'", target).Take(&out).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = command.ErrNotFound
 	}
@@ -31,7 +31,7 @@ func profileCandidates(ctx context.Context, db *gorm.DB, target string, after pa
 	q := db.WithContext(ctx).Table("public.wishes AS w").
 		Select("w.id, CASE WHEN w.state='published' THEN 'wish' ELSE 'story' END AS kind, "+position+" AS position").
 		Joins("LEFT JOIN public.story_versions v ON v.wish_id=w.id AND v.story_version=w.current_story_version").
-		Where("w.owner_id=? AND w.draft_deleted_at IS NULL", target).
+		Where("w.owner_id=? AND w.draft_deleted_at IS NULL AND w.identity_mode='named'", target).
 		Where("(w.state='published' AND w.expires_at>? AND w.published_at IS NOT NULL) OR (? AND w.state='fulfilled' AND v.published_at IS NOT NULL)", now, stories)
 	if after.ID != "" {
 		q = q.Where("("+position+",w.id)<(?,?::uuid)", after.PublishedAt, after.ID)

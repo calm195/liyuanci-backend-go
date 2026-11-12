@@ -7,6 +7,8 @@ import (
 
 // WhisperComment 映射 public.whisper_comments，传输层不得直接序列化实体。
 type WhisperComment struct {
+	RootCommentID        *string         `gorm:"column:root_comment_id;type:uuid;comment:所属一级评论，一级为空" json:"-"`
+	ReplyToCommentID     *string         `gorm:"column:reply_to_comment_id;type:uuid;comment:被回复评论，不保存昵称快照" json:"-"`
 	ID                   string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;not null;comment:随机暖评标识" json:"-"`
 	PostID               *string         `gorm:"column:post_id;type:uuid;comment:所属帖子，删除图显式解除后为空" json:"-"`
 	AuthorID             string          `gorm:"column:author_id;type:uuid;not null;comment:内部暖评作者" json:"-"`

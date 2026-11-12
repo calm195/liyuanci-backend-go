@@ -101,17 +101,7 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 			if a.snapshot.State != Realized {
 				return "", command.ErrConflict
 			}
-			var count int64
-			if e = tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where(
-				"owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))",
-				a.row.OwnerID,
-				tx.Now(),
-			).Count(&count).Error; e != nil {
-				return "", e
-			}
-			if count >= 3 {
-				return "", command.ErrActiveWishLimit
-			}
+
 		} else if a.snapshot.State != Matching {
 			return "", command.ErrConflict
 		}
@@ -275,6 +265,14 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 		IdentityTags:           json.RawMessage(`{}`),
 		SchoolDetectionVersion: "pending",
 	}).Error; e != nil {
+		return e
+	}
+	// 刷新期限生成新的正文版本，图片也必须随该版本重新绑定；只复制密文会丢失当前附件。
+	images := make([]string, 0, len(a.images))
+	for _, image := range a.images {
+		images = append(images, image.ID)
+	}
+	if e = bindWishImages(ctx, tx.DB(), a.row.ID, next.ContentVersion, a.row.OwnerID, images); e != nil {
 		return e
 	}
 	if e = tx.DB().WithContext(ctx).Create(&entity.ContentRegistry{

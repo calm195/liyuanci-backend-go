@@ -55,6 +55,10 @@ func (s *Service) restrict(ctx context.Context, tx *command.Tx, op, id string, i
 			return "", e
 		}
 		switch c.Kind {
+		case "wish_comment":
+			if e = db.Model(&entity.WishComment{}).Where("id=?", id).Update("status", "cancelled").Error; e != nil {
+				return "", e
+			}
 		case "wish":
 			if e = db.Model(&entity.Wish{}).Where("id=? AND state IN ('published','ready')", id).Update("state", "withdrawn").Error; e != nil {
 				return "", e
@@ -86,6 +90,8 @@ func (s *Service) restrict(ctx context.Context, tx *command.Tx, op, id string, i
 		}
 	}
 	switch c.Kind {
+	case "wish_comment":
+		e = db.Model(&entity.WishComment{}).Where("id=?", id).Update("version", gorm.Expr("version+1")).Error
 	case "wish", "story":
 		e = db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{"version": gorm.Expr("version+1"), "restriction_epoch": gorm.Expr("restriction_epoch+1")}).
 			Error
@@ -115,6 +121,8 @@ func restrictionSummary(db *gorm.DB, c entity.ContentRegistry) (Summary, error) 
 	}
 	var model any
 	switch c.Kind {
+	case "wish_comment":
+		model = &entity.WishComment{}
 	case "wish", "story":
 		model = &entity.Wish{}
 	case "application":

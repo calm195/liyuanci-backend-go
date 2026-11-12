@@ -74,6 +74,18 @@ func (s *Service) discoverPosts(ctx context.Context, token string, q Query, week
 		if e != nil {
 			return e
 		}
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.ID)
+		}
+		stats, e := contentquery.ReadStats(ctx, db, "whisper_post", ids, viewer.ID)
+		if e != nil {
+			return e
+		}
+		for i := range items {
+			items[i].ViewCount = stats[items[i].ID].ViewCount
+			items[i].Favorited = stats[items[i].ID].Favorited
+		}
 		out.Items = items
 		if next.ID != "" && !weekly {
 			encoded := s.encodeCursor(cursor{Scope: scope, ID: next.ID, At: next.At, Score: next.Score})

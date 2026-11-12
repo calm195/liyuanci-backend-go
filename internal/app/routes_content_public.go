@@ -31,10 +31,16 @@ func (o *PublicContentOptions) AttachWhispers(api *WhisperAPI) {
 func (o *PublicContentOptions) attachWhisper(service *whisper.Service) {
 	o.whispers = service
 	service.SetCandidateCache(o.Cache)
+	if o.wishes != nil {
+		service.SetPublicBlockSource(o.wishes.ResolveBlockSource)
+	}
 }
 
 func (o *PublicContentOptions) register(router *gin.Engine, wishes *wish.Service, stories bool) error {
 	o.wishes = wishes
+	if o.whispers != nil {
+		o.whispers.SetPublicBlockSource(wishes.ResolveBlockSource)
+	}
 	o.stories = stories
 	wishes.SetCandidateCache(o.Cache)
 	return o.registerHot(router)

@@ -32,8 +32,8 @@ func snapshot(state State) Snapshot {
 	return s
 }
 
-// TestPublishDeadlinesAndQuota 追溯 T014/REQ-004/005：额度、首次上架、刷新与截止时刻。
-func TestPublishDeadlinesAndQuota(t *testing.T) {
+// TestPublishDeadlinesWithoutQuota 验证无数量门槛、首次上架、刷新与截止时刻。
+func TestPublishDeadlinesWithoutQuota(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		expiry   *time.Time
@@ -43,8 +43,8 @@ func TestPublishDeadlinesAndQuota(t *testing.T) {
 		deadline *time.Time
 	}{
 		{"first", nil, false, 0, Published, pointer(at().Add(7 * 24 * time.Hour))},
-		{"limit", nil, false, 3, Ready, nil},
-		{"limit_exceeded", nil, false, 4, Ready, nil},
+		{"three_active", nil, false, 3, Published, pointer(at().Add(7 * 24 * time.Hour))},
+		{"four_active", nil, false, 4, Published, pointer(at().Add(7 * 24 * time.Hour))},
 		{"slot_available", nil, false, 2, Published, pointer(at().Add(7 * 24 * time.Hour))},
 		{"preserve", pointer(at().Add(time.Hour)), false, 0, Published, pointer(at().Add(time.Hour))},
 		{"deadline_equal", pointer(at()), false, 0, Expired, pointer(at())},
@@ -57,7 +57,7 @@ func TestPublishDeadlinesAndQuota(t *testing.T) {
 			pointer(at().Add(-time.Hour)),
 		},
 		{"refresh", pointer(at().Add(-time.Hour)), true, 0, Published, pointer(at().Add(7 * 24 * time.Hour))},
-		{"refresh_limit", pointer(at().Add(-time.Hour)), true, 3, Ready, pointer(at().Add(-time.Hour))},
+		{"refresh_with_active", pointer(at().Add(-time.Hour)), true, 3, Published, pointer(at().Add(7 * 24 * time.Hour))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := NewPolicy(zap.NewNop(), nil)
@@ -96,7 +96,7 @@ func TestTransitionMatrix(t *testing.T) {
 				allowed := action == Edit && state != Matching && state != Realized && state != Fulfilled ||
 					action == SubmitReview && (state == Draft || state == Rejected) ||
 					action == Publish && state == Ready ||
-					action == Withdraw && state == Published ||
+					action == Withdraw && (state == Published || state == PendingReview || state == Ready) ||
 					action == DeleteDraft && state == Draft
 				if !allowed {
 					if err != command.ErrConflict || out.Next.Version != 0 {

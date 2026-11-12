@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -43,7 +44,17 @@ func TestContentBoundaries(t *testing.T) {
 		{"day_negative", func(in *ContentInput) { in.DurationDays = pointer(-1) }, command.ErrInvalid},
 		{"day_one", func(in *ContentInput) { in.DurationDays = pointer(1) }, nil},
 		{"day_thirty", func(in *ContentInput) { in.DurationDays = pointer(30) }, nil},
-		{"day_31", func(in *ContentInput) { in.DurationDays = pointer(31) }, command.ErrInvalid},
+		{"day_31", func(in *ContentInput) { in.DurationDays = pointer(31) }, nil},
+		{"day_90", func(in *ContentInput) { in.DurationDays = pointer(90) }, nil},
+		{"day_91", func(in *ContentInput) { in.DurationDays = pointer(91) }, command.ErrInvalid},
+		{"images_three", func(in *ContentInput) { in.ImageIDs = []string{uuid.NewString(), uuid.NewString(), uuid.NewString()} }, nil},
+		{"images_four", func(in *ContentInput) {
+			in.ImageIDs = []string{uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()}
+		}, command.ErrInvalid},
+		{"images_duplicate", func(in *ContentInput) { id := uuid.NewString(); in.ImageIDs = []string{id, id} }, command.ErrInvalid},
+		{"image_invalid", func(in *ContentInput) { in.ImageIDs = []string{"https://invalid.example/image.png"} }, command.ErrInvalid},
+		{"identity_semi", func(in *ContentInput) { in.IdentityMode = "semi" }, nil},
+		{"identity_unknown", func(in *ContentInput) { in.IdentityMode = "anonymous" }, command.ErrInvalid},
 		{"empty_reward", func(in *ContentInput) { in.RewardMethod = pointer("") }, command.ErrInvalid},
 		{"reward", func(in *ContentInput) { in.RewardMethod = pointer("meal") }, nil},
 		{"tags_empty", func(in *ContentInput) { in.IdentityTags = &IdentityTags{} }, nil},

@@ -175,7 +175,7 @@ func TestBusinessSchema(t *testing.T) {
 		uid(13),
 	)
 	reject("驳回缺少原因", "UPDATE public.identity_reviews SET status='rejected' WHERE id=?", uid(14))
-	for _, duration := range []int{0, 31} {
+	for _, duration := range []int{0, 91} {
 		reject(
 			"期限越界",
 			"INSERT INTO public.wishes(id,owner_id,current_content_version,category,campus,duration_days) VALUES (?,?,1,'help','wushan',?)",

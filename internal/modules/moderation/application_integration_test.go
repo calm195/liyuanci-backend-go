@@ -23,6 +23,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 	"github.com/calm195/liyuanci-backend-go/internal/testconfig"
@@ -82,6 +83,7 @@ func TestApplicationMatching(t *testing.T) {
 	})
 	must(e)
 	chats.SetApplicationNotificationTarget(wishes.ApplicationNotificationTarget)
+	chats.SetCommentNotificationTarget(wish.CommentNotificationTarget)
 	reviews, e := moderation.New(
 		adminDB,
 		logger,
@@ -209,6 +211,10 @@ func TestApplicationMatching(t *testing.T) {
 		}
 		return out
 	}
+	governance, e := safety.New(api, logger, codec, safety.Config{Command: cfg, Key: []byte(strings.Repeat("s", 32)), MaxTextBytes: 2000})
+	must(e)
+	verifyWishComments(t, root, wishes, reviews, chats, governance, adminToken, student, published, scan, worker, event)
+	verifyContentInteractions(t, root, api, logger, cfg, wishes, student, published)
 	appRow := func(id string) entity.Application {
 		t.Helper()
 		var row entity.Application
@@ -736,7 +742,7 @@ func TestApplicationMatching(t *testing.T) {
 			})
 		}
 	})
-	t.Run("满三条已实现回退拒绝释放后恢复原会话", func(t *testing.T) {
+	t.Run("三条在架时已实现回退仍恢复原会话", func(t *testing.T) {
 		ownerID, owner := student()
 		_, applicant := student()
 		w := published(owner)
@@ -758,22 +764,15 @@ func TestApplicationMatching(t *testing.T) {
 			BodyCipher:      json.RawMessage(`{}`),
 			CancelEpoch:     before.WriteEpoch,
 		}).Error)
-		others := []wish.CreatedDraft{published(owner), published(owner), published(owner)}
+		for range 3 {
+			published(owner)
+		}
 		row := wishRow(w.ID)
 		in := wish.RollbackInput{ExpectedVersion: row.Version, Target: wish.Matching}
-		_, e = wishes.Rollback(ctx, owner, "quota-retry", "full", w.ID, in)
-		if e != command.ErrActiveWishLimit {
-			t.Fatal("满额未拒绝", e)
-		}
-		if wishRow(w.ID).State != "realized" {
-			t.Fatal("失败改变已实现状态")
-		}
-		_, e = wishes.Withdraw(ctx, owner, uuid.NewString(), "release", others[0].ID, others[0].Version)
-		must(e)
-		out, e := wishes.Rollback(ctx, owner, "quota-retry", "retry", w.ID, in)
+		out, e := wishes.Rollback(ctx, owner, "quota-retry", "full", w.ID, in)
 		must(e)
 		if out.State != wish.Matching {
-			t.Fatal("释放后回退失败")
+			t.Fatal("回退受活跃数量限制")
 		}
 		var after entity.Conversation
 		must(root.Where("id=?", m.ConversationID).Take(&after).Error)
@@ -790,8 +789,8 @@ func TestApplicationMatching(t *testing.T) {
 		must(root.Model(&entity.Wish{}).Where("owner_id=? AND (state='matching' OR (state='published' AND expires_at>clock_timestamp()))", ownerID).
 			Count(&n).
 			Error)
-		if n != 3 {
-			t.Fatal("活跃额度错误", n)
+		if n != 4 {
+			t.Fatal("回退后活跃心愿数量错误", n)
 		}
 		must(root.Model(&entity.Wish{}).Where("id=?", w.ID).Update("state", "fulfilled").Error)
 		_, e = wishes.Rollback(
@@ -871,7 +870,7 @@ func TestApplicationMatching(t *testing.T) {
 			t.Fatal("跨用途游标未拒绝", e)
 		}
 	})
-	t.Run("回退与上架并发不超过三条", func(t *testing.T) {
+	t.Run("回退与上架并发允许四条活跃心愿", func(t *testing.T) {
 		ownerID, owner := student()
 		_, applicant := student()
 		w := published(owner)
@@ -916,7 +915,7 @@ func TestApplicationMatching(t *testing.T) {
 		group.Wait()
 		close(failures)
 		for e := range failures {
-			if e != nil && e != command.ErrActiveWishLimit {
+			if e != nil {
 				t.Fatal(e)
 			}
 		}
@@ -924,8 +923,8 @@ func TestApplicationMatching(t *testing.T) {
 		must(root.Model(&entity.Wish{}).Where("owner_id=? AND (state='matching' OR (state='published' AND expires_at>clock_timestamp()))", ownerID).
 			Count(&n).
 			Error)
-		if n != 3 {
-			t.Fatal("并发占用额度错误", n)
+		if n != 4 {
+			t.Fatal("并发回退和上架数量错误", n)
 		}
 	})
 	t.Run("拉黑事务与同意并发及解除后不复活", func(t *testing.T) {

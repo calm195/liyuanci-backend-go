@@ -115,6 +115,9 @@ func runPrivacySettings(ctx context.Context, cfg RuntimeSettings, scope string, 
 		}
 		defer objects.Close()
 		pcfg.AvatarObjects = objects
+		if images, ok := objects.(privacy.WishImageObjects); ok {
+			pcfg.WishImageObjects = images
+		}
 		if resourceObjects, ok := objects.(privacy.ResourceObjects); ok {
 			pcfg.ResourceObjects = resourceObjects
 		}

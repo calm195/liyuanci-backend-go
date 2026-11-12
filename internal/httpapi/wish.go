@@ -109,7 +109,7 @@ func readWishJSON(c *gin.Context, allowed []string) (data []byte, fields map[str
 }
 
 func decodeWishInput(c *gin.Context) (out wish.ContentInput, err error) {
-	data, fields, err := readWishJSON(c, []string{"category", "body", "campus", "identity_tags", "reward_method", "title", "reward_text", "duration_days"})
+	data, fields, err := readWishJSON(c, []string{"category", "body", "campus", "identity_tags", "reward_method", "title", "reward_text", "duration_days", "image_ids", "identity_mode"})
 	if err != nil {
 		return out, err
 	}

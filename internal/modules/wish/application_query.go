@@ -75,7 +75,7 @@ func (s *Service) applicationWishTitle(ctx context.Context, db *gorm.DB, rid, wi
 		return "", err
 	}
 	if a.snapshot.State == Published {
-		content, err := s.publicContent(rid, now, a)
+		content, err := s.publicContent(ctx, rid, now, a)
 		if err != nil {
 			return "", nil
 		}

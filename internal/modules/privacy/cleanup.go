@@ -14,6 +14,7 @@ import (
 
 // cleanGraph 只在已注销主体锁下发现普通清理边界，不把完整对端账号纳入删除集合。
 type cleanGraph struct {
+	wishComments                                               []string
 	matchmakingEnrollments, matchmakingPairs, matchmakingTasks []string
 	posts, comments, capsules, nicknames, relatedComments      []string
 	wishes, applications, matches, conversations, messages     []string
@@ -26,6 +27,7 @@ func collect(db *gorm.DB, id string) (g cleanGraph, err error) {
 		sql string
 	}{
 		{&g.wishes, `SELECT id FROM public.wishes WHERE owner_id=?`},
+		{&g.wishComments, `SELECT id FROM public.wish_comments WHERE author_id=? OR wish_id IN(SELECT id FROM public.wishes WHERE owner_id=?)`},
 		{
 			&g.applications,
 			`SELECT id FROM public.applications WHERE applicant_id=? OR wish_id IN (SELECT id FROM public.wishes WHERE owner_id=?)`,
@@ -61,9 +63,10 @@ OR matchmaking_pair_id IN (SELECT pair_id FROM public.matchmaking_members WHERE 
 		return
 	}
 	if err = db.Model(&entity.ContentRegistry{}).Where(
-		"author_id=? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ?",
+		"author_id=? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ? OR entity_id IN ?",
 		id,
 		g.wishes,
+		g.wishComments,
 		g.applications,
 		g.messages,
 	).Pluck("id", &g.contents).Error; err != nil {
@@ -78,6 +81,7 @@ OR matchmaking_pair_id IN (SELECT pair_id FROM public.matchmaking_members WHERE 
 		g.matchmakingPairs,
 		g.matchmakingTasks,
 		g.wishes,
+		g.wishComments,
 		g.applications,
 		g.matches,
 		g.conversations,
@@ -159,6 +163,12 @@ func cleanAccount(db *gorm.DB, id string) error {
 		where string
 		args  []any
 	}{
+		{&entity.ContentFavorite{}, "account_id=? OR (target_kind='wish' AND target_id IN ?) OR (target_kind='whisper_post' AND target_id IN ?)", []any{id, g.wishes, g.posts}},
+		{&entity.ContentViewEvent{}, "(target_kind='wish' AND target_id IN ?) OR (target_kind='whisper_post' AND target_id IN ?)", []any{g.wishes, g.posts}},
+		{&entity.ContentStatistic{}, "(target_kind='wish' AND target_id IN ?) OR (target_kind='whisper_post' AND target_id IN ?)", []any{g.wishes, g.posts}},
+		{&entity.ContentCommentNotice{}, "comment_id IN ? OR recipient_id=?", []any{g.wishComments, id}},
+		{&entity.WishCommentVersion{}, "comment_id IN ?", []any{g.wishComments}},
+		{&entity.WishComment{}, "id IN ?", []any{g.wishComments}},
 		{&entity.DeliveryAttempt{}, "notification_id IN ?", []any{g.notifications}},
 		{&entity.WhisperNotificationRef{}, "notification_id IN ?", []any{g.notifications}},
 		{&entity.Notification{}, "id IN ?", []any{g.notifications}},
@@ -214,8 +224,8 @@ func cleanAccount(db *gorm.DB, id string) error {
 		{&entity.ContentRegistry{}, "id IN ?", []any{g.contents}},
 		{
 			&entity.PrivacyHold{},
-			"target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ?",
-			[]any{g.wishes, g.posts, g.comments, g.capsules, g.nicknames},
+			"target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ? OR target_id IN ?",
+			[]any{g.wishes, g.posts, g.comments, g.capsules, g.nicknames, g.wishComments},
 		},
 		{&entity.ShareLink{}, "target_id IN ?", []any{g.wishes}},
 		{&entity.IdentityReview{}, "account_id=?", []any{id}},
@@ -240,6 +250,9 @@ func cleanAccount(db *gorm.DB, id string) error {
 	}
 	// 已安装的头像立即进入外部清理，未完成的上传仍保留其预约期限。
 	if e = db.Model(&entity.AccountAvatar{}).Where("owner_id=? AND installed_at IS NOT NULL AND removed_at IS NULL", id).Update("removable_after", gorm.Expr("clock_timestamp()")).Error; e != nil {
+		return e
+	}
+	if e = db.Model(&entity.WishImage{}).Where("owner_id=? AND installed_at IS NOT NULL AND removed_at IS NULL", id).Update("removable_after", gorm.Expr("clock_timestamp()")).Error; e != nil {
 		return e
 	}
 	return deleteRows(db, &entity.Account{}, "id=? AND lifecycle='deleting'", id)
@@ -448,6 +461,10 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 	if e != nil {
 		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
 	}
+	wishRedactions, e := s.prepareWishCommentRedactions(ctx, in)
+	if e != nil {
+		return true, s.deferJob(ctx, in.ID, "privacy_redaction_unavailable")
+	}
 	bounded, cancel = context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
 	err = s.db.WithContext(bounded).Transaction(func(db *gorm.DB) error {
@@ -515,6 +532,9 @@ func (s *Service) ProcessNext(ctx context.Context, scope string) (processed bool
 					return e
 				}
 				if e = s.applyWhisperRedactions(bounded, db, treeRedactions); e != nil {
+					return e
+				}
+				if e = s.applyWishCommentRedactions(bounded, db, wishRedactions); e != nil {
 					return e
 				}
 				e = cleanAccount(db, in.Target)
@@ -612,6 +632,9 @@ func (s *Service) Run(ctx context.Context, scope string, interval time.Duration)
 		_, _ = s.ProcessNext(ctx, scope)
 		if scope == "account" && s.cfg.AvatarObjects != nil {
 			_ = s.cleanNextAvatar(ctx)
+		}
+		if scope == "account" && s.cfg.WishImageObjects != nil {
+			_ = s.cleanNextWishImage(ctx)
 		}
 		if scope == "account" && s.cfg.ResourceObjects != nil {
 			_ = s.cleanNextResourceFile(ctx)

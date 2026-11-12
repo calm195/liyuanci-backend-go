@@ -2,6 +2,7 @@ package moderation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -27,6 +28,7 @@ type Wordlist struct {
 
 // WordlistDetail 只在当前角色授权后返回完整词条。
 type WordlistDetail struct {
+	Rules []WordlistRule `json:"rules,omitempty"`
 	Wordlist
 	Entries         []string `json:"entries"`
 	DisabledEntries []string `json:"disabled_entries,omitempty"`
@@ -41,10 +43,11 @@ type WordlistPage struct {
 
 // WordlistInput 每次提交完整快照，ExpectedVersion是对应kind基准代次。
 type WordlistInput struct {
-	Kind            string   `json:"kind"`
-	Entries         []string `json:"entries"`
-	ExpectedVersion int64    `json:"expected_version"`
-	DisabledEntries []string `json:"disabled_entries,omitempty"`
+	Rules           []WordlistRule `json:"rules,omitempty"`
+	Kind            string         `json:"kind"`
+	Entries         []string       `json:"entries"`
+	ExpectedVersion int64          `json:"expected_version"`
+	DisabledEntries []string       `json:"disabled_entries,omitempty"`
 }
 
 // WordlistPublish 同时比较草案资源和kind基准，禁止旧草案覆盖后来生效版本。
@@ -154,6 +157,7 @@ func (s *Service) Wordlist(ctx context.Context, token, rid, id string) (out Word
 		out.Entries = make([]string, 0, len(rows))
 		for _, row := range rows {
 			out.Entries = append(out.Entries, row.Entry)
+			out.Rules = append(out.Rules, ruleFromEntry(row))
 			if row.Disabled {
 				out.DisabledEntries = append(out.DisabledEntries, row.Entry)
 			}
@@ -164,6 +168,9 @@ func (s *Service) Wordlist(ctx context.Context, token, rid, id string) (out Word
 }
 
 func validateEntries(input WordlistInput, max int) error {
+	if err := validateWordlistRules(input); err != nil {
+		return err
+	}
 	if !kind(input.Kind) || input.ExpectedVersion < 1 || input.Entries == nil || len(input.Entries) > max {
 		return command.ErrInvalid
 	}
@@ -241,7 +248,19 @@ func (s *Service) writeWordlist(ctx context.Context, token, key, rid, id string,
 			}
 			entries := make([]entity.WordlistEntry, 0, len(sorted))
 			for _, entry := range sorted {
-				entries = append(entries, entity.WordlistEntry{Entry: entry, Action: input.Kind, Disabled: disabled[entry]})
+				row := entity.WordlistEntry{Entry: entry, Action: input.Kind, Disabled: disabled[entry]}
+				for _, rule := range input.Rules {
+					if rule.Entry == entry {
+						row.Category = rule.Category
+						row.MatchMode = rule.MatchMode
+						row.Action = rule.Action
+						row.Aliases, _ = json.Marshal(rule.Aliases)
+						if string(row.Aliases) == "null" {
+							row.Aliases = json.RawMessage(`[]`)
+						}
+					}
+				}
+				entries = append(entries, row)
 			}
 			return entity.WordlistVersion{}, entries, nil
 		},

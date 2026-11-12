@@ -2,6 +2,8 @@ package whisper
 
 // CommentInput 绑定当前父帖版本、评论代次与本人评论版本。
 type CommentInput struct {
+	RootCommentID    *string `json:"root_comment_id,omitempty"`
+	ReplyToCommentID *string `json:"reply_to_comment_id,omitempty"`
 	ContentInput
 	ExpectedVersion       int64 `json:"expected_version,omitempty"`
 	ExpectedPostVersion   int64 `json:"expected_post_version"`
@@ -10,6 +12,10 @@ type CommentInput struct {
 
 // OwnerComment 仅向本人提供当前合法原稿，屏障与失效父上下文优先。
 type OwnerComment struct {
+	RootCommentID        *string        `json:"root_comment_id"`
+	ReplyToCommentID     *string        `json:"reply_to_comment_id"`
+	ReplyToLabel         string         `json:"reply_to_label"`
+	ReplyCount           int64          `json:"reply_count"`
 	ID                   string         `json:"id"`
 	Version              int64          `json:"version"`
 	ContentVersion       int64          `json:"content_version"`
@@ -28,6 +34,10 @@ type OwnerComment struct {
 
 // PublicComment 不包含作者账号或可跨帖关联的内部标识。
 type PublicComment struct {
+	RootCommentID        *string        `json:"root_comment_id"`
+	ReplyToCommentID     *string        `json:"reply_to_comment_id"`
+	ReplyToLabel         string         `json:"reply_to_label"`
+	ReplyCount           int64          `json:"reply_count"`
 	ID                   string         `json:"id"`
 	Version              int64          `json:"version"`
 	ContentVersion       int64          `json:"content_version"`

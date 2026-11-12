@@ -387,7 +387,7 @@ func (s *Service) notification(ctx context.Context, db *gorm.DB, row entity.Noti
 			}
 		}
 		out.Notice = "包分配活动状态已更新，请查看活动。"
-	case "application_active", "application_accepted", "application_rejected":
+	case "application_active", "application_accepted", "application_rejected", "application_invalidated":
 		label := "心愿"
 		if s.applicationNotificationTarget != nil {
 			kind, ref, title, err := s.applicationNotificationTarget(ctx, db, row, now)
@@ -406,8 +406,35 @@ func (s *Service) notification(ctx context.Context, db *gorm.DB, row entity.Noti
 			out.Notice = "你的" + label + "收到新的应愿申请。"
 		case "application_accepted":
 			out.Notice = "你对" + label + "的应愿申请已被许愿人接受。"
+		case "application_invalidated":
+			out.Notice = "应愿申请已失效，请查看申请状态。"
 		case "application_rejected":
 			out.Notice = "你对" + label + "的应愿留言审核未通过，可查看申请结果。"
+		}
+	case "wish_comment":
+		if s.commentNotificationTarget != nil {
+			ref, comment, e := s.commentNotificationTarget(ctx, db, row, now)
+			if e != nil {
+				return out, e
+			}
+			if ref != "" && comment != "" {
+				kind := "wish"
+				out.TargetKind, out.TargetRef, out.CommentID = &kind, &ref, &comment
+				out.Notice = "心愿收到了新的评论或回复。"
+			}
+		}
+	case "wish_published", "wish_rejected":
+		var n int64
+		if e := db.Model(&entity.Wish{}).Where("id=? AND owner_id=? AND draft_deleted_at IS NULL", row.TargetRef, row.RecipientID).Count(&n).Error; e != nil {
+			return out, e
+		}
+		if n == 1 {
+			kind, ref := "wish", row.TargetRef
+			out.TargetKind, out.TargetRef = &kind, &ref
+		}
+		out.Notice = "心愿已发布。"
+		if row.Type == "wish_rejected" {
+			out.Notice = "心愿审核未通过，请查看修改建议。"
 		}
 	case "message_reviewed":
 		out.Notice = "你发送的聊天消息未通过审核，请查看聊天。"
@@ -523,10 +550,8 @@ func (s *Service) Notifications(ctx context.Context, token, rid string, q Query)
 		if e != nil {
 			return e
 		}
-		query := db.Where("recipient_id=? AND NOT EXISTS(SELECT 1 FROM public.whisper_notification_refs r WHERE r.notification_id=notifications.id AND r.suppressed)", actor)
-		if e := readChatAllowed(db, actor, now); errors.Is(e, command.ErrForbidden) {
-			query = query.Where("type IN ('penalty_notice','appeal_result','crisis_care')")
-		} else if e != nil {
+		query, e := notificationScope(db, actor, now)
+		if e != nil {
 			return e
 		}
 		if after.ID != "" {

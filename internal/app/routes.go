@@ -22,6 +22,10 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 	}
 	router := httpapi.New(d.Logger, d.Ready)
 	router.Use(middleware...)
+	router.Use(httpapi.WishIdentityCapability())
+	if e = s.registerWishImages(router); e != nil {
+		return nil, e
+	}
 	if s.accountDeletion != nil {
 		if e = httpapi.RegisterPrivacy(router, s.accountDeletion); e != nil {
 			return nil, e
@@ -65,7 +69,11 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 		if e = publicContent.register(router, s.wishes, cfg.Wish.MaxStoryBytes > 0); e != nil {
 			return nil, e
 		}
+		if e = registerContentInteractions(router, publicContent, s, d, cfg); e != nil {
+			return nil, e
+		}
 		httpapi.RegisterWishSupport(router, s.wishes.SetSupport)
+		httpapi.RegisterWishComments(router, s.wishes)
 		if e = httpapi.RegisterWishes(router, s.wishes); e != nil {
 			return nil, e
 		}
@@ -77,6 +85,7 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 		}
 	}
 	if s.chats != nil {
+		httpapi.RegisterNotificationSummary(router, s.chats.NotificationSummary)
 		if e = httpapi.RegisterCare(router, s.chats); e != nil {
 			return nil, e
 		}

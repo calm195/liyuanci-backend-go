@@ -72,6 +72,9 @@ func RunPrivacyWorker(ctx context.Context, environment string, cfg DevelopmentSe
 		}
 		defer objects.Close()
 		pcfg.AvatarObjects = objects
+		if images, ok := objects.(privacy.WishImageObjects); ok {
+			pcfg.WishImageObjects = images
+		}
 		if resourceObjects, ok := objects.(privacy.ResourceObjects); ok {
 			pcfg.ResourceObjects = resourceObjects
 		}

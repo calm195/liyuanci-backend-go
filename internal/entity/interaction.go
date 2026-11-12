@@ -7,6 +7,11 @@ import (
 
 // Wish 映射 public.wishes，字段注释描述数据库持久化语义。
 type Wish struct {
+	FirstPublishedAt      *time.Time `gorm:"column:first_published_at;type:timestamptz;comment:新规则首次公开时间，存量未知保持空" json:"-"`
+	PublishIntent         bool       `gorm:"column:publish_intent;not null;default:false;comment:当前版本审核后自动上架的明确意愿" json:"-"`
+	IdentityMode          string     `gorm:"column:identity_mode;not null;default:named;comment:公开身份模式，首次公开后固定" json:"-"`
+	CommentsOpen          bool       `gorm:"column:comments_open;not null;default:true;comment:是否允许新评论及审核公开" json:"-"`
+	CommentsEpoch         int64      `gorm:"column:comments_epoch;not null;default:1;comment:评论上下文代次，改稿或撤回后递增" json:"-"`
 	PeerDeleted           bool       `gorm:"column:peer_deleted;not null;default:false;comment:原应愿人注销后的通用提示，不保留原账号或身份" json:"-"`
 	CurrentStoryVersion   int64      `gorm:"column:current_story_version;not null;default:0;comment:当前故事内容版本" json:"-"`
 	DraftDeletedAt        *time.Time `gorm:"column:draft_deleted_at;type:timestamptz;comment:草稿删除生效时间，保留技术引用但不再允许读取或复活" json:"-"`

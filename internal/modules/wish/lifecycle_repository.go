@@ -14,6 +14,7 @@ import (
 )
 
 type aggregate struct {
+	images   []Image
 	row      entity.Wish
 	content  entity.WishVersion
 	snapshot Snapshot
@@ -49,6 +50,8 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 		return out, err
 	}
 	out.snapshot = Snapshot{
+		FirstPublishedAt: out.row.FirstPublishedAt,
+		PublishIntent:    out.row.PublishIntent,
 		State:            State(out.row.State),
 		Version:          out.row.Version,
 		ContentVersion:   out.row.CurrentContentVersion,
@@ -131,6 +134,10 @@ func readAggregate(ctx context.Context, db *gorm.DB, id string, includeDeleted b
 		}
 		out.snapshot.Review = r
 	}
+	out.images, err = ReadVersionImages(ctx, db, id, out.row.CurrentContentVersion)
+	if err != nil {
+		return out, err
+	}
 	return out, nil
 }
 
@@ -186,6 +193,9 @@ func saveState(ctx context.Context, tx *command.Tx, current aggregate, next Snap
 		"refresh_on_publish":      next.RefreshOnPublish,
 		"expires_at":              next.ExpiresAt,
 		"published_at":            next.PublishedAt,
+		"first_published_at":      next.FirstPublishedAt,
+		"publish_intent":          next.PublishIntent,
+		"comments_epoch":          gorm.Expr("comments_epoch + ?", boolIncrement(next.ContentVersion != current.row.CurrentContentVersion || next.State == Withdrawn && current.snapshot.State != Withdrawn)),
 	})
 	if result.Error != nil {
 		return result.Error
@@ -262,4 +272,11 @@ func invalidate(ctx context.Context, tx *command.Tx, id string, applications boo
 // discoverWish 让心愿修改与互动命令共享完整锁集合，避免失效旧申请时倒序等待账号或案件。
 func discoverWish(ctx context.Context, db *gorm.DB, id string) (command.Discovery, error) {
 	return DiscoverInteraction(ctx, db, id)
+}
+
+func boolIncrement(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

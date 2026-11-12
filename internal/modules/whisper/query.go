@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
@@ -204,7 +205,15 @@ func (s *Service) GetPost(ctx context.Context, token, rid, id string, own bool) 
 		if own {
 			out, e = s.ownerPost(ctx, db, now, id, viewer.ID)
 		} else {
-			out, e = s.publicPost(ctx, db, now, id, viewer, c)
+			var item PublicPost
+			item, e = s.publicPost(ctx, db, now, id, viewer, c)
+			if e == nil {
+				stats, failure := contentquery.ReadStats(ctx, db, "whisper_post", []string{id}, viewer.ID)
+				e = failure
+				item.ViewCount = stats[id].ViewCount
+				item.Favorited = stats[id].Favorited
+			}
+			out = item
 		}
 		return e
 	})

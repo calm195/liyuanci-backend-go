@@ -370,6 +370,7 @@ func TestPostgresWhisperModeration(t *testing.T) {
 			Error)
 		return v
 	}
+	verifyThreadReplies(t, admin, service, studentSafety, worker, token, otherToken, create, event)
 	t.Run("标题独立命中进入人工审核", func(t *testing.T) {
 		v := createWithTitle("普通命中 合成人名标题", "正常正文")
 		_, e := worker.Consume(ctx, event(v.ID))

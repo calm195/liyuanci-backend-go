@@ -44,7 +44,7 @@ func rank(kind ResourceKind) int {
 		return 7
 	case WhisperCapsule:
 		return 8
-	case WhisperComment:
+	case WhisperComment, WishComment:
 		return 9
 	case ModerationTask:
 		return 10
@@ -229,6 +229,9 @@ func (t *Tx) lockResources(resources []Resource) error {
 			columns = []string{"content_registry_id AS id", "control_version AS version"}
 		case WhisperCapsule:
 			model = &entity.WhisperCapsule{}
+			columns = append(columns, "version")
+		case WishComment:
+			model = &entity.WishComment{}
 			columns = append(columns, "version")
 		case WhisperComment:
 			model = &entity.WhisperComment{}

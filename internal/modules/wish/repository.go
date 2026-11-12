@@ -20,7 +20,7 @@ func createDraftRows(ctx context.Context, db *gorm.DB, now time.Time, id, regist
 	if err := db.Create(&entity.Wish{
 		ID: id, OwnerID: owner, State: string(next.State), Version: next.Version,
 		CurrentContentVersion: next.ContentVersion, DurationDays: int16(next.DurationDays),
-		Category: plan.Content.Category, Campus: plan.Content.Campus,
+		Category: plan.Content.Category, Campus: plan.Content.Campus, IdentityMode: plan.Content.IdentityMode,
 		RestrictionEpoch: next.RestrictionEpoch, CreatedAt: now,
 	}).Error; err != nil {
 		return err

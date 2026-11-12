@@ -23,7 +23,7 @@ func whisperPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discove
 		p.Resources = append(p.Resources, command.Resource{Kind: command.WhisperPost, ID: v.ID})
 	}
 	var comments []entity.WhisperComment
-	if err = db.Where("author_id=? OR post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?)", id, id).Find(&comments).Error; err != nil {
+	if err = db.Where("author_id=? OR post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?) OR root_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?) OR reply_to_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?)", id, id, id, id).Find(&comments).Error; err != nil {
 		return
 	}
 	for _, v := range comments {
@@ -58,7 +58,7 @@ func collectWhispers(db *gorm.DB, id string, g *cleanGraph) error {
 		{&g.nicknames, "SELECT content_registry_id FROM public.whisper_nickname_versions WHERE account_id=?"},
 		{
 			&g.relatedComments,
-			"SELECT id FROM public.whisper_comments WHERE author_id<>? AND post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?)",
+			"SELECT id FROM public.whisper_comments WHERE author_id<>? AND (post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?) OR root_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?) OR reply_to_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?))",
 		},
 	}
 	for _, q := range queries {
@@ -200,9 +200,9 @@ func (s *Service) prepareWhisperRedactions(ctx context.Context, in Intent) (out 
 	defer cancel()
 	var rows []entity.WhisperComment
 	if err = s.db.WithContext(ctx).Where(
-		"author_id<>? AND post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?)",
+		"author_id<>? AND (post_id IN (SELECT id FROM public.whisper_posts WHERE owner_id=?) OR root_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?) OR reply_to_comment_id IN(SELECT id FROM public.whisper_comments WHERE author_id=?))",
 		in.Target,
-		in.Target,
+		in.Target, in.Target, in.Target,
 	).Find(&rows).Error; err != nil {
 		return
 	}

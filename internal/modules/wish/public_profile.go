@@ -12,8 +12,11 @@ import (
 
 // ProfileSummary 仅公开账号标识与昵称；账号没有独立已审标签，不从私有身份或某条内容推断。
 type ProfileSummary struct {
-	ID       string `json:"id"`
-	Nickname string `json:"nickname"`
+	AvatarURL string  `json:"avatar_url"`
+	AvatarID  *string `json:"-"`
+	DisplayID string  `json:"display_id"`
+	ID        string  `json:"id"`
+	Nickname  string  `json:"nickname"`
 }
 
 // ProfileItem 区分当前可见的心愿与故事，正文继续使用本域公开投影。
@@ -62,6 +65,13 @@ func (s *Service) PublicProfile(ctx context.Context, token, rid, target, cursor 
 		if e != nil {
 			return e
 		}
+		out.Profile.DisplayID = "LY" + s.displayID("account.display", "", target)
+		if out.Profile.AvatarID != nil {
+			out.Profile.AvatarURL = ""
+			if s.avatarReader != nil {
+				out.Profile.AvatarURL, _ = s.avatarReader.AvatarURL(ctx, "avatars/"+*out.Profile.AvatarID+".png")
+			}
+		}
 		out.Items = []ProfileItem{}
 		positions := []pageCursor{}
 		for len(out.Items) <= limit {
@@ -95,6 +105,23 @@ func (s *Service) PublicProfile(ctx context.Context, token, rid, target, cursor 
 			next := s.encodeCursor(positions[limit-1])
 			out.NextCursor = &next
 			out.Items = out.Items[:limit]
+		}
+		// 主页中的心愿卡片复用列表同一批量统计和本人能力，不能以零值覆盖真实互动状态。
+		wishes := []PublicContent{}
+		for _, item := range out.Items {
+			if item.Kind == "wish" {
+				wishes = append(wishes, item.Content)
+			}
+		}
+		if e = s.enrichWishMetadata(ctx, db, wishes, actor, now); e != nil {
+			return e
+		}
+		index := 0
+		for i := range out.Items {
+			if out.Items[i].Kind == "wish" {
+				out.Items[i].Content = wishes[index]
+				index++
+			}
 		}
 		return nil
 	})

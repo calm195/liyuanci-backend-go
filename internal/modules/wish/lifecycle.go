@@ -61,12 +61,17 @@ func (s *Service) Submit(ctx context.Context, token, key, rid, id string, versio
 	)
 }
 
-// Publish 在同作者guard下重算全部活跃额度并复核精确审核，满额保持ready。
+// SubmitForPublication 持久记录作者明确发布意愿，通过审核后自动上架。
+func (s *Service) SubmitForPublication(ctx context.Context, token, key, rid, id string, version, contentVersion int64) (CreatedDraft, error) {
+	return s.mutate(ctx, token, key, rid, id, Change{Action: SubmitReview, ExpectedVersion: version, ExpectedContentVersion: contentVersion, PublishIntent: true}, nil, "")
+}
+
+// Publish 在同作者guard下复核精确审核与期限，不限制活跃心愿数量。
 func (s *Service) Publish(ctx context.Context, token, key, rid, id string, version int64) (CreatedDraft, error) {
 	return s.mutate(ctx, token, key, rid, id, Change{Action: Publish, ExpectedVersion: version}, nil, "")
 }
 
-// Withdraw 撤下当前未过期的上架心愿，并原子作废未终结申请。
+// Withdraw 取消待审发布意愿或撤下当前心愿，并原子作废审核和未终结申请。
 func (s *Service) Withdraw(ctx context.Context, token, key, rid, id string, version int64) (CreatedDraft, error) {
 	return s.mutate(ctx, token, key, rid, id, Change{Action: Withdraw, ExpectedVersion: version}, nil, "")
 }
@@ -152,20 +157,12 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 				return "", e
 			}
 		} else {
-			count := 0
 			if change.Action == Publish {
-				// 同作者全部写操作先持guard；此计数不依赖缓存或分页，也不锁其他心愿造成反向等待。
-				var n int64
-				if e = tx.DB().WithContext(ctx).Model(&entity.Wish{}).Where(
-					"owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))",
-					a.row.OwnerID,
-					tx.Now(),
-				).Count(&n).Error; e != nil {
+				if e = validateBoundImages(ctx, tx.DB(), id, a.row.CurrentContentVersion); e != nil {
 					return "", e
 				}
-				count = int(n)
 			}
-			transition, e = s.policy.Plan(rid, tx.Now(), a.owner, a.snapshot, count, change)
+			transition, e = s.policy.Plan(rid, tx.Now(), a.owner, a.snapshot, 0, change)
 			if e != nil {
 				return "", e
 			}
@@ -298,6 +295,30 @@ func (s *Service) editWishDraft(ctx context.Context, tx *command.Tx, rid, id str
 	if content == nil {
 		return Transition{}, command.ErrInvalid
 	}
+	// 省略期限不表示重置默认值；旧客户端不能把超出其范围的期限静默截短。
+	if content.DurationDays == nil {
+		duration := int(a.row.DurationDays)
+		content.DurationDays = &duration
+	} else if !identitySupported(ctx) && a.row.DurationDays > 30 && *content.DurationDays != int(a.row.DurationDays) {
+		return Transition{}, command.ErrConflict
+	}
+	// 旧客户端省略新增字段时保留当前图片及身份模式，避免编辑静默抹除。
+	if content.IdentityMode == "" {
+		content.IdentityMode = a.row.IdentityMode
+	}
+	if a.row.PublishedAt != nil && content.IdentityMode != a.row.IdentityMode {
+		return Transition{}, command.ErrConflict
+	}
+	if content.ImageIDs == nil {
+		var refs []entity.WishVersionImage
+		if err := tx.DB().WithContext(ctx).Where("wish_id=? AND content_version=?", id, a.row.CurrentContentVersion).Order("position").Find(&refs).Error; err != nil {
+			return Transition{}, err
+		}
+		content.ImageIDs = []string{}
+		for _, ref := range refs {
+			content.ImageIDs = append(content.ImageIDs, ref.ImageID)
+		}
+	}
 	plan, err := s.policy.EditDraft(
 		ctx,
 		rid,
@@ -355,9 +376,13 @@ func (s *Service) editWishDraft(ctx context.Context, tx *command.Tx, rid, id str
 		return Transition{}, err
 	}
 	if err = db.Model(&entity.Wish{}).Where("id=?", id).Updates(map[string]any{
-		"category": plan.Content.Category,
-		"campus":   plan.Content.Campus,
+		"category":      plan.Content.Category,
+		"campus":        plan.Content.Campus,
+		"identity_mode": plan.Content.IdentityMode,
 	}).Error; err != nil {
+		return Transition{}, err
+	}
+	if err = bindWishImages(ctx, db, id, plan.Transition.Next.ContentVersion, a.row.OwnerID, plan.Content.ImageIDs); err != nil {
 		return Transition{}, err
 	}
 	return plan.Transition, nil
@@ -373,6 +398,9 @@ func invalidateApplications(ctx context.Context, tx *command.Tx, id, reason stri
 	for _, a := range apps {
 		applicationIDs = append(applicationIDs, a.ID)
 		if e := CancelApplication(ctx, db, a, "invalidated", reason); e != nil {
+			return e
+		}
+		if e := db.Create(&entity.Notification{ID: uuid.NewString(), RecipientID: a.ApplicantID, Type: "application_invalidated", TargetRef: a.ID}).Error; e != nil {
 			return e
 		}
 		if a.ReviewTaskID != nil {

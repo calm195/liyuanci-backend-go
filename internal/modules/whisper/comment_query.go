@@ -74,6 +74,7 @@ func (s *Service) ownerComment(ctx context.Context, db *gorm.DB, now time.Time, 
 	}
 	c := a.comment
 	out = OwnerComment{
+		RootCommentID: a.comment.RootCommentID, ReplyToCommentID: a.comment.ReplyToCommentID,
 		ID:                   c.ID,
 		Version:              c.Version,
 		ContentVersion:       c.ContentVersion,
@@ -148,6 +149,18 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 		return out, e
 	}
 	if n != 1 {
+		root, e := loadComment(ctx, db, id)
+		if e != nil {
+			return out, e
+		}
+		if root.comment.Lifecycle == "withdrawn" && root.comment.RootCommentID == nil && root.comment.PublishedAt != nil && root.comment.ParentContentVersion == parent.post.CurrentContentVersion && !root.privacy && !root.isolated && !root.restricted && root.author.Lifecycle == "active" {
+			if e = visibleCommentsQuery(ctx, db, parent.post.ID, parent.post.CurrentContentVersion, now).Where("c.root_comment_id=?", id).Count(&n).Error; e != nil {
+				return out, e
+			}
+			if n > 0 {
+				return PublicComment{ID: id, Version: root.comment.Version, ContentVersion: root.comment.ContentVersion, Body: "该评论已删除", Identity: PublicIdentity{Mode: "anonymous", Label: "已删除"}, PublishedAt: timestamp(*root.comment.PublishedAt), PostID: parent.post.ID, ParentContentVersion: parent.post.CurrentContentVersion, ReplyCount: n, NoticeCodes: []string{}, AllowedActions: []string{}}, nil
+			}
+		}
 		return out, command.ErrNotFound
 	}
 	a, e := loadComment(ctx, db, id)
@@ -169,6 +182,7 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 		return out, e
 	}
 	out = PublicComment{
+		RootCommentID: a.comment.RootCommentID, ReplyToCommentID: a.comment.ReplyToCommentID,
 		ID:                   id,
 		Version:              a.comment.Version,
 		ContentVersion:       a.comment.ContentVersion,
@@ -181,6 +195,29 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 		AllowedActions:       []string{},
 		PostID:               parent.post.ID,
 		ParentContentVersion: a.comment.ParentContentVersion,
+	}
+	if a.comment.RootCommentID == nil {
+		if e = visibleCommentsQuery(ctx, db, parent.post.ID, parent.post.CurrentContentVersion, now).Where("c.root_comment_id=?", id).Count(&out.ReplyCount).Error; e != nil {
+			return PublicComment{}, e
+		}
+	}
+	if a.comment.ReplyToCommentID != nil {
+		var target entity.WhisperComment
+		if e = db.WithContext(ctx).Where("id=? AND lifecycle='active'", *a.comment.ReplyToCommentID).Take(&target).Error; e == nil {
+			var n int64
+			if e = visibleCommentsQuery(ctx, db, parent.post.ID, parent.post.CurrentContentVersion, now).Where("c.id=?", target.ID).Count(&n).Error; e != nil {
+				return PublicComment{}, e
+			}
+			if n == 1 {
+				if target.AuthorID == parent.post.OwnerID {
+					out.ReplyToLabel = "帖主"
+				} else {
+					out.ReplyToLabel = "树洞旅人"
+				}
+			}
+		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
+			return PublicComment{}, e
+		}
 	}
 	if out.SchoolRelated {
 		out.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
@@ -237,7 +274,7 @@ func (s *Service) ListComments(ctx context.Context, token, rid, postID string, o
 		if e != nil {
 			return e
 		}
-		scope := s.scope("comments/public/"+postID, viewer.ID)
+		scope := s.scope("comments/public/"+postID+"/"+q.RootCommentID, viewer.ID)
 		if own {
 			scope = s.scope("comments/own", viewer.ID)
 		}
@@ -260,6 +297,11 @@ func (s *Service) ListComments(ctx context.Context, token, rid, postID string, o
 				return e
 			}
 			query = query.Where("post_id=? AND published_at IS NOT NULL", postID)
+			if q.RootCommentID == "" {
+				query = query.Where("root_comment_id IS NULL")
+			} else {
+				query = query.Where("root_comment_id=?", q.RootCommentID)
+			}
 		}
 		if after.ID != "" {
 			query = query.Where("("+column+",id)"+compare+"(?,?)", after.At, after.ID)

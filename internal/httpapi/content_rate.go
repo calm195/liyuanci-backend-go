@@ -52,11 +52,13 @@ func contentCounter(method, path string, read, export ContentCounter) (ContentCo
 	case http.MethodGet:
 		switch path {
 		case "/api/v1/wishes", "/api/v1/stories", "/api/v1/whispers/posts", "/api/v1/content/hot",
-			"/api/v1/wishes/:id", "/api/v1/stories/:id", "/api/v1/whispers/posts/:post_id":
+			"/api/v1/wishes/:id", "/api/v1/stories/:id", "/api/v1/whispers/posts/:post_id", "/api/v1/wishes/:id/comments", "/api/v1/whispers/posts/:post_id/comments", "/api/v1/me/favorites", "/api/v1/me/notifications/summary":
 			return read, false
 		}
 	case http.MethodPost:
 		switch path {
+		case "/api/v1/content/:kind/:id/views":
+			return read, false
 		case "/api/v1/admin/content/wishes/:id/export", "/api/v1/admin/content/whispers/:id/export":
 			return export, true
 		}

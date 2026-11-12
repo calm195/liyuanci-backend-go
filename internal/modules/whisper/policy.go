@@ -54,11 +54,16 @@ func validText(value string, min, max int) bool {
 }
 
 func tagsValid(tags *Tags, dict Dictionary) bool {
-	if tags == nil || !slices.Contains([]string{"wushan", "university_town", "international"}, tags.Campus) ||
-		!slices.Contains([]string{"male", "female", "undisclosed"}, tags.Gender) {
+	if tags == nil || tags.Campus == "" && tags.Gender == "" && tags.Grade == "" {
 		return false
 	}
-	return slices.ContainsFunc(dict.Items, func(i Item) bool { return i.Code == tags.Grade })
+	if tags.Campus != "" && !slices.Contains([]string{"wushan", "university_town", "international"}, tags.Campus) {
+		return false
+	}
+	if tags.Gender != "" && !slices.Contains([]string{"male", "female", "undisclosed"}, tags.Gender) {
+		return false
+	}
+	return tags.Grade == "" || slices.ContainsFunc(dict.Items, func(i Item) bool { return i.Code == tags.Grade })
 }
 
 // projectIdentity 用同一套昵称规则展示帖子与评论，隐藏标签时即时降级。
@@ -74,7 +79,14 @@ func projectIdentity(identity PublicIdentity, hidden bool, grades Dictionary) (P
 		campus := map[string]string{"wushan": "五山", "university_town": "大学城", "international": "国际校区"}
 		gender := map[string]string{"male": "男生", "female": "女生"}
 		grade := slices.IndexFunc(grades.Items, func(item Item) bool { return item.Code == identity.Tags.Grade })
-		identity.Label = campus[identity.Tags.Campus] + grades.Items[grade].Label + gender[identity.Tags.Gender]
+		identity.Label = campus[identity.Tags.Campus]
+		if grade >= 0 {
+			identity.Label += grades.Items[grade].Label
+		}
+		identity.Label += gender[identity.Tags.Gender]
+		if identity.Label == "" {
+			identity.Label = "小鲤鱼"
+		}
 		return identity, nil
 	}
 	return PublicIdentity{Mode: "anonymous", Label: "小鲤鱼", IsAuthor: identity.IsAuthor}, nil

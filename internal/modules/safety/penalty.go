@@ -66,6 +66,10 @@ func (s *Service) impose(ctx context.Context, tx *command.Tx, id string, in Inpu
 	}
 	// 违规内容永久离开当前公开/送达视图；解罚只撤账号处罚，内容限制由独立审核入口处理。
 	switch c.Kind {
+	case "wish_comment":
+		if e = db.Model(&entity.WishComment{}).Where("id=?", c.EntityID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+			return "", e
+		}
 	case "wish":
 		if e = db.Model(&entity.Wish{}).Where(
 			"id=? AND current_content_version=? AND state IN ('published','ready')",

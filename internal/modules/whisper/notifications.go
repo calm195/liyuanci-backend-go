@@ -16,7 +16,7 @@ import (
 func AppendCommentNotice(ctx context.Context, db *gorm.DB, id string, now time.Time) error {
 	db = db.WithContext(ctx)
 	var c entity.WhisperComment
-	if e := db.Select("id,post_id,author_id").Where("id=?", id).Take(&c).Error; e != nil {
+	if e := db.Select("id,post_id,author_id,reply_to_comment_id").Where("id=?", id).Take(&c).Error; e != nil {
 		return e
 	}
 	if c.PostID == nil {
@@ -26,34 +26,36 @@ func AppendCommentNotice(ctx context.Context, db *gorm.DB, id string, now time.T
 	if e := db.Select("owner_id").Where("id=?", *c.PostID).Take(&p).Error; e != nil {
 		return e
 	}
-	if p.OwnerID == c.AuthorID {
-		return nil
+	recipients := []string{p.OwnerID}
+	if c.ReplyToCommentID != nil {
+		var target entity.WhisperComment
+		if e := db.Select("author_id").Where("id=?", *c.ReplyToCommentID).Take(&target).Error; e != nil {
+			return e
+		}
+		recipients = append(recipients, target.AuthorID)
 	}
-	var n int64
-	if e := db.Model(&entity.WhisperNotificationRef{}).Where("kind='whisper_comment' AND source_id=?", id).Count(&n).Error; e != nil {
-		return e
+	sent := map[string]bool{}
+	for _, recipient := range recipients {
+		if recipient == c.AuthorID || sent[recipient] {
+			continue
+		}
+		sent[recipient] = true
+		var n int64
+		if e := db.Model(&entity.WhisperNotificationRef{}).Where("kind='whisper_comment' AND source_id=? AND recipient_id=?", id, recipient).Count(&n).Error; e != nil {
+			return e
+		}
+		if n > 0 {
+			continue
+		}
+		notificationID := uuid.NewString()
+		if e := db.Create(&entity.Notification{ID: notificationID, RecipientID: recipient, Type: "whisper_comment", TargetRef: *c.PostID, CreatedAt: now}).Error; e != nil {
+			return e
+		}
+		if e := db.Create(&entity.WhisperNotificationRef{NotificationID: notificationID, RecipientID: recipient, Kind: "whisper_comment", SourceID: id, TargetKind: "post", TargetID: *c.PostID, CommentID: &id}).Error; e != nil {
+			return e
+		}
 	}
-	if n > 0 {
-		return nil
-	}
-	notificationID := uuid.NewString()
-	if e := db.Create(&entity.Notification{
-		ID:          notificationID,
-		RecipientID: p.OwnerID,
-		Type:        "whisper_comment",
-		TargetRef:   *c.PostID,
-		CreatedAt:   now,
-	}).Error; e != nil {
-		return e
-	}
-	return db.Create(&entity.WhisperNotificationRef{
-		NotificationID: notificationID,
-		Kind:           "whisper_comment",
-		SourceID:       id,
-		TargetKind:     "post",
-		TargetID:       *c.PostID,
-		CommentID:      &id,
-	}).Error
+	return nil
 }
 
 func notificationProjection(n entity.Notification, r entity.WhisperNotificationRef) Notification {

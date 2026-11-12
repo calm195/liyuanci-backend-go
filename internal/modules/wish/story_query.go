@@ -28,6 +28,9 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 	if e != nil {
 		return out, e
 	}
+	if a.row.IdentityMode == "semi" && !identitySupported(ctx) {
+		return out, command.ErrNotFound
+	}
 	if a.row.CurrentStoryVersion == 0 || a.row.State != "fulfilled" || a.snapshot.PrivacyHeld {
 		return out, command.ErrNotFound
 	}
@@ -85,11 +88,12 @@ func (s *Service) publicStory(ctx context.Context, db *gorm.DB, id string) (out 
 		ContentVersion: v.StoryVersion,
 		SchoolRelated:  *v.SchoolRelated,
 		NoticeCodes:    []string{},
-		Author:         PublicAuthor{ID: a.account.ID, Nickname: a.account.Nickname, IdentityTags: tags},
-		Category:       a.row.Category,
-		Campus:         a.row.Campus,
-		RewardMethod:   a.content.RewardMethod,
-		Title:          publicTitle(a.content), RewardText: publicReward(a.content),
+		Author:         s.publicAuthor(ctx, a, tags),
+		OwnerID:        a.row.OwnerID, IdentityMode: a.row.IdentityMode, FirstPublishedAt: a.row.FirstPublishedAt, PublishedAt: v.PublishedAt,
+		Category:     a.row.Category,
+		Campus:       a.row.Campus,
+		RewardMethod: a.content.RewardMethod,
+		Title:        publicTitle(a.content), RewardText: publicReward(a.content),
 	}
 	if out.SchoolRelated {
 		out.NoticeCodes = []string{"UNVERIFIED_SCHOOL"}
@@ -119,9 +123,10 @@ func (s *Service) Story(ctx context.Context, token, rid, id string) (out PublicC
 		}
 		var e error
 		out, e = s.publicStory(ctx, db, id)
+		out.IsOwner = viewer != "" && viewer == out.OwnerID
 		return e
 	})
-	if err == nil && viewer != "" && viewer != out.Author.ID {
+	if err == nil && viewer != "" && viewer != out.OwnerID {
 		s.recordStoryView(ctx, rid, id, viewer, out.ContentVersion)
 	}
 	return
@@ -154,7 +159,7 @@ func (s *Service) shareTarget(ctx context.Context, db *gorm.DB, kind, id, rid st
 	if e != nil {
 		return out, e
 	}
-	return s.publicContent(rid, now, a)
+	return s.publicContent(ctx, rid, now, a)
 }
 
 // CreateShare 要求当前普通会话及公开目标，重放仍重新授权，不新建重复引用。
@@ -213,8 +218,10 @@ func (s *Service) ResolveShare(ctx context.Context, token, rid, ref string) (out
 		return out, command.ErrInvalid
 	}
 	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
+		actor := ""
 		if token != "" {
-			if _, e := currentReader(ctx, db, token, now); e != nil {
+			var e error
+			if actor, e = currentReader(ctx, db, token, now); e != nil {
 				return e
 			}
 		}
@@ -222,12 +229,28 @@ func (s *Service) ResolveShare(ctx context.Context, token, rid, ref string) (out
 		if e != nil {
 			return e
 		}
+		if kind == "wish" {
+			items := []PublicContent{target}
+			if e = s.enrichWishMetadata(ctx, db, items, actor, now); e != nil {
+				return e
+			}
+			target = items[0]
+		} else {
+			target.IsOwner = actor != "" && actor == target.OwnerID
+		}
 		out = ShareTarget{TargetKind: kind, Target: target}
 		// 资料年级单独用于卡片，并沿用账户当前隐藏标签的选择。
 		labels, ok := s.policy.grades.(interface {
 			Label(context.Context, string) string
 		})
 		if !ok {
+			return nil
+		}
+		// 半匿名分享只使用该内容明确选择并已审的标签，不能反查账号补齐隐藏资料。
+		if target.IdentityMode == "semi" {
+			if target.Author.IdentityTags.Grade != nil {
+				out.GradeLabel = labels.Label(ctx, *target.Author.IdentityTags.Grade)
+			}
 			return nil
 		}
 		var author entity.Account

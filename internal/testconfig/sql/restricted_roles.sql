@@ -620,3 +620,32 @@ GRANT SELECT,UPDATE,DELETE ON public.matchmaking_auto_jobs TO liyuanci_privacy_m
 
 -- 本人教育资料与昵称同属资料编辑，窄身份只增加这三个字段的写入权。
 GRANT UPDATE (enrollment_year,education_level,grade_override) ON public.accounts TO liyuanci_identity_maintenance;
+
+-- 心愿图片与自动发布的隔离测试角色权限。
+ALTER TABLE public.wish_images OWNER TO liyuanci_migrator;
+ALTER TABLE public.wish_version_images OWNER TO liyuanci_migrator;
+GRANT SELECT ON public.wish_images, public.wish_version_images TO liyuanci_api, liyuanci_admin_api, liyuanci_domain_worker, liyuanci_privacy_maintenance;
+GRANT INSERT, UPDATE ON public.wish_images, public.wish_version_images TO liyuanci_api;
+GRANT UPDATE, DELETE ON public.wish_images, public.wish_version_images TO liyuanci_privacy_maintenance;
+GRANT UPDATE (first_published_at,published_at,expires_at,publish_intent,refresh_on_publish) ON public.wishes TO liyuanci_admin_api;
+
+-- 内容互动扩展沿用领域隔离；浏览技术键不记录学生身份。
+ALTER TABLE public.content_favorites OWNER TO liyuanci_migrator;
+ALTER TABLE public.content_statistics OWNER TO liyuanci_migrator;
+ALTER TABLE public.content_view_events OWNER TO liyuanci_migrator;
+ALTER TABLE public.wish_comments OWNER TO liyuanci_migrator;
+ALTER TABLE public.wish_comment_versions OWNER TO liyuanci_migrator;
+ALTER TABLE public.content_comment_notices OWNER TO liyuanci_migrator;
+GRANT SELECT ON public.content_favorites,public.content_statistics,public.content_view_events,public.wish_comments,public.wish_comment_versions,public.content_comment_notices TO liyuanci_api,liyuanci_admin_api,liyuanci_domain_worker,liyuanci_privacy_maintenance,liyuanci_crisis_api;
+GRANT INSERT,UPDATE,DELETE ON public.content_favorites,public.content_statistics,public.content_view_events TO liyuanci_api;
+GRANT INSERT,UPDATE ON public.wish_comments,public.wish_comment_versions TO liyuanci_api;
+GRANT UPDATE ON public.wish_comments,public.wish_comment_versions TO liyuanci_admin_api,liyuanci_domain_worker,liyuanci_crisis_api;
+GRANT INSERT ON public.content_comment_notices TO liyuanci_admin_api,liyuanci_domain_worker;
+GRANT UPDATE,DELETE ON public.content_favorites,public.content_statistics,public.content_view_events,public.wish_comments,public.wish_comment_versions,public.content_comment_notices TO liyuanci_privacy_maintenance;
+GRANT UPDATE(comments_open,comments_epoch) ON public.wishes TO liyuanci_api;
+GRANT SELECT ON public.wordlist_entries TO liyuanci_domain_worker;
+ALTER FUNCTION public.fill_whisper_notification_recipient() OWNER TO liyuanci_migrator;
+
+-- 回复上下文只增加公开资格字段读取，不开放原稿与恢复密文。
+GRANT SELECT(root_comment_id,reply_to_comment_id) ON public.whisper_comments TO liyuanci_admin_api,liyuanci_crisis_api;
+GRANT SELECT(public_body,public_identity) ON public.whisper_comment_versions TO liyuanci_admin_api,liyuanci_crisis_api;

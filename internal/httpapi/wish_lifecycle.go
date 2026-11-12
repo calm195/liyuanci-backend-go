@@ -58,7 +58,7 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			"campus",
 			"identity_tags",
 			"reward_method", "title", "reward_text",
-			"duration_days",
+			"duration_days", "image_ids", "identity_mode",
 			"refresh_expiry",
 			"expected_version",
 		})
@@ -98,7 +98,7 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			}
 			allowed := []string{"expected_version"}
 			if op == "submit-review" {
-				allowed = append(allowed, "content_version")
+				allowed = append(allowed, "content_version", "publish_intent")
 			}
 			data, fields, err := readWishJSON(c, allowed)
 			if err != nil {
@@ -109,6 +109,7 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			var input struct {
 				Version        int64 `json:"expected_version"`
 				ContentVersion int64 `json:"content_version"`
+				PublishIntent  bool  `json:"publish_intent"`
 			}
 			if json.Unmarshal(data, &input) != nil || fields["expected_version"] == nil || input.Version < 1 ||
 				op == "submit-review" && (fields["content_version"] == nil || input.ContentVersion < 1) {
@@ -128,7 +129,18 @@ func RegisterWishes(r *gin.Engine, service WishesAPI) error {
 			status := http.StatusOK
 			switch op {
 			case "submit-review":
-				out, err = service.Submit(ctx, token, key, rid, id, input.Version, input.ContentVersion)
+				if input.PublishIntent {
+					publisher, ok := service.(interface {
+						SubmitForPublication(context.Context, string, string, string, string, int64, int64) (wish.CreatedDraft, error)
+					})
+					if !ok {
+						err = command.ErrUnavailable
+					} else {
+						out, err = publisher.SubmitForPublication(ctx, token, key, rid, id, input.Version, input.ContentVersion)
+					}
+				} else {
+					out, err = service.Submit(ctx, token, key, rid, id, input.Version, input.ContentVersion)
+				}
 				status = http.StatusAccepted
 			case "publish":
 				out, err = service.Publish(ctx, token, key, rid, id, input.Version)

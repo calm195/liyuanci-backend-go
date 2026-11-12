@@ -36,6 +36,19 @@ func loadComment(ctx context.Context, db *gorm.DB, id string) (a commentAggregat
 		return a, e
 	}
 	a.privacy, a.isolated, a.restricted = flags.Privacy, flags.Isolated, flags.Restricted
+	// 本人原稿也继承楼内引用的读取屏障，避免从幸存回复绕过根楼隐私或治理隔离。
+	for _, ref := range []*string{a.comment.RootCommentID, a.comment.ReplyToCommentID} {
+		if ref == nil {
+			continue
+		}
+		flags, e = readContentFlags(ctx, db, "whisper_comment", *ref)
+		if e != nil {
+			return a, e
+		}
+		a.privacy = a.privacy || flags.Privacy
+		a.isolated = a.isolated || flags.Isolated
+		a.restricted = a.restricted || flags.Restricted
+	}
 	if err == nil && a.version.NicknameVersion != nil {
 		var n entity.WhisperNicknameVersion
 		n, err = nicknameRow(ctx, db, a.comment.AuthorID, *a.version.NicknameVersion)
@@ -123,7 +136,10 @@ func visibleComments(db *gorm.DB, now time.Time) *gorm.DB {
 	return db.Table("public.whisper_comments AS c").
 		Joins("JOIN public.whisper_comment_versions v ON v.comment_id=c.id AND v.content_version=c.content_version").
 		Joins("JOIN public.accounts a ON a.id=c.author_id").
-		Where(`c.lifecycle='active' AND c.review_state='approved' AND c.published_at IS NOT NULL AND v.review_state='approved' AND v.public_body IS NOT NULL AND v.public_identity IS NOT NULL AND v.school_related IS NOT NULL AND a.lifecycle='active'
+		Where(`(c.root_comment_id IS NULL OR EXISTS(SELECT 1 FROM public.whisper_comments root JOIN public.accounts ra ON ra.id=root.author_id AND ra.lifecycle='active' WHERE root.id=c.root_comment_id AND root.parent_content_version=c.parent_content_version AND root.lifecycle IN('active','withdrawn') AND NOT EXISTS(SELECT 1 FROM public.penalties rp WHERE rp.account_id=ra.id AND rp.revoked_at IS NULL AND rp.action_kind IN('mute','ban') AND rp.starts_at<=clock_timestamp() AND (rp.ends_at IS NULL OR rp.ends_at>clock_timestamp()))))
+ AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry r ON r.id=x.content_id WHERE x.active AND r.kind='whisper_comment' AND r.entity_id IN(c.root_comment_id,c.reply_to_comment_id))
+ AND NOT EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.status='active' AND h.target_kind='whisper_comment' AND h.target_id IN(c.root_comment_id,c.reply_to_comment_id))
+ AND c.lifecycle='active' AND c.review_state='approved' AND c.published_at IS NOT NULL AND v.review_state='approved' AND v.public_body IS NOT NULL AND v.public_identity IS NOT NULL AND v.school_related IS NOT NULL AND a.lifecycle='active'
  AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id=a.id AND p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?))
  AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry r ON r.id=x.content_id WHERE r.kind='whisper_comment' AND r.entity_id=c.id AND x.active)
  AND NOT EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.target_kind='whisper_comment' AND h.target_id=c.id AND h.status='active')

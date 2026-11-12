@@ -38,19 +38,30 @@ type AdminContentSummary struct {
 
 // AdminPublicationText 仅包含公开素材及其公开署名。
 type AdminPublicationText struct {
-	Body   string `json:"body"`
-	Author string `json:"author"`
-	Notice string `json:"notice"`
+	ID               string       `json:"id,omitempty"`
+	Kind             string       `json:"kind,omitempty"`
+	RootCommentID    *string      `json:"root_comment_id,omitempty"`
+	ReplyToCommentID *string      `json:"reply_to_comment_id,omitempty"`
+	PublishedAt      *time.Time   `json:"published_at,omitempty"`
+	Images           []wish.Image `json:"images,omitempty"`
+	Body             string       `json:"body"`
+	Author           string       `json:"author"`
+	Notice           string       `json:"notice"`
 }
 
 // AdminContentDetail 提供故事链路或分页评论以及当前可导出状态。
 type AdminContentDetail struct {
 	AdminContentSummary
-	Original     *AdminPublicationText  `json:"original"`
-	Story        *AdminPublicationText  `json:"story"`
-	Comments     []AdminPublicationText `json:"comments"`
-	CommentsMore bool                   `json:"comments_more"`
-	Exportable   bool                   `json:"exportable"`
+	ApplicationCount int64                  `json:"application_count"`
+	CommentCount     int64                  `json:"comment_count"`
+	ViewCount        int64                  `json:"view_count"`
+	ExpiresAt        *time.Time             `json:"expires_at"`
+	FirstPublishedAt *time.Time             `json:"first_published_at"`
+	Original         *AdminPublicationText  `json:"original"`
+	Story            *AdminPublicationText  `json:"story"`
+	Comments         []AdminPublicationText `json:"comments"`
+	CommentsMore     bool                   `json:"comments_more"`
+	Exportable       bool                   `json:"exportable"`
 }
 
 type contentPublication struct {
@@ -120,9 +131,12 @@ func (s *AdminContent) publication(ctx context.Context, db *gorm.DB, now time.Ti
 			return out, e
 		}
 		out.title = original.Title
-		out.original = &AdminPublicationText{Body: original.Body, Notice: original.NoticeText}
+		for i := range original.Images {
+			original.Images[i].URL = "/api/v1/admin/wish-images/" + original.Images[i].ID + "?wish_id=" + id
+		}
+		out.original = &AdminPublicationText{Body: original.Body, Notice: original.NoticeText, Images: original.Images}
 		if story != nil {
-			out.story = &AdminPublicationText{Body: story.Body, Notice: story.NoticeText}
+			out.story = &AdminPublicationText{Body: story.Body, Notice: story.NoticeText, Images: story.Images}
 		}
 		return out, nil
 	}
@@ -205,7 +219,7 @@ func publicationMatches(p contentPublication, keyword string) bool {
 // Detail 返回后台元数据和经过公开资格检查的素材。评论页从零开始。
 func (s *AdminContent) Detail(ctx context.Context, token, rid, id string, page int) (out AdminContentDetail, err error) {
 	defer s.review.done("admin_content."+s.kind()+".detail", rid, time.Now(), &err)
-	if !validID(id) || page < 0 || page >= 1000 || s.wishes != nil && page != 0 {
+	if !validID(id) || page < 0 || page >= 1000 {
 		return out, command.ErrInvalid
 	}
 	err = s.review.transaction(ctx, func(db *gorm.DB) error {
@@ -230,7 +244,18 @@ func (s *AdminContent) Detail(ctx context.Context, token, rid, id string, page i
 			Comments:            []AdminPublicationText{},
 			Exportable:          s.exportable(p),
 		}
-		if s.whisper != nil && p.original != nil {
+		if s.wishes != nil {
+			metadata, e := s.wishes.ReadAdminMetadata(ctx, db, now, id)
+			if e != nil {
+				return e
+			}
+			out.ApplicationCount = metadata.ApplicationCount
+			out.CommentCount = metadata.CommentCount
+			out.ViewCount = metadata.ViewCount
+			out.ExpiresAt = metadata.ExpiresAt
+			out.FirstPublishedAt = metadata.FirstPublishedAt
+		}
+		if p.original != nil {
 			const commentsPageSize = 30
 			out.Comments, out.CommentsMore, e = s.comments(ctx, db, now, id, page*commentsPageSize, commentsPageSize)
 			return e
@@ -241,13 +266,26 @@ func (s *AdminContent) Detail(ctx context.Context, token, rid, id string, page i
 }
 
 func (s *AdminContent) comments(ctx context.Context, db *gorm.DB, now time.Time, id string, offset, limit int) (items []AdminPublicationText, more bool, err error) {
+	if s.wishes != nil {
+		rows, more, e := s.wishes.ReadPublicationComments(ctx, db, now, id, offset, limit)
+		if e != nil {
+			return nil, false, e
+		}
+		items = make([]AdminPublicationText, 0, len(rows))
+		for _, row := range rows {
+			if row.Body != nil {
+				items = append(items, AdminPublicationText{ID: row.ID, Kind: row.Kind, RootCommentID: row.RootCommentID, ReplyToCommentID: row.ReplyToCommentID, PublishedAt: row.PublishedAt, Body: *row.Body, Author: row.Identity.Label})
+			}
+		}
+		return items, more, nil
+	}
 	rows, more, e := s.whisper.ReadPublicationComments(ctx, db, now, id, offset, limit)
 	if e != nil {
 		return nil, false, e
 	}
 	items = make([]AdminPublicationText, 0, len(rows))
 	for _, row := range rows {
-		item := AdminPublicationText{Body: row.Body, Author: row.Identity.Label}
+		item := AdminPublicationText{ID: row.ID, Kind: "comment", RootCommentID: row.RootCommentID, ReplyToCommentID: row.ReplyToCommentID, Body: row.Body, Author: row.Identity.Label}
 		if row.NoticeText != nil {
 			item.Notice = *row.NoticeText
 		}

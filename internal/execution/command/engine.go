@@ -126,6 +126,7 @@ func requestHash(d Definition, input Input) ([]byte, error) {
 				EvidenceCase,
 				WhisperPost,
 				WhisperComment,
+				WishComment,
 				WhisperNickname,
 				WhisperCapsule,
 			}, check.Target.Kind) {

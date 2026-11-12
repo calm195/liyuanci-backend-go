@@ -25,8 +25,9 @@ import (
 
 // Config 要求独立回执密钥、清理预算及有限匿名回执保留期。
 type Config struct {
-	AvatarObjects   AvatarObjects
-	ResourceObjects ResourceObjects
+	WishImageObjects WishImageObjects
+	AvatarObjects    AvatarObjects
+	ResourceObjects  ResourceObjects
 	// Redactor 缺失时涉及幸存内容的清理保持processing，禁止直接保留可能指认注销人的旧原稿。
 	Redactor   Redactor
 	Command    command.Config

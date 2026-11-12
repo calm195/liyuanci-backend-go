@@ -3,12 +3,15 @@ package safety
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/chat"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
@@ -30,6 +33,12 @@ func (s *Service) caseBody(ctx context.Context, db *gorm.DB, c entity.ContentReg
 		return "", nil
 	}
 	switch c.Kind {
+	case "wish_comment":
+		body, e := wish.ReadPublicCommentBody(ctx, db, time.Now().UTC(), c.EntityID)
+		if errors.Is(e, command.ErrNotFound) {
+			return "", nil
+		}
+		return body, e
 	case "wish", "story":
 		if e = db.Model(&entity.Wish{}).Where("id=? AND draft_deleted_at IS NULL", c.EntityID).Count(&n).Error; e != nil {
 			return "", e

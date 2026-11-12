@@ -46,7 +46,18 @@ func RegisterWhisperInteractions(r *gin.Engine, s WhisperInteractions) error {
 				return
 			}
 			if list {
+				root := c.Query("root_comment_id")
+				if values, exists := c.Request.URL.Query()["root_comment_id"]; exists && (len(values) != 1 || root == "" || op != "public_comments" || !whisper.ValidID(root)) {
+					whisperError(c, command.ErrInvalid)
+					return
+				}
+				values := c.Request.URL.Query()
+				values.Del("root_comment_id")
+				original := c.Request.URL.RawQuery
+				c.Request.URL.RawQuery = values.Encode()
 				q, err := whisperQuery(c)
+				c.Request.URL.RawQuery = original
+				q.RootCommentID = root
 				e = err
 				if e == nil {
 					if op == "notifications" {
@@ -146,13 +157,13 @@ func RegisterWhisperInteractions(r *gin.Engine, s WhisperInteractions) error {
 }
 
 func decodeWhisperComment(data []byte, update bool) (out whisper.CommentInput, err error) {
-	keys := []string{"expected_post_version", "expected_comments_epoch", "body", "identity"}
+	keys := []string{"expected_post_version", "expected_comments_epoch", "body", "identity", "root_comment_id", "reply_to_comment_id"}
 	if update {
 		keys = append(keys, "expected_version")
 	}
-	fields, e := whisperObject(data, keys)
-	if e != nil {
-		return out, e
+	fields, e := wishObject(data, keys)
+	if e != nil || !strictWhisperUnicode(data) {
+		return out, command.ErrInvalid
 	}
 	if json.Unmarshal(fields["expected_post_version"], &out.ExpectedPostVersion) != nil || out.ExpectedPostVersion < 1 ||
 		json.Unmarshal(fields["expected_comments_epoch"], &out.ExpectedCommentsEpoch) != nil ||
@@ -161,6 +172,16 @@ func decodeWhisperComment(data []byte, update bool) (out whisper.CommentInput, e
 	}
 	if update && (json.Unmarshal(fields["expected_version"], &out.ExpectedVersion) != nil || out.ExpectedVersion < 1) {
 		return out, command.ErrInvalid
+	}
+	for _, item := range []struct {
+		key    string
+		target **string
+	}{{"root_comment_id", &out.RootCommentID}, {"reply_to_comment_id", &out.ReplyToCommentID}} {
+		if raw, ok := fields[item.key]; ok {
+			if json.Unmarshal(raw, item.target) != nil || *item.target != nil && !whisper.ValidID(**item.target) {
+				return out, command.ErrInvalid
+			}
+		}
 	}
 	b, _ := json.Marshal(map[string]json.RawMessage{"body": fields["body"], "identity": fields["identity"]})
 	post, e := decodeWhisperPost(b, "create")

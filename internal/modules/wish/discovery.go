@@ -2,11 +2,14 @@ package wish
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
+	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
@@ -91,7 +94,7 @@ func (s *Service) discoverWishes(ctx context.Context, rid string, q Query, weekl
 		if e != nil {
 			return PublicContent{}, e
 		}
-		out, e := s.publicContent(rid, now, a)
+		out, e := s.publicContent(ctx, rid, now, a)
 		if e == nil {
 			state, readErr := readSupport(db, id, actor)
 			out.Support, e = &state, readErr
@@ -175,6 +178,9 @@ func (s *Service) discover(ctx context.Context, scope, key string, q Query, week
 		if e != nil {
 			return e
 		}
+		if e = s.enrichWishMetadata(ctx, db, items, actor, now); e != nil {
+			return e
+		}
 		out.Items = items
 		if next.ID != "" && !weekly {
 			encoded := s.encodeCursor(pageCursor{Scope: scope, ID: next.ID, PublishedAt: next.At, Score: next.Score})
@@ -204,9 +210,35 @@ func (s *Service) recordWishDetailView(ctx context.Context, rid, id string, vers
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
 	defer cancel()
-	err := s.db.WithContext(ctx).Exec(`INSERT INTO public.wish_detail_views(wish_id,viewed_at)
-		SELECT id,clock_timestamp() FROM public.wishes
-		WHERE id=? AND current_content_version=? AND state='published'
-		  AND draft_deleted_at IS NULL AND expires_at>clock_timestamp()`, id, version).Error
+	err := s.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
+		var parent entity.Wish
+		if e := db.Select("id,owner_id").Where("id=?", id).Take(&parent).Error; errors.Is(e, gorm.ErrRecordNotFound) {
+			return nil
+		} else if e != nil {
+			return e
+		}
+		// 与显式浏览事件共享父账号及心愿锁，注销/下架后旧GET不能重建已清理的统计。
+		guard, e := command.LockPlan(ctx, db, command.Discovery{
+			Accounts: []string{parent.OwnerID}, Resources: []command.Resource{{Kind: command.Wish, ID: id}},
+		}, s.config.Command.LockTimeout)
+		if e != nil {
+			return e
+		}
+		current, e := s.ReadInteractionContent(ctx, db, guard.Now(), id)
+		if errors.Is(e, command.ErrNotFound) {
+			return nil
+		} else if e != nil {
+			return e
+		}
+		if current.ContentVersion != version {
+			return nil
+		}
+		if !identitySupported(ctx) {
+			if e := contentquery.RecordView(ctx, db, "wish", id, uuid.NewString(), guard.Now()); e != nil {
+				return e
+			}
+		}
+		return db.Exec("INSERT INTO public.wish_detail_views(wish_id,viewed_at) VALUES(?,clock_timestamp())", id).Error
+	})
 	s.queryDone("wish.view", rid, start, &err)
 }

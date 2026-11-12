@@ -65,6 +65,9 @@ func capturable(row current) bool {
 		row.task.Status == "cancelled" {
 		return false
 	}
+	if row.comment != nil && (row.comment.Status == "withdrawn" || row.comment.Status == "cancelled") {
+		return false
+	}
 	if row.message != nil && row.message.Status == "cancelled" {
 		return false
 	}
@@ -178,6 +181,11 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 	}
 	// 清除所有公开投影；已送达消息序号保留，由当前危机限制屏蔽正文。
 	switch row.registry.Kind {
+	case "wish_comment":
+		if e = db.Model(&entity.WishCommentVersion{}).Where("comment_id=?", row.comment.ID).Update("public_body", nil).Error; e != nil {
+			return "", e
+		}
+		e = db.Model(&entity.WishComment{}).Where("id=?", row.comment.ID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error
 	case "wish":
 		if e = db.Model(&entity.WishVersion{}).Where(
 			"wish_id=? AND content_version=?",
@@ -204,7 +212,7 @@ func captureCrisis(ctx context.Context, db *gorm.DB, codec *securedata.Codec, ro
 }
 
 func crisisRow(db *gorm.DB, id string) (c entity.EvidenceCrisisCase, err error) {
-	err = db.Where("id=? AND content_type IN ('wish','application','message','story')", id).Take(&c).Error
+	err = db.Where("id=? AND content_type IN ('wish','wish_comment','application','message','story')", id).Take(&c).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = command.ErrNotFound
 	}

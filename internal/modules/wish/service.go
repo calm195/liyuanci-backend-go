@@ -38,6 +38,10 @@ type CreatedDraft struct {
 
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
+	imageObjects   ImageObjects
+	imageScanner   ImageScanner
+	avatarReader   AvatarReader
+	imageSlots     chan struct{}
 	candidateCache contentquery.CandidateCache
 	shareCodes     ShareCodes
 	db             *gorm.DB
@@ -62,6 +66,7 @@ func NewService(db *gorm.DB, logger *zap.Logger, codec *securedata.Codec, grades
 		return nil, err
 	}
 	return &Service{
+		imageSlots: make(chan struct{}, 2),
 		db:         db.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}),
 		config:     cfg,
 		engine:     engine,
@@ -156,6 +161,9 @@ func (s *Service) Create(ctx context.Context, token, key, requestID string, inpu
 			return "", command.ErrInternal
 		}
 		if failure = createDraftRows(ctx, tx.DB(), tx.Now(), id, registryID, tx.Actor().ID, plan, cipher); failure != nil {
+			return "", failure
+		}
+		if failure = bindWishImages(ctx, tx.DB(), id, 1, tx.Actor().ID, plan.Content.ImageIDs); failure != nil {
 			return "", failure
 		}
 		return id, nil

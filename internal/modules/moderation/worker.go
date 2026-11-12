@@ -95,6 +95,7 @@ func NewWorker(db *gorm.DB, log *zap.Logger, codec *securedata.Codec, analyzer A
 }
 
 type rules struct {
+	customRules                                   map[string][]WordlistRule
 	crisis, school, ordinary, builtin             entity.WordlistVersion
 	builtinEntries                                []builtinRule
 	matcher                                       *wordlistMatchers
@@ -150,6 +151,13 @@ func readCachedRules(db *gorm.DB, cache *wordlistCache) (out rules, err error) {
 			return
 		}
 	}
+	out.customRules = map[string][]WordlistRule{}
+	for _, item := range []struct{ kind, id string }{{"crisis", out.crisis.ID}, {"school", out.school.ID}, {"ordinary_violation", out.ordinary.ID}} {
+		out.customRules[item.kind], err = readCustomRules(db, item.id)
+		if err != nil {
+			return
+		}
+	}
 	if out.builtin.ID != "" {
 		out.builtinEntries, err = builtinRules(db, out.builtin.ID)
 	}
@@ -176,6 +184,10 @@ func candidateBody(row current, body string) bool {
 }
 
 func decryptContent(ctx context.Context, codec *securedata.Codec, row current) (out wish.Content, err error) {
+	if row.comment != nil {
+		out.Body, err = wish.DecryptWishComment(ctx, codec, row.commentVersion)
+		return
+	}
 	if row.story != nil {
 		out.Body, err = wish.DecryptStory(ctx, codec, *row.story)
 		return
@@ -384,7 +396,7 @@ func (w *Worker) analyzeScan(ctx context.Context, source current, snapshot rules
 		return nil, nil, durable.ErrTemporary
 	}
 	evidence.add("body", a.wordlistEvaluation)
-	if source.application == nil && source.message == nil && source.story == nil {
+	if source.application == nil && source.message == nil && source.story == nil && source.comment == nil {
 		for _, field := range []struct {
 			value  string
 			name   string
@@ -524,6 +536,11 @@ func (w *Worker) applyScan(ctx context.Context, tx *command.Tx, work durable.Wor
 		}).Error; e != nil {
 		return "", e
 	}
+	if status == "approved" && row.story == nil && row.application == nil && row.message == nil && row.comment == nil {
+		if _, e = wish.ApplyApprovedPublication(ctx, db, row.wish.ID, row.task.ContentVersion); e != nil {
+			return "", e
+		}
+	}
 	return durable.Complete, nil
 }
 
@@ -585,6 +602,9 @@ LIMIT 1`, contentreview.Route().Kind, contentreview.Route().TargetKind, contentr
 // cancelObsoleteScan 清理失效目标；故事和私聊仅在资格失效时取消。
 // 应愿留言在版本过期或任务终态时也沿用取消语义，不能只按资格判断。
 func cancelObsoleteScan(ctx context.Context, db *gorm.DB, row current, isEligible bool) error {
+	if row.comment != nil && !isEligible {
+		return db.Model(&entity.WishComment{}).Where("id=? AND status IN('pending_scan','pending_review')", row.comment.ID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error
+	}
 	if row.story != nil && !isEligible {
 		if e := db.Model(&entity.StoryVersion{}).
 			Where("wish_id=? AND story_version=? AND moderation_status IN ?", row.wish.ID, row.story.StoryVersion, []string{"pending", "human_required"}).
@@ -620,7 +640,7 @@ func writeScanDetection(ctx context.Context, db *gorm.DB, row current, scan *ent
 	if row.story != nil {
 		models = append(models, &entity.StoryVersion{})
 	}
-	if row.application == nil && row.message == nil && row.story == nil {
+	if row.application == nil && row.message == nil && row.story == nil && row.comment == nil {
 		models = append(models, &entity.WishVersion{})
 	}
 	for _, model := range models {
@@ -648,7 +668,7 @@ func writeScanDetection(ctx context.Context, db *gorm.DB, row current, scan *ent
 			return e
 		}
 	}
-	if row.application == nil && row.message == nil && row.story == nil {
+	if row.application == nil && row.message == nil && row.story == nil && row.comment == nil {
 		if e := db.Model(&entity.WishVersion{}).
 			Where("wish_id=? AND content_version=?", row.wish.ID, row.task.ContentVersion).
 			Update("wordlist_version", scan.OrdinaryVersion).Error; e != nil {
@@ -660,6 +680,9 @@ func writeScanDetection(ctx context.Context, db *gorm.DB, row current, scan *ent
 
 // markScanHumanRequired 将不同内容目标投影到各自的人工待审状态。
 func markScanHumanRequired(ctx context.Context, db *gorm.DB, row current) error {
+	if row.comment != nil {
+		return db.WithContext(ctx).Model(&entity.WishComment{}).Where("id=?", row.comment.ID).Updates(map[string]any{"status": "pending_review", "version": gorm.Expr("version+1")}).Error
+	}
 	db = db.WithContext(ctx)
 	if row.story != nil {
 		if e := db.Model(&entity.StoryVersion{}).

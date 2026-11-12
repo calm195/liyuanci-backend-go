@@ -20,13 +20,13 @@ const (
 	PendingReview State = "pending_review"
 	// Rejected 表示内容审核驳回。
 	Rejected State = "rejected"
-	// Ready 表示内容通过但尚未上架，不占活跃额度。
+	// Ready 表示内容通过但尚未上架，供历史手动发布兼容。
 	Ready State = "ready"
 	// Published 表示已上架，仍须实时核验截止时间。
 	Published State = "published"
 	// Matching 表示应愿中，不因原截止时间自动结束。
 	Matching State = "matching"
-	// Realized 表示已实现、等待还愿，不占活跃额度。
+	// Realized 表示已实现、等待还愿。
 	Realized State = "realized"
 	// Fulfilled 表示已提交还愿故事，故事公开资格需独立审核。
 	Fulfilled State = "fulfilled"
@@ -51,6 +51,8 @@ type Review struct {
 
 // Snapshot 必须由调用方在持锁事务内读取，公开查询也须使用当前数据库快照。
 type Snapshot struct {
+	FirstPublishedAt *time.Time
+	PublishIntent    bool
 	State            State
 	Version          int64
 	ContentVersion   int64
@@ -81,7 +83,7 @@ const (
 	Edit Action = "edit"
 	// SubmitReview 显式提交指定内容版本。
 	SubmitReview Action = "submit_review"
-	// Publish 尝试上架，可能因额度或时间得到待上架或过期结果。
+	// Publish 尝试上架，截止已过时返回过期结果。
 	Publish Action = "publish"
 	// Withdraw 主动撤下当前有效的上架心愿。
 	Withdraw Action = "withdraw"
@@ -91,6 +93,7 @@ const (
 
 // Change 不携带正文；编辑前必须先用 ValidateContent 验证完整内容。
 type Change struct {
+	PublishIntent          bool
 	Action                 Action
 	ExpectedVersion        int64
 	ExpectedContentVersion int64
@@ -120,7 +123,7 @@ func validSnapshot(s Snapshot) bool {
 		s.Version < 1 ||
 		s.ContentVersion < 1 ||
 		s.DurationDays < 1 ||
-		s.DurationDays > 30 ||
+		s.DurationDays > 90 ||
 		s.RestrictionEpoch < 1 ||
 		s.HoldEpoch < 0 {
 		return false
@@ -153,6 +156,10 @@ func manageable(e Eligibility, s Snapshot, a Action) bool {
 }
 
 func cloneSnapshot(s Snapshot) Snapshot {
+	if s.FirstPublishedAt != nil {
+		value := *s.FirstPublishedAt
+		s.FirstPublishedAt = &value
+	}
 	if s.ExpiresAt != nil {
 		value := *s.ExpiresAt
 		s.ExpiresAt = &value
@@ -169,7 +176,8 @@ func cloneSnapshot(s Snapshot) Snapshot {
 	return s
 }
 
-// Plan 使用数据库时间和账号 guard 下的额度，返回需与版本/审核/申请失效一起原子提交的变更。
+// Plan 使用数据库时间，返回需与版本、审核及申请失效一起原子提交的变更。
+// activeCount 保留内部调用兼容，心愿数量不再限制发布与回退。
 // 本方法不持锁、不写库、不授权本人；调用方必须先经过统一命令引擎的当前身份和所有权复核。
 func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, current Snapshot, activeCount int, change Change) (out Transition, err error) {
 	start := time.Now()
@@ -198,13 +206,14 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 			!(current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State)) {
 			return out, command.ErrConflict
 		}
-		if change.DurationDays < 1 || change.DurationDays > 30 {
+		if change.DurationDays < 1 || change.DurationDays > 90 {
 			return out, command.ErrInvalid
 		}
 		if current.ContentVersion == math.MaxInt64 {
 			return out, command.ErrConflict
 		}
 		// 修改先回草稿并使旧审核失效，随后需显式提交；仅刷新期限同样不能沿用批准。
+		out.Next.PublishIntent = false
 		out.Next.State = Draft
 		if current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) {
 			out.Next.State = current.State
@@ -226,6 +235,7 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 		if change.ExpectedContentVersion != current.ContentVersion {
 			return out, command.ErrVersionConflict
 		}
+		out.Next.PublishIntent = change.PublishIntent
 		out.Next.State = PendingReview
 		if current.PrivacyHeld && slices.Contains([]State{Matching, Realized, Fulfilled}, current.State) {
 			out.Next.State = current.State
@@ -237,25 +247,29 @@ func (p *Policy) Plan(requestID string, now time.Time, owner Eligibility, curren
 		if current.State != Ready || !reviewReady(current) {
 			return out, command.ErrConflict
 		}
-		// 先判到期，后判额度。满额不设置首次截止时间，也不提前消耗待刷新选择。
+		// 首次发布或显式刷新才开始新的有效期，普通改稿保持既有截止时间。
 		if !current.RefreshOnPublish && current.ExpiresAt != nil && !now.Before(*current.ExpiresAt) {
 			out.Next.State = Expired
-		} else if activeCount >= 3 {
-			out.Next.State = Ready
 		} else {
 			out.Next.State = Published
 			if current.ExpiresAt == nil || current.RefreshOnPublish {
 				deadline := now.Add(time.Duration(current.DurationDays) * 24 * time.Hour)
 				out.Next.ExpiresAt = &deadline
 			}
+			if current.PublishedAt == nil && current.FirstPublishedAt == nil {
+				out.Next.FirstPublishedAt = &now
+			}
 			out.Next.PublishedAt = &now
+			out.Next.PublishIntent = false
 			out.Next.RefreshOnPublish = false
 		}
 	case Withdraw:
-		if current.State != Published || !now.Before(*current.ExpiresAt) {
+		if current.State != PendingReview && current.State != Ready && (current.State != Published || !now.Before(*current.ExpiresAt)) {
 			return out, command.ErrConflict
 		}
 		out.Next.State = Withdrawn
+		out.Next.PublishIntent = false
+		out.InvalidateReview = current.State == PendingReview
 		out.InvalidateApplications = true
 	case DeleteDraft:
 		if current.State != Draft {

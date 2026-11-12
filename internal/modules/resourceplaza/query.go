@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
@@ -76,6 +77,9 @@ func (s *Service) Read(ctx context.Context, token, rid, op, id string, q Query, 
 		}
 		stats, e := summaries(db, []entity.ResourceMaterial{r})
 		if e != nil {
+			return e
+		}
+		if e = addInteractionStats(ctx, db, []entity.ResourceMaterial{r}, stats, a.ID); e != nil {
 			return e
 		}
 		out, e = s.project(db, a, r, true, stats, nil)
@@ -175,6 +179,9 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 	if e != nil {
 		return out, e
 	}
+	if e = addInteractionStats(ctx, db, rows, stats, a.ID); e != nil {
+		return out, e
+	}
 	categoryIDs := []string{}
 	for _, r := range rows {
 		categoryIDs = append(categoryIDs, r.CategoryID)
@@ -199,4 +206,24 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 	}
 	out = map[string]any{"items": items, "next_cursor": next}
 	return out, nil
+}
+
+// addInteractionStats 将当前页浏览与本人收藏批量装配到已存在的摘要容器。
+func addInteractionStats(ctx context.Context, db *gorm.DB, rows []entity.ResourceMaterial, stats map[string]map[string]any, actor string) error {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	values, e := contentquery.ReadStats(ctx, db, "resource", ids, actor)
+	if e != nil {
+		return e
+	}
+	for _, row := range rows {
+		if stats[row.ID] == nil {
+			stats[row.ID] = map[string]any{}
+		}
+		stats[row.ID]["view_count"] = values[row.ID].ViewCount
+		stats[row.ID]["favorited"] = values[row.ID].Favorited
+	}
+	return nil
 }

@@ -23,8 +23,19 @@ import (
 
 // Result 按当前权限选择互斥的本人或公开视图；从不回退到旧版本正文。
 type Result struct {
-	Support                *Support `json:"support,omitempty"`
-	UnreadApplicationCount int      `json:"unread_application_count,omitempty"`
+	IsOwner                bool       `json:"is_owner"`
+	Images                 []Image    `json:"images"`
+	FirstPublishedAt       *time.Time `json:"first_published_at"`
+	PublishedAt            *time.Time `json:"published_at"`
+	ApplicationCount       int64      `json:"application_count"`
+	CommentCount           int64      `json:"comment_count"`
+	SupplementCount        int64      `json:"supplement_count"`
+	ViewCount              int64      `json:"view_count"`
+	Favorited              bool       `json:"favorited"`
+	CommentsOpen           bool       `json:"comments_open"`
+	CommentsEpoch          int64      `json:"comments_epoch"`
+	Support                *Support   `json:"support,omitempty"`
+	UnreadApplicationCount int        `json:"unread_application_count,omitempty"`
 	// PeerDeleted只提供通用提示，不返回原应愿人的账号或身份。
 	PeerDeleted           bool                  `json:"peer_deleted,omitempty"`
 	StoryReviewResult     *contentreview.Result `json:"story_review_result,omitempty"`
@@ -44,13 +55,29 @@ type Result struct {
 
 // PublicAuthor 仅含公开账号标识、昵称和当前允许的已审标签。
 type PublicAuthor struct {
-	ID           string       `json:"id"`
-	Nickname     string       `json:"nickname"`
-	IdentityTags IdentityTags `json:"identity_tags"`
+	DisplayID        string       `json:"display_id"`
+	AvatarURL        string       `json:"avatar_url"`
+	ProfileAvailable bool         `json:"profile_available"`
+	ID               string       `json:"id"`
+	Nickname         string       `json:"nickname"`
+	IdentityTags     IdentityTags `json:"identity_tags"`
 }
 
 // PublicContent 只组合当前已审投影和公开元数据，不包含作者私有身份或原始密文。
 type PublicContent struct {
+	OwnerID          string     `json:"-"`
+	IdentityMode     string     `json:"identity_mode"`
+	IsOwner          bool       `json:"is_owner"`
+	Images           []Image    `json:"images"`
+	FirstPublishedAt *time.Time `json:"first_published_at"`
+	PublishedAt      *time.Time `json:"published_at"`
+	ApplicationCount int64      `json:"application_count"`
+	CommentCount     int64      `json:"comment_count"`
+	SupplementCount  int64      `json:"supplement_count"`
+	ViewCount        int64      `json:"view_count"`
+	Favorited        bool       `json:"favorited"`
+	CommentsOpen     bool       `json:"comments_open"`
+	CommentsEpoch    int64      `json:"comments_epoch"`
 	*Support
 	HeatScore      int64        `json:"-"`
 	Title          string       `json:"title"`
@@ -224,7 +251,10 @@ func (s *Service) queryDone(operation, rid string, start time.Time, err *error) 
 	s.policy.finish("心愿查询操作完成", operation, rid, start, *err)
 }
 
-func (s *Service) publicContent(rid string, now time.Time, a aggregate) (out PublicContent, err error) {
+func (s *Service) publicContent(ctx context.Context, rid string, now time.Time, a aggregate) (out PublicContent, err error) {
+	if a.row.IdentityMode == "semi" && !identitySupported(ctx) {
+		return out, command.ErrNotFound
+	}
 	p, e := s.policy.Public(rid, now, a.owner, a.snapshot)
 	if e != nil {
 		return out, e
@@ -244,13 +274,14 @@ func (s *Service) publicContent(rid string, now time.Time, a aggregate) (out Pub
 		SchoolRelated:  *a.snapshot.Review.SchoolRelated,
 		NoticeCodes:    p.NoticeCodes,
 		NoticeText:     p.NoticeText,
-		Author:         PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname, IdentityTags: p.IdentityTags},
-		Category:       a.row.Category,
-		Campus:         a.row.Campus,
-		RewardMethod:   a.content.RewardMethod,
-		Title:          publicTitle(a.content),
-		RewardText:     publicReward(a.content),
-		ExpiresAt:      a.row.ExpiresAt,
+		Author:         s.publicAuthor(ctx, a, p.IdentityTags),
+		OwnerID:        a.row.OwnerID, IdentityMode: a.row.IdentityMode, Images: a.images, FirstPublishedAt: a.row.FirstPublishedAt, PublishedAt: a.row.PublishedAt, CommentsOpen: a.row.CommentsOpen, CommentsEpoch: a.row.CommentsEpoch,
+		Category:     a.row.Category,
+		Campus:       a.row.Campus,
+		RewardMethod: a.content.RewardMethod,
+		Title:        publicTitle(a.content),
+		RewardText:   publicReward(a.content),
+		ExpiresAt:    a.row.ExpiresAt,
 	}, nil
 }
 
@@ -342,7 +373,12 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 		if json.Unmarshal(plain, &c) != nil {
 			return Result{}, command.ErrUnavailable
 		}
+		out.IsOwner = true
+		out.Images = a.images
+		out.FirstPublishedAt = a.row.FirstPublishedAt
+		out.PublishedAt = a.row.PublishedAt
 		out.OwnContent = &ContentInput{
+			ImageIDs: c.ImageIDs, IdentityMode: a.row.IdentityMode,
 			Category:     c.Category,
 			Title:        contentTitle(c.Title),
 			RewardText:   c.RewardText,
@@ -397,18 +433,7 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 				if e != nil {
 					return Result{}, e
 				}
-				capacity := true
-				if a.snapshot.State == Realized {
-					var n int64
-					if e := db.WithContext(ctx).Model(&entity.Wish{}).Where(
-						"owner_id=? AND draft_deleted_at IS NULL AND (state='matching' OR (state='published' AND expires_at>?))",
-						a.row.OwnerID,
-						now,
-					).Count(&n).Error; e != nil {
-						return Result{}, e
-					}
-					capacity = n < 3
-				}
+
 				if ok && !denied && s.config.MaxStoryBytes > 0 {
 					if a.snapshot.State == Matching {
 						out.AllowedActions = append(out.AllowedActions, "postWishesIdComplete")
@@ -417,7 +442,7 @@ func (s *Service) ownResult(ctx context.Context, db *gorm.DB, rid string, now ti
 						out.AllowedActions = append(out.AllowedActions, "postWishesIdStories")
 					}
 				}
-				if ok && !denied && capacity {
+				if ok && !denied {
 					out.AllowedActions = append(out.AllowedActions, "postWishesIdRollback")
 				}
 			}
@@ -451,7 +476,7 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 		return out, command.ErrInvalid
 	}
 	publicView := false
-	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) error {
+	err = s.readTransaction(ctx, func(db *gorm.DB, now time.Time) (failure error) {
 		actor := ""
 		if token != "" {
 			var e error
@@ -460,6 +485,11 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 				return e
 			}
 		}
+		defer func() {
+			if failure == nil {
+				failure = s.enrichResults(ctx, db, []*Result{&out}, actor, now)
+			}
+		}()
 		a, e := readAggregate(ctx, db, id, false)
 		if e != nil {
 			return e
@@ -467,7 +497,7 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 		if actor == a.row.OwnerID {
 			out, e = s.ownResult(ctx, db, rid, now, a)
 			if e == nil {
-				_, publicErr := s.publicContent(rid, now, a)
+				_, publicErr := s.publicContent(ctx, rid, now, a)
 				publicView = publicErr == nil
 				if publicView {
 					state, readErr := readSupport(db, id, actor)
@@ -494,13 +524,14 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 					ContentVersion: a.row.CurrentContentVersion,
 					SchoolRelated:  *a.snapshot.Review.SchoolRelated,
 					NoticeCodes:    []string{},
-					Author:         PublicAuthor{ID: a.row.OwnerID, Nickname: a.account.Nickname},
-					Category:       a.row.Category,
-					Campus:         a.row.Campus,
-					RewardMethod:   a.content.RewardMethod,
-					Title:          publicTitle(a.content),
-					RewardText:     publicReward(a.content),
-					ExpiresAt:      a.row.ExpiresAt,
+					Author:         s.publicAuthor(ctx, a, IdentityTags{}),
+					OwnerID:        a.row.OwnerID, IdentityMode: a.row.IdentityMode, Images: a.images, FirstPublishedAt: a.row.FirstPublishedAt, PublishedAt: a.row.PublishedAt, CommentsOpen: a.row.CommentsOpen, CommentsEpoch: a.row.CommentsEpoch,
+					Category:     a.row.Category,
+					Campus:       a.row.Campus,
+					RewardMethod: a.content.RewardMethod,
+					Title:        publicTitle(a.content),
+					RewardText:   publicReward(a.content),
+					ExpiresAt:    a.row.ExpiresAt,
 				}
 				if !a.owner.HideIdentityTags {
 					p.Author.IdentityTags = copyTags(a.snapshot.Review.Tags)
@@ -522,7 +553,7 @@ func (s *Service) detail(ctx context.Context, token, rid, id string, trackView b
 				return nil
 			}
 		}
-		p, e := s.publicContent(rid, now, a)
+		p, e := s.publicContent(ctx, rid, now, a)
 		if e != nil {
 			return command.ErrNotFound
 		}
@@ -639,7 +670,11 @@ func (s *Service) Own(ctx context.Context, token, rid string, q Query) (out OwnP
 			}
 			out.Items = append(out.Items, result)
 		}
-		return nil
+		results := make([]*Result, 0, len(out.Items))
+		for i := range out.Items {
+			results = append(results, &out.Items[i])
+		}
+		return s.enrichResults(ctx, db, results, owner, now)
 	})
 	return out, err
 }

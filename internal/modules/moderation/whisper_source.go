@@ -59,6 +59,23 @@ func whisperPlan(ctx context.Context, db *gorm.DB, id string) (command.Discovery
 		p.Accounts = append(p.Accounts, parent.OwnerID)
 		p.Resources = append(p.Resources, command.Resource{Kind: command.WhisperPost, ID: parent.ID})
 	}
+	if r.registry.Kind == "whisper_comment" {
+		var c entity.WhisperComment
+		if e = db.WithContext(ctx).Select("id,post_id,author_id,content_version,parent_content_version,root_comment_id,reply_to_comment_id").Where("id=?", r.ID).Take(&c).Error; e != nil {
+			return p, e
+		}
+		for _, id := range []*string{c.RootCommentID, c.ReplyToCommentID} {
+			if id == nil {
+				continue
+			}
+			var target entity.WhisperComment
+			if e = db.WithContext(ctx).Select("id,author_id").Where("id=?", *id).Take(&target).Error; e != nil {
+				return p, e
+			}
+			p.Accounts = append(p.Accounts, target.AuthorID)
+			p.Resources = append(p.Resources, command.Resource{Kind: command.WhisperComment, ID: target.ID})
+		}
+	}
 	// 昵称的撤销与公开决定共享同一资源锁，避免批准后立即泄漏旧快照。
 	if r.NicknameVersion != nil {
 		var n entity.WhisperNicknameVersion
@@ -131,7 +148,18 @@ func whisperEligible(ctx context.Context, db *gorm.DB, r whisperSource) (bool, e
 			return false, err
 		}
 		n, e := countCommentableWhisperParent(ctx, db, r)
-		return n == 1, e
+		if e != nil || n != 1 {
+			return false, e
+		}
+		var c entity.WhisperComment
+		if e = db.WithContext(ctx).Select("id,post_id,author_id,content_version,parent_content_version,root_comment_id,reply_to_comment_id").Where("id=?", r.ID).Take(&c).Error; e != nil {
+			return false, e
+		}
+		var now time.Time
+		if e = db.Raw("SELECT clock_timestamp()").Scan(&now).Error; e != nil {
+			return false, e
+		}
+		return whisper.ReplyContextEligible(ctx, db, c, now)
 	}
 	return true, nil
 }

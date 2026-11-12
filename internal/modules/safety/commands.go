@@ -60,7 +60,7 @@ func (s *Service) validate(op, id string, in Input) error {
 			return command.ErrInvalid
 		}
 	case "report":
-		if !validID(in.ID) || !slices.Contains([]string{"wish", "story", "application", "message"}, in.TargetKind) ||
+		if !validID(in.ID) || !slices.Contains([]string{"wish", "wish_comment", "story", "application", "message"}, in.TargetKind) ||
 			!s.text(in.TypeCode, true) ||
 			!s.text(in.Description, false) {
 			return command.ErrInvalid
@@ -74,7 +74,7 @@ func (s *Service) validate(op, id string, in Input) error {
 			return command.ErrInvalid
 		}
 		if op == "offline" || op == "release" {
-			if !slices.Contains([]string{"wish", "story", "application", "message"}, in.TargetKind) || !s.text(in.Reason, true) {
+			if !slices.Contains([]string{"wish", "wish_comment", "story", "application", "message"}, in.TargetKind) || !s.text(in.Reason, true) {
 				return command.ErrInvalid
 			}
 		}
@@ -155,10 +155,11 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 		}
 		o.path = "/api/v1/admin/contents/" + in.TargetKind + "/" + id + "/" + suffix
 		o.resource = map[string]command.ResourceKind{
-			"wish":        command.Wish,
-			"story":       command.Wish,
-			"application": command.Application,
-			"message":     command.Message,
+			"wish_comment": command.WishComment,
+			"wish":         command.Wish,
+			"story":        command.Wish,
+			"application":  command.Application,
+			"message":      command.Message,
 		}[in.TargetKind]
 	}
 	d := command.Definition{

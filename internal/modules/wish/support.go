@@ -61,7 +61,7 @@ func (s *Service) SetSupport(ctx context.Context, token, rid, id string, support
 		if e != nil {
 			return e
 		}
-		if _, e = s.publicContent(rid, now, a); e != nil {
+		if _, e = s.publicContent(ctx, rid, now, a); e != nil {
 			return e
 		}
 		if supported {

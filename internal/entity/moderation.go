@@ -22,13 +22,16 @@ func (WordlistVersion) TableName() string { return "public.wordlist_versions" }
 
 // WordlistEntry 映射 public.wordlist_entries，字段注释描述数据库持久化语义。
 type WordlistEntry struct {
-	UpstreamLabel  string `gorm:"column:upstream_label;type:text;not null;default:'';comment:内置词条上游标签" json:"-"`
-	UpstreamAction string `gorm:"column:upstream_action;type:text;not null;default:'';comment:内置词条上游默认处置" json:"-"`
-	ID             string `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	VersionID      string `gorm:"column:version_id;type:uuid;not null;comment:所属词库版本" json:"-"`
-	Entry          string `gorm:"column:entry;type:text;not null;comment:规则词条，非用户输入" json:"-"`
-	Action         string `gorm:"column:action;type:text;not null;comment:命中后的稳定动作码，运营规则交付后验证" json:"-"`
-	Disabled       bool   `gorm:"column:disabled;not null;default:false;comment:是否从该版本的扫描规则中停用" json:"-"`
+	Category       string          `gorm:"column:category;not null;default:'';comment:运营分类，不改变审核路由" json:"-"`
+	Aliases        json.RawMessage `gorm:"column:aliases;type:jsonb;not null;default:'[]';comment:明确配置的拼音缩写和词条变体" json:"-"`
+	MatchMode      string          `gorm:"column:match_mode;not null;default:'contains';comment:包含匹配或词边界匹配" json:"-"`
+	UpstreamLabel  string          `gorm:"column:upstream_label;type:text;not null;default:'';comment:内置词条上游标签" json:"-"`
+	UpstreamAction string          `gorm:"column:upstream_action;type:text;not null;default:'';comment:内置词条上游默认处置" json:"-"`
+	ID             string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	VersionID      string          `gorm:"column:version_id;type:uuid;not null;comment:所属词库版本" json:"-"`
+	Entry          string          `gorm:"column:entry;type:text;not null;comment:规则词条，非用户输入" json:"-"`
+	Action         string          `gorm:"column:action;type:text;not null;comment:命中后的稳定动作码，运营规则交付后验证" json:"-"`
+	Disabled       bool            `gorm:"column:disabled;not null;default:false;comment:是否从该版本的扫描规则中停用" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。

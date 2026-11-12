@@ -304,6 +304,46 @@ func TestPrivacyDeletion(t *testing.T) {
 		}
 		return out
 	}
+
+	t.Run("评论根作者注销清理收藏并脱敏幸存回复", func(t *testing.T) {
+		_, ownerToken := student()
+		author, authorToken := student()
+		peer, peerToken := student()
+		w := published(ownerToken)
+		in := wish.CommentInput{Body: "根评论", ExpectedPostVersion: w.Version, ExpectedCommentsEpoch: 1}
+		first, e := wishes.SaveComment(ctx, authorToken, uuid.NewString(), "", w.ID, "", in)
+		must(e)
+		scan("wish_comment", first.ID)
+		in.Body = "合成个人姓名 的回复"
+		in.RootCommentID = &first.ID
+		in.ReplyToCommentID = &first.ID
+		reply, e := wishes.SaveComment(ctx, peerToken, uuid.NewString(), "", w.ID, "", in)
+		must(e)
+		scan("wish_comment", reply.ID)
+		for _, id := range []string{author, peer} {
+			must(root.Create(&entity.ContentFavorite{AccountID: id, TargetKind: "wish", TargetID: w.ID, CreatedAt: time.Now()}).Error)
+		}
+		request(authorToken)
+		own, e := wishes.GetComment(ctx, peerToken, "", reply.ID)
+		must(e)
+		if own.Body != nil {
+			t.Fatal("注销受理后幸存回复泄漏原文")
+		}
+		drain("account", service)
+		if count(root, "public.accounts", "id=?", author) != 0 || count(root, "public.wish_comments", "id=?", first.ID) != 0 || count(root, "public.content_favorites", "account_id=?", author) != 0 {
+			t.Fatal("注销关系或收藏残留")
+		}
+		if count(root, "public.content_favorites", "account_id=?", peer) != 1 || count(root, "public.wish_comments", "id=?", reply.ID) != 1 {
+			t.Fatal("误删幸存用户数据")
+		}
+		var v entity.WishCommentVersion
+		must(root.Where("comment_id=?", reply.ID).Take(&v).Error)
+		body, e := wish.DecryptWishComment(ctx, codec, v)
+		must(e)
+		if strings.Contains(body, "合成个人姓名") {
+			t.Fatal("幸存历史原文未脱敏")
+		}
+	})
 	t.Run("包分配注销清理与恢复重删", func(t *testing.T) { verifyMatchmakingPrivacy(t, root, service, codec, student, admin, adminToken) })
 	t.Run("资料反馈注销即退出统计且恢复备份重删", func(t *testing.T) {
 		owner, token := student()

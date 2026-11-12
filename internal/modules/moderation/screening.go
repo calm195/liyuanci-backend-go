@@ -22,6 +22,8 @@ const (
 
 // WordlistMatch 描述原文字段内命中的词条，位置为 UTF-16 半开区间。
 type WordlistMatch struct {
+	MatchMode   string `json:"match_mode,omitempty"`
+	Category    string `json:"category,omitempty"`
 	Word        string `json:"word"`
 	Source      string `json:"source"`
 	Kind        string `json:"kind"`
@@ -101,7 +103,20 @@ func compileWordlists(snapshot rules) (*wordlistMatchers, error) {
 	} {
 		entries := make([]WordlistMatch, 0, len(list.words))
 		for _, word := range list.words {
-			entries = append(entries, WordlistMatch{Word: word, Source: "custom", Kind: list.kind, Disposition: reviewDisposition})
+			rule := WordlistRule{Entry: word, Action: reviewDisposition, MatchMode: "contains"}
+			for _, configured := range snapshot.customRules[list.kind] {
+				if configured.Entry == word {
+					rule = configured
+					break
+				}
+			}
+			// 危机和涉校规则始终保留硬路由，历史异常配置也不能被hint降级。
+			if list.kind != "ordinary_violation" {
+				rule.Action = reviewDisposition
+			}
+			for _, variant := range append([]string{word}, rule.Aliases...) {
+				entries = append(entries, WordlistMatch{Word: variant, Source: "custom", Kind: list.kind, Disposition: rule.Action, MatchMode: rule.MatchMode, Category: rule.Category})
+			}
 		}
 		matcher, err := compileWordlist(entries)
 		if err != nil {
@@ -198,6 +213,9 @@ func (m *wordlistMatchers) scan(body string) WordlistEvaluation {
 	}
 	offsets[len(body)] = position
 	record := func(entry WordlistMatch, start, end int) {
+		if entry.MatchMode == "word" && !wordBoundary(body, start, end) {
+			return
+		}
 		route := entry.Kind
 		if entry.Kind == builtinKind {
 			route = "ordinary_violation"

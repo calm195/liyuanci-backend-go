@@ -99,6 +99,8 @@ const (
 	Account ResourceKind = "account"
 	// Wish 在申请和会话前锁定。
 	Wish ResourceKind = "wish"
+	// WishComment 在心愿之后、审核任务之前锁定心愿评论。
+	WishComment ResourceKind = "wish_comment"
 	// Application 在心愿后锁定。
 	Application ResourceKind = "application"
 	// Match 在申请后锁定。

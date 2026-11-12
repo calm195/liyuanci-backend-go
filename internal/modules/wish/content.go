@@ -27,6 +27,8 @@ type IdentityTags struct {
 
 // ContentInput 保留默认字段是否省略的区别，显式零天和空报答方式不能使用默认值兜底。
 type ContentInput struct {
+	ImageIDs     []string      `json:"image_ids,omitempty"`
+	IdentityMode string        `json:"identity_mode,omitempty"`
 	Title        string        `json:"title,omitempty"`
 	RewardText   string        `json:"reward_text,omitempty"`
 	Category     string        `json:"category"`
@@ -39,6 +41,8 @@ type ContentInput struct {
 
 // Content 是已通过字段规则且补齐默认值的私有内容；不得直接当作公开投影。
 type Content struct {
+	ImageIDs     []string
+	IdentityMode string
 	Title        string
 	RewardText   string
 	Category     string
@@ -71,7 +75,9 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 			err = command.ErrUnavailable
 		}
 		if err != nil {
-			out = Content{}
+			out = Content{
+				ImageIDs:     slices.Clone(input.ImageIDs),
+				IdentityMode: input.IdentityMode}
 		}
 		p.complete("validate_content", requestID, start, err)
 	}()
@@ -84,6 +90,19 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 		utf8.RuneCountInString(input.Body) > 500 {
 		return out, command.ErrInvalid
 	}
+	if input.IdentityMode == "" {
+		input.IdentityMode = "named"
+	}
+	if input.IdentityMode != "named" && input.IdentityMode != "semi" || len(input.ImageIDs) > 3 {
+		return out, command.ErrInvalid
+	}
+	seen := map[string]bool{}
+	for _, id := range input.ImageIDs {
+		if !validWishID(id) || seen[id] {
+			return out, command.ErrInvalid
+		}
+		seen[id] = true
+	}
 	if input.Title == "" {
 		input.Title = "未命名心愿"
 	}
@@ -91,6 +110,8 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 		return out, command.ErrInvalid
 	}
 	out = Content{
+		ImageIDs:     slices.Clone(input.ImageIDs),
+		IdentityMode: input.IdentityMode,
 		Title:        input.Title,
 		RewardText:   input.RewardText,
 		Category:     input.Category,
@@ -109,7 +130,7 @@ func (p *Policy) ValidateContent(ctx context.Context, requestID string, input Co
 		return Content{}, command.ErrInvalid
 	}
 	if input.DurationDays != nil {
-		if *input.DurationDays < 1 || *input.DurationDays > 30 {
+		if *input.DurationDays < 1 || *input.DurationDays > 90 {
 			return out, command.ErrInvalid
 		}
 		out.DurationDays = *input.DurationDays

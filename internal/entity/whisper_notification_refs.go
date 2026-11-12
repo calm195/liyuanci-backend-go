@@ -2,6 +2,7 @@ package entity
 
 // WhisperNotificationRef 映射 public.whisper_notification_refs，传输层不得直接序列化实体。
 type WhisperNotificationRef struct {
+	RecipientID string `gorm:"column:recipient_id;type:uuid;not null;default:'00000000-0000-0000-0000-000000000000';comment:事件接收人，用于多人通知去重" json:"-"`
 	// Suppressed 在注销受理事务设置，清理暂停期间不得读取或回放旧通知。
 	Suppressed     bool    `gorm:"column:suppressed;not null;default:false;comment:隐私受理后抑制读取与投递，定位保留至清理完成" json:"-"`
 	NotificationID string  `gorm:"column:notification_id;type:uuid;primaryKey;autoIncrement:false;not null;comment:复用站内通知标识" json:"-"`

@@ -1,9 +1,9 @@
 # 年级和举报类型由运营确认；援助、关怀资料按下列官方公开来源核对。
 # 核验指公开页面内容核对，未拨打热线或完成医院预约；联系方式变更时更新版本。
-version: production-20261104-v1
+version: production-20261112-v2
 catalog:
   grades:
-    version: 1
+    version: 2
     items:
       - code: undergraduate_1
         label: 大一
@@ -13,6 +13,8 @@ catalog:
         label: 大三
       - code: undergraduate_4
         label: 大四
+      - code: undergraduate_5
+        label: 大五
       - code: master_1
         label: 研一
       - code: master_2

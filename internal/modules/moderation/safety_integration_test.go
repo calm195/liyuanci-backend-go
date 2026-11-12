@@ -833,7 +833,7 @@ func TestSafetyGovernance(t *testing.T) {
 							_, e := wishes.Complete(ctx, ot, uuid.NewString(), "complete", w.ID, wishRow(w.ID).Version)
 							must(e)
 						}
-						// 真实发布填满作者剩余额度，已实现不占额度。例外退出不经过普通回退限额。
+						// 保留多条真实上架内容，例外退出不应受其他活跃心愿影响。
 						count := 2
 						if state == "realized" {
 							count = 3

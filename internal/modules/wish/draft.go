@@ -36,7 +36,7 @@ func (p *Policy) CreateDraft(ctx context.Context, requestID string, owner Eligib
 		return out, err
 	}
 	out.Content = content
-	// 草稿不占活跃额度；有效期从首次成功上架起算，创建不得提前启动时钟。
+	// 有效期从首次成功上架起算，创建草稿不得提前启动时钟。
 	out.Transition.Next = Snapshot{
 		State:            Draft,
 		Version:          1,

@@ -454,6 +454,7 @@ func TestModerationCore(t *testing.T) {
 			t.Fatal("重新启用改变了历史快照")
 		}
 	})
+	verifyWordlistRuleRestore(t, service, adminToken, head, publish)
 	t.Run("标题及自定义报答独立审核发布", func(t *testing.T) {
 		method := "custom"
 		input := wish.ContentInput{Category: "help", Campus: "wushan", Body: "正常正文", Title: "普通命中 合成个人姓名标题", RewardMethod: &method, RewardText: "普通命中 合成个人姓名报答"}

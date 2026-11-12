@@ -30,6 +30,11 @@ func accountPlan(ctx context.Context, db *gorm.DB, id string) (p command.Discove
 		return p, e
 	}
 	p = merge(p, tree)
+	comments, e := wishCommentsPlan(ctx, db, id)
+	if e != nil {
+		return p, e
+	}
+	p = merge(p, comments)
 	matchmaking, e := matchmakingPlan(ctx, db, id)
 	if e != nil {
 		return p, e
@@ -136,6 +141,9 @@ func activateAccount(ctx context.Context, tx *command.Tx, id string) error {
 	db := tx.DB().WithContext(ctx)
 	var a entity.Account
 	if e := db.Where("id=?", id).Take(&a).Error; e != nil {
+		return e
+	}
+	if e := activateWishComments(ctx, db, id); e != nil {
 		return e
 	}
 	if e := activateMatchmaking(ctx, db, id); e != nil {

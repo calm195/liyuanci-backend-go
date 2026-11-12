@@ -160,6 +160,7 @@ func NewCapsuleUnlockWorker(db *gorm.DB, logger *zap.Logger, cfg durable.Consume
 			return "", e
 		}
 		e = db.Create(&entity.WhisperNotificationRef{
+			RecipientID:    c.OwnerID,
 			NotificationID: id,
 			Kind:           "whisper_capsule_unlocked",
 			SourceID:       c.ID,

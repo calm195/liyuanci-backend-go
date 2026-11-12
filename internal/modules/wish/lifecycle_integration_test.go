@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 	gormlog "gorm.io/gorm/logger"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/migration"
@@ -261,7 +262,7 @@ func TestPostgresLifecycle(t *testing.T) {
 			t.Fatal("已删除仍有密文")
 		}
 	}
-	// 四条不同心愿并发竞争同一作者额度，最多三条上架，满额保持ready且不提前计时。
+	// 同一作者四条不同心愿可并发上架，分别从成功公开起计算期限。
 	ready := make([]CreatedDraft, 4)
 	for i := range ready {
 		ready[i] = f.ready()
@@ -287,19 +288,18 @@ func TestPostgresLifecycle(t *testing.T) {
 		}
 	}
 	published := []CreatedDraft{}
-	var waiting CreatedDraft
 	for r := range results {
 		if r.State == Published {
 			published = append(published, r)
-		} else if r.State == Ready {
-			waiting = r
+
 		} else {
 			t.Fatal(r)
 		}
 	}
-	if len(published) != 3 || waiting.ID == "" {
-		t.Fatal("额度错误", len(published), waiting)
+	if len(published) != 4 {
+		t.Fatal("published count", len(published))
 	}
+	waiting := f.ready()
 	// 热度相同按发布时间与 ID 排序，关键词和排序变化后拒绝旧游标。
 	filter := Query{Sort: "hot", Keyword: "已审正文", Limit: 2}
 	first, e := s.List(ctx, "discovery", filter)
@@ -308,7 +308,7 @@ func TestPostgresLifecycle(t *testing.T) {
 	}
 	filter.Cursor = *first.NextCursor
 	second, e := s.List(ctx, "discovery", filter)
-	if e != nil || len(second.Items) != 1 || second.NextCursor != nil ||
+	if e != nil || len(second.Items) != 2 || second.NextCursor != nil ||
 		second.Items[0].ID == first.Items[0].ID || second.Items[0].ID == first.Items[1].ID {
 		t.Fatal(second, e)
 	}
@@ -369,6 +369,23 @@ func TestPostgresLifecycle(t *testing.T) {
 		if e != nil || len(weekly.Items) != 1 || weekly.Items[0].ID != target.ID {
 			t.Fatal("详情打开未进入周榜", weekly, e)
 		}
+
+		// 老客户端没有页面事件协议，GET继续聚合；新版GET与POST不能双计。
+		for _, supported := range []bool{false, true} {
+			if _, e = s.OpenDetail(WithIdentityCapability(ctx, supported), "", "view-count", target.ID); e != nil {
+				t.Fatal(e)
+			}
+		}
+		eventID := uuid.NewString()
+		for range 2 {
+			if e = contentquery.RecordView(ctx, s.db, "wish", target.ID, eventID, time.Now()); e != nil {
+				t.Fatal(e)
+			}
+		}
+		stats, e := contentquery.ReadStats(ctx, s.db, "wish", []string{target.ID}, "")
+		if e != nil || stats[target.ID].ViewCount != 2 {
+			t.Fatal("新旧浏览协议或重试导致重复计数", stats, e)
+		}
 		f.exec("UPDATE public.wish_detail_views SET viewed_at=clock_timestamp()-interval '8 days' WHERE wish_id=?", target.ID)
 		weekly, e = s.Weekly(ctx, "discovery")
 		if e != nil || len(weekly.Items) != 0 {
@@ -378,6 +395,41 @@ func TestPostgresLifecycle(t *testing.T) {
 		if e != nil || len(total.Items) != 1 || total.Items[0].ID != target.ID {
 			t.Fatal("两次历史详情打开应高于一次有效应愿", total, e)
 		}
+		// 已授权详情随后遇到下架，旧GET旁路必须等待同一锁并复核，不能继续追加统计。
+		tx := f.root.Begin()
+		defer tx.Rollback()
+		if tx.Error != nil {
+			t.Fatal(tx.Error)
+		}
+		if _, e = command.LockPlan(ctx, tx, command.Discovery{
+			Accounts: []string{f.owner}, Resources: []command.Resource{{Kind: command.Wish, ID: target.ID}},
+		}, time.Second); e != nil {
+			t.Fatal(e)
+		}
+		started, done := make(chan struct{}), make(chan struct{})
+		go func() {
+			close(started)
+			s.recordWishDetailView(WithIdentityCapability(ctx, false), "view-race", target.ID, target.ContentVersion)
+			close(done)
+		}()
+		<-started
+		select {
+		case <-done:
+			t.Fatal("详情旁路没有遵循父资源锁")
+		case <-time.After(100 * time.Millisecond):
+		}
+		if e = tx.Model(&entity.Wish{}).Where("id=?", target.ID).Update("state", "withdrawn").Error; e != nil {
+			t.Fatal(e)
+		}
+		if e = tx.Commit().Error; e != nil {
+			t.Fatal(e)
+		}
+		<-done
+		stats, e = contentquery.ReadStats(ctx, s.db, "wish", []string{target.ID}, "")
+		if e != nil || stats[target.ID].ViewCount != 2 {
+			t.Fatal("下架提交后旧详情继续累计", stats, e)
+		}
+		f.exec("UPDATE public.wishes SET state='published' WHERE id=?", target.ID)
 	})
 	t.Run("心愿支持幂等、排序与周榜", func(t *testing.T) {
 		target := published[1].ID
@@ -445,7 +497,7 @@ func TestPostgresLifecycle(t *testing.T) {
 	if e != nil || waiting.State != Published {
 		t.Fatal(waiting, e)
 	}
-	// 到期由数据库当前时刻判断，额度满时仍优先返回expired。
+	// 到期由数据库当前时刻判断，不能重新公开已到期内容。
 	r := f.ready()
 	f.exec("UPDATE public.wishes SET expires_at=clock_timestamp()-interval '1 second' WHERE id=?", r.ID)
 	expired, e := s.Publish(ctx, f.token, "expired", "expired", r.ID, r.Version)
@@ -518,7 +570,7 @@ func TestPostgresLifecycle(t *testing.T) {
 		t.Fatal(cancelled, e)
 	}
 
-	// 应愿中跨原期限仍占一个名额，不能被到期查询释放。
+	// 应愿中跨原期限继续履约，同时不限制其他心愿上架。
 	g := lifecycleSetup(t)
 	matching := g.ready()
 	g.exec("UPDATE public.wishes SET state='matching',published_at=clock_timestamp()-interval '8 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=?", matching.ID)
@@ -531,8 +583,8 @@ func TestPostgresLifecycle(t *testing.T) {
 	}
 	candidate := g.ready()
 	v, e := g.service.Publish(ctx, g.token, uuid.NewString(), "matching-quota-full", candidate.ID, candidate.Version)
-	if e != nil || v.State != Ready {
-		t.Fatal("应愿中没有占额度", v, e)
+	if e != nil || v.State != Published {
+		t.Fatal("应愿中的心愿仍限制新上架", v, e)
 	}
 
 	// 授权查询失败必须映射依赖故障，不能因错误被折叠成“不存在”而误报404。

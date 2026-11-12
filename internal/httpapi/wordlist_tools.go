@@ -14,6 +14,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/wish"
 )
 
 const builtinWordlistDraftRoute = "/wordlists/builtin/versions"
@@ -23,6 +24,8 @@ func requestBodyLimit(c *gin.Context) int64 {
 		switch c.FullPath() {
 		case "/api/v1/admin/resource-files":
 			return resourceplaza.FileMaxBytes + (64 << 10)
+		case "/api/v1/wish-images":
+			return wish.ImageMaxBytes + (64 << 10)
 		case "/api/v1/me/avatar":
 			return studentauth.AvatarMaxBytes + (64 << 10)
 		}

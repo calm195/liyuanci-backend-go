@@ -401,6 +401,12 @@ func (s *Service) returnToOrdinary(ctx context.Context, db *gorm.DB, c entity.Ev
 	}
 	updates := map[string]any{"review_task_id": id}
 	switch row.registry.Kind {
+	case "wish_comment":
+		updates["public_body"] = nil
+		if e = db.Model(&entity.WishCommentVersion{}).Where("comment_id=? AND content_version=?", row.comment.ID, row.task.ContentVersion).Updates(updates).Error; e != nil {
+			return e
+		}
+		return db.Model(&entity.WishComment{}).Where("id=?", row.comment.ID).Updates(map[string]any{"status": "pending_review", "version": gorm.Expr("version+1")}).Error
 	case "wish":
 		updates["moderation_status"] = "human_required"
 		updates["public_body"] = nil

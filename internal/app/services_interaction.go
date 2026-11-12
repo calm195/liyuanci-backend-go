@@ -30,6 +30,8 @@ func (s *serviceSet) buildInteraction(d ServiceDependencies, cfg ServiceConfig) 
 			return failureNew
 		}
 		s.wishes.SetShareCodes(d.ShareCodes)
+		avatars, _ := d.Objects.(wish.AvatarReader)
+		s.wishes.SetImages(d.Objects, d.Scanner, avatars)
 	}
 	if cfg.Chat != nil {
 		if s.wishes == nil {
@@ -48,6 +50,7 @@ func (s *serviceSet) buildInteraction(d ServiceDependencies, cfg ServiceConfig) 
 			return e
 		}
 		s.chats.SetApplicationNotificationTarget(s.wishes.ApplicationNotificationTarget)
+		s.chats.SetCommentNotificationTarget(wish.CommentNotificationTarget)
 	}
 	return nil
 }

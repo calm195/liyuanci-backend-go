@@ -34,6 +34,7 @@ type Page struct {
 
 // Case 返回精确案件原版本正文，仅在访问审计提交后交付。
 type Case struct {
+	Images           []wish.Image      `json:"images"`
 	WordlistEvidence *WordlistEvidence `json:"wordlist_evidence,omitempty"`
 	Title            string            `json:"title,omitempty"`
 	RewardText       string            `json:"reward_text,omitempty"`
@@ -141,7 +142,7 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 			row.task.Status == "cancelled" {
 			return command.ErrNotFound
 		}
-		if row.story != nil {
+		if row.story != nil || row.comment != nil {
 			ok, e := eligible(db, row)
 			if e != nil {
 				return e
@@ -185,6 +186,17 @@ func (s *Service) Case(ctx context.Context, token, rid, id string) (out Case, er
 			Title:            body.Title, RewardText: body.RewardText,
 			SchoolRelated: scan.SchoolRelated,
 			Status:        row.task.Status,
+		}
+		if row.application == nil && row.message == nil && row.story == nil && row.comment == nil {
+			out.Images, e = wish.ReadVersionImages(ctx, db, row.wish.ID, row.task.ContentVersion)
+			if e != nil {
+				return e
+			}
+			for i := range out.Images {
+				out.Images[i].URL = "/api/v1/admin/wish-images/" + out.Images[i].ID + "?case_id=" + id
+			}
+		} else {
+			out.Images = []wish.Image{}
 		}
 		return nil
 	})
@@ -289,6 +301,11 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if !ok {
 			status = "cancelled"
 			business = "cancelled"
+			if row.comment != nil {
+				if e = db.Model(&entity.WishComment{}).Where("id=?", row.comment.ID).Updates(map[string]any{"status": "cancelled", "version": gorm.Expr("version+1")}).Error; e != nil {
+					return "", e
+				}
+			}
 			if row.story != nil {
 				if e = db.Model(&entity.StoryVersion{}).Where("wish_id=? AND story_version=?", row.wish.ID, row.task.ContentVersion).
 					Updates(map[string]any{"moderation_status": "cancelled", "public_body": nil}).
@@ -317,7 +334,10 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 				body = &candidate.Body
 				tags, _ = json.Marshal(candidate.Tags)
 				business = "ready"
-				if row.task.CrisisRecheck && row.application == nil && row.message == nil && row.story == nil && row.wish.State != "pending_review" {
+				if row.comment != nil {
+					business = "published"
+				}
+				if row.task.CrisisRecheck && row.application == nil && row.message == nil && row.story == nil && row.comment == nil && row.wish.State != "pending_review" {
 					business = row.wish.State
 				}
 				if row.story != nil {
@@ -353,6 +373,13 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 		if e = db.Model(&entity.ModerationTask{}).Where("id=?", id).Updates(updates).Error; e != nil {
 			return "", e
 		}
+		if status == "approved" && row.story == nil && row.application == nil && row.message == nil && row.comment == nil {
+			next, failure := wish.ApplyApprovedPublication(ctx, db, row.wish.ID, row.task.ContentVersion)
+			if failure != nil {
+				return "", failure
+			}
+			business = string(next)
+		}
 		if e = audit(db, actor, row.account.ID, "moderation.decision"); e != nil {
 			return "", e
 		}
@@ -372,7 +399,10 @@ func (s *Service) Decide(ctx context.Context, token, key, rid, id string, in Dec
 			business = "cancelled"
 		} else if *row.task.Decision == "approved" {
 			business = "ready"
-			if row.task.CrisisRecheck && row.application == nil && row.message == nil && row.story == nil {
+			if row.comment != nil {
+				business = row.comment.Status
+			}
+			if row.application == nil && row.message == nil && row.story == nil && row.comment == nil {
 				business = row.wish.State
 			}
 			if row.story != nil {

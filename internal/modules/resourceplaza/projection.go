@@ -86,7 +86,21 @@ func (s *Service) project(
 	} else {
 		p["description_excerpt"] = string([]rune(r.Description)[:min(120, len([]rune(r.Description)))])
 	}
-	p["feedback_summary"] = stats[r.ID]
+	summary := map[string]any{}
+	for k, v := range stats[r.ID] {
+		if k != "view_count" && k != "favorited" {
+			summary[k] = v
+		}
+	}
+	p["feedback_summary"] = summary
+	p["view_count"] = stats[r.ID]["view_count"]
+	if p["view_count"] == nil {
+		p["view_count"] = int64(0)
+	}
+	p["favorited"] = stats[r.ID]["favorited"]
+	if p["favorited"] == nil {
+		p["favorited"] = false
+	}
 	if a.Admin {
 		p["status"] = r.Status
 		p["content_version"] = r.ContentVersion

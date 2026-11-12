@@ -32,7 +32,7 @@ func normalizeCaseQuery(q CaseQuery) (CaseQuery, error) {
 	}
 	if !utf8.ValidString(q.Q) || utf8.RuneCountInString(q.Q) > 80 || strings.ContainsRune(q.Q, 0) ||
 		!slices.Contains([]string{"human_required", "all", "approved", "rejected"}, q.Status) ||
-		!slices.Contains([]string{"", "wish", "application", "message", "story"}, q.Kind) || q.Limit < 1 || q.Limit > 100 {
+		!slices.Contains([]string{"", "wish", "wish_comment", "application", "message", "story"}, q.Kind) || q.Limit < 1 || q.Limit > 100 {
 		return q, command.ErrInvalid
 	}
 	return q, nil
@@ -87,7 +87,7 @@ func (s *Service) QueryCases(ctx context.Context, token, rid string, input CaseQ
 		q := db.Model(&entity.ModerationTask{}).Table("public.moderation_tasks AS t").
 			Select("t.id,t.version,t.status,c.kind,t.content_version").
 			Joins("JOIN public.moderation_scans s ON s.task_id=t.id").
-			Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','application','message','story')").
+			Joins("JOIN public.content_registry c ON c.id=t.content_id AND c.kind IN ('wish','wish_comment','application','message','story')").
 			Joins("JOIN public.accounts a ON a.id=c.author_id AND a.lifecycle='active'").
 			Where("NOT EXISTS(SELECT 1 FROM public.content_restrictions r WHERE r.content_id=c.id AND r.kind='crisis' AND r.active) AND NOT s.crisis_hit AND (s.ordinary_hit OR (c.kind<>'message' AND s.school_related)) AND t.status IN ?", []string{"human_required", "approved", "rejected"})
 		if input.Status != "all" {

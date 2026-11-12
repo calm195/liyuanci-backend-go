@@ -90,6 +90,16 @@ func applyWordlistSnapshot(db *gorm.DB, row entity.WordlistVersion, target *rule
 	if e != nil {
 		return e
 	}
+	rules, e := readCustomRules(db, row.ID)
+	if e != nil {
+		return e
+	}
+	copied := map[string][]WordlistRule{}
+	for k, v := range target.customRules {
+		copied[k] = v
+	}
+	copied[row.Type] = rules
+	target.customRules = copied
 	switch row.Type {
 	case "crisis":
 		target.crisis, target.crisisEntries = row, entries

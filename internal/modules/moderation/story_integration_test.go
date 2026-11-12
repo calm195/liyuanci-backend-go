@@ -451,7 +451,7 @@ func TestStorySharing(t *testing.T) {
 			t.Fatal("取消消息占用序号")
 		}
 	})
-	t.Run("实际完成释放额度与B01拒绝不阻止还愿", func(t *testing.T) {
+	t.Run("三条在架时仍可回退并继续还愿", func(t *testing.T) {
 		f := matched()
 		complete(f)
 		for i := 0; i < 3; i++ {
@@ -465,9 +465,10 @@ func TestStorySharing(t *testing.T) {
 			"B01",
 			f.w.ID,
 			wish.RollbackInput{ExpectedVersion: version, Target: wish.Matching},
-		); e != command.ErrActiveWishLimit {
-			t.Fatal("B01满额回退未拒绝", e)
+		); e != nil {
+			t.Fatal("回退仍受活跃数量限制", e)
 		}
+		complete(f)
 		own, e := wishes.Detail(ctx, f.owner, "actions", f.w.ID)
 		must(e)
 		found := false
@@ -475,7 +476,7 @@ func TestStorySharing(t *testing.T) {
 			found = found || action == "postWishesIdStories"
 		}
 		if !found {
-			t.Fatal("满额错误隐藏还愿动作")
+			t.Fatal("活跃数量隐藏还愿动作")
 		}
 		submit(f, "满额仍可还愿")
 		if wishRow(f.w.ID).State != "fulfilled" {

@@ -76,6 +76,11 @@ func accountPlan(ctx context.Context, db *gorm.DB, accounts ...string) (p comman
 			}
 		}
 	}
+	comments, e := commentEffectsPlan(ctx, db, accounts)
+	if e != nil {
+		return p, e
+	}
+	p = merge(p, comments)
 	return
 }
 
@@ -87,6 +92,8 @@ func registry(db *gorm.DB, id string) (c entity.ContentRegistry, err error) {
 func targetRegistry(db *gorm.DB, kind, id string) (c entity.ContentRegistry, err error) {
 	q := db.Where("kind=? AND entity_id=?", kind, id)
 	switch kind {
+	case "wish_comment":
+		q = q.Where("content_version=(SELECT content_version FROM public.wish_comments WHERE id=?)", id)
 	case "wish":
 		q = q.Where("content_version=(SELECT current_content_version FROM public.wishes WHERE id=?)", id)
 	case "story":
@@ -104,6 +111,8 @@ func targetRegistry(db *gorm.DB, kind, id string) (c entity.ContentRegistry, err
 
 func contentPlan(ctx context.Context, db *gorm.DB, c entity.ContentRegistry) (command.Discovery, error) {
 	switch c.Kind {
+	case "wish_comment":
+		return wish.DiscoverWishComment(ctx, db, "", c.EntityID, nil, nil)
 	case "wish", "story":
 		return accountContentPlan(ctx, db, c, c.EntityID)
 	case "application":
@@ -165,6 +174,9 @@ func visible(ctx context.Context, db *gorm.DB, c entity.ContentRegistry, actor s
 		return command.ErrNotFound
 	}
 	switch c.Kind {
+	case "wish_comment":
+		_, e := wish.ReadPublicCommentBody(db.Statement.Context, db, now, c.EntityID)
+		return e
 	case "wish", "story":
 		var w entity.Wish
 		if e = db.Where("id=? AND draft_deleted_at IS NULL", c.EntityID).Take(&w).Error; e != nil {
@@ -262,7 +274,7 @@ func penalty(db *gorm.DB, id string) (p entity.Penalty, err error) {
 }
 
 func report(db *gorm.DB, id string) (p entity.Report, err error) {
-	err = found(db.Where("id=? AND target_kind IN ('wish','application','message','story','account')", id).Take(&p).Error)
+	err = found(db.Where("id=? AND target_kind IN ('wish','wish_comment','application','message','story','account')", id).Take(&p).Error)
 	return
 }
 
@@ -296,13 +308,7 @@ func ordinaryCase(db *gorm.DB, cid string) error {
 // cancelRelationships 只取消尚未生效的交互。已有匹配保留，由当前限制实时暂停或原授权方例外退出。
 func cancelRelationships(ctx context.Context, tx *command.Tx, a, b string) error {
 	db := tx.DB().WithContext(ctx)
-	// 互动写入与批准均持双方账号 guard；限制同事务终止待审暖评，解除后不得复活旧轮次。
-	predicate, args := "(c.author_id=? OR p.owner_id=?)", []any{a, a}
-	if b != "" {
-		predicate, args = "((c.author_id=? AND p.owner_id=?) OR (c.author_id=? AND p.owner_id=?))", []any{a, b, b, a}
-	}
-	if e := db.Exec(`UPDATE public.moderation_tasks SET status='cancelled',version=version+1 WHERE status IN ('pending','machine_passed','human_required') AND content_id IN (SELECT r.id FROM public.content_registry r JOIN public.whisper_comments c ON c.id=r.entity_id JOIN public.whisper_posts p ON p.id=c.post_id WHERE r.kind='whisper_comment' AND `+predicate+`)`, args...).
-		Error; e != nil {
+	if e := cancelCommentRelationships(ctx, db, a, b); e != nil {
 		return e
 	}
 	var apps []entity.Application

@@ -53,6 +53,10 @@ func opaqueReady(ctx context.Context, db *gorm.DB) error {
 
 func (s *Service) blockTarget(ctx context.Context, db *gorm.DB, src BlockSource) (target string, p command.Discovery, err error) {
 	switch src.Kind {
+	case "wish", "story":
+		var row entity.Wish
+		err = missingRow(db.WithContext(ctx).Select("id,owner_id").Where("id=?", src.ID).Take(&row).Error)
+		return row.OwnerID, command.Discovery{Accounts: []string{row.OwnerID}, Resources: []command.Resource{{Kind: command.Wish, ID: src.ID}}}, err
 	case "public_profile":
 		var a entity.Account
 		err = missingRow(db.WithContext(ctx).Select("id").Where("id=? AND lifecycle='active'", src.ID).Take(&a).Error)
@@ -89,6 +93,13 @@ func (s *Service) blockVisible(ctx context.Context, tx *command.Tx, src BlockSou
 	}
 	if src.Kind == "public_profile" {
 		_, _, e := s.blockTarget(ctx, tx.DB(), src)
+		return e
+	}
+	if src.Kind == "wish" || src.Kind == "story" {
+		if s.publicBlockSource == nil {
+			return command.ErrUnavailable
+		}
+		_, e := s.publicBlockSource(ctx, tx.DB(), tx.Now(), tx.Actor().ID, src.Kind, src.ID, *src.ContentVersion)
 		return e
 	}
 	catalog, e := s.resources(ctx)
@@ -131,7 +142,7 @@ func (s *Service) CreateBlock(ctx context.Context, token, key, rid string, in Bl
 	src := in.Source
 	if !ValidID(src.ID) || (src.Kind == "public_profile" && src.ContentVersion != nil) ||
 		(src.Kind != "public_profile" &&
-			(src.Kind != "whisper_post" && src.Kind != "whisper_comment" || src.ContentVersion == nil || *src.ContentVersion < 1)) {
+			(src.Kind != "whisper_post" && src.Kind != "whisper_comment" && src.Kind != "wish" && src.Kind != "story" || src.ContentVersion == nil || *src.ContentVersion < 1)) {
 		return out, command.ErrInvalid
 	}
 	d := command.Definition{

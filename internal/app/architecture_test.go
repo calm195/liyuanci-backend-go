@@ -45,6 +45,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/adminauth",
 		"modules/blockpolicy",
 		"modules/chat",
+		"modules/contentinteraction",
 		"modules/identity",
 		"modules/moderation",
 		"modules/matchmaking",
@@ -75,6 +76,7 @@ var allowedInternalImports = map[string][]string{
 		"execution/command",
 		"modules/adminauth",
 		"modules/chat",
+		"modules/contentinteraction",
 		"modules/moderation",
 		"modules/matchmaking",
 		"modules/moduleguide",
@@ -97,9 +99,10 @@ var allowedInternalImports = map[string][]string{
 	"modules/adminauth":   {"entity", "execution/command"},
 	"modules/blockpolicy": {"execution/command"},
 	// 聊天通过独立审核协议发布工作和读取结果，不依赖心愿生命周期实现。
-	"modules/chat":          {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
-	"modules/contentreview": {"execution/durable"},
-	"modules/identity":      {"entity", "platform/securedata"},
+	"modules/chat":               {"entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
+	"modules/contentreview":      {"execution/durable"},
+	"modules/contentinteraction": {"contentquery", "entity", "execution/command"},
+	"modules/identity":           {"entity", "platform/securedata"},
 	// 审核复核来源内容，调用处罚效果与树洞通知协作函数。
 	"modules/moderation": {
 		"entity",
@@ -114,7 +117,7 @@ var allowedInternalImports = map[string][]string{
 	},
 	// 删除与脱敏需复核心愿故事及其隐私屏障。
 	"modules/privacy":       {"entity", "execution/command", "modules/wish", "platform/securedata"},
-	"modules/resourceplaza": {"entity", "execution/command", "platform/securedata"},
+	"modules/resourceplaza": {"contentquery", "entity", "execution/command", "platform/securedata"},
 	// 安全治理在同一事务中撤销申请、限制会话和消息。
 	"modules/safety": {
 		"entity",
@@ -140,7 +143,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/safety",
 		"platform/securedata",
 	},
-	"modules/wish":        {"contentquery", "entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata"},
+	"modules/wish":        {"contentquery", "entity", "execution/command", "execution/durable", "modules/contentreview", "platform/securedata", "platform/imageinput"},
 	"platform":            {"config", "execution/command"},
 	"platform/imageinput": {},
 	"platform/securedata": {},
