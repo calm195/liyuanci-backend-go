@@ -879,6 +879,88 @@ func TestChatDelivery(t *testing.T) {
 			t.Fatal("通知泄漏正文身份")
 		}
 	})
+
+	t.Run("本人阅读位置与安全摘要", func(t *testing.T) {
+		f := matched()
+		list := func(token string) chat.Conversation {
+			t.Helper()
+			rows, e := chats.Conversations(ctx, token, "preview", chat.Query{Limit: 20})
+			must(e)
+			if len(rows.Items) != 1 {
+				t.Fatalf("会话数量错误: %d", len(rows.Items))
+			}
+			return rows.Items[0]
+		}
+		if got := list(f.helper); got.LatestMessage != nil || got.HasUnread || got.LastReadSeq != 0 {
+			t.Fatal("空会话投影错误", got)
+		}
+		a := send(f, strings.Repeat("合成消息", 40))
+		if got := list(f.helper); got.LatestMessage != nil || got.HasUnread {
+			t.Fatal("待审消息进入列表")
+		}
+		scan("message", a.MessageID)
+		got := list(f.helper)
+		if got.LatestMessage == nil || len([]rune(got.LatestMessage.Body)) != 121 || got.LatestMessage.DeliverySeq != 1 || got.LatestMessage.ViewerIsSender || !got.HasUnread {
+			t.Fatal("摘要或未读错误", got)
+		}
+		_ = page(f, 0)
+		if !list(f.helper).HasUnread {
+			t.Fatal("GET消息产生已读副作用")
+		}
+		if own := list(f.owner); own.HasUnread || !own.LatestMessage.ViewerIsSender {
+			t.Fatal("发送者状态错误")
+		}
+		key := uuid.NewString()
+		receipt, e := chats.ReadConversation(ctx, f.helper, key, "read", f.m.ConversationID, 1)
+		must(e)
+		if receipt.LastReadSeq != 1 || list(f.helper).HasUnread {
+			t.Fatal("本人阅读位置未生效")
+		}
+		replay, e := chats.ReadConversation(ctx, f.helper, key, "replay", f.m.ConversationID, 1)
+		must(e)
+		if replay != receipt || list(f.owner).LastReadSeq != 0 {
+			t.Fatal("重放或双方阅读位置隔离错误")
+		}
+		if _, e = chats.ReadConversation(ctx, f.helper, uuid.NewString(), "future", f.m.ConversationID, 99); e != command.ErrInvalid {
+			t.Fatal("未来位置未拒绝", e)
+		}
+		_, stranger := student()
+		if _, e = chats.ReadConversation(ctx, stranger, uuid.NewString(), "foreign", f.m.ConversationID, 1); e != command.ErrNotFound {
+			t.Fatal("非参与者可确认已读", e)
+		}
+		b := send(f, "新收到的消息")
+		scan("message", b.MessageID)
+		// 本人发送新消息不掩盖未读的对方消息。
+		own, e := chats.Send(ctx, f.helper, uuid.NewString(), "reply", f.m.ConversationID, chat.MessageInput{ClientMessageID: uuid.NewString(), Body: "本人的回复", ExpectedWriteEpoch: 1})
+		must(e)
+		scan("message", own.MessageID)
+		got = list(f.helper)
+		if !got.HasUnread || !got.LatestMessage.ViewerIsSender || got.LatestMessage.DeliverySeq != 3 {
+			t.Fatal("本人回复错误清除了未读")
+		}
+		_, e = chats.ReadConversation(ctx, f.helper, uuid.NewString(), "advance", f.m.ConversationID, 3)
+		must(e)
+		_, e = chats.ReadConversation(ctx, f.helper, uuid.NewString(), "old", f.m.ConversationID, 1)
+		must(e)
+		if got = list(f.helper); got.LastReadSeq != 3 || got.HasUnread {
+			t.Fatal("旧页面倒退阅读位置")
+		}
+		must(root.Model(&entity.ContentRegistry{}).Where("kind='message' AND entity_id=?", own.MessageID).Update("status", "rejected").Error)
+		if got = list(f.helper); got.LatestMessage.DeliverySeq != 2 {
+			t.Fatal("撤销公开资格的消息仍出现在摘要")
+		}
+		if _, e = chats.ReadConversation(ctx, f.owner, uuid.NewString(), "hidden", f.m.ConversationID, 3); e != command.ErrInvalid {
+			t.Fatal("受限消息位置未拒绝", e)
+		}
+		raw, _ := json.Marshal(got)
+		if strings.Contains(string(raw), f.ownerID) || strings.Contains(string(raw), f.helperID) {
+			t.Fatal("列表泄漏参与者身份")
+		}
+		must(root.Model(&entity.Account{}).Where("id=?", f.helperID).Update("lifecycle", "deleting").Error)
+		if _, e = chats.ReadConversation(ctx, f.owner, uuid.NewString(), "deleted", f.m.ConversationID, 1); e != command.ErrNotFound {
+			t.Fatal("注销屏障失效", e)
+		}
+	})
 	t.Run("HTTP六接口与严格输入", func(t *testing.T) {
 		f := matched()
 		r := httpapi.New(logger, nil)
@@ -926,6 +1008,16 @@ func TestChatDelivery(t *testing.T) {
 			if got := request("GET", path+query, f.helper, ""); got.Code != 400 {
 				t.Fatal("非法增量参数未拒绝", query, got.Code)
 			}
+		}
+		readPath := "/api/v1/conversations/" + f.m.ConversationID + "/read"
+		for _, body := range []string{`{}`, `{"last_read_seq":0}`, `{"last_read_seq":null}`, `{"last_read_seq":1,"last_read_seq":2}`, `{"last_read_seq":1,"account_id":"other"}`} {
+			if got := request("POST", readPath, f.helper, body); got.Code != 400 {
+				t.Fatal("阅读位置输入未严格校验", got.Code)
+			}
+		}
+		scan("message", payload.Data.MessageID)
+		if got := request("POST", readPath, f.helper, `{"last_read_seq":1}`); got.Code != 200 || got.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal("阅读位置HTTP失败", got.Code, got.Body.String())
 		}
 		p, e := chats.Notifications(ctx, f.helper, "http-notification", chat.Query{Limit: 20})
 		must(e)

@@ -27,14 +27,17 @@ type Query struct {
 
 // Conversation 是当前原参与者可访问的最小元数据。
 type Conversation struct {
-	WishTitle  string `json:"wish_title"`
-	ID         string `json:"id"`
-	Version    int64  `json:"version"`
-	CanWrite   bool   `json:"can_write"`
-	WriteEpoch int64  `json:"write_epoch"`
+	LatestMessage *MessagePreview `json:"latest_message"`
+	LastReadSeq   int64           `json:"last_read_seq"`
+	HasUnread     bool            `json:"has_unread"`
+	WishTitle     string          `json:"wish_title"`
+	ID            string          `json:"id"`
+	Version       int64           `json:"version"`
+	CanWrite      bool            `json:"can_write"`
+	WriteEpoch    int64           `json:"write_epoch"`
 }
 
-// ConversationsPage 不包含消息摘要或另一方身份快照。
+// ConversationsPage 包含当前读取者可见的消息摘要，不包含另一方身份或阅读状态。
 type ConversationsPage struct {
 	Items      []Conversation `json:"items"`
 	NextCursor *string        `json:"next_cursor"`
@@ -224,13 +227,20 @@ func (s *Service) Conversations(ctx context.Context, token, rid string, q Query)
 			if e != nil && !errors.Is(e, command.ErrForbidden) && !errors.Is(e, command.ErrBlockedInteraction) {
 				return e
 			}
-			out.Items = append(out.Items, Conversation{
+			item := Conversation{
 				WishTitle:  row.WishTitle,
 				ID:         c.ID,
 				Version:    c.Version,
 				CanWrite:   e == nil,
 				WriteEpoch: c.WriteEpoch,
-			})
+			}
+			if e = v.AuthorizeRead(ctx, db, actor, now); e != nil {
+				return e
+			}
+			if e = s.conversationPreview(ctx, db, actor, &item); e != nil {
+				return e
+			}
+			out.Items = append(out.Items, item)
 		}
 		return nil
 	})
@@ -270,11 +280,7 @@ func (s *Service) Messages(ctx context.Context, token, rid, id string, q Query) 
 		out.NextAfterSeq = seq
 		out.Items = []DeliveredMessage{}
 		var rows []entity.Message
-		if e = db.Where(
-			"conversation_id=? AND status='delivered' AND delivery_seq>? AND EXISTS (SELECT 1 FROM public.content_registry approved WHERE approved.kind='message' AND approved.entity_id=messages.id AND approved.content_version=messages.content_version AND approved.status='approved') AND NOT EXISTS (SELECT 1 FROM public.content_registry cr JOIN public.content_restrictions r ON r.content_id=cr.id WHERE cr.kind='message' AND cr.entity_id=messages.id AND r.active)",
-			id,
-			seq,
-		).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
+		if e = visibleMessages(db, id).Where("delivery_seq>?", seq).Order("delivery_seq").Limit(q.Limit).Find(&rows).Error; e != nil {
 			return e
 		}
 		for _, m := range rows {

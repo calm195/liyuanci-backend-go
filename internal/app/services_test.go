@@ -292,13 +292,14 @@ func TestOptionalChatAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 64 {
+	if len(router.Routes()) != 65 {
 		t.Fatal("聊天路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/api/v1/me/conversations"},
 		{"GET", "/api/v1/conversations/id/messages"},
 		{"POST", "/api/v1/conversations/id/messages"},
+		{"POST", "/api/v1/conversations/id/read"},
 		{"GET", "/api/v1/me/messages/id/status"},
 		{"GET", "/api/v1/me/care-cards/id"},
 		{"GET", "/api/v1/me/notifications"},

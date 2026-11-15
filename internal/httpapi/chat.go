@@ -19,10 +19,11 @@ type ChatAPI interface {
 	Send(context.Context, string, string, string, string, chat.MessageInput) (chat.Accepted, error)
 	MessageStatus(context.Context, string, string, string) (chat.Status, error)
 	Notifications(context.Context, string, string, chat.Query) (chat.NotificationsPage, error)
+	ReadConversation(context.Context, string, string, string, string, int64) (chat.ConversationReadReceipt, error)
 	ReadNotification(context.Context, string, string, string, string, int64) (chat.Notification, error)
 }
 
-// RegisterChat 注册正式六项接口；所有入口禁止缓存。
+// RegisterChat 注册聊天和通知接口；所有入口禁止缓存。
 func RegisterChat(r *gin.Engine, s ChatAPI) error {
 	if r == nil || s == nil {
 		return command.ErrInvalid
@@ -89,6 +90,29 @@ func RegisterChat(r *gin.Engine, s ChatAPI) error {
 			return
 		}
 		out, e := s.MessageStatus(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
+		if e != nil {
+			adminError(c, e)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
+	g.POST("/conversations/:id/read", func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		key, ok := idempotency(c)
+		if !ok {
+			return
+		}
+		var in struct {
+			LastReadSeq int64 `json:"last_read_seq"`
+		}
+		if !interactionJSON(c, []string{"last_read_seq"}, &in) || in.LastReadSeq < 1 {
+			returnInvalid(c)
+			return
+		}
+		out, e := s.ReadConversation(c.Request.Context(), token, key, c.GetString("request_id"), c.Param("id"), in.LastReadSeq)
 		if e != nil {
 			adminError(c, e)
 			return
