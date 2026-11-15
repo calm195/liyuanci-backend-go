@@ -649,3 +649,8 @@ ALTER FUNCTION public.fill_whisper_notification_recipient() OWNER TO liyuanci_mi
 -- 回复上下文只增加公开资格字段读取，不开放原稿与恢复密文。
 GRANT SELECT(root_comment_id,reply_to_comment_id) ON public.whisper_comments TO liyuanci_admin_api,liyuanci_crisis_api;
 GRANT SELECT(public_body,public_identity) ON public.whisper_comment_versions TO liyuanci_admin_api,liyuanci_crisis_api;
+
+-- 本人阅读位置随会话或账号级联删除，业务 API 仅能经领域鉴权推进。
+ALTER TABLE public.conversation_reads OWNER TO liyuanci_migrator;
+GRANT SELECT, INSERT, UPDATE ON public.conversation_reads TO liyuanci_api;
+GRANT SELECT, DELETE ON public.conversation_reads TO liyuanci_privacy_maintenance;

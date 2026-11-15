@@ -90,6 +90,7 @@ func businessModels() []any {
 		&entity.Match{},
 
 		&entity.Conversation{},
+		&entity.ConversationRead{},
 
 		&entity.Message{},
 
