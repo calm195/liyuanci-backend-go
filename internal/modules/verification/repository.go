@@ -180,7 +180,7 @@ func listReviews(db *gorm.DB, after string, limit int, view string) ([]entity.Id
 	var rows []entity.IdentityReview
 	fields := "identity_reviews.id,identity_reviews.version,identity_reviews.status"
 	if view != "" {
-		fields += ",identity_reviews.account_id,identity_reviews.data_cipher,identity_reviews.reviewed_at"
+		fields += ",identity_reviews.account_id,identity_reviews.data_cipher,identity_reviews.reviewed_at,identity_reviews.created_at"
 	}
 	q := db.Model(&entity.IdentityReview{}).Select(fields).
 		Joins("JOIN public.accounts ON accounts.id=identity_reviews.account_id AND accounts.lifecycle='active'").

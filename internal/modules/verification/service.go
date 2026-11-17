@@ -83,6 +83,21 @@ type Case struct {
 	AssetID       string `json:"asset_id"`
 }
 
+// HistoryCase 只投影已完成申请的处理结果，不携带学生账号或学生卡引用。
+// CreatedAt 是首次申请时间；驳回后重提沿用原记录，不把该值解释为最近提交时间。
+type HistoryCase struct {
+	ID                 string     `json:"id"`
+	Version            int64      `json:"version"`
+	Status             string     `json:"status"`
+	Name               string     `json:"name"`
+	StudentNumber      string     `json:"student_number"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ReviewedAt         *time.Time `json:"reviewed_at"`
+	ReviewerID         *string    `json:"reviewer_id"`
+	Reason             *string    `json:"reason"`
+	RevisionSuggestion *string    `json:"revision_suggestion"`
+}
+
 // Summary 在显式工作区视图下附带姓名和学号，始终省略账号和学生卡引用。
 type Summary struct {
 	ID            string     `json:"id"`
@@ -92,6 +107,7 @@ type Summary struct {
 	Name          string     `json:"name,omitempty"`
 	StudentNumber string     `json:"student_number,omitempty"`
 	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
+	CreatedAt     *time.Time `json:"created_at,omitempty"`
 }
 
 // Page 使用随机UUID的稳定升序游标分页，限制每页材料数。

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,9 @@ type VerificationStudents interface {
 // VerificationReviews 由领域服务复核当前后台会话与审核岗位，不授予学生入口审核权限。
 type VerificationReviews interface {
 	ListWorkspace(context.Context, string, string, string, int, string) (verification.Page, error)
+	ListWorkspaceWithCreatedAt(context.Context, string, string, string, int, string) (verification.Page, error)
 	Detail(context.Context, string, string, string) (verification.Case, error)
+	History(context.Context, string, string, string) (verification.HistoryCase, error)
 	Card(context.Context, string, string, string) ([]byte, error)
 	Decide(context.Context, string, string, string, string, verification.Decision) (verification.Result, error)
 }
@@ -93,16 +96,32 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 		if !ok {
 			return
 		}
-		limit := 20
-		if raw, exists := c.GetQuery("limit"); exists {
-			n, e := strconv.Atoi(raw)
-			if e != nil {
-				adminError(c, command.ErrInvalid)
-				return
-			}
-			limit = n
+		query, e := parseIdentityReviewQuery(c.Request.URL.RawQuery)
+		if e != nil {
+			adminError(c, e)
+			return
 		}
-		out, e := reviews.ListWorkspace(c.Request.Context(), token, c.GetString("request_id"), c.Query("cursor"), limit, c.Query("view"))
+		list := reviews.ListWorkspace
+		if query.includeCreatedAt {
+			list = reviews.ListWorkspaceWithCreatedAt
+		}
+		out, e := list(c.Request.Context(), token, c.GetString("request_id"), query.cursor, query.limit, query.view)
+		if e != nil {
+			adminError(c, e)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
+	group.GET("/admin/identity-reviews/:id/history", func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		if c.Request.URL.RawQuery != "" {
+			adminError(c, command.ErrInvalid)
+			return
+		}
+		out, e := reviews.History(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
 		if e != nil {
 			adminError(c, e)
 			return
@@ -157,4 +176,48 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 		adminResult(c, http.StatusOK, out)
 	})
 	return nil
+}
+
+type identityReviewQuery struct {
+	cursor           string
+	limit            int
+	view             string
+	includeCreatedAt bool
+}
+
+func parseIdentityReviewQuery(raw string) (out identityReviewQuery, err error) {
+	out.limit = 20
+	query, err := url.ParseQuery(raw)
+	if err != nil {
+		return out, command.ErrInvalid
+	}
+	for key, values := range query {
+		if len(values) != 1 {
+			return out, command.ErrInvalid
+		}
+		switch key {
+		case "cursor":
+			out.cursor = values[0]
+		case "limit":
+			out.limit, err = strconv.Atoi(values[0])
+		case "view":
+			out.view = values[0]
+		case "include":
+			if values[0] != "created_at" {
+				return out, command.ErrInvalid
+			}
+			out.includeCreatedAt = true
+		default:
+			return out, command.ErrInvalid
+		}
+		if err != nil {
+			return out, command.ErrInvalid
+		}
+	}
+	if out.limit < 1 || out.limit > 50 || len(out.cursor) > 256 ||
+		out.view != "" && out.view != "pending" && out.view != "history" ||
+		out.includeCreatedAt && out.view == "" {
+		return out, command.ErrInvalid
+	}
+	return out, nil
 }

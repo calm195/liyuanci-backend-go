@@ -62,13 +62,23 @@ func (s *Service) List(ctx context.Context, token, rid, cursor string, limit int
 
 // ListWorkspace 读取待审或已处理案件，仅在显式工作区视图下解密并留迹。
 func (s *Service) ListWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string) (out Page, err error) {
+	return s.listWorkspace(ctx, token, rid, cursor, limit, view, false)
+}
+
+// ListWorkspaceWithCreatedAt 仅在客户端显式协商时补充首次申请时间，保留旧响应字段集合。
+func (s *Service) ListWorkspaceWithCreatedAt(ctx context.Context, token, rid, cursor string, limit int, view string) (Page, error) {
+	return s.listWorkspace(ctx, token, rid, cursor, limit, view, true)
+}
+
+func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string, includeCreatedAt bool) (out Page, err error) {
 	defer func() {
 		if err != nil {
 			out = Page{}
 		}
 	}()
 	defer s.done("list", rid, time.Now(), &err)
-	if limit < 1 || limit > 50 || len(cursor) > 256 || !slices.Contains([]string{"", "pending", "history"}, view) {
+	if limit < 1 || limit > 50 || len(cursor) > 256 || !slices.Contains([]string{"", "pending", "history"}, view) ||
+		includeCreatedAt && view == "" {
 		return out, command.ErrInvalid
 	}
 	out.Items = []Summary{}
@@ -103,6 +113,9 @@ func (s *Service) ListWorkspace(ctx context.Context, token, rid, cursor string, 
 				item.Name = m.Name
 				item.StudentNumber = m.StudentNumber
 				item.ReviewedAt = r.ReviewedAt
+				if includeCreatedAt {
+					item.CreatedAt = &r.CreatedAt
+				}
 			}
 			out.Items = append(out.Items, item)
 		}

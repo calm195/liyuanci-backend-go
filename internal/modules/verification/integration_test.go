@@ -291,8 +291,19 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal("待审核列表未返回授权的姓名与学号", e)
 	}
 	encoded, _ = json.Marshal(pending)
-	if bytes.Contains(encoded, []byte(card)) || bytes.Contains(encoded, []byte("asset_id")) {
+	if bytes.Contains(encoded, []byte(card)) || bytes.Contains(encoded, []byte("asset_id")) || bytes.Contains(encoded, []byte("created_at")) {
 		t.Fatal("工作区列表暴露后台引用")
+	}
+	pendingWithTime, e := admin.ListWorkspaceWithCreatedAt(ctx, adminToken, "review_test", "", 1, "pending")
+	if e != nil || len(pendingWithTime.Items) != 1 || pendingWithTime.Items[0].CreatedAt == nil || pendingWithTime.Items[0].CreatedAt.IsZero() {
+		t.Fatal("显式时间投影缺失", e)
+	}
+	firstCreatedAt := *pendingWithTime.Items[0].CreatedAt
+	if _, e = admin.ListWorkspaceWithCreatedAt(ctx, adminToken, "review_test", "", 1, ""); !errors.Is(e, command.ErrInvalid) {
+		t.Fatal("无工作区仍返回新增材料字段", e)
+	}
+	if _, e = admin.History(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrNotFound) {
+		t.Fatal("待审申请被当作已处理历史", e)
 	}
 	if _, e = admin.ListWorkspace(ctx, token, "review_test", "", 1, "history"); !errors.Is(e, command.ErrUnauthenticated) {
 		t.Fatal("学生会话读取了后台审核历史", e)
@@ -328,6 +339,21 @@ func TestPostgresVerification(t *testing.T) {
 		history.Items[0].Name != input.Name || history.Items[0].StudentNumber != input.StudentNumber {
 		t.Fatal("审核历史未返回已处理案件", e)
 	}
+	historyDetail, e := admin.History(ctx, adminToken, "review_test", result.RequestID)
+	if e != nil || historyDetail.Status != "rejected" || historyDetail.Reason == nil || *historyDetail.Reason != "材料不清晰" ||
+		historyDetail.RevisionSuggestion == nil || *historyDetail.RevisionSuggestion != "请重传清晰学生卡" ||
+		historyDetail.ReviewerID == nil || *historyDetail.ReviewerID != actor || historyDetail.ReviewedAt == nil ||
+		!historyDetail.CreatedAt.Equal(firstCreatedAt) {
+		t.Fatal("只读历史处理投影不完整", e)
+	}
+	encoded, _ = json.Marshal(historyDetail)
+	if bytes.Contains(encoded, []byte("asset_id")) || bytes.Contains(encoded, []byte("account_id")) ||
+		bytes.Contains(encoded, []byte(card)) || bytes.Contains(encoded, []byte(account)) {
+		t.Fatal("历史详情暴露学生或学生卡引用")
+	}
+	if _, e = admin.History(ctx, token, "review_test", result.RequestID); !errors.Is(e, command.ErrUnauthenticated) {
+		t.Fatal("学生会话读取了历史结果", e)
+	}
 	pending, e = admin.ListWorkspace(ctx, adminToken, "review_test", "", 1, "pending")
 	if e != nil || len(pending.Items) != 0 {
 		t.Fatal("已处理案件仍出现在待审核列表", e)
@@ -346,6 +372,9 @@ func TestPostgresVerification(t *testing.T) {
 	resubmitted, e := student.Submit(ctx, token, "resubmit", "review_test", input)
 	if e != nil || resubmitted.Version != 3 || resubmitted.RequestID != result.RequestID || resubmitted.Reason != nil {
 		t.Fatal("重提失败", e, resubmitted)
+	}
+	if _, e = admin.History(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrNotFound) {
+		t.Fatal("重提后仍泄露旧的历史结果", e)
 	}
 	if _, e = admin.Decide(
 		ctx,
@@ -391,6 +420,15 @@ func TestPostgresVerification(t *testing.T) {
 	current, e := student.Current(ctx, token, "review_test")
 	if e != nil || current.Status != "approved" || current.Version != 4 {
 		t.Fatal("当前结果错误", e)
+	}
+	approvedHistory, e := admin.History(ctx, adminToken, "review_test", result.RequestID)
+	if e != nil || approvedHistory.Status != "approved" || approvedHistory.Reason != nil || approvedHistory.RevisionSuggestion != nil ||
+		!approvedHistory.CreatedAt.Equal(firstCreatedAt) {
+		t.Fatal("通过历史未清除驳回信息或首次时间被重写", e)
+	}
+	if _, e = admin.Decide(ctx, adminToken, "history-cannot-decide", "review_test", result.RequestID,
+		verification.Decision{Decision: "approved", ExpectedVersion: approvedHistory.Version}); !errors.Is(e, command.ErrConflict) {
+		t.Fatal("历史案件被重复审核", e)
 	}
 	var saved entity.Account
 	root.Where("id=?", account).Take(&saved)
@@ -456,6 +494,9 @@ func TestPostgresVerification(t *testing.T) {
 	if out, e := admin.Detail(ctx, adminToken, "review_test", result.RequestID); e == nil || out.Name != "" {
 		t.Fatal("审计失败泄露明文")
 	}
+	if out, e := admin.History(ctx, adminToken, "review_test", result.RequestID); e == nil || out.Name != "" || out.ReviewerID != nil {
+		t.Fatal("历史审计失败仍泄露结果")
+	}
 	rollbackInput := verification.Decision{Decision: "rejected", ExpectedVersion: 1, Reason: "合成驳回", RevisionSuggestion: "合成建议"}
 	if _, e = admin.Decide(ctx, adminToken, "audit-rollback", "review_test", second.RequestID, rollbackInput); e == nil {
 		t.Fatal("审计失败仍然提交决定")
@@ -468,6 +509,9 @@ func TestPostgresVerification(t *testing.T) {
 	exec("DELETE FROM public.admin_role_bindings WHERE admin_id=?", actor)
 	if _, e = admin.Detail(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrForbidden) {
 		t.Fatal("撤权未生效", e)
+	}
+	if _, e = admin.History(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrForbidden) {
+		t.Fatal("历史读取未复核已撤回岗位", e)
 	}
 	if _, e = admin.Decide(
 		ctx,
@@ -485,6 +529,9 @@ func TestPostgresVerification(t *testing.T) {
 		t.Fatal("外部读取期间注销仍返回图片", e)
 	}
 	bucket.hook = nil
+	if _, e = admin.History(ctx, adminToken, "review_test", result.RequestID); !errors.Is(e, command.ErrNotFound) {
+		t.Fatal("注销账号的历史材料仍可读取", e)
+	}
 	exec("UPDATE public.accounts SET lifecycle='active' WHERE id=?", account)
 	// 本端HTTP验证严格字段、认证、状态码、no-store和二进制代理，不涉及其他端。
 	gin.SetMode(gin.TestMode)
@@ -521,6 +568,19 @@ func TestPostgresVerification(t *testing.T) {
 	}
 	if w := request("GET", "/api/v1/admin/identity-reviews?limit=0", adminToken, ""); w.Code != 400 {
 		t.Fatal("页上限未校验", w.Code)
+	}
+	for _, path := range []string{
+		"/api/v1/admin/identity-reviews?include=created_at",
+		"/api/v1/admin/identity-reviews?view=pending&include=unknown",
+		"/api/v1/admin/identity-reviews?view=pending&include=created_at&include=created_at",
+		"/api/v1/admin/identity-reviews/" + result.RequestID + "/history?include=asset_id",
+	} {
+		if w := request("GET", path, adminToken, ""); w.Code != 400 {
+			t.Fatal("身份查询拒绝条件未生效", path, w.Code)
+		}
+	}
+	if w := request("GET", "/api/v1/admin/identity-reviews/"+result.RequestID+"/history", adminToken, ""); w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || bytes.Contains(w.Body.Bytes(), []byte("asset_id")) {
+		t.Fatal("历史HTTP响应错误", w.Code)
 	}
 	// T011/REQ-002：不同账号同时注册相同学号，只能一个申请及唯一占用提交。
 	left, leftToken := createStudent()
@@ -581,8 +641,12 @@ func TestPostgresVerification(t *testing.T) {
 	root.Model(&entity.AccessAudit{}).Where("actor_id=? AND purpose IN ?", actor, []string{
 		"identity_review.list.pending", "identity_review.list.history",
 	}).Count(&count)
-	if count != 2 {
+	if count != 3 {
 		t.Fatal("工作区身份资料访问留迹缺失", count)
+	}
+	root.Model(&entity.AccessAudit{}).Where("actor_id=? AND purpose=?", actor, "identity_review.history").Count(&count)
+	if count != 3 {
+		t.Fatal("历史结果独立留迹缺失", count)
 	}
 	var rows []entity.IdentityReview
 	root.Find(&rows)
