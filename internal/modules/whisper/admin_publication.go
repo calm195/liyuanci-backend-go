@@ -7,8 +7,27 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/calm195/liyuanci-backend-go/internal/contentquery"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
+
+// ReadAdminStatistics 仅在授权后台事务内复用当前公开评论、抱抱与浏览统计口径。
+func (s *Service) ReadAdminStatistics(ctx context.Context, db *gorm.DB, now time.Time, id string) (PublicPost, error) {
+	catalog, err := s.resources(ctx)
+	if err != nil {
+		return PublicPost{}, err
+	}
+	post, err := s.publicPost(ctx, db, now, id, audience{}, catalog)
+	if err != nil {
+		return PublicPost{}, err
+	}
+	stats, err := contentquery.ReadStats(ctx, db, "whisper_post", []string{id}, "")
+	if err != nil {
+		return PublicPost{}, err
+	}
+	post.ViewCount = stats[id].ViewCount
+	return post, nil
+}
 
 // ReadPublicationPost 复用公开投影，为已授权的后台事务读取不含内部身份引用的素材。
 func (s *Service) ReadPublicationPost(ctx context.Context, db *gorm.DB, now time.Time, id string) (PublicPost, error) {

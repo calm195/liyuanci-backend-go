@@ -19,6 +19,7 @@ const adminContentPageSize = 20
 
 // AdminContentQuery 是内容管理的筛选项，日期范围为左闭右开。
 type AdminContentQuery struct {
+	IncludeStats                      bool `json:"include_stats,omitempty"`
 	Keyword, State, Requester, Helper string
 	From, Until                       time.Time
 	Cursor                            string `json:"-"`
@@ -26,14 +27,42 @@ type AdminContentQuery struct {
 
 // AdminContentSummary 是管理列表白名单。树洞记录始终省略账号关联。
 type AdminContentSummary struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	State       string     `json:"state"`
-	CreatedAt   time.Time  `json:"created_at"`
-	PublishedAt *time.Time `json:"published_at"`
-	Requester   string     `json:"requester"`
-	Helper      string     `json:"helper"`
-	MatchedAt   *time.Time `json:"matched_at"`
+	Stats       *AdminContentStats `json:"stats,omitempty" gorm:"-"`
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	State       string             `json:"state"`
+	CreatedAt   time.Time          `json:"created_at"`
+	PublishedAt *time.Time         `json:"published_at"`
+	Requester   string             `json:"requester"`
+	Helper      string             `json:"helper"`
+	MatchedAt   *time.Time         `json:"matched_at"`
+}
+
+// AdminContentStats 是显式 include=stats 协商的公开可见互动数，零和不可用分开表示。
+type AdminContentStats struct {
+	ApplicationCount *int64 `json:"application_count,omitempty"`
+	SupportCount     *int64 `json:"support_count,omitempty"`
+	HugCount         *int64 `json:"hug_count,omitempty"`
+	CommentCount     int64  `json:"comment_count"`
+	ViewCount        int64  `json:"view_count"`
+}
+
+func (s *AdminContent) statistics(ctx context.Context, db *gorm.DB, now time.Time, id string) (*AdminContentStats, error) {
+	if s.wishes != nil {
+		p, err := s.wishes.ReadAdminMetadata(ctx, db, now, id)
+		if err != nil {
+			return nil, err
+		}
+		return &AdminContentStats{ApplicationCount: &p.ApplicationCount, SupportCount: &p.Support.SupportCount, CommentCount: p.CommentCount, ViewCount: p.ViewCount}, nil
+	}
+	p, err := s.whisper.ReadAdminStatistics(ctx, db, now, id)
+	if errors.Is(err, command.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &AdminContentStats{HugCount: &p.HugCount, CommentCount: p.CommentCount, ViewCount: p.ViewCount}, nil
 }
 
 // AdminPublicationText 仅包含公开素材及其公开署名。
@@ -194,6 +223,12 @@ func (s *AdminContent) List(ctx context.Context, token, rid string, q AdminConte
 						return nil
 					}
 					row.Title = p.title
+					if q.IncludeStats {
+						row.Stats, e = s.statistics(ctx, db, now, row.ID)
+						if e != nil {
+							return e
+						}
+					}
 					out.Items = append(out.Items, row)
 				}
 				after = row.ID
@@ -218,6 +253,11 @@ func publicationMatches(p contentPublication, keyword string) bool {
 
 // Detail 返回后台元数据和经过公开资格检查的素材。评论页从零开始。
 func (s *AdminContent) Detail(ctx context.Context, token, rid, id string, page int) (out AdminContentDetail, err error) {
+	return s.DetailWithStats(ctx, token, rid, id, page, false)
+}
+
+// DetailWithStats 保留旧详情形状，仅显式协商时返回统计扩展。
+func (s *AdminContent) DetailWithStats(ctx context.Context, token, rid, id string, page int, includeStats bool) (out AdminContentDetail, err error) {
 	defer s.review.done("admin_content."+s.kind()+".detail", rid, time.Now(), &err)
 	if !validID(id) || page < 0 || page >= 1000 {
 		return out, command.ErrInvalid
@@ -237,6 +277,12 @@ func (s *AdminContent) Detail(ctx context.Context, token, rid, id string, page i
 			return e
 		}
 		row.Title = p.title
+		if includeStats {
+			row.Stats, e = s.statistics(ctx, db, now, id)
+			if e != nil {
+				return e
+			}
+		}
 		out = AdminContentDetail{
 			AdminContentSummary: row,
 			Original:            p.original,

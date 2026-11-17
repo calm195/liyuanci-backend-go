@@ -54,5 +54,10 @@ func (s *Service) ReadAdminMetadata(ctx context.Context, db *gorm.DB, now time.T
 	if err := s.enrichWishMetadata(ctx, db, items, "", now); err != nil {
 		return PublicContent{}, err
 	}
+	support, err := readSupport(db, id, "")
+	if err != nil {
+		return PublicContent{}, err
+	}
+	items[0].Support = &support
 	return items[0], nil
 }

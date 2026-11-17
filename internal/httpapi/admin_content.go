@@ -65,18 +65,34 @@ func registerAdminContent(r *gin.Engine, path string, service *moderation.AdminC
 		}
 		q, err := url.ParseQuery(c.Request.URL.RawQuery)
 		page := 0
-		if err == nil && len(q) != 0 {
-			if len(q) != 1 || len(q["comments_page"]) != 1 {
-				err = command.ErrInvalid
-			} else {
-				page, err = strconv.Atoi(q.Get("comments_page"))
+		includeStats := false
+		if err == nil {
+			for key, values := range q {
+				if len(values) != 1 {
+					err = command.ErrInvalid
+					break
+				}
+				switch key {
+				case "comments_page":
+					page, err = strconv.Atoi(values[0])
+				case "include":
+					includeStats = values[0] == "stats"
+					if !includeStats {
+						err = command.ErrInvalid
+					}
+				default:
+					err = command.ErrInvalid
+				}
+				if err != nil {
+					break
+				}
 			}
 		}
 		if err != nil {
 			adminError(c, command.ErrInvalid)
 			return
 		}
-		out, err := service.Detail(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"), page)
+		out, err := service.DetailWithStats(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"), page, includeStats)
 		if err != nil {
 			adminError(c, err)
 			return
@@ -114,6 +130,11 @@ func parseAdminContentQuery(raw string) (out moderation.AdminContentQuery, err e
 		}
 		value := values[0]
 		switch key {
+		case "include":
+			if value != "stats" {
+				return out, command.ErrInvalid
+			}
+			out.IncludeStats = true
 		case "keyword":
 			out.Keyword = value
 		case "state":
