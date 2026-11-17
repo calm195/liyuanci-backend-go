@@ -101,12 +101,16 @@ func (s *Service) accountProfile(db *gorm.DB, id string) (AccountProfile, error)
 	}
 	profile.IdealTraits = []string{}
 	profile.PersonalTraits = []string{}
+	profile.PersonalTraitCategories = map[string]string{}
+	profile.IdealTraitCategories = map[string]string{}
 	for _, selection := range selections {
 		if selection.Status == "approved" {
 			if selection.Purpose == "personal" {
 				profile.PersonalTraits = append(profile.PersonalTraits, selection.Name)
+				profile.PersonalTraitCategories[selection.Name] = selection.Category
 			} else {
 				profile.IdealTraits = append(profile.IdealTraits, selection.Name)
+				profile.IdealTraitCategories[selection.Name] = selection.Category
 			}
 		}
 	}
@@ -174,6 +178,8 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 		// 当前选择以关系表为准，密文不重复保存待审核标签。
 		p.IdealTraits = nil
 		p.PersonalTraits = nil
+		p.PersonalTraitCategories = nil
+		p.IdealTraitCategories = nil
 		row.AccountID = id
 		row.Version++
 		raw, err := json.Marshal(p)
@@ -199,6 +205,9 @@ func (s *Service) SaveProfile(ctx context.Context, token, key, rid string, input
 }
 
 func validAccountProfile(p Preferences) bool {
+	if _, err := profileTraitCategories(p); err != nil {
+		return false
+	}
 	if !validPreferenceCodes(p.PreferredCampuses, campusCodes) || !validPreferenceCodes(p.PreferredMBTI, mbtis) {
 		return false
 	}

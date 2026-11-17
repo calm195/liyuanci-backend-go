@@ -14,7 +14,9 @@ import (
 
 // MatchmakingTraitsAPI 单独声明词条接口，复用包分配的会话、写命令和错误协议。
 type MatchmakingTraitsAPI interface {
-	SuggestTraits(context.Context, string, string, string, string, int) (matchmaking.TraitCloud, error)
+	CreateTrait(context.Context, string, string, string, matchmaking.TraitCreateInput) (matchmaking.Receipt, error)
+	UpdateTrait(context.Context, string, string, string, string, matchmaking.TraitUpdateInput) (matchmaking.Receipt, error)
+	SuggestTraits(context.Context, string, string, string, string, string, int) (matchmaking.TraitCloud, error)
 	ReadTraits(context.Context, string, string, matchmaking.TraitQuery) (matchmaking.TraitPage, error)
 	ReadTraitCloud(context.Context, string, string, matchmaking.TraitQuery) (matchmaking.TraitCloud, error)
 	ReadTrait(context.Context, string, string, string) (matchmaking.TraitDetail, error)
@@ -25,6 +27,8 @@ func registerMatchmakingTraits(r *gin.Engine, s MatchmakingTraitsAPI) {
 	for _, route := range []struct{ method, path, op string }{
 		{"GET", "/matchmaking/traits", "suggest"},
 		{"GET", "/admin/matchmaking/traits", "list"},
+		{"POST", "/admin/matchmaking/traits", "create"},
+		{"PUT", "/admin/matchmaking/traits/:trait", "update"},
 		{"GET", "/admin/matchmaking/traits/cloud", "cloud"},
 		{"GET", "/admin/matchmaking/traits/:trait", "detail"},
 		{"POST", "/admin/matchmaking/traits/:trait/review", "review"},
@@ -48,7 +52,21 @@ func registerMatchmakingTraits(r *gin.Engine, s MatchmakingTraitsAPI) {
 			}
 			ctx, rid := c.Request.Context(), c.GetString("request_id")
 			var out any
-			if route.op == "review" {
+			if route.op == "create" {
+				var input matchmaking.TraitCreateInput
+				key, ok := matchmakingInput(c, &input)
+				if !ok {
+					return
+				}
+				out, err = s.CreateTrait(ctx, token, key, rid, input)
+			} else if route.op == "update" {
+				var input matchmaking.TraitUpdateInput
+				key, ok := matchmakingInput(c, &input)
+				if !ok {
+					return
+				}
+				out, err = s.UpdateTrait(ctx, token, key, rid, c.Param("trait"), input)
+			} else if route.op == "review" {
 				var input matchmaking.ReviewInput
 				key, ok := matchmakingInput(c, &input)
 				if !ok {
@@ -63,7 +81,7 @@ func registerMatchmakingTraits(r *gin.Engine, s MatchmakingTraitsAPI) {
 				}
 				switch route.op {
 				case "suggest":
-					out, err = s.SuggestTraits(ctx, token, rid, q.Q, q.Purpose, q.Limit)
+					out, err = s.SuggestTraits(ctx, token, rid, q.Q, q.Purpose, q.Category, q.Limit)
 				case "list":
 					out, err = s.ReadTraits(ctx, token, rid, q)
 				case "cloud":
@@ -94,14 +112,22 @@ func traitQuery(raw, op string) (matchmaking.TraitQuery, error) {
 		return q, command.ErrInvalid
 	}
 	for key, list := range values {
-		if len(list) != 1 || op == "detail" || op == "review" {
+		if len(list) != 1 || op == "detail" || op == "review" || op == "create" || op == "update" {
 			return q, command.ErrInvalid
 		}
 		value := list[0]
-		if op == "suggest" && key != "q" && key != "purpose" && key != "limit" {
+		if op == "suggest" && key != "q" && key != "purpose" && key != "category" && key != "limit" {
 			return q, command.ErrInvalid
 		}
 		switch key {
+		case "category":
+			q.Category = value
+		case "enabled":
+			if value != "true" && value != "false" {
+				return q, command.ErrInvalid
+			}
+			enabled := value == "true"
+			q.Enabled = &enabled
 		case "purpose":
 			q.Purpose = value
 		case "q":

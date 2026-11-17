@@ -610,6 +610,9 @@ GRANT SELECT, INSERT, UPDATE ON public.matchmaking_traits TO liyuanci_api, liyua
 GRANT SELECT, INSERT, DELETE ON public.matchmaking_trait_selections TO liyuanci_api;
 GRANT SELECT ON public.matchmaking_trait_selections TO liyuanci_admin_api;
 GRANT SELECT, DELETE ON public.matchmaking_trait_selections TO liyuanci_privacy_maintenance;
+ALTER TABLE public.matchmaking_trait_maintenance_audits OWNER TO liyuanci_migrator;
+REVOKE ALL ON public.matchmaking_trait_maintenance_audits FROM PUBLIC;
+GRANT SELECT, INSERT ON public.matchmaking_trait_maintenance_audits TO liyuanci_admin_api;
 
 -- 批量账号锁复用原guard函数和同一授权角色，不扩大账号字段读取范围。
 ALTER FUNCTION public.lock_command_accounts(uuid[]) OWNER TO liyuanci_migrator;

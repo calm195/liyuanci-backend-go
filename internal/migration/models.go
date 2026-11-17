@@ -11,6 +11,7 @@ func businessModels() []any {
 		&entity.MatchmakingEnrollment{},
 		&entity.MatchmakingProfile{},
 		&entity.MatchmakingTrait{},
+		&entity.MatchmakingTraitMaintenanceAudit{},
 		&entity.MatchmakingAutoJob{},
 		&entity.MatchmakingTraitSelection{},
 		&entity.MatchmakingPair{},

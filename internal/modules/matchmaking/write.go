@@ -35,9 +35,16 @@ func (s *Service) write(
 		}
 	}
 	definition.Discover = func(ctx context.Context, db *gorm.DB, _ command.Subject) (command.Discovery, error) {
-		if review, ok := input.(traitReviewCommand); ok {
-			plan := command.Discovery{Resources: []command.Resource{{Kind: command.MatchmakingTrait, ID: review.ID}}}
-			err := db.WithContext(ctx).Model(&entity.MatchmakingTraitSelection{}).Where("trait_id=?", review.ID).Pluck("account_id", &plan.Accounts).Error
+		traitID := ""
+		switch value := input.(type) {
+		case traitReviewCommand:
+			traitID = value.ID
+		case traitUpdateCommand:
+			traitID = value.ID
+		}
+		if traitID != "" {
+			plan := command.Discovery{Resources: []command.Resource{{Kind: command.MatchmakingTrait, ID: traitID}}}
+			err := db.WithContext(ctx).Model(&entity.MatchmakingTraitSelection{}).Where("trait_id=?", traitID).Pluck("account_id", &plan.Accounts).Error
 			return plan, err
 		}
 		return discover(ctx, db, id)
@@ -79,7 +86,7 @@ func (s *Service) write(
 			query = tx.DB().Model(&entity.MatchmakingPair{}).Where("id=? AND activity_id=?", ref, id)
 		case "auto_create", "auto_apply":
 			query = tx.DB().Model(&entity.MatchmakingAutoJob{}).Where("id=? AND activity_id=?", ref, id)
-		case "trait_review":
+		case "trait_review", "trait_create", "trait_update":
 			query = tx.DB().Model(&entity.MatchmakingTrait{}).Where("id=?", ref)
 		case "library_create", "library_save":
 			query = tx.DB().Model(&entity.MatchmakingLibraryTask{}).Where("id=?", ref)

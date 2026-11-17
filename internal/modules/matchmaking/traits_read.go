@@ -16,6 +16,9 @@ import (
 
 func normalizeTraitQuery(q TraitQuery, max int) (TraitQuery, error) {
 	q.Q = strings.TrimSpace(q.Q)
+	if q.Category != "" && !validTraitCategory(q.Category) {
+		return q, command.ErrInvalid
+	}
 	if q.Purpose == "" {
 		q.Purpose = "all"
 	}
@@ -57,7 +60,13 @@ func traitAggregate(db *gorm.DB, q TraitQuery) *gorm.DB {
 	case "undisclosed":
 		heat = "COALESCE(c.undisclosed_count,0)"
 	}
-	base := db.Table("public.matchmaking_traits t").Select("t.id,t.name,t.status,t.version,t.created_at,t.reason,"+heat+" AS heat,COALESCE(c.male_count,0) AS male_count,COALESCE(c.female_count,0) AS female_count,COALESCE(c.undisclosed_count,0) AS undisclosed_count").Joins("LEFT JOIN (?) c ON c.trait_id=t.id", counts).Where("t.status=?", q.Status)
+	base := db.Table("public.matchmaking_traits t").Select("t.id,t.name,t.category,t.enabled,t.status,t.version,t.created_at,t.reason,"+heat+" AS heat,COALESCE(c.male_count,0) AS male_count,COALESCE(c.female_count,0) AS female_count,COALESCE(c.undisclosed_count,0) AS undisclosed_count").Joins("LEFT JOIN (?) c ON c.trait_id=t.id", counts).Where("t.status=?", q.Status)
+	if q.Category != "" {
+		base = base.Where("t.category=?", q.Category)
+	}
+	if q.Enabled != nil {
+		base = base.Where("t.enabled=?", *q.Enabled)
+	}
 	if q.Q != "" {
 		base = base.Where("strpos(lower(t.name),lower(?))>0", q.Q)
 	}
@@ -124,7 +133,7 @@ func (s *Service) ReadTraitCloud(ctx context.Context, token, rid string, q Trait
 		}
 		out.Total = page.Total
 		for _, row := range page.Items {
-			out.Items = append(out.Items, TraitWord{ID: row.ID, Name: row.Name, Heat: row.Heat})
+			out.Items = append(out.Items, TraitWord{ID: row.ID, Name: row.Name, Heat: row.Heat, Category: row.Category, Enabled: row.Enabled})
 		}
 		return nil
 	})
@@ -132,7 +141,7 @@ func (s *Service) ReadTraitCloud(ctx context.Context, token, rid string, q Trait
 }
 
 // SuggestTraits 只向已登录学生推荐已通过词条。
-func (s *Service) SuggestTraits(ctx context.Context, token, rid, query, purpose string, limit int) (out TraitCloud, err error) {
+func (s *Service) SuggestTraits(ctx context.Context, token, rid, query, purpose, category string, limit int) (out TraitCloud, err error) {
 	defer s.done("traits_suggest", rid, time.Now(), &err)
 	out.Items = []TraitWord{}
 	if purpose == "" {
@@ -141,7 +150,8 @@ func (s *Service) SuggestTraits(ctx context.Context, token, rid, query, purpose 
 	if !slices.Contains([]string{"personal", "ideal"}, purpose) {
 		return out, command.ErrInvalid
 	}
-	q, e := normalizeTraitQuery(TraitQuery{Q: query, Purpose: purpose, Limit: limit}, 20)
+	enabled := true
+	q, e := normalizeTraitQuery(TraitQuery{Q: query, Purpose: purpose, Category: category, Enabled: &enabled, Limit: limit}, 20)
 	if e != nil {
 		return out, e
 	}
@@ -152,7 +162,7 @@ func (s *Service) SuggestTraits(ctx context.Context, token, rid, query, purpose 
 		}
 		out.Total = page.Total
 		for _, row := range page.Items {
-			out.Items = append(out.Items, TraitWord{ID: row.ID, Name: row.Name, Heat: row.Heat})
+			out.Items = append(out.Items, TraitWord{ID: row.ID, Name: row.Name, Heat: row.Heat, Category: row.Category, Enabled: row.Enabled})
 		}
 		return nil
 	})

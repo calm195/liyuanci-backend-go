@@ -1,0 +1,1 @@
+DROP TABLE public.matchmaking_trait_maintenance_audits;

@@ -102,7 +102,7 @@ func TestPostgresWhisperFoundation(t *testing.T) {
 			t.Fatal(loadErr)
 		}
 		var latest int64
-		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != int64(len(entries)) {
+		if e := db.Raw("SELECT max(version) FROM public.schema_migrations").Scan(&latest).Error; e != nil || latest != entries[len(entries)-1].version {
 			t.Fatal("拒绝后账本改变", latest, e)
 		}
 		if e := db.Exec("DELETE FROM public.work_items WHERE id=?", id).Error; e != nil {

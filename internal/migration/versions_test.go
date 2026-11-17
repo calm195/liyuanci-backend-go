@@ -1,12 +1,13 @@
 package migration
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"testing/fstest"
 )
 
-// TestVersionCatalog 拒绝重复、断号和不成对的制品，避免新增 SQL 被遗漏或静默忽略。
+// TestVersionCatalog 要求所有迁移从0001连续编号，拒绝断号、重复和未配对文件。
 func TestVersionCatalog(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -36,8 +37,26 @@ func TestVersionCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 31 {
+	if len(entries) != 33 || entries[len(entries)-1].version != 33 {
 		t.Fatalf("迁移版本数量错误：%d", len(entries))
+	}
+	for _, last := range []int{33, 34, 35, 36} {
+		catalog := fstest.MapFS{}
+		for version := 1; version <= 32; version++ {
+			for _, direction := range []string{"up", "down"} {
+				catalog[fmt.Sprintf("sql/%04d_test.%s.sql", version, direction)] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+			}
+		}
+		for _, direction := range []string{"up", "down"} {
+			catalog[fmt.Sprintf("sql/%04d_test.%s.sql", last, direction)] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+		}
+		versions, e := readVersions(catalog)
+		if (e == nil) != (last == 33) {
+			t.Fatalf("连续编号边界 %d: %v", last, e)
+		}
+		if e == nil && versions[len(versions)-1].version != 33 {
+			t.Fatal("实际版本号丢失")
+		}
 	}
 	// 权限重放只能管理策略与授权，不能再偷偷创建表、字段或函数。
 	permissions, err := files.ReadFile("sql/application_permissions.sql")

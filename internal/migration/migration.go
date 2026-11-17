@@ -83,12 +83,12 @@ func run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string,
 		if e := tx.Model(&entity.SchemaMigration{}).Select("version, checksum").Order("version").Find(&rows).Error; e != nil {
 			return fmt.Errorf("迁移账本读取失败：%w", e)
 		}
-		// 账本必须是制品版本的连续前缀，拒绝缺口、未知版本及初始化文件漂移。
+		// 账本必须是制品目录的完整前缀，拒绝编号缺口及校验和不符的旧原型结构。
 		if len(rows) > len(entries) {
 			return errors.New("迁移版本超出当前制品")
 		}
 		for i, row := range rows {
-			if row.Version != int64(i+1) || row.Checksum != entries[i].checksum {
+			if row.Version != entries[i].version || row.Checksum != entries[i].checksum {
 				return errors.New("迁移版本或校验和不匹配")
 			}
 		}
@@ -98,7 +98,7 @@ func run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string,
 				if e := tx.Exec(string(entries[i].up)).Error; e != nil {
 					return fmt.Errorf("应用迁移 %s 失败：%w", entries[i].name, e)
 				}
-				if e := tx.Create(&entity.SchemaMigration{Version: int64(i + 1), Checksum: entries[i].checksum}).Error; e != nil {
+				if e := tx.Create(&entity.SchemaMigration{Version: entries[i].version, Checksum: entries[i].checksum}).Error; e != nil {
 					return e
 				}
 			}
@@ -120,13 +120,18 @@ func run(ctx context.Context, db *gorm.DB, logger *zap.Logger, direction string,
 		}
 		for i := len(rows) - 1; i >= 0; i-- {
 			stage, version = "down", entries[i].name
-			if e := tx.Exec(string(entries[i].down)).Error; e != nil {
+			if e := rollbackVersion(tx, entries[i]); e != nil {
 				return fmt.Errorf("回退迁移 %s 失败：%w", entries[i].name, e)
-			}
-			if e := tx.Where("version = ?", i+1).Delete(&entity.SchemaMigration{}).Error; e != nil {
-				return e
 			}
 		}
 		return nil
 	})
+}
+
+// rollbackVersion 仅供持有事务的受控回退路径使用，不扩大整体空库回退的公开范围。
+func rollbackVersion(tx *gorm.DB, entry versionEntry) error {
+	if err := tx.Exec(string(entry.down)).Error; err != nil {
+		return err
+	}
+	return tx.Where("version = ?", entry.version).Delete(&entity.SchemaMigration{}).Error
 }

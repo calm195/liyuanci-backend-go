@@ -236,6 +236,15 @@ func (s *Service) Read(ctx context.Context, token, rid, id string) (out Detail, 
 			return e
 		}
 		out.Activity = activities[0]
+		published := a.TasksPublishedAt != nil
+		if !published {
+			var count int64
+			if err := db.Model(&entity.MatchmakingAudit{}).Where("activity_id=? AND action='results_publish'", id).Count(&count).Error; err != nil {
+				return err
+			}
+			published = count > 0
+		}
+		out.ResultState = resultState(a, nil, nil, published, r.Now)
 		var row entity.MatchmakingEnrollment
 		e = db.Where("activity_id=? AND account_id=?", id, r.ID).Take(&row).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
@@ -249,6 +258,7 @@ func (s *Service) Read(ctx context.Context, token, rid, id string) (out Detail, 
 			return e
 		}
 		out.Enrollment = &projected
+		out.ResultState = resultState(a, out.Enrollment, nil, published, r.Now)
 		var p entity.MatchmakingPair
 		e = db.Where("activity_id=? AND status<>'draft' AND id IN (SELECT pair_id FROM public.matchmaking_members WHERE account_id=?)", id, r.ID).Order("created_at DESC,id").Take(&p).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
@@ -270,6 +280,10 @@ func (s *Service) Read(ctx context.Context, token, rid, id string) (out Detail, 
 			v.Reason = "配对已解除"
 		}
 		out.Pair = &v
+		out.ResultState = resultState(a, out.Enrollment, out.Pair, published, r.Now)
+		if out.ResultState == "ended" {
+			return nil
+		}
 		members, e := pairMembers(db, p.ID)
 		if e != nil {
 			return e

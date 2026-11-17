@@ -50,21 +50,23 @@ type Profile struct {
 
 // Preferences 是单独维护并加密保存的活动专用资料。
 type Preferences struct {
-	PreferredCampuses []string `json:"preferred_campuses"`
-	PreferredMBTI     []string `json:"preferred_mbti"`
-	PersonalTraits    []string `json:"personal_traits"`
-	IdealTraits       []string `json:"ideal_traits"`
-	Age               int      `json:"age"`
-	AgeMin            int      `json:"age_min"`
-	AgeMax            int      `json:"age_max"`
-	Height            int      `json:"height"`
-	HeightMin         int      `json:"height_min"`
-	HeightMax         int      `json:"height_max"`
-	Weight            int      `json:"weight"`
-	WeightMin         int      `json:"weight_min"`
-	WeightMax         int      `json:"weight_max"`
-	Wechat            string   `json:"wechat"`
-	Introduction      string   `json:"introduction"`
+	PersonalTraitCategories map[string]string `json:"personal_trait_categories,omitempty"`
+	IdealTraitCategories    map[string]string `json:"ideal_trait_categories,omitempty"`
+	PreferredCampuses       []string          `json:"preferred_campuses"`
+	PreferredMBTI           []string          `json:"preferred_mbti"`
+	PersonalTraits          []string          `json:"personal_traits"`
+	IdealTraits             []string          `json:"ideal_traits"`
+	Age                     int               `json:"age"`
+	AgeMin                  int               `json:"age_min"`
+	AgeMax                  int               `json:"age_max"`
+	Height                  int               `json:"height"`
+	HeightMin               int               `json:"height_min"`
+	HeightMax               int               `json:"height_max"`
+	Weight                  int               `json:"weight"`
+	WeightMin               int               `json:"weight_min"`
+	WeightMax               int               `json:"weight_max"`
+	Wechat                  string            `json:"wechat"`
+	Introduction            string            `json:"introduction"`
 }
 
 // EnrollmentInput 新报名版本为零，修改必须绑定当前报名版本。
@@ -162,10 +164,11 @@ type Task struct {
 
 // Detail 汇总当前账号活动状态，不返回其他报名者列表。
 type Detail struct {
-	Activity   Activity    `json:"activity"`
-	Enrollment *Enrollment `json:"enrollment,omitempty"`
-	Pair       *Pair       `json:"pair,omitempty"`
-	Tasks      []Task      `json:"tasks"`
+	ResultState string      `json:"result_state"`
+	Activity    Activity    `json:"activity"`
+	Enrollment  *Enrollment `json:"enrollment,omitempty"`
+	Pair        *Pair       `json:"pair,omitempty"`
+	Tasks       []Task      `json:"tasks"`
 }
 
 // Workspace 是后台同一活动的分页工作台。

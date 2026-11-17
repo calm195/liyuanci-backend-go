@@ -31,7 +31,7 @@ SUITES = {
     'resourceplaza': ('./internal/modules/resourceplaza', ('TestPostgresHTTP',)),
     'matchmaking_auto_concurrency': ('./internal/modules/matchmaking', ('TestPostgresAutoPairingConcurrentApply',)),
     'matchmaking_privacy': ('./internal/modules/privacy', ('TestMatchmakingAutoPreviewErasedOnDeletion',)),
-    'matchmaking': ('./internal/modules/matchmaking', ('TestPostgresHTTP', 'TestPostgresHTTPTaskLibrary', 'TestPostgresHTTPTraits', 'TestPostgresHTTPAutoPairing')),
+    'matchmaking': ('./internal/modules/matchmaking', ('TestPostgresHTTP', 'TestPostgresHTTPTaskLibrary', 'TestPostgresHTTPTraits', 'TestPostgresHTTPTraitCategories', 'TestPostgresHTTPResultPublication', 'TestPostgresHTTPAutoPairing')),
     'moderation': (
         './internal/modules/moderation',
         ('TestModerationCore', 'TestCrisisCare', 'TestPrivacyDeletion', 'TestApplicationMatching',
@@ -53,6 +53,7 @@ SUITES = {
         (
             'TestPostgresMigrations',
             'TestPostgresApplicationMigrations',
+            'TestPostgresSequentialVersions',
             'TestBusinessSchema',
             'TestRecoverySchema',
             'TestPostgresStoryPublication',

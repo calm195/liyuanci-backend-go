@@ -21,15 +21,19 @@ import (
 
 // TraitSelection 只向本人返回未生效词条及其审核状态。
 type TraitSelection struct {
-	Purpose string `json:"purpose"`
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
+	Category string `json:"category"`
+	Enabled  bool   `json:"enabled"`
+	Purpose  string `json:"purpose"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
 }
 
 // Trait 是运营词条及按当前账号性别聚合的人数。
 type Trait struct {
+	Category         string    `json:"category"`
+	Enabled          bool      `json:"enabled"`
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Status           string    `json:"status"`
@@ -58,9 +62,11 @@ type TraitPage struct {
 
 // TraitWord 是推荐和词云使用的最小投影，不含选用者或审核证据。
 type TraitWord struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Heat int64  `json:"heat"`
+	Category string `json:"category"`
+	Enabled  bool   `json:"enabled"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Heat     int64  `json:"heat"`
 }
 
 // TraitCloud 的总数是匹配词条数，Items 只保留规定数量。
@@ -71,15 +77,17 @@ type TraitCloud struct {
 
 // TraitQuery 统一列表与词云的筛选口径，空状态默认已通过。
 type TraitQuery struct {
-	Purpose string
-	Q       string
-	Gender  string
-	Status  string
-	MinHeat *int64
-	MaxHeat *int64
-	Sort    string
-	Page    int
-	Limit   int
+	Category string
+	Enabled  *bool
+	Purpose  string
+	Q        string
+	Gender   string
+	Status   string
+	MinHeat  *int64
+	MaxHeat  *int64
+	Sort     string
+	Page     int
+	Limit    int
 }
 
 func normalizeTraits(names []string) ([]string, error) {
@@ -106,7 +114,7 @@ func normalizeTraits(names []string) ([]string, error) {
 
 func readTraitSelections(db *gorm.DB, account string) ([]TraitSelection, error) {
 	out := []TraitSelection{}
-	err := db.Table("public.matchmaking_traits AS t").Select("t.id,t.name,t.status,t.reason,s.purpose").
+	err := db.Table("public.matchmaking_traits AS t").Select("t.id,t.name,t.category,t.enabled,t.status,t.reason,s.purpose").
 		Joins("JOIN public.matchmaking_trait_selections s ON s.trait_id=t.id").
 		Where("s.account_id=? AND t.status<>'rejected'", account).Order("s.created_at,t.name,t.id,s.purpose").Scan(&out).Error
 	return out, err
@@ -114,6 +122,10 @@ func readTraitSelections(db *gorm.DB, account string) ([]TraitSelection, error) 
 
 // saveTraitSelections 在资料事务中创建词条和待审案件，唯一索引确保并发同名只建一次。
 func (s *Service) saveTraitSelections(ctx context.Context, db *gorm.DB, account string, profile Preferences, now time.Time) error {
+	categories, err := profileTraitCategories(profile)
+	if err != nil {
+		return err
+	}
 	groups := []struct {
 		purpose string
 		names   []string
@@ -134,7 +146,6 @@ func (s *Service) saveTraitSelections(ctx context.Context, db *gorm.DB, account 
 	slices.Sort(all)
 	names := slices.Compact(all)
 	approvedIDs := map[string]string{}
-	var err error
 	for _, name := range names {
 		var row entity.MatchmakingTrait
 		err = db.Where("name=?", name).Take(&row).Error
@@ -146,7 +157,11 @@ func (s *Service) saveTraitSelections(ctx context.Context, db *gorm.DB, account 
 			if e != nil {
 				return e
 			}
-			row = entity.MatchmakingTrait{ID: uuid.NewString(), Name: name, Status: "approved", Version: 1, Evidence: evidence, CreatedAt: now}
+			category := categories[name]
+			if category == "" {
+				category = "uncategorized"
+			}
+			row = entity.MatchmakingTrait{ID: uuid.NewString(), Name: name, Category: category, Enabled: true, Status: "approved", Version: 1, Evidence: evidence, CreatedAt: now}
 			if pending {
 				row.Status = "pending"
 			}
@@ -168,6 +183,21 @@ func (s *Service) saveTraitSelections(ctx context.Context, db *gorm.DB, account 
 		// 已驳回词条不能被旧草稿或重试重新关联到资料。
 		if row.Status == "rejected" {
 			continue
+		}
+		if !row.Enabled {
+			// 停用只阻止新的选用；原用途中的历史关系可以原样保存或移除。
+			for _, group := range groups {
+				if !slices.Contains(group.names, name) {
+					continue
+				}
+				var count int64
+				if e := db.Model(&entity.MatchmakingTraitSelection{}).Where("account_id=? AND purpose=? AND trait_id=?", account, group.purpose, row.ID).Count(&count).Error; e != nil {
+					return e
+				}
+				if count == 0 {
+					return command.ErrConflict
+				}
+			}
 		}
 		approvedIDs[name] = row.ID
 	}

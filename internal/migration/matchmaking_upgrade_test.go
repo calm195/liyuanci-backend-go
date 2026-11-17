@@ -29,11 +29,11 @@ func verifyMatchmakingUpgrade(t *testing.T, baseline int) {
 		if err := tx.Exec(string(ledger)).Error; err != nil {
 			return err
 		}
-		for i, entry := range entries[:baseline] {
+		for _, entry := range entries[:baseline] {
 			if err := tx.Exec(string(entry.up)).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&entity.SchemaMigration{Version: int64(i + 1), Checksum: entry.checksum}).Error; err != nil {
+			if err := tx.Create(&entity.SchemaMigration{Version: entry.version, Checksum: entry.checksum}).Error; err != nil {
 				return err
 			}
 		}
@@ -100,7 +100,7 @@ INSERT INTO public.matchmaking_trait_selections(account_id,trait_id,created_at) 
 		t.Fatalf("升级后迁移账本版本数错误：%d", len(versions))
 	}
 	for i, row := range versions {
-		if row.Version != int64(i+1) || row.Checksum != entries[i].checksum {
+		if row.Version != entries[i].version || row.Checksum != entries[i].checksum {
 			t.Fatalf("升级后迁移账本记录不符：%d", row.Version)
 		}
 	}

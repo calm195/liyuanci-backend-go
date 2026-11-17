@@ -9,6 +9,8 @@ import (
 type MatchmakingTrait struct {
 	ID         string          `gorm:"column:id;type:uuid;primaryKey;comment:词条标识"`
 	Name       string          `gorm:"column:name;not null;comment:规范化的特质词条"`
+	Category   string          `gorm:"column:category;not null;default:uncategorized;comment:共享特质分类"`
+	Enabled    bool            `gorm:"column:enabled;not null;default:true;comment:是否允许新增选用"`
 	Status     string          `gorm:"column:status;not null;comment:词条审核状态"`
 	Version    int64           `gorm:"column:version;not null;comment:词条乐观版本"`
 	Evidence   json.RawMessage `gorm:"column:evidence;type:jsonb;not null;comment:创建时词库扫描依据"`

@@ -252,6 +252,10 @@ func matchmakingInput(c *gin.Context, out any) (string, bool) {
 }
 
 func matchmakingJSONValue(decoder *json.Decoder) error {
+	return matchmakingJSONValueIn(decoder, false)
+}
+
+func matchmakingJSONValueIn(decoder *json.Decoder, names bool) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -265,18 +269,21 @@ func matchmakingJSONValue(decoder *json.Decoder) error {
 	}
 	seen := map[string]bool{}
 	for decoder.More() {
+		categoryNames := false
 		if delim == '{' {
 			key, err := decoder.Token()
 			if err != nil {
 				return err
 			}
 			name, ok := key.(string)
-			if !ok || name != strings.ToLower(name) || seen[name] {
+			if !ok || !names && name != strings.ToLower(name) || seen[name] {
 				return command.ErrInvalid
 			}
 			seen[name] = true
+			// 分类映射的键是用户词条名称，可含大写字母；仅协议字段限定小写。
+			categoryNames = name == "personal_trait_categories" || name == "ideal_trait_categories"
 		}
-		if err := matchmakingJSONValue(decoder); err != nil {
+		if err := matchmakingJSONValueIn(decoder, categoryNames); err != nil {
 			return err
 		}
 	}
