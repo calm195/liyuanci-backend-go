@@ -79,8 +79,10 @@ func (s *Service) Read(ctx context.Context, token, rid, op, id string, q Query, 
 		if e != nil {
 			return e
 		}
-		if e = addInteractionStats(ctx, db, []entity.ResourceMaterial{r}, stats, a.ID); e != nil {
-			return e
+		if !a.Admin {
+			if e = addInteractionStats(ctx, db, []entity.ResourceMaterial{r}, stats, a.ID); e != nil {
+				return e
+			}
 		}
 		out, e = s.project(db, a, r, true, stats, nil)
 		return e
@@ -179,8 +181,10 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 	if e != nil {
 		return out, e
 	}
-	if e = addInteractionStats(ctx, db, rows, stats, a.ID); e != nil {
-		return out, e
+	if !a.Admin {
+		if e = addInteractionStats(ctx, db, rows, stats, a.ID); e != nil {
+			return out, e
+		}
 	}
 	categoryIDs := []string{}
 	for _, r := range rows {

@@ -294,21 +294,38 @@ func TestPostgresHTTP(t *testing.T) {
 		"download_url":    "https://example.test/a?x=%2F",
 		"extraction_code": "aB12",
 	}
+	assertInteractionFields := func(data map[string]any, student bool) {
+		t.Helper()
+		for _, name := range []string{"view_count", "favorited"} {
+			_, present := data[name]
+			if present != student {
+				t.Fatalf("互动字段投影边界错误：field=%s student=%v present=%v", name, student, present)
+			}
+		}
+	}
 	res := call("POST", "/admin/resources", at, "r1", input, 201).Data
+	assertInteractionFields(res, false)
 	id := res["id"].(string)
 	if res["title"] != "ABC资料" {
 		t.Fatal("归一化失效")
 	}
 	call("GET", "/resources/"+id, ut, "", nil, 404)
-	call("GET", "/admin/resources", at, "", nil, 200)
-	call("GET", "/admin/resources/"+id, at, "", nil, 200)
+	adminList := call("GET", "/admin/resources", at, "", nil, 200).Data
+	for _, item := range adminList["items"].([]any) {
+		assertInteractionFields(item.(map[string]any), false)
+	}
+	assertInteractionFields(call("GET", "/admin/resources/"+id, at, "", nil, 200).Data, false)
 	call("POST", "/admin/resources/"+id+"/publish", at, "pub1", map[string]any{"expected_version": 1}, 200)
 	replay := call("POST", "/admin/resources", at, "r1", input, 201).Data
+	assertInteractionFields(replay, false)
 	if replay["id"] != id || replay["status"] != "published" {
 		t.Fatal("创建重放应返回当前状态")
 	}
-	call("GET", "/resources?q=abc", ut, "", nil, 200)
-	call("GET", "/resources/"+id, ut, "", nil, 200)
+	studentList := call("GET", "/resources?q=abc", ut, "", nil, 200).Data
+	for _, item := range studentList["items"].([]any) {
+		assertInteractionFields(item.(map[string]any), true)
+	}
+	assertInteractionFields(call("GET", "/resources/"+id, ut, "", nil, 200).Data, true)
 	download := call("GET", "/resources/"+id+"/download-info?expected_version=2", ut, "", nil, 200).Data
 	if download["copy_text"] != "https://example.test/a?x=%2F\n提取码：aB12" {
 		t.Fatal("复制协议错误")

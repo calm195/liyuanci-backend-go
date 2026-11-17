@@ -93,13 +93,16 @@ func (s *Service) project(
 		}
 	}
 	p["feedback_summary"] = summary
-	p["view_count"] = stats[r.ID]["view_count"]
-	if p["view_count"] == nil {
-		p["view_count"] = int64(0)
-	}
-	p["favorited"] = stats[r.ID]["favorited"]
-	if p["favorited"] == nil {
-		p["favorited"] = false
+	// 浏览与本人收藏属于学生投影，不扩展管理端的严格响应契约。
+	if !a.Admin {
+		p["view_count"] = stats[r.ID]["view_count"]
+		if p["view_count"] == nil {
+			p["view_count"] = int64(0)
+		}
+		p["favorited"] = stats[r.ID]["favorited"]
+		if p["favorited"] == nil {
+			p["favorited"] = false
+		}
 	}
 	if a.Admin {
 		p["status"] = r.Status
