@@ -16,7 +16,7 @@ type Scanner interface {
 	ProcessNext(context.Context) (durable.Consumption, error)
 }
 
-// Maintainer 允许领域提供独立的有界待办补偿，和扫描共用宿主取消及等待生命周期。
+// Maintainer 允许领域提供独立的有界待办补偿，和扫描共用 Worker 的取消及等待生命周期。
 type Maintainer interface{ Maintain(context.Context) error }
 
 func maintenance(scanner Scanner) func(context.Context) error {
@@ -38,7 +38,8 @@ type Worker struct {
 }
 
 // OpenDatabase 仅启动有界数据库补偿，不构造消息客户端或要求 Broker。
-// 调用方须先 Close 并等待在途处理结束，再释放数据库和供应商。
+// ctx 只检查启动是否已取消；启动后由调用方通过 Close 停止任务并等待在途处理，
+// 再释放数据库和供应商，避免启动超时导致已运行的后台任务意外退出。
 func OpenDatabase(ctx context.Context, scanner Scanner, logger *zap.Logger, interval, timeout time.Duration) (*Worker, error) {
 	if scanner == nil || logger == nil || ctx.Err() != nil || interval < time.Millisecond || timeout <= 0 {
 		return nil, durable.ErrInvalid
@@ -52,6 +53,7 @@ func OpenDatabase(ctx context.Context, scanner Scanner, logger *zap.Logger, inte
 }
 
 func startWorker(scan func(context.Context) (durable.Consumption, error), logger *zap.Logger, cfg Config, maintain ...func(context.Context) error) *Worker {
+	// 启动检查可能使用短期限 context；工作生命周期由 Close 独立控制。
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &Worker{cancel: cancel, done: make(chan struct{}), logger: logger}
 	var running sync.WaitGroup
@@ -65,7 +67,6 @@ func startWorker(scan func(context.Context) (durable.Consumption, error), logger
 			logger,
 			"scan",
 			func(ctx context.Context) error {
-
 				_, err := scan(ctx)
 				return err
 			},
@@ -81,7 +82,6 @@ func startWorker(scan func(context.Context) (durable.Consumption, error), logger
 		}
 	}
 	go func() {
-
 		running.Wait()
 		close(w.done)
 	}()
@@ -122,7 +122,6 @@ func (w *Worker) Close() (err error) {
 	start := time.Now()
 	defer func() { complete(w.logger, "close", start, err) }()
 	w.once.Do(func() {
-
 		w.cancel()
 		<-w.done
 	})

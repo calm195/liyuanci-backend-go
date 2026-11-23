@@ -74,7 +74,7 @@ func RegisterWhisperInteractions(r *gin.Engine, s WhisperInteractions) error {
 				}
 			} else {
 				key := c.GetHeader("Idempotency-Key")
-				if !whisper.ValidKey(key) {
+				if !whisper.ValidKey(key) || len(c.Request.Header.Values("Idempotency-Key")) != 1 {
 					whisperError(c, command.ErrInvalid)
 					return
 				}

@@ -52,7 +52,7 @@ func RegisterWhisperCapsules(r *gin.Engine, s WhisperCapsules) error {
 				out, e = s.GetCapsule(ctx, token, rid, c.Param("capsule_id"))
 			default:
 				key := c.GetHeader("Idempotency-Key")
-				if !whisper.ValidKey(key) {
+				if !whisper.ValidKey(key) || len(c.Request.Header.Values("Idempotency-Key")) != 1 {
 					whisperError(c, command.ErrInvalid)
 					return
 				}

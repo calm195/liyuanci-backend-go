@@ -318,16 +318,14 @@ func (e *Engine) Execute(ctx context.Context, d Definition, input Input) (out Ou
 						clause.Eq{Column: clause.Column{Table: "command_receipts", Name: "lifecycle_bound"}, Value: false},
 					}},
 				}).Create(&entity.CommandReceipt{
-
 					LifecycleBound: d.RetainReceipt,
 					ActorKind:      subject.Kind,
 					ActorID:        subject.ID,
 					CommandKind:    scope,
 					KeyHash:        key[:],
-
-					RequestHash: digest,
-					ResultRef:   ref,
-					ExpiresAt:   tx.now.Add(e.config.ReceiptTTL),
+					RequestHash:    digest,
+					ResultRef:      ref,
+					ExpiresAt:      tx.now.Add(e.config.ReceiptTTL),
 				})
 				if saved.Error != nil {
 					return saved.Error

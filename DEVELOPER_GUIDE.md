@@ -107,6 +107,8 @@ API 运行后，在另一个终端执行 `make wordlists`，通过后台鉴权�
 
 编写代码时，把密集初始化、长调用和查询按语义展开；长函数或深层回调按业务职责抽取具名函数。阶段切换、事务与锁边界、状态分流和失败恢复处补充中文注释，说明作用与原因；路由表和状态矩阵可集中保留。测试与脚本遵循相同原则，完整约定见 [AGENTS.md](AGENTS.md)。
 
+Go 规范参考官方 [Code Review Comments](https://go.dev/wiki/CodeReviewComments) 和[文档注释指南](https://go.dev/doc/comment)：使用 `gofmt`，对外声明说明用途和使用边界，显式处理错误并说明协程的退出条件。请求链中的 I/O 传递 `context.Context` 并负责取消派生 context；事务只使用传入的事务连接，提交或回滚后才报告结果，参见[取消数据库操作](https://go.dev/doc/database/cancel-operations)和[事务操作](https://go.dev/doc/database/execute-transactions)。注释语言、导入分组和业务边界继续遵循本项目约定；不因风格整理改变授权、锁序、幂等或错误分类。
+
 | 改动阶段或类型 | 检查命令与范围 |
 | --- | --- |
 | 心愿模块日常迭代示例 | `make check-fast PACKAGES=./internal/modules/wish/...`；同时运行受影响的 HTTP、装配等相关包 |
