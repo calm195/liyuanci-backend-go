@@ -268,6 +268,8 @@ func TestPostgresHTTP(t *testing.T) {
 	}()
 	a, b, c, d := f.account("verified"), f.account("verified"), f.account("verified"), f.account("verified")
 	outsider, crisis := f.account("unverified"), f.account("crisis_operator")
+	guest := actor{}
+	const publicActivities = "/matchmaking/public/activities"
 	input := activityInput()
 	blockedInput := input
 	blockedInput.Title = "合成禁止词"
@@ -282,6 +284,11 @@ func TestPostgresHTTP(t *testing.T) {
 	f.call("GET", adminPath(id), crisis, "", nil, 403)
 	f.call("GET", adminPath(id), a, "", nil, 403)
 	f.call("GET", studentPath(id), a, "", nil, 404)
+	f.call("GET", publicActivities+"/"+id, guest, "", nil, 404)
+	f.call("GET", publicActivities+"/"+uuid.NewString(), guest, "", nil, 404)
+	if page := f.call("GET", publicActivities, guest, "", nil, 200); string(page) != `{"items":[],"total":0}` {
+		t.Fatalf("游客列表应排除草稿并返回空数组：%s", page)
+	}
 	f.call("GET", "/admin/matchmaking/activities?page=1&page=2", f.admin, "", nil, 400)
 	f.call("GET", "/admin/matchmaking/activities?limit=51", f.admin, "", nil, 400)
 	f.call("POST", adminPath(id)+"/publish", f.admin, "duplicate-field", json.RawMessage(`{"expected_version":1,"expected_version":1}`), 400)
@@ -293,7 +300,16 @@ func TestPostgresHTTP(t *testing.T) {
 	f.call("PUT", adminPath(id), f.admin, "edit", input, 200)
 	f.call("PUT", adminPath(id), f.admin, "stale-edit", input, 409)
 	f.command(id, "publish", 200)
+	f.call("GET", publicActivities+"?page=1&page=2", guest, "", nil, 400)
+	f.call("GET", publicActivities+"/invalid-id", guest, "", nil, 400)
+	publicPage := decoded[matchmaking.PublicActivityPage](t, f.call("GET", publicActivities+"?page=1&limit=1", guest, "", nil, 200))
+	if publicPage.Total != 1 || len(publicPage.Items) != 1 || publicPage.Items[0].ID != id || publicPage.Items[0].Title != input.Title {
+		t.Fatalf("游客未读取到发布后的活动列表：%+v", publicPage)
+	}
 	f.call("GET", "/matchmaking/activities?page=1&limit=20", a, "", nil, 200)
+	f.call("GET", "/matchmaking/activities", guest, "", nil, 401)
+	f.call("GET", studentPath(id), guest, "", nil, 401)
+	f.call("PUT", studentPath(id)+"/enrollment", guest, "guest-enroll", matchmaking.EnrollmentInput{ProfileVersion: 1, AccountVersion: 1, Consent: true}, 401)
 	f.call("GET", "/admin/matchmaking/activities?page=1&limit=20", f.admin, "", nil, 200)
 	f.call("PUT", studentPath(id)+"/enrollment", outsider, "unverified", matchmaking.EnrollmentInput{ProfileVersion: 1, AccountVersion: 1, Consent: true}, 403)
 	f.call("PUT", "/matchmaking/profile", a, "reject-shared-fields", json.RawMessage(
@@ -469,6 +485,21 @@ func TestPostgresHTTP(t *testing.T) {
 		t.Fatal("任务正文未遵守完整解锁时间")
 	}
 	task := active.Tasks[0].ID
+	guestDetail := f.call("GET", publicActivities+"/"+id, guest, "", nil, 200)
+	if loggedIn := f.call("GET", publicActivities+"/"+id, a, "", nil, 200); !bytes.Equal(guestDetail, loggedIn) {
+		t.Fatal("向公开路由传入学生会话时不应返回本人数据")
+	}
+	fields := decoded[map[string]json.RawMessage](t, guestDetail)
+	publicFields := []string{"id", "title", "description", "registration_opens_at", "registration_closes_at", "results_at", "starts_at", "ends_at", "version", "status", "phase", "days"}
+	if len(fields) != len(publicFields) {
+		t.Fatalf("活动公开详情超出字段白名单：%s", guestDetail)
+	}
+	for _, field := range publicFields {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("活动公开详情缺少字段 %s", field)
+		}
+	}
+	f.call("POST", studentPath(id)+"/tasks/"+task+"/open", guest, "guest-task", struct{}{}, 401)
 	f.call("POST", studentPath(otherID)+"/tasks/"+task+"/open", a, "foreign-task", struct{}{}, 404)
 	f.call("POST", studentPath(id)+"/tasks/"+active.Tasks[1].ID+"/open", a, "early-open", struct{}{}, 409)
 	openResults := make(chan error, 2)
@@ -557,6 +588,15 @@ func TestPostgresHTTP(t *testing.T) {
 	if endedDetail.Phase != "ended" || endedDetail.Summary == nil || *endedDetail.Summary != wantSummary {
 		t.Fatalf("结束详情统计错误：%+v", endedDetail.Summary)
 	}
+	publicEnded := decoded[map[string]json.RawMessage](t, f.call("GET", publicActivities+"/"+id, guest, "", nil, 200))
+	if string(publicEnded["phase"]) != `"ended"` || len(publicEnded["summary"]) != 0 {
+		t.Fatal("游客可读已结束活动说明，但不能读取学生汇总")
+	}
+	secondPage := decoded[matchmaking.PublicActivityPage](t, f.call("GET", publicActivities+"?page=2&limit=1", guest, "", nil, 200))
+	firstPage := decoded[matchmaking.PublicActivityPage](t, f.call("GET", publicActivities+"?page=1&limit=1", guest, "", nil, 200))
+	if firstPage.Total != 2 || secondPage.Total != 2 || len(firstPage.Items) != 1 || len(secondPage.Items) != 1 || firstPage.Items[0].ID == secondPage.Items[0].ID {
+		t.Fatal("游客分页未返回两个不同的公开活动")
+	}
 	endedList := decoded[matchmaking.Page](t, f.call("GET", "/matchmaking/activities", outsider, "", nil, 200))
 	found := false
 	for _, item := range endedList.Items {
@@ -612,6 +652,11 @@ func TestPostgresHTTP(t *testing.T) {
 	}
 	f.template(id, items, 409)
 	f.command(id, "cancel", 200)
+	f.call("GET", publicActivities+"/"+id, guest, "", nil, 404)
+	remaining := decoded[matchmaking.PublicActivityPage](t, f.call("GET", publicActivities, guest, "", nil, 200))
+	if remaining.Total != 1 || len(remaining.Items) != 1 || remaining.Items[0].ID != otherID {
+		t.Fatalf("取消后游客列表仍包含不开放活动：%+v", remaining)
+	}
 	if cancelled := f.detail(id, a); cancelled.Pair != nil || len(cancelled.Tasks) != 0 {
 		t.Fatal("配对清理并取消后仍返回关系或任务")
 	}

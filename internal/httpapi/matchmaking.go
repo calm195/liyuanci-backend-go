@@ -24,6 +24,8 @@ type MatchmakingAPI interface {
 	SaveTaskPlan(context.Context, string, string, string, string, matchmaking.TaskPlanInput) (matchmaking.Receipt, error)
 	ReadProfile(context.Context, string, string) (matchmaking.AccountProfile, error)
 	SaveProfile(context.Context, string, string, string, matchmaking.ProfileInput) (matchmaking.Receipt, error)
+	ListPublicActivities(context.Context, string, int, int) (matchmaking.PublicActivityPage, error)
+	ReadPublicActivity(context.Context, string, string) (matchmaking.PublicActivity, error)
 	List(context.Context, string, string, bool, int, int) (matchmaking.Page, error)
 	Read(context.Context, string, string, string) (matchmaking.Detail, error)
 	ReadAdmin(context.Context, string, string, string, int, int) (matchmaking.Workspace, error)
@@ -48,6 +50,8 @@ func RegisterMatchmaking(r *gin.Engine, s MatchmakingAPI) error {
 		method, path, op string
 		admin            bool
 	}{
+		{"GET", "/matchmaking/public/activities", "public_list", false},
+		{"GET", "/matchmaking/public/activities/:id", "public_detail", false},
 		{"GET", "/matchmaking/profile", "profile", false},
 		{"PUT", "/matchmaking/profile", "profile_save", false},
 		{"GET", "/matchmaking/activities", "list", false},
@@ -80,11 +84,16 @@ func RegisterMatchmaking(r *gin.Engine, s MatchmakingAPI) error {
 					return
 				}
 			}
-			token, ok := bearer(c)
-			if !ok {
-				return
+			var token string
+			if rt.op != "public_list" && rt.op != "public_detail" {
+				var ok bool
+				token, ok = bearer(c)
+				if !ok {
+					return
+				}
 			}
-			page, limit, err := matchmakingQuery(c.Request.URL.RawQuery, rt.op == "list" || rt.op == "workspace" || rt.op == "library")
+			paginated := rt.op == "public_list" || rt.op == "list" || rt.op == "workspace" || rt.op == "library"
+			page, limit, err := matchmakingQuery(c.Request.URL.RawQuery, paginated)
 			if err != nil {
 				matchmakingError(c, err)
 				return
@@ -98,6 +107,10 @@ func RegisterMatchmaking(r *gin.Engine, s MatchmakingAPI) error {
 					return
 				}
 				switch rt.op {
+				case "public_list":
+					out, err = s.ListPublicActivities(ctx, rid, page, limit)
+				case "public_detail":
+					out, err = s.ReadPublicActivity(ctx, rid, id)
 				case "library":
 					out, err = s.ReadLibrary(ctx, token, rid, page, limit)
 				case "list":

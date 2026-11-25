@@ -94,24 +94,26 @@ func (s *Service) read(ctx context.Context, token, id string, admin bool, run fu
 	return command.ErrRetry
 }
 
+func activityPhase(row entity.MatchmakingActivity, now time.Time) string {
+	switch {
+	case row.Status != "published":
+		return row.Status
+	case now.Before(row.RegistrationOpensAt):
+		return "upcoming"
+	case now.Before(row.RegistrationClosesAt):
+		return "registration"
+	case now.Before(row.StartsAt):
+		return "matching"
+	case now.Before(row.EndsAt):
+		return "active"
+	default:
+		return "ended"
+	}
+}
+
 func projectActivity(row entity.MatchmakingActivity, now time.Time) Activity {
 	campuses := []string{}
 	_ = json.Unmarshal(row.Campuses, &campuses)
-	phase := row.Status
-	if row.Status == "published" {
-		switch {
-		case now.Before(row.RegistrationOpensAt):
-			phase = "upcoming"
-		case now.Before(row.RegistrationClosesAt):
-			phase = "registration"
-		case now.Before(row.StartsAt):
-			phase = "matching"
-		case now.Before(row.EndsAt):
-			phase = "active"
-		default:
-			phase = "ended"
-		}
-	}
 	return Activity{
 		ActivityInput: ActivityInput{
 			Title:                row.Title,
@@ -127,7 +129,7 @@ func projectActivity(row entity.MatchmakingActivity, now time.Time) Activity {
 		ID:      row.ID,
 		Version: row.Version,
 		Status:  row.Status,
-		Phase:   phase,
+		Phase:   activityPhase(row, now),
 	}
 }
 
