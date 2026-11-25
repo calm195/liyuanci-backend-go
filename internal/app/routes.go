@@ -44,6 +44,9 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 	if e = httpapi.RegisterDictionaries(router, s.dictionaries); e != nil {
 		return nil, e
 	}
+	if e = httpapi.RegisterRandomProfiles(router, s.randomProfiles); e != nil {
+		return nil, e
+	}
 	if e = httpapi.RegisterModuleGuide(router, s.guide); e != nil {
 		return nil, e
 	}

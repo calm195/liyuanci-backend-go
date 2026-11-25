@@ -83,21 +83,33 @@ func RegisterAvatar(r *gin.Engine, service AvatarAPI) error {
 }
 
 func readAvatarUpload(c *gin.Context) (version int64, mediaType string, data []byte, err error) {
+	raw, mediaType, data, err := readAvatarMultipart(c, "expected_version", 19)
+	if err != nil {
+		return 0, mediaType, data, err
+	}
+	version, e := strconv.ParseInt(raw, 10, 64)
+	if e != nil || version < 1 {
+		return 0, mediaType, data, command.ErrInvalid
+	}
+	return version, mediaType, data, nil
+}
+
+func readAvatarMultipart(c *gin.Context, field string, limit int64) (value, mediaType string, data []byte, err error) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, studentauth.AvatarMaxBytes+(64<<10))
 	reader, e := c.Request.MultipartReader()
 	if e != nil {
-		return 0, "", nil, command.ErrInvalid
+		return "", "", nil, command.ErrInvalid
 	}
 	// 两个字段允许任意顺序，不使用会将明文落盘的框架表单解析。
 	for range 2 {
 		part, e := reader.NextPart()
 		if e != nil {
-			return version, mediaType, data, command.ErrInvalid
+			return value, mediaType, data, command.ErrInvalid
 		}
 		switch part.FormName() {
 		case "file":
 			if data != nil || part.FileName() == "" {
-				return version, mediaType, data, command.ErrInvalid
+				return value, mediaType, data, command.ErrInvalid
 			}
 			var parameters map[string]string
 			declared := part.Header.Get("Content-Type")
@@ -106,36 +118,33 @@ func readAvatarUpload(c *gin.Context) (version int64, mediaType string, data []b
 			}
 			mediaType, parameters, e = mime.ParseMediaType(declared)
 			if e != nil || len(parameters) != 0 || mediaType != "image/png" && mediaType != "image/jpeg" && mediaType != "application/octet-stream" {
-				return version, mediaType, data, command.ErrInvalid
+				return value, mediaType, data, command.ErrInvalid
 			}
 			data, e = io.ReadAll(io.LimitReader(part, studentauth.AvatarMaxBytes+1))
 			if e != nil || len(data) == 0 || len(data) > studentauth.AvatarMaxBytes {
-				return version, mediaType, data, command.ErrInvalid
+				return value, mediaType, data, command.ErrInvalid
 			}
 			if mediaType == "application/octet-stream" {
 				mediaType = http.DetectContentType(data)
 				if mediaType != "image/png" && mediaType != "image/jpeg" {
-					return version, mediaType, data, command.ErrInvalid
+					return value, mediaType, data, command.ErrInvalid
 				}
 			}
-		case "expected_version":
-			if version != 0 || part.FileName() != "" {
-				return version, mediaType, data, command.ErrInvalid
+		case field:
+			if value != "" || part.FileName() != "" {
+				return value, mediaType, data, command.ErrInvalid
 			}
-			raw, e := io.ReadAll(io.LimitReader(part, 20))
-			if e != nil || len(raw) == 20 {
-				return version, mediaType, data, command.ErrInvalid
+			raw, e := io.ReadAll(io.LimitReader(part, limit+1))
+			if e != nil || len(raw) == 0 || int64(len(raw)) > limit {
+				return value, mediaType, data, command.ErrInvalid
 			}
-			version, e = strconv.ParseInt(string(raw), 10, 64)
-			if e != nil || version < 1 {
-				return version, mediaType, data, command.ErrInvalid
-			}
+			value = string(raw)
 		default:
-			return version, mediaType, data, command.ErrInvalid
+			return value, mediaType, data, command.ErrInvalid
 		}
 	}
-	if _, e := reader.NextPart(); !errors.Is(e, io.EOF) || version < 1 || len(data) == 0 {
-		return version, mediaType, data, command.ErrInvalid
+	if _, e := reader.NextPart(); !errors.Is(e, io.EOF) || value == "" || len(data) == 0 {
+		return value, mediaType, data, command.ErrInvalid
 	}
-	return version, mediaType, data, nil
+	return value, mediaType, data, nil
 }

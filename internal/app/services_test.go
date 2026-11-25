@@ -129,7 +129,7 @@ func TestAuthenticationRoutes(t *testing.T) {
 	if cfg.Auth.StudentCardAssets || cfg.Auth.VerificationRequests {
 		t.Fatal("修改了调用方动作配置")
 	}
-	if len(router.Routes()) != 28 {
+	if len(router.Routes()) != 37 {
 		t.Fatalf("路由不完整：%d", len(router.Routes()))
 	}
 	for _, tc := range []struct {
@@ -144,6 +144,15 @@ func TestAuthenticationRoutes(t *testing.T) {
 
 		{"GET", "/api/v1/me", 401},
 		{"PUT", "/api/v1/me/profile", 401},
+		{"POST", "/api/v1/me/random-profile", 401},
+		{"GET", "/api/v1/random-profiles/images/invalid", 404},
+		{"GET", "/api/v1/admin/random-profiles", 401},
+		{"POST", "/api/v1/admin/random-profiles/draw", 401},
+		{"POST", "/api/v1/admin/random-profiles/avatars", 401},
+		{"PUT", "/api/v1/admin/random-profiles/avatars/id", 401},
+		{"POST", "/api/v1/admin/random-profiles/avatars/id/image", 401},
+		{"POST", "/api/v1/admin/random-profiles/words", 401},
+		{"PUT", "/api/v1/admin/random-profiles/words/id", 401},
 		{"DELETE", "/api/v1/auth/session", 401},
 
 		{"POST", "/api/v1/me/student-card-assets", 401},
@@ -245,7 +254,7 @@ func TestOptionalWishAssembly(t *testing.T) {
 	if cfg.Auth.Wishes {
 		t.Fatal("修改调用方配置")
 	}
-	if len(router.Routes()) != 60 {
+	if len(router.Routes()) != 69 {
 		t.Fatal("心愿路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
@@ -293,7 +302,7 @@ func TestOptionalChatAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 69 {
+	if len(router.Routes()) != 78 {
 		t.Fatal("聊天路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{
@@ -332,7 +341,7 @@ func TestStoryAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(router.Routes()) != 69 {
+	if len(router.Routes()) != 78 {
 		t.Fatal("故事路由不完整", len(router.Routes()))
 	}
 	for _, tc := range []struct{ method, path string }{

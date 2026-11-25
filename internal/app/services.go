@@ -15,6 +15,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/randomprofile"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/resourceplaza"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
@@ -91,6 +92,7 @@ type serviceSet struct {
 	matchmaking                       *matchmaking.Service
 	guide                             *moduleguide.Service
 	dictionaries                      *dictionary.Service
+	randomProfiles                    *randomprofile.Service
 	avatars                           bool
 	auth                              *studentauth.Service
 	cards                             *studentcard.Service

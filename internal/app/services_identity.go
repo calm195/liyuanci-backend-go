@@ -1,8 +1,13 @@
 package app
 
 import (
+	"context"
+	"slices"
+
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/dictionary"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moduleguide"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/randomprofile"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
@@ -31,6 +36,20 @@ func (s *serviceSet) buildIdentity(d ServiceDependencies, cfg ServiceConfig) err
 		return e
 	}
 	s.auth, e = studentauth.New(d.StudentDB, d.Logger, d.Exchange, d.Identity, d.Limiter, cfg.Auth)
+	if e != nil {
+		return e
+	}
+	s.randomProfiles, e = randomprofile.New(d.StudentDB, d.Logger, cfg.Auth.Command, d.Scanner,
+		func(ctx context.Context, token, requestID string) error {
+			me, err := s.auth.Current(ctx, token, requestID)
+			if err != nil {
+				return err
+			}
+			if !s.avatars || !slices.Contains(me.AllowedActions, "putMeProfile") {
+				return command.ErrForbidden
+			}
+			return nil
+		})
 	if e != nil {
 		return e
 	}

@@ -23,6 +23,7 @@ SUITES = {
     ),
     'durable': ('./internal/execution/durable', ('TestPostgresDurable', 'TestPostgresConsumer', 'TestPostgresRecovery')),
     'dictionary': ('./internal/modules/dictionary', ('TestPostgresDictionaries',)),
+    'randomprofile': ('./internal/modules/randomprofile', ('TestPostgresRandomProfiles',)),
     'moduleguide': ('./internal/modules/moduleguide', ('TestPostgresGuide',)),
     'wish_lifecycle': ('./internal/modules/wish', ('TestPostgresLifecycle', 'TestPostgresWishImages')),
     'wish_images_cleanup': ('./internal/modules/privacy', ('TestPostgresWishImageCleanup',)),

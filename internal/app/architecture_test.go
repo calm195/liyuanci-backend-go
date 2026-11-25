@@ -52,6 +52,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/moduleguide",
 		"modules/dictionary",
 		"modules/privacy",
+		"modules/randomprofile",
 		"modules/resourceplaza",
 		"modules/safety",
 		"modules/studentauth",
@@ -82,6 +83,7 @@ var allowedInternalImports = map[string][]string{
 		"modules/moduleguide",
 		"modules/dictionary",
 		"modules/privacy",
+		"modules/randomprofile",
 		"modules/resourceplaza",
 		"modules/safety",
 		"modules/studentauth",
@@ -94,6 +96,8 @@ var allowedInternalImports = map[string][]string{
 	// 模块说明独立维护版本与发布快照，复用权威命令授权和实体。
 	"modules/moduleguide": {"entity", "execution/command"},
 	"modules/dictionary":  {"entity", "execution/command"},
+	// 随机资料复用命令授权和统一图片规范化，只保存可公开展示的素材。
+	"modules/randomprofile": {"entity", "execution/command", "platform/imageinput"},
 	// 包分配通过注入词库检查复用审核规则，资料仅以信封密文保存。
 	"modules/matchmaking": {"modules/education", "entity", "execution/command", "execution/durable", "platform/securedata"},
 	"modules/adminauth":   {"entity", "execution/command"},
