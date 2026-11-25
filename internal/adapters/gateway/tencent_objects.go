@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 )
 
@@ -21,6 +23,24 @@ import (
 func (t *Tencent) PutOnce(ctx context.Context, key string, data []byte) (version string, err error) {
 	defer t.complete("cos_put", time.Now(), &err)
 	return t.putOnce(ctx, key, data, "application/octet-stream", false)
+}
+
+// RemoveStudentCard 幂等删除已由学生卡域核验的不可变私有对象。
+func (t *Tencent) RemoveStudentCard(ctx context.Context, key string) (err error) {
+	defer t.complete("cos_student_card_remove", time.Now(), &err)
+	id, err := uuid.Parse(key)
+	if err != nil || id.String() != key {
+		return command.ErrInvalid
+	}
+	if err = t.requireUnversioned(ctx); err != nil {
+		return err
+	}
+	status, headers, body, err := t.request(ctx, http.MethodDelete, t.objectURL(key), nil, nil, 8192)
+	defer clear(body)
+	if err != nil || headers.Get("x-cos-version-id") != "" || status != http.StatusNoContent && status != http.StatusNotFound {
+		return command.ErrUnavailable
+	}
+	return nil
 }
 
 func (t *Tencent) putOnce(ctx context.Context, key string, data []byte, mediaType string, private bool) (string, error) {

@@ -26,6 +26,12 @@ type StudentCards interface {
 	Get(context.Context, string, string, string) (studentcard.Asset, error)
 }
 
+type studentCardDrafts interface {
+	Draft(context.Context, string, string) (studentcard.Draft, error)
+	RemoveDraft(context.Context, string, string, string) error
+	Preview(context.Context, string, string, string) ([]byte, error)
+}
+
 // RegisterStudentCards 按显式文件字节预算注册本人上传/状态路由；默认server不开放合成外部服务。
 func RegisterStudentCards(r *gin.Engine, service StudentCards, maxBytes int64) error {
 	if r == nil || service == nil || maxBytes < 1 || maxBytes > 8<<20 {
@@ -103,6 +109,49 @@ func RegisterStudentCards(r *gin.Engine, service StudentCards, maxBytes int64) e
 		}
 		adminResult(c, http.StatusOK, out)
 	})
+	if drafts, ok := service.(studentCardDrafts); ok {
+		r.GET("/api/v1/me/verification-draft", func(c *gin.Context) {
+			c.Header("Cache-Control", "no-store")
+			token, ok := bearer(c)
+			if !ok {
+				return
+			}
+			out, err := drafts.Draft(c.Request.Context(), token, c.GetString("request_id"))
+			if err != nil {
+				adminError(c, err)
+				return
+			}
+			adminResult(c, http.StatusOK, out)
+		})
+		group.DELETE("/:id/draft", func(c *gin.Context) {
+			token, ok := bearer(c)
+			if !ok {
+				return
+			}
+			if err := drafts.RemoveDraft(c.Request.Context(), token, c.Param("id"), c.GetString("request_id")); err != nil {
+				adminError(c, err)
+				return
+			}
+			adminResult(c, http.StatusOK, gin.H{"removed": true})
+		})
+		group.GET("/:id/preview", func(c *gin.Context) {
+			token, ok := bearer(c)
+			if !ok {
+				return
+			}
+			image, err := drafts.Preview(c.Request.Context(), token, c.Param("id"), c.GetString("request_id"))
+			if err != nil {
+				if errors.Is(err, studentcard.ErrBusy) {
+					err = adminauth.ErrRateLimited
+				}
+				adminError(c, err)
+				return
+			}
+			defer clear(image)
+			c.Header("X-Content-Type-Options", "nosniff")
+			c.Data(http.StatusOK, "image/png", image)
+		})
+	}
 	return nil
 }
 

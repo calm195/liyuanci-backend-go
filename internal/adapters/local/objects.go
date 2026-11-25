@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
@@ -104,6 +105,27 @@ type Objects struct {
 func (o *Objects) path(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(o.Root, hex.EncodeToString(sum[:]))
+}
+
+// RemoveStudentCard 幂等清理隔离环境中的已废弃私有学生卡对象。
+func (o *Objects) RemoveStudentCard(ctx context.Context, key string) (err error) {
+	defer completed(o.Logger, "student_card_remove", time.Now(), &err)
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	id, err := uuid.Parse(key)
+	if err != nil || id.String() != key {
+		return command.ErrInvalid
+	}
+	if e := os.Remove(o.path(key)); e != nil && !os.IsNotExist(e) {
+		return command.ErrUnavailable
+	}
+	dir, err := os.Open(o.Root)
+	if err != nil {
+		return command.ErrUnavailable
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // PutOnce 用临时文件、同步和原子硬链接发布密文；同键不同内容拒绝覆盖。

@@ -307,6 +307,13 @@ func (s *Service) Submit(ctx context.Context, token, key, rid string, in Input) 
 		if guard.Verification == "verified" {
 			return "", command.ErrConflict
 		}
+		photo, err := asset(db, in.AssetID, actor)
+		if err != nil {
+			return "", err
+		}
+		if photo.StudentCardSlot != nil && *photo.StudentCardSlot != "current" {
+			return "", ErrAssetNotReady
+		}
 		r, e := latest(db, actor)
 		version := int64(1)
 		if e == nil {

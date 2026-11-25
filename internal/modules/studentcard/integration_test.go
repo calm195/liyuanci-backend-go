@@ -75,10 +75,23 @@ func (exchanger) Exchange(_ context.Context, code string) ([]byte, error) {
 }
 
 type objects struct {
-	mu      sync.Mutex
-	data    map[string][]byte
-	calls   int
-	failure bool
+	mu            sync.Mutex
+	data          map[string][]byte
+	calls         int
+	failure       bool
+	removeFailure bool
+	removals      int
+}
+
+func (o *objects) RemoveStudentCard(_ context.Context, key string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.removals++
+	if o.removeFailure {
+		return errors.New("SYNTHETIC_STORAGE_SECRET")
+	}
+	delete(o.data, key)
+	return nil
 }
 
 func (o *objects) PutOnce(_ context.Context, key string, data []byte) (string, error) {
@@ -263,6 +276,10 @@ func TestPostgresStudentCards(t *testing.T) {
 	if initial.ScanStatus != "pending" {
 		t.Fatal("上传不能自动扫描通过")
 	}
+	draft, e := api.Draft(ctx, first.Token, "card_draft_candidate")
+	if e != nil || draft.Active != nil || draft.Candidate == nil || draft.Candidate.AssetID != initial.AssetID {
+		t.Fatal("新上传应作为本人扫描候选恢复", e)
+	}
 	repeated, e := api.Upload(ctx, first.Token, "first-card", "card_replay", "image/png", bytes.NewReader(imageA))
 	if e != nil || repeated.AssetID != initial.AssetID {
 		t.Fatal("上传重放创建重复对象", e)
@@ -297,6 +314,14 @@ func TestPostgresStudentCards(t *testing.T) {
 		t.Fatal("暂存含明文")
 	}
 	firstWork := work(initial.AssetID)
+	// 老版本已扫描材料没有槽位，新候选通过后同样应退出草稿。
+	var legacyID string
+	e = root.Raw(`INSERT INTO public.assets (id,owner_id,purpose,encrypted_object_key,object_version,wrapped_key_ref,status,scan_status)
+SELECT gen_random_uuid(),owner_id,purpose,encrypted_object_key,'legacy',wrapped_key_ref,'active','approved'
+FROM public.assets WHERE id=? RETURNING id`, initial.AssetID).Scan(&legacyID).Error
+	if e != nil || legacyID == "" {
+		t.Fatal("准备历史照片夹具失败", e)
+	}
 	// 外部调用期间持锁事务必须已经结束，独立连接可立即获得账号及资产锁。
 	scan.hook = func() {
 		if e := root.Transaction(func(db *gorm.DB) error {
@@ -318,6 +343,14 @@ func TestPostgresStudentCards(t *testing.T) {
 	current, e := api.Get(ctx, first.Token, initial.AssetID, "card_state")
 	if e != nil || current.ScanStatus != "approved" {
 		t.Fatal("扫描未更新", e)
+	}
+	draft, e = api.Draft(ctx, first.Token, "card_draft_active")
+	if e != nil || draft.Candidate != nil || draft.Active == nil || draft.Active.AssetID != initial.AssetID || draft.Active.ScannedAt == nil {
+		t.Fatal("扫描通过照片与时间应保存在当前草稿", e)
+	}
+	var old entity.Asset
+	if e = root.Where("id=?", legacyID).Take(&old).Error; e != nil || old.StudentCardSlot == nil || *old.StudentCardSlot != "removed" {
+		t.Fatal("被替换的历史照片应退出草稿", e)
 	}
 	me, e := sessions.Current(ctx, first.Token, "card_not_verified")
 	if e != nil || me.Verification != "unverified" {
@@ -684,6 +717,81 @@ func TestPostgresStudentCards(t *testing.T) {
 	if failure != command.ErrUnavailable || before != after {
 		t.Fatal("上传失败未原子回滚", failure)
 	}
+	t.Run("废弃学生卡清理等待扫描、重试对象删除并保留旧案件", func(t *testing.T) {
+		execute("UPDATE public.assets SET student_card_cleanup_at=clock_timestamp()+interval '1 day' WHERE student_card_cleanup_at IS NOT NULL")
+		execute("UPDATE public.work_items SET next_at=clock_timestamp()+interval '1 day' WHERE kind='student_card.scan' AND status IN ('pending','retry_wait')")
+		newCard := func(key string) studentcard.Asset {
+			t.Helper()
+			card, err := api.Upload(ctx, second.Token, key, "card_cleanup_upload", "image/png", bytes.NewReader(imageA))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return card
+		}
+		pending := newCard("cleanup-before-scan")
+		if err := api.RemoveDraft(ctx, second.Token, pending.AssetID, "card_remove_pending"); err != nil {
+			t.Fatal(err)
+		}
+		calls := scan.calls
+		if result, err := worker.Process(ctx, work(pending.AssetID).ID, "card_skip_removed"); err != nil || !result.Cancelled || scan.calls != calls {
+			t.Fatalf("已移除候选仍开始扫描：%+v %v", result, err)
+		}
+		if result, err := worker.ProcessNext(ctx, "card_cleanup_without_object"); err != nil || !result.Applied {
+			t.Fatalf("对象不存在时仍应清理载荷：%+v %v", result, err)
+		}
+		active := newCard("cleanup-retain-history")
+		if result, err := worker.Process(ctx, work(active.AssetID).ID, "card_cleanup_active"); err != nil || !result.Applied {
+			t.Fatal("当前图未通过扫描", err)
+		}
+		execute(`INSERT INTO public.identity_reviews(id,account_id,asset_id,status,reason) VALUES(gen_random_uuid(),?,?, 'rejected','合成审核理由')`, second.Me.ID, active.AssetID)
+		if err := api.RemoveDraft(ctx, second.Token, active.AssetID, "card_remove_referenced"); err != nil {
+			t.Fatal(err)
+		}
+		// 模拟迁移时仍有审核引用，因此当时没有登记清理时间的旧图。
+		execute("UPDATE public.assets SET student_card_cleanup_at=NULL WHERE id=?", active.AssetID)
+		late := newCard("cleanup-late-scan")
+		beforeRemoval := bucket.removals
+		scan.hook = func() {
+			if err := api.RemoveDraft(ctx, second.Token, late.AssetID, "card_remove_while_leased"); err != nil {
+				t.Error(err)
+			}
+			if result, err := worker.ProcessNext(ctx, "card_cleanup_while_leased"); err != nil || !result.Deferred || bucket.removals != beforeRemoval {
+				t.Errorf("有效扫描租约或历史材料未得到保护：%+v %v", result, err)
+			}
+		}
+		result, err := worker.Process(ctx, work(late.AssetID).ID, "card_scan_after_remove")
+		scan.hook = nil
+		if err != nil || !result.Cancelled {
+			t.Fatalf("迟到扫描未取消：%+v %v", result, err)
+		}
+		bucket.removeFailure = true
+		if _, err := worker.ProcessNext(ctx, "card_cleanup_dependency_failure"); !errors.Is(err, command.ErrUnavailable) {
+			t.Fatal("清理故障未保留重试", err)
+		}
+		bucket.removeFailure = false
+		execute("UPDATE public.assets SET student_card_cleanup_at=clock_timestamp()-interval '1 second' WHERE id=?", late.AssetID)
+		if result, err := worker.ProcessNext(ctx, "card_cleanup_retry"); err != nil || !result.Applied {
+			t.Fatalf("废弃图清理重试失败：%+v %v", result, err)
+		}
+		var retired, historical entity.Asset
+		if err := root.Where("id=?", late.AssetID).Take(&retired).Error; err != nil || retired.Status != "deleted" || retired.StudentCardCleanupAt != nil || string(retired.EncryptedObjectKey) != "{}" {
+			t.Fatal("清理未移除本地对象引用", err)
+		}
+		if err := root.Where("id=?", active.AssetID).Take(&historical).Error; err != nil || historical.Status != "active" {
+			t.Fatal("已有案件引用的照片被删除", err)
+		}
+		if err := root.Model(&entity.StudentCardPayload{}).Where("asset_id IN ?", []string{pending.AssetID, late.AssetID}).Count(&count).Error; err != nil || count != 0 {
+			t.Fatal("已清理的废弃图仍持有载荷", err)
+		}
+		replacement := newCard("cleanup-replacement-history")
+		if result, err := worker.Process(ctx, work(replacement.AssetID).ID, "card_cleanup_replacement_history"); err != nil || !result.Applied {
+			t.Fatal("重提使用的替换图未通过扫描", err)
+		}
+		execute("UPDATE public.identity_reviews SET asset_id=? WHERE asset_id=?", replacement.AssetID, active.AssetID)
+		if result, err := worker.ProcessNext(ctx, "card_cleanup_released_history"); err != nil || !result.Applied {
+			t.Fatalf("引用移走后未回收废弃旧图：%+v %v", result, err)
+		}
+	})
 	for _, entry := range logs.All() {
 		data, _ := json.Marshal(entry.ContextMap())
 		for _, secret := range []string{

@@ -57,8 +57,9 @@ type Config struct {
 
 // Asset 是本人可读的最小扫描投影，不返回对象key、密文或下载URL。
 type Asset struct {
-	AssetID    string `json:"asset_id"`
-	ScanStatus string `json:"scan_status"`
+	AssetID    string     `json:"asset_id"`
+	ScanStatus string     `json:"scan_status"`
+	ScannedAt  *time.Time `json:"scanned_at,omitempty"`
 }
 
 // Service 不拥有注入资源；API与worker可使用权限不同的数据库池分别构造服务。
@@ -262,7 +263,13 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 		Authorize: func(context.Context, *command.Tx) error { return nil },
 
 		Apply: func(ctx context.Context, tx *command.Tx) (string, error) {
+			owner := tx.Actor().ID
+			if e := removeDraftAssets(draftSlot(tx.DB(), owner, "candidate")); e != nil {
+				return "", e
+			}
+			slot := "candidate"
 			asset := entity.Asset{
+				StudentCardSlot:    &slot,
 				ID:                 id,
 				OwnerID:            tx.Actor().ID,
 				Purpose:            "student_card",
@@ -297,7 +304,7 @@ func (s *Service) Upload(ctx context.Context, token, key, requestID, mime string
 			if asset.OwnerID != tx.Actor().ID {
 				return command.ErrNotFound
 			}
-			out = Asset{AssetID: asset.ID, ScanStatus: asset.ScanStatus}
+			out = assetView(asset)
 			return nil
 		},
 	}
@@ -347,7 +354,7 @@ func (s *Service) Get(ctx context.Context, token, id, requestID string) (out Ass
 				return command.ErrUnavailable
 			}
 		}
-		out = Asset{AssetID: asset.ID, ScanStatus: asset.ScanStatus}
+		out = assetView(asset)
 		return nil
 	})
 	return out, err

@@ -46,8 +46,7 @@ func (s *Service) ProcessNext(ctx context.Context, requestID string) (out durabl
 		return out, e
 	}
 	if len(rows) == 0 {
-		out.Deferred = true
-		return out, nil
+		return s.processCleanup(ctx, requestID)
 	}
 	return s.Process(ctx, rows[0].ID, requestID)
 }
@@ -324,6 +323,11 @@ func (s *Service) claimScan(ctx context.Context, workID string, asset entity.Ass
 			out.Cancelled = true
 			return finishWork(ctx, db, current, "cancelled")
 		}
+		if currentAsset.StudentCardSlot != nil && *currentAsset.StudentCardSlot == "removed" &&
+			(current.Status != "leased" || current.LeaseUntil == nil || !current.LeaseUntil.After(at)) {
+			out.Cancelled = true
+			return finishWork(ctx, db, current, "cancelled")
+		}
 		if current.Status == "attention" || current.NextAt.After(at) ||
 			(current.Status == "leased" && current.LeaseUntil != nil && current.LeaseUntil.After(at)) {
 			out.Deferred = true
@@ -412,6 +416,10 @@ func (s *Service) completeScan(ctx context.Context, workID string, asset entity.
 		if latest.OwnerID != asset.OwnerID || latest.Version != lease.asset.Version {
 			return command.ErrConflict
 		}
+		if latest.StudentCardSlot != nil && *latest.StudentCardSlot == "removed" {
+			out.Cancelled = true
+			return finishWork(ctx, db, current, "cancelled")
+		}
 		if failure != nil {
 			status := "retry_wait"
 			if int(current.Attempts) >= s.config.MaxAttempts {
@@ -434,12 +442,23 @@ func (s *Service) completeScan(ctx context.Context, workID string, asset entity.
 		if !approved {
 			status, scan = "failed", "rejected"
 		}
-		if e = db.Model(&entity.Asset{}).Where("id=?", asset.ID).Updates(map[string]any{
+		fields := map[string]any{
 			"status":         status,
 			"scan_status":    scan,
+			"scanned_at":     at,
 			"object_version": version,
 			"version":        gorm.Expr("version+1"),
-		}).Error; e != nil {
+		}
+		// 只有仍在草稿中的候选才能接替已通过的照片。
+		if approved && latest.StudentCardSlot != nil && *latest.StudentCardSlot == "candidate" {
+			if e = removeDraftAssets(db.Model(&entity.Asset{}).
+				Where("owner_id=? AND purpose='student_card'", latest.OwnerID).
+				Where("student_card_slot='current' OR (student_card_slot IS NULL AND status='active' AND scan_status='approved')")); e != nil {
+				return e
+			}
+			fields["student_card_slot"] = "current"
+		}
+		if e = db.Model(&entity.Asset{}).Where("id=?", asset.ID).Updates(fields).Error; e != nil {
 			return e
 		}
 		if e = db.Where("asset_id=?", asset.ID).Delete(&entity.StudentCardPayload{}).Error; e != nil {
