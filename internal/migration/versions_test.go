@@ -37,7 +37,7 @@ func TestVersionCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 33 || entries[len(entries)-1].version != 33 {
+	if len(entries) != 36 || entries[len(entries)-1].version != 36 {
 		t.Fatalf("迁移版本数量错误：%d", len(entries))
 	}
 	for _, last := range []int{33, 34, 35, 36} {

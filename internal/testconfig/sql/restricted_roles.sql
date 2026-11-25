@@ -201,6 +201,23 @@ GRANT SELECT ON public.identity_lookup_keys, public.identity_lookup_claims TO li
 GRANT INSERT ON public.identity_lookup_claims, public.identity_secrets, public.identity_names TO liyuanci_admin_api;
 -- PostgreSQL行锁要求至少一列UPDATE权限；只授予版本列，不允许审核入口改写对象键或扫描结果。
 GRANT UPDATE (version) ON public.assets TO liyuanci_identity_maintenance, liyuanci_admin_api;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'assets' AND column_name = 'student_card_slot'
+    ) THEN
+        GRANT UPDATE (student_card_slot) ON public.assets TO liyuanci_identity_maintenance;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'assets' AND column_name = 'student_card_cleanup_at'
+    ) THEN
+        GRANT UPDATE (student_card_cleanup_at) ON public.assets TO liyuanci_identity_maintenance;
+        GRANT SELECT (asset_id) ON public.identity_reviews TO liyuanci_domain_worker;
+    END IF;
+END
+$$;
 
 -- 心愿命令只使旧审核/工作失效，不允许学生接口写入人工结论或删除历史审核记录。
 GRANT UPDATE (status,version) ON public.moderation_tasks TO liyuanci_api;
@@ -657,3 +674,12 @@ GRANT SELECT(public_body,public_identity) ON public.whisper_comment_versions TO 
 ALTER TABLE public.conversation_reads OWNER TO liyuanci_migrator;
 GRANT SELECT, INSERT, UPDATE ON public.conversation_reads TO liyuanci_api;
 GRANT SELECT, DELETE ON public.conversation_reads TO liyuanci_privacy_maintenance;
+
+-- 随机资料允许普通接口抽取与读取图片，只有后台接口维护并保留审计。
+ALTER TABLE public.random_profile_images OWNER TO liyuanci_migrator;
+ALTER TABLE public.random_profile_avatars OWNER TO liyuanci_migrator;
+ALTER TABLE public.random_profile_words OWNER TO liyuanci_migrator;
+ALTER TABLE public.random_profile_actions OWNER TO liyuanci_migrator;
+GRANT SELECT ON public.random_profile_images,public.random_profile_avatars,public.random_profile_words TO liyuanci_api;
+GRANT SELECT,INSERT ON public.random_profile_images,public.random_profile_actions TO liyuanci_admin_api;
+GRANT SELECT,INSERT,UPDATE ON public.random_profile_avatars,public.random_profile_words TO liyuanci_admin_api;

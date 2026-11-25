@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -55,10 +56,57 @@ func TestPostgresSequentialVersions(t *testing.T) {
 		t.Fatal("0032误判为当前版本")
 	}
 	must(RunApplication(ctx, db, log, "up"))
-	state(33)
+	state(36)
 	must(requireCurrentVersion(db))
 	must(ApplyApplicationPermissions(ctx, db, log))
-	last := entries[len(entries)-1]
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[35]) }))
+	state(35)
+	t.Run("恢复跨升级的唯一旧图且尊重新草稿动作", func(t *testing.T) {
+		tx := db.Begin()
+		must(tx.Error)
+		defer tx.Rollback()
+		newOwner := func() string {
+			id := uuid.NewString()
+			must(tx.Exec("INSERT INTO public.accounts(id,nickname) VALUES (?,?)", id, "合成账号").Error)
+			return id
+		}
+		newAsset := func(owner, status, scan string, slot any) string {
+			id := uuid.NewString()
+			must(tx.Exec(`INSERT INTO public.assets(id,owner_id,purpose,encrypted_object_key,object_version,wrapped_key_ref,status,scan_status,student_card_slot)
+				VALUES (?,?,'student_card','{}','synthetic','synthetic',?,?,?)`, id, owner, status, scan, slot).Error)
+			return id
+		}
+		pending := newAsset(newOwner(), "pending", "pending", nil)
+		approved := newAsset(newOwner(), "active", "approved", nil)
+		changedOwner := newOwner()
+		old := newAsset(changedOwner, "pending", "pending", nil)
+		removed := newAsset(changedOwner, "failed", "rejected", "removed")
+		ambiguousOwner := newOwner()
+		ambiguous := newAsset(ambiguousOwner, "pending", "pending", nil)
+		newAsset(ambiguousOwner, "active", "approved", nil)
+		must(tx.Exec(string(entries[35].up)).Error)
+		for _, check := range []struct{ id, slot string }{{pending, "candidate"}, {approved, "current"}, {old, ""}, {ambiguous, ""}, {removed, "removed"}} {
+			var row entity.Asset
+			must(tx.Where("id=?", check.id).Take(&row).Error)
+			if row.StudentCardSlot == nil && check.slot != "" || row.StudentCardSlot != nil && *row.StudentCardSlot != check.slot {
+				t.Fatalf("恢复槽位与预期 %q 不符", check.slot)
+			}
+			if row.ScannedAt != nil || (row.StudentCardCleanupAt != nil) != (check.id == removed) {
+				t.Fatal("迁移错误补写扫描时间或清理任务")
+			}
+		}
+	})
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[34]) }))
+	state(34)
+	if db.Migrator().HasTable(&entity.RandomProfileAvatar{}) {
+		t.Fatal("0035回退未删除随机资料表")
+	}
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[33]) }))
+	state(33)
+	if db.Migrator().HasColumn(&entity.Asset{}, "student_card_slot") {
+		t.Fatal("认证草稿回退未清除新增字段")
+	}
+	last := entries[32]
 	// 使用公开down同一个内部版本回退函数，在独立空审计表验证只删除33账本。
 	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, last) }))
 	state(32)
@@ -91,6 +139,15 @@ func TestPostgresSequentialVersions(t *testing.T) {
 		state(32)
 	}
 	must(RunApplication(ctx, db, log, "up"))
+	state(36)
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[35]) }))
+	state(35)
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[34]) }))
+	state(34)
+	if db.Migrator().HasTable(&entity.RandomProfileAvatar{}) {
+		t.Fatal("0035回退未删除随机资料表")
+	}
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[33]) }))
 	state(33)
 	var before, after entity.SchemaMigration
 	must(db.Where("version=?", 33).Take(&before).Error)
@@ -104,6 +161,7 @@ func TestPostgresSequentialVersions(t *testing.T) {
 	must(db.Model(&entity.SchemaMigration{}).Where("version=? AND checksum=?", 35, last.checksum).Update("version", 33).Error)
 	state(33)
 	must(RunApplication(ctx, db, log, "up"))
+	state(36)
 	must(requireCurrentVersion(db))
 	must(db.Where("version=?", 33).Take(&after).Error)
 	if before.Checksum != after.Checksum || !before.AppliedAt.Equal(after.AppliedAt) {

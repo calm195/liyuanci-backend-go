@@ -25,6 +25,10 @@ func businessModels() []any {
 		&entity.DisplayDictionary{},
 		&entity.DisplayDictionaryItem{},
 		&entity.DisplayDictionaryAction{},
+		&entity.RandomProfileImage{},
+		&entity.RandomProfileAvatar{},
+		&entity.RandomProfileWord{},
+		&entity.RandomProfileAction{},
 		&entity.Account{},
 
 		&entity.AccountAvatar{},

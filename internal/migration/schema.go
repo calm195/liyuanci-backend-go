@@ -57,7 +57,7 @@ func validateModelColumns(tx *gorm.DB, models []any) error {
 }
 
 // guardRollback 对全部已存在的业务表先锁后验，兼容只应用部分历史版本的库。
-// 两张初始化基准表只允许原始未使用状态；迁移账本不属于业务数据。
+// 带初始化数据的表只允许原始未使用状态；迁移账本不属于业务数据。
 func guardRollback(tx *gorm.DB) error {
 	schemas, err := modelSchemas(tx, businessModels())
 	if err != nil {
@@ -116,6 +116,12 @@ func guardRollback(tx *gorm.DB) error {
 			predicate = "version <> 1 OR modules <> '[]'::jsonb OR published_version <> 0 OR published_modules <> '[]'::jsonb"
 		case "public.wordlist_heads":
 			predicate = "version <> 1 OR effective_id IS NOT NULL"
+		case "public.random_profile_images":
+			predicate = "id NOT BETWEEN '35a00000-0000-4000-8000-000000000001' AND '35a00000-0000-4000-8000-000000000004'"
+		case "public.random_profile_avatars":
+			predicate = "version <> 1 OR NOT enabled OR id NOT BETWEEN '35b00000-0000-4000-8000-000000000001' AND '35b00000-0000-4000-8000-000000000004'"
+		case "public.random_profile_words":
+			predicate = "version <> 1 OR NOT enabled OR id NOT BETWEEN '35c00000-0000-4000-8000-000000000001' AND '35c00000-0000-4000-8000-000000000008'"
 		}
 		var populated bool
 		if err := tx.Raw("SELECT EXISTS(SELECT 1 FROM " + quoted[i] + " WHERE " + predicate + ")").Scan(&populated).Error; err != nil {

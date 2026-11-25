@@ -69,16 +69,19 @@ func (IdentityReview) TableName() string { return "public.identity_reviews" }
 
 // Asset 映射 public.assets，字段注释描述数据库持久化语义。
 type Asset struct {
-	Version            int64           `gorm:"column:version;type:bigint;not null;default:1;comment:学生卡处理版本，用于锁后状态复核" json:"-"`
-	ScanStatus         string          `gorm:"column:scan_status;type:text;not null;default:'pending';comment:图片安全状态，pending待处理、approved通过或rejected拒绝，不代表学生认证" json:"-"`
-	ID                 string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
-	OwnerID            string          `gorm:"column:owner_id;type:uuid;not null;comment:普通账号所有者，不级联跳过外部对象清理" json:"-"`
-	Purpose            string          `gorm:"column:purpose;type:text;not null;comment:普通对象仅学生卡，证据对象另存隔离域" json:"-"`
-	EncryptedObjectKey json.RawMessage `gorm:"column:encrypted_object_key;type:jsonb;not null;comment:私有对象键，保存信封密文而非明文" json:"-"`
-	ObjectVersion      string          `gorm:"column:object_version;type:text;not null;comment:外部对象版本，不使用公开下载地址" json:"-"`
-	WrappedKeyRef      string          `gorm:"column:wrapped_key_ref;type:text;not null;comment:本机包裹密钥引用，不保存主密钥" json:"-"`
-	Status             string          `gorm:"column:status;type:text;not null;default:'pending';comment:对象处理状态" json:"-"`
-	CreatedAt          time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
+	StudentCardCleanupAt *time.Time      `gorm:"column:student_card_cleanup_at;type:timestamptz;comment:已移除学生卡密文的下次清理时间或本次清理租约截止时间" json:"-"`
+	StudentCardSlot      *string         `gorm:"column:student_card_slot;type:text;comment:本人认证草稿槽位" json:"-"`
+	ScannedAt            *time.Time      `gorm:"column:scanned_at;type:timestamptz;comment:安全扫描结束时间" json:"-"`
+	Version              int64           `gorm:"column:version;type:bigint;not null;default:1;comment:学生卡处理版本，用于锁后状态复核" json:"-"`
+	ScanStatus           string          `gorm:"column:scan_status;type:text;not null;default:'pending';comment:图片安全状态，pending待处理、approved通过或rejected拒绝，不代表学生认证" json:"-"`
+	ID                   string          `gorm:"column:id;type:uuid;primaryKey;autoIncrement:false;comment:随机对象标识" json:"-"`
+	OwnerID              string          `gorm:"column:owner_id;type:uuid;not null;comment:普通账号所有者，不级联跳过外部对象清理" json:"-"`
+	Purpose              string          `gorm:"column:purpose;type:text;not null;comment:普通对象仅学生卡，证据对象另存隔离域" json:"-"`
+	EncryptedObjectKey   json.RawMessage `gorm:"column:encrypted_object_key;type:jsonb;not null;comment:私有对象键，保存信封密文而非明文" json:"-"`
+	ObjectVersion        string          `gorm:"column:object_version;type:text;not null;comment:外部对象版本，不使用公开下载地址" json:"-"`
+	WrappedKeyRef        string          `gorm:"column:wrapped_key_ref;type:text;not null;comment:本机包裹密钥引用，不保存主密钥" json:"-"`
+	Status               string          `gorm:"column:status;type:text;not null;default:'pending';comment:对象处理状态" json:"-"`
+	CreatedAt            time.Time       `gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP;autoCreateTime:false;autoUpdateTime:false;comment:创建时间，以带时区时间保存" json:"-"`
 }
 
 // TableName 返回显式 schema 与表名，避免 search_path 影响实体定位。
