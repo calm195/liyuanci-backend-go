@@ -164,7 +164,7 @@ func whisperEligible(ctx context.Context, db *gorm.DB, r whisperSource) (bool, e
 	return true, nil
 }
 
-func whisperDecrypt(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource) (body string, identity whisper.IdentityInput, err error) {
+func whisperDecrypt(ctx context.Context, db *gorm.DB, codec *securedata.Codec, r whisperSource) (body string, identity whisper.CommentIdentitySnapshot, err error) {
 	raw, err := readWhisperCipher(ctx, db, r)
 	if err != nil {
 		return "", identity, err

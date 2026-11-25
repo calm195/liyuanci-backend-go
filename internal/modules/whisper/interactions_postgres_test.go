@@ -138,6 +138,78 @@ func testWhisperInteractions(
 		must(e)
 		return v
 	}
+	t.Run("半匿名暖评使用已审资料昵称快照并遵循全局隐藏", func(t *testing.T) {
+		var original entity.Account
+		must(admin.Where("id=?", other).Take(&original).Error)
+		t.Cleanup(func() {
+			must(admin.Model(&entity.Account{}).Where("id=?", other).Updates(map[string]any{
+				"nickname": original.Nickname, "verification": original.Verification, "hide_identity_tags": original.HideIdentityTags,
+			}).Error)
+		})
+		must(admin.Model(&entity.Account{}).Where("id=?", other).Updates(map[string]any{
+			"nickname": "资料上的昵称", "verification": "verified", "hide_identity_tags": false,
+		}).Error)
+		p := createPost()
+		cfg, e := s.Configuration(ctx, "")
+		must(e)
+		c, e := s.SaveComment(ctx, otherToken, uuid.NewString(), "", p.ID, "", whisper.CommentInput{
+			ContentInput: whisper.ContentInput{Body: "合成半匿名暖评", Identity: whisper.IdentityInput{
+				Mode: "semi", Tags: &whisper.Tags{Campus: "wushan"}, DictionaryVersion: cfg.GradeDictionary.Version,
+			}},
+			ExpectedPostVersion: p.Version, ExpectedCommentsEpoch: p.CommentsEpoch,
+		})
+		must(e)
+		must(admin.Model(&entity.Account{}).Where("id=?", other).Update("nickname", "后来修改的昵称").Error)
+		consume(c.ID)
+		readIdentity := func() whisper.PublicIdentity {
+			var page whisper.Page[whisper.PublicComment]
+			must(json.Unmarshal(request("", "GET", "/whispers/posts/"+p.ID+"/comments", "", nil, 200), &page))
+			if len(page.Items) != 1 {
+				t.Fatal(page)
+			}
+			return page.Items[0].Identity
+		}
+		if identity := readIdentity(); identity.Mode != "semi" || identity.Label != "资料上的昵称" || identity.Tags == nil || identity.Tags.Campus != "wushan" {
+			t.Fatal(identity)
+		}
+		must(admin.Model(&entity.Account{}).Where("id=?", other).Update("hide_identity_tags", true).Error)
+		if identity := readIdentity(); identity.Mode != "anonymous" || identity.Label != "小鲤鱼" || identity.Tags != nil {
+			t.Fatal(identity)
+		}
+		must(admin.Model(&entity.Account{}).Where("id=?", other).Update("hide_identity_tags", false).Error)
+		must(admin.Exec(`UPDATE public.whisper_comment_versions SET public_identity=public_identity-'label' WHERE comment_id=?`, c.ID).Error)
+		if identity := readIdentity(); identity.Mode != "semi" || identity.Label != "五山" {
+			t.Fatalf("旧暖评没有回退到已审核标签：%+v", identity)
+		}
+		must(admin.Model(&entity.Account{}).Where("id=?", other).Update("nickname", "普通命中 合成人名").Error)
+		otherPost := createPost()
+		queued, err := s.SaveComment(ctx, otherToken, uuid.NewString(), "", otherPost.ID, "", whisper.CommentInput{
+			ContentInput: whisper.ContentInput{Body: "仅署名需要人工复核", Identity: whisper.IdentityInput{
+				Mode: "semi", Tags: &whisper.Tags{Campus: "wushan"}, DictionaryVersion: cfg.GradeDictionary.Version,
+			}},
+			ExpectedPostVersion: otherPost.Version, ExpectedCommentsEpoch: otherPost.CommentsEpoch,
+		})
+		must(err)
+		consume(queued.ID)
+		if current(otherPost.ID).CommentCount != 0 {
+			t.Fatal("署名尚未审核，暖评已公开")
+		}
+		caseID := event(queued.ID).AggregateID
+		review, err := reviews.WhisperReview(ctx, adminToken, "", caseID)
+		must(err)
+		if review.ProfileNickname != "普通命中 [已脱敏]" || review.WordlistEvidence == nil {
+			t.Fatal("人工审核未获得脱敏署名及命中记录")
+		}
+		_, err = reviews.DecideWhisper(ctx, adminToken, uuid.NewString(), "", caseID, moderation.WhisperReviewCommand{
+			ExpectedVersion: review.Version, ExpectedContentVersion: 1, Decision: "approved",
+		})
+		must(err)
+		var approved whisper.Page[whisper.PublicComment]
+		must(json.Unmarshal(request("", "GET", "/whispers/posts/"+otherPost.ID+"/comments", "", nil, 200), &approved))
+		if len(approved.Items) != 1 || approved.Items[0].Identity.Label != review.ProfileNickname {
+			t.Fatal("公开暖评没有使用审核通过的署名")
+		}
+	})
 	t.Run("未实名暖评与十个HTTP操作", func(t *testing.T) {
 		p := createPost()
 		must(admin.Exec("UPDATE public.accounts SET verification='unverified' WHERE id=?", other).Error)

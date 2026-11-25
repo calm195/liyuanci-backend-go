@@ -2,6 +2,7 @@ package whisper
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -177,7 +178,17 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e != nil {
 			return "", e
 		}
-		identity, e := s.encrypt(ctx, "whisper_comment_identity", id, cv, in.Identity)
+		snapshot := CommentIdentitySnapshot{IdentityInput: in.Identity}
+		if in.Identity.Mode == "semi" {
+			var author entity.Account
+			if e = tx.DB().Select("nickname").Where("id=?", tx.Actor().ID).Take(&author).Error; e != nil {
+				return "", e
+			}
+			if nickname := strings.TrimSpace(author.Nickname); validText(nickname, 1, 40) {
+				snapshot.ProfileNickname = nickname
+			}
+		}
+		identity, e := s.encrypt(ctx, "whisper_comment_identity", id, cv, snapshot)
 		if e != nil {
 			return "", e
 		}

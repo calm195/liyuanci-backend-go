@@ -38,7 +38,8 @@ func (s *Service) ownerPost(ctx context.Context, db *gorm.DB, now time.Time, id,
 		v := timestamp(*a.post.PublishedAt)
 		out.PublishedAt = &v
 	}
-	if !slices.Contains([]string{"privacy_hold", "isolated", "restricted", "published"}, state) {
+	// 本人可编辑已公开的当前稿件，公开接口仍只返回审核后的投影。
+	if !slices.Contains([]string{"privacy_hold", "isolated", "restricted"}, state) {
 		var body string
 		var identity IdentityInput
 		if e = s.decrypt(ctx, "whisper_post_body", id, a.post.CurrentContentVersion, a.version.BodyCipher, &body); e != nil {

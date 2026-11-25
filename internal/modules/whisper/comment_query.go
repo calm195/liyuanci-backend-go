@@ -176,10 +176,15 @@ func (s *Service) publicComment(ctx context.Context, db *gorm.DB, now time.Time,
 	if e = db.WithContext(ctx).Where("post_id=? AND actor_id=?", parent.post.ID, a.comment.AuthorID).Take(&alias).Error; e != nil {
 		return out, e
 	}
+	approvedNickname := identity.Label
 	identity.IsAuthor = a.comment.AuthorID == parent.post.OwnerID
 	identity, e = projectIdentity(identity, a.author.HideIdentityTags, c.Grades)
 	if e != nil {
 		return out, e
+	}
+	// 只展示随当前评论版本审核通过的署名；旧版本继续展示经复核的标签。
+	if identity.Mode == "semi" && validText(approvedNickname, 1, 40) {
+		identity.Label = approvedNickname
 	}
 	out = PublicComment{
 		RootCommentID: a.comment.RootCommentID, ReplyToCommentID: a.comment.ReplyToCommentID,

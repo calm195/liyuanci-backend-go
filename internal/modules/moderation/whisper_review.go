@@ -36,6 +36,7 @@ type WhisperReviewDetail struct {
 	WhisperReviewSummary
 	WordlistEvidence *WordlistEvidence `json:"wordlist_evidence,omitempty"`
 	Title            string            `json:"title,omitempty"`
+	ProfileNickname  string            `json:"profile_nickname,omitempty"`
 	Body             string            `json:"body"`
 	SchoolRelated    bool              `json:"school_related"`
 	PrivacyRecheck   bool              `json:"privacy_recheck"`
@@ -263,11 +264,11 @@ func (s *Service) WhisperReview(ctx context.Context, token, rid, id string) (out
 				return e
 			}
 		}
-		evidence, e := readWordlistEvidence(ctx, s.codec, "whisper_moderation_projection", scan)
-		if e != nil {
+		var projection WhisperAssessment
+		if e = decryptEvidence(ctx, s.codec, "whisper_moderation_projection", scan.TaskID, scan.ProjectionCipher, &projection); e != nil {
 			return e
 		}
-		out = WhisperReviewDetail{WordlistEvidence: evidence, WhisperReviewSummary: whisperSummary(r), Body: body, Title: title, SchoolRelated: scan.SchoolRelated, PrivacyRecheck: r.task.PrivacyRecheck}
+		out = WhisperReviewDetail{WordlistEvidence: projection.WordlistEvidence, WhisperReviewSummary: whisperSummary(r), Body: body, Title: title, ProfileNickname: projection.ProfileNickname, SchoolRelated: scan.SchoolRelated, PrivacyRecheck: r.task.PrivacyRecheck}
 		if r.task.Status == "human_required" {
 			out.AllowedActions = []string{"whisperAdminReviewDecide"}
 			var n int64

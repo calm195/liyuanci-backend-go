@@ -51,6 +51,7 @@ func (s WhisperReviewSink) Append(ctx context.Context, db *gorm.DB, in whisper.R
 type WhisperAssessment struct {
 	Title                                 string
 	Body                                  string
+	ProfileNickname                       string `json:",omitempty"`
 	Identity                              whisper.IdentityInput
 	SchoolRelated, OrdinaryHit, CrisisHit bool
 	DetectorVersion                       string
@@ -115,7 +116,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 	var rules rules
 	var body string
 	var title string
-	var identity whisper.IdentityInput
+	var snapshot whisper.CommentIdentitySnapshot
 	valid, input := false, false
 	prep := w.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		var n int64
@@ -160,7 +161,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 		if e != nil {
 			return e
 		}
-		body, identity, e = whisperDecrypt(ctx, db, w.codec, r)
+		body, snapshot, e = whisperDecrypt(ctx, db, w.codec, r)
 		if e == nil && r.registry.Kind == "whisper_post" {
 			title, e = whisperTitle(ctx, db, w.codec, r)
 		}
@@ -176,6 +177,7 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 	var a *WhisperAssessment
 	var scan *entity.ModerationScan
 	if prep == nil && input {
+		identity := snapshot.IdentityInput
 		analysis, stop := context.WithTimeout(ctx, w.cfg.AnalysisTimeout)
 		result, e := func() (v WhisperAssessment, e error) {
 			defer func() {
@@ -190,6 +192,8 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 			rules.matcher = matcher
 			evidence := rules.evidence()
 			result, e := w.analyze(analysis, r, rules, body, identity)
+			// 署名只由对此次昵称快照的独立分析产生。
+			result.ProfileNickname = ""
 			evidence.add("body", result.wordlistEvaluation)
 			result.WordlistEvidence = evidence
 			if e == nil && title != "" {
@@ -202,6 +206,19 @@ func (w *WhisperWorker) Consume(ctx context.Context, event durable.Event) (out d
 				}
 				result.Title = extra.Body
 				evidence.add("title", extra.wordlistEvaluation)
+				result.CrisisHit = result.CrisisHit || extra.CrisisHit
+				result.OrdinaryHit = result.OrdinaryHit || extra.OrdinaryHit
+				result.SchoolRelated = result.SchoolRelated || extra.SchoolRelated
+			}
+			if e == nil && r.registry.Kind == "whisper_comment" && identity.Mode == "semi" && snapshot.ProfileNickname != "" {
+				extra, failure := w.analyze(analysis, r, rules, snapshot.ProfileNickname, identity)
+				if failure != nil {
+					return result, failure
+				}
+				if text(extra.Body, 40) {
+					result.ProfileNickname = extra.Body
+				}
+				evidence.add("nickname", extra.wordlistEvaluation)
 				result.CrisisHit = result.CrisisHit || extra.CrisisHit
 				result.OrdinaryHit = result.OrdinaryHit || extra.OrdinaryHit
 				result.SchoolRelated = result.SchoolRelated || extra.SchoolRelated
@@ -396,7 +413,9 @@ func applyWhisperReview(ctx context.Context, db *gorm.DB, codec *securedata.Code
 		Tags:     a.Identity.Tags,
 		IsAuthor: r.registry.Kind == "whisper_post",
 	}
-	if identity.Mode == "named" {
+	if identity.Mode == "semi" && r.registry.Kind == "whisper_comment" && text(a.ProfileNickname, 40) {
+		identity.Label = a.ProfileNickname
+	} else if identity.Mode == "named" {
 		var n entity.WhisperNicknameVersion
 		if e := db.Select("public_label").Where("account_id=? AND nickname_version=?", r.OwnerID, *r.NicknameVersion).Take(&n).Error; e != nil {
 			return e

@@ -25,6 +25,12 @@ type IdentityInput struct {
 	NicknameVersion   *int64 `json:"nickname_version,omitempty"`
 }
 
+// CommentIdentitySnapshot 是评论密文的内部结构。历史密文仍可按内嵌的身份字段读取。
+type CommentIdentitySnapshot struct {
+	IdentityInput
+	ProfileNickname string `json:"profile_nickname,omitempty"`
+}
+
 // ContentInput 保留原文空白，只限制码点与纯空白。
 type ContentInput struct {
 	Title    string        `json:"title,omitempty"`
