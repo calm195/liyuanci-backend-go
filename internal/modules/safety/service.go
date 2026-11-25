@@ -86,8 +86,9 @@ type Input struct {
 
 // Query 是普通列表的主体和用途绑定游标。
 type Query struct {
-	Cursor string
-	Limit  int
+	Cursor       string
+	Limit, Page  int
+	ResolvedOnly bool
 }
 
 // Summary 不含举报人身份、正文、学号或私聊摘要。
@@ -109,6 +110,7 @@ type BlockEntry struct {
 type Page struct {
 	Items      []any   `json:"items"`
 	NextCursor *string `json:"next_cursor"`
+	command.PageNumber
 }
 
 // Warning 的所有时刻均由数据库提供，不接受客户端时钟。

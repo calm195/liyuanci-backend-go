@@ -54,6 +54,12 @@ func (s *AdminContent) summary(db *gorm.DB, id string, now time.Time) (out Admin
 }
 
 func (s *AdminContent) candidates(db *gorm.DB, filters AdminContentQuery, now time.Time, after string, limit int) (out []AdminContentSummary, err error) {
+	q := s.filteredCandidates(db, filters, now, after)
+	err = q.Order("c.created_at DESC,c.id DESC").Limit(limit).Scan(&out).Error
+	return
+}
+
+func (s *AdminContent) filteredCandidates(db *gorm.DB, filters AdminContentQuery, now time.Time, after string) *gorm.DB {
 	q, table, state := s.summaries(db, now)
 	if filters.State != "" {
 		if s.wishes != nil {
@@ -89,6 +95,5 @@ func (s *AdminContent) candidates(db *gorm.DB, filters AdminContentQuery, now ti
 				Where("strpos(lower(COALESCE(v.public_title,'未命名悄悄话')),?)>0 OR strpos(lower(v.public_body),?)>0", value, value)
 		}
 	}
-	err = q.Order("c.created_at DESC,c.id DESC").Limit(limit).Scan(&out).Error
-	return
+	return q
 }

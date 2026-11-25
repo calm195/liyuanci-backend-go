@@ -28,12 +28,20 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 		return out, command.ErrInvalid
 	}
 	admin := op == "reports" || op == "admin_appeals"
+	if q.Page < 0 || q.Page > 1000000 || q.Page != 0 && (!admin || q.Cursor != "") || q.ResolvedOnly && op != "reports" {
+		return out, command.ErrInvalid
+	}
+	purpose := op
+	if q.ResolvedOnly {
+		purpose = "resolved_reports"
+	}
+
 	if !admin && op != "warnings" && op != "appeals" && op != "report_types" && op != "blocks" {
 		return out, command.ErrInvalid
 	}
 	out.Items = []any{}
 	err = s.read(ctx, token, admin, func(db *gorm.DB, actor string, now time.Time) error {
-		at, id, e := s.after(actor, op, q.Cursor)
+		at, id, e := s.after(actor, purpose, q.Cursor)
 		if e != nil {
 			return e
 		}
@@ -120,17 +128,25 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 			query := db.Table("public.reports AS r").Select("r.*").
 				Joins("JOIN public.content_registry c ON c.id=r.content_id").
 				Where("c.kind IN ('wish','wish_comment','application','message','story') AND NOT EXISTS (SELECT 1 FROM public.content_restrictions x WHERE x.content_id=c.id AND x.kind='crisis' AND x.active) AND NOT EXISTS (SELECT 1 FROM public.moderation_tasks t JOIN public.moderation_scans s ON s.task_id=t.id WHERE t.content_id=c.id AND s.crisis_hit)")
+			if q.ResolvedOnly {
+				query = query.Where("r.status='resolved'")
+			}
 			if id != "" {
 				query = query.Where("(r.created_at,r.id)<(?,?::uuid)", at, id)
 			}
 			var rows []entity.Report
-			if e = query.Order("r.created_at DESC,r.id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
+			bounded, paging, e := command.NumberedPage(query, q.Page, q.Limit)
+			if e != nil {
+				return e
+			}
+			out.PageNumber = paging
+			if e = bounded.Order("r.created_at DESC,r.id DESC").Find(&rows).Error; e != nil {
 				return e
 			}
 			if len(rows) > q.Limit {
 				rows = rows[:q.Limit]
 				last := rows[len(rows)-1]
-				c := s.cursor(actor, op, last.CreatedAt, last.ID)
+				c := s.cursor(actor, purpose, last.CreatedAt, last.ID)
 				out.NextCursor = &c
 			}
 			for _, r := range rows {
@@ -148,13 +164,18 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 				query = query.Where("(a.created_at,a.id)<(?,?::uuid)", at, id)
 			}
 			var rows []entity.Appeal
-			if e = query.Order("a.created_at DESC,a.id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
+			bounded, paging, e := command.NumberedPage(query, q.Page, q.Limit)
+			if e != nil {
+				return e
+			}
+			out.PageNumber = paging
+			if e = bounded.Order("a.created_at DESC,a.id DESC").Find(&rows).Error; e != nil {
 				return e
 			}
 			if len(rows) > q.Limit {
 				rows = rows[:q.Limit]
 				last := rows[len(rows)-1]
-				c := s.cursor(actor, op, last.CreatedAt, last.ID)
+				c := s.cursor(actor, purpose, last.CreatedAt, last.ID)
 				out.NextCursor = &c
 			}
 			for _, r := range rows {

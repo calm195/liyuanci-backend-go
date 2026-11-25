@@ -282,6 +282,12 @@ func (s *Service) PublicInteractionContent(ctx context.Context, token, rid, id s
 	return
 }
 
+// CountPublicationComments 使用后台详情投影的同一可见范围。
+func (s *Service) CountPublicationComments(ctx context.Context, db *gorm.DB, now time.Time, id string) (total int64, err error) {
+	err = visibleWishComments(ctx, db, now).Where("c.wish_id=?", id).Count(&total).Error
+	return
+}
+
 // ReadPublicationComments 在已授权的后台事务中只返回当前可公开评论及补充。
 func (s *Service) ReadPublicationComments(ctx context.Context, db *gorm.DB, now time.Time, id string, offset, limit int) (items []Comment, more bool, err error) {
 	var ids []string

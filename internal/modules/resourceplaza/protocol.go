@@ -126,7 +126,7 @@ type Input struct {
 // Query 是已规范化并绑定游标的筛选条件。
 type Query struct {
 	Q, CategoryID, Status, Enabled, Cursor string
-	Limit                                  int
+	Limit, Page                            int
 	ExpectedVersion                        int64
 }
 

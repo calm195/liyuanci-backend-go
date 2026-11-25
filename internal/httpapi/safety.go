@@ -239,21 +239,28 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 					}
 				}
 			}
-			q, e := chatQuery(c, false)
-			if e != nil {
-				adminError(c, e)
-				return
-			}
+			var query safety.Query
+			var e error
 			service := student
 			if route.admin {
 				service = admin
+				query.Cursor, query.Limit, query.Page, query.ResolvedOnly, e =
+					adminPageQuery(c.Request.URL.RawQuery, 50, route.op == "reports")
+			} else {
+				old, failure := chatQuery(c, false)
+				e = failure
+				query.Cursor, query.Limit = old.Cursor, old.Limit
+			}
+			if e != nil {
+				adminError(c, e)
+				return
 			}
 			out, e := service.List(
 				c.Request.Context(),
 				token,
 				c.GetString("request_id"),
 				route.op,
-				safety.Query{Cursor: q.Cursor, Limit: q.Limit},
+				query,
 			)
 			if e != nil {
 				adminError(c, e)

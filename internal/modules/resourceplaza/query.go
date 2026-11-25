@@ -90,6 +90,16 @@ func (s *Service) Read(ctx context.Context, token, rid, op, id string, q Query, 
 	return
 }
 
+func resourcePage(items []any, cursor *string, paging command.PageNumber) map[string]any {
+	result := map[string]any{"items": items, "next_cursor": cursor}
+	if paging.Page > 0 {
+		result["page"] = paging.Page
+		result["page_size"] = paging.PageSize
+		result["total"] = paging.Total
+	}
+	return result
+}
+
 // readCategories 按主体绑定游标读取分类页，学生只看启用分类。
 func (s *Service) readCategories(ctx context.Context, db *gorm.DB, a actor, op string, q Query, admin bool) (out any, err error) {
 	db = db.WithContext(ctx)
@@ -106,8 +116,12 @@ func (s *Service) readCategories(ctx context.Context, db *gorm.DB, a actor, op s
 	if after.ID != "" {
 		v = v.Where("(sort_order,id)>(?,?::uuid)", after.Sort, after.ID)
 	}
+	query, paging, e := command.NumberedPage(v, q.Page, q.Limit)
+	if e != nil {
+		return out, e
+	}
 	var rows []entity.ResourceCategory
-	if e = v.Order("sort_order ASC,id ASC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
+	if e = query.Order("sort_order ASC,id ASC").Find(&rows).Error; e != nil {
 		return out, e
 	}
 	var next *string
@@ -123,7 +137,7 @@ func (s *Service) readCategories(ctx context.Context, db *gorm.DB, a actor, op s
 	for _, c := range rows {
 		items = append(items, catProjection(c, admin))
 	}
-	out = map[string]any{"items": items, "next_cursor": next}
+	out = resourcePage(items, next, paging)
 	return out, nil
 }
 
@@ -163,8 +177,12 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 	if after.ID != "" {
 		v = v.Where("(created_at,id)<(?,?::uuid)", after.At, after.ID)
 	}
+	query, paging, e := command.NumberedPage(v, q.Page, q.Limit)
+	if e != nil {
+		return out, e
+	}
 	var rows []entity.ResourceMaterial
-	if e = v.Order("created_at DESC,id DESC").Limit(q.Limit + 1).Find(&rows).Error; e != nil {
+	if e = query.Order("created_at DESC,id DESC").Find(&rows).Error; e != nil {
 		return out, e
 	}
 	var next *string
@@ -208,7 +226,7 @@ func (s *Service) readMaterials(ctx context.Context, db *gorm.DB, a actor, op st
 		}
 		items = append(items, p)
 	}
-	out = map[string]any{"items": items, "next_cursor": next}
+	out = resourcePage(items, next, paging)
 	return out, nil
 }
 

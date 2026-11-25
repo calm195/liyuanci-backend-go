@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"slices"
@@ -27,6 +28,7 @@ type RolesInput struct {
 type AccountPage struct {
 	Items      []Account `json:"items"`
 	NextCursor *string   `json:"next_cursor"`
+	command.PageNumber
 }
 
 type accountCursor struct {
@@ -69,6 +71,15 @@ func canonicalID(id string) bool {
 
 // ListAccounts 每页重新授权；签名游标绑定当前超管和固定列表，不能跨主体复用。
 func (s *Service) ListAccounts(ctx context.Context, token, cursor, requestID string, limit int) (out AccountPage, err error) {
+	return s.listAccounts(ctx, token, cursor, requestID, limit, 0)
+}
+
+// ListNumberedAccounts 统计当前超管可读的本地管理账号。
+func (s *Service) ListNumberedAccounts(ctx context.Context, token, requestID string, limit, page int) (AccountPage, error) {
+	return s.listAccounts(ctx, token, "", requestID, limit, page)
+}
+
+func (s *Service) listAccounts(ctx context.Context, token, cursor, requestID string, limit, page int) (out AccountPage, err error) {
 	start := time.Now()
 	defer func() {
 		if recover() != nil {
@@ -80,7 +91,7 @@ func (s *Service) ListAccounts(ctx context.Context, token, cursor, requestID str
 		}
 		s.complete("accounts_list", requestID, start, err)
 	}()
-	if limit < 1 || limit > 50 {
+	if limit < 1 || limit > 50 || page < 0 || page > 1000000 {
 		return out, ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.config.Command.Timeout)
@@ -105,7 +116,8 @@ func (s *Service) ListAccounts(ctx context.Context, token, cursor, requestID str
 		if e != nil {
 			return e
 		}
-		items, e := accountRows(ctx, db, after, limit+1)
+		items, paging, e := accountRows(ctx, db, after, limit, page)
+		out.PageNumber = paging
 		if e != nil {
 			return e
 		}
@@ -116,7 +128,7 @@ func (s *Service) ListAccounts(ctx context.Context, token, cursor, requestID str
 			out.NextCursor = &next
 		}
 		return nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	return out, err
 }
 

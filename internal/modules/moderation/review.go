@@ -30,6 +30,7 @@ type Summary struct {
 type Page struct {
 	Items      []Summary `json:"items"`
 	NextCursor *string   `json:"next_cursor"`
+	command.PageNumber
 }
 
 // Case 返回精确案件原版本正文，仅在访问审计提交后交付。

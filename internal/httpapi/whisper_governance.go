@@ -219,17 +219,17 @@ func (s whisperGovernanceServices) read(c *gin.Context, op, token, rid, id, kind
 	ctx := c.Request.Context()
 	switch op {
 	case "reviews", "reports", "crises":
-		q, failure := whisperQuery(c)
+		cursor, limit, page, _, failure := adminPageQuery(c.Request.URL.RawQuery, 50, false)
 		if failure != nil {
 			return nil, failure
 		}
 		switch op {
 		case "reviews":
-			return s.review.WhisperReviews(ctx, token, rid, q.Cursor, q.Limit)
+			return s.review.WhisperReviewsNumbered(ctx, token, rid, cursor, limit, page)
 		case "reports":
-			return s.review.WhisperReports(ctx, token, rid, q.Cursor, q.Limit)
+			return s.review.WhisperReportsNumbered(ctx, token, rid, cursor, limit, page)
 		case "crises":
-			return s.crisis.WhisperCrises(ctx, token, rid, q.Cursor, q.Limit)
+			return s.crisis.WhisperCrisesNumbered(ctx, token, rid, cursor, limit, page)
 		}
 	case "review":
 		return s.review.WhisperReview(ctx, token, rid, id)

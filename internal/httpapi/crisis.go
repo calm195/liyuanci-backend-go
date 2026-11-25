@@ -38,12 +38,22 @@ func RegisterCrisis(r *gin.Engine, s CrisisAPI) error {
 		if !ok {
 			return
 		}
-		q, e := chatQuery(c, false)
+		ctx, rid := c.Request.Context(), c.GetString("request_id")
+		cursor, limit, page, _, e := adminPageQuery(c.Request.URL.RawQuery, 100, false)
 		if e != nil {
 			adminError(c, e)
 			return
 		}
-		out, e := s.CrisisCases(c.Request.Context(), token, c.GetString("request_id"), q.Cursor, q.Limit)
+		var out moderation.CrisisPage
+		if page == 0 {
+			out, e = s.CrisisCases(ctx, token, rid, cursor, limit)
+		} else if numbered, ok := s.(interface {
+			CrisisCasesNumbered(context.Context, string, string, string, int, int) (moderation.CrisisPage, error)
+		}); ok {
+			out, e = numbered.CrisisCasesNumbered(ctx, token, rid, "", limit, page)
+		} else {
+			e = command.ErrInvalid
+		}
 		if e != nil {
 			adminError(c, e)
 			return

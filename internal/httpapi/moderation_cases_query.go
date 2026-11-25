@@ -36,6 +36,13 @@ func moderationCasesQuery(c *gin.Context) (moderation.CaseQuery, bool) {
 				return q, false
 			}
 			q.Cursor = value
+		case "page":
+			n, e := strconv.Atoi(value)
+			if e != nil || n < 1 || n > 1000000 {
+				adminError(c, command.ErrInvalid)
+				return q, false
+			}
+			q.Page = n
 		case "limit":
 			n, e := strconv.Atoi(value)
 			if e != nil || n < 1 || n > 100 {

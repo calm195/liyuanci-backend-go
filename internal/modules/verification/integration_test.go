@@ -286,6 +286,31 @@ func TestPostgresVerification(t *testing.T) {
 	if bytes.Contains(encoded, []byte("SYNTHETIC_")) || bytes.Contains(encoded, []byte(card)) {
 		t.Fatal("列表泄露材料")
 	}
+	t.Run("审核并发更新不拆散计数和当前页快照", func(t *testing.T) {
+		changed := false
+		const callback = "verification_test:between_count_and_page"
+		if err := adminDB.Callback().Query().After("gorm:query").Register(callback, func(db *gorm.DB) {
+			sql := strings.ToLower(db.Statement.SQL.String())
+			if !changed && strings.Contains(sql, "count(*)") && strings.Contains(sql, "identity_reviews") {
+				changed = true
+				exec("UPDATE public.identity_reviews SET status='cancelled' WHERE id=?", result.RequestID)
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_ = adminDB.Callback().Query().Remove(callback)
+			exec("UPDATE public.identity_reviews SET status='pending' WHERE id=?", result.RequestID)
+		}()
+		current, err := admin.ListNumberedReviews(ctx, adminToken, "review_snapshot", 1, "", false, 1)
+		if err != nil || !changed || current.Total == nil || *current.Total != 1 || len(current.Items) != 1 {
+			t.Fatalf("并发决定使当前页与总数不一致：%+v %v", current, err)
+		}
+		next, err := admin.ListNumberedReviews(ctx, adminToken, "review_next_snapshot", 1, "", false, 1)
+		if err != nil || next.Total == nil || *next.Total != 0 || len(next.Items) != 0 {
+			t.Fatalf("后续读取没有看到新决定：%+v %v", next, err)
+		}
+	})
 	pending, e := admin.ListWorkspace(ctx, adminToken, "review_test", "", 1, "pending")
 	if e != nil || len(pending.Items) != 1 || pending.Items[0].Name != input.Name || pending.Items[0].StudentNumber != input.StudentNumber {
 		t.Fatal("待审核列表未返回授权的姓名与学号", e)

@@ -189,7 +189,11 @@ func (s *Service) CreateWhisperReport(ctx context.Context, token, key, rid strin
 }
 
 // WhisperReports 仅返回树洞普通举报元数据；危机隔离后不再向普通工作台列出。
-func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperReportSummary], err error) {
+func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string, limit int) (CursorPage[WhisperReportSummary], error) {
+	return s.WhisperReportsNumbered(ctx, token, rid, cursor, limit, 0)
+}
+
+func (s *Service) WhisperReportsNumbered(ctx context.Context, token, rid, cursor string, limit, page int) (out CursorPage[WhisperReportSummary], err error) {
 	defer s.done("whisper.report.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -205,11 +209,15 @@ func (s *Service) WhisperReports(ctx context.Context, token, rid, cursor string,
 			return e
 		}
 		var rows []entity.Report
-		q := db.Where("target_kind IN ('whisper_post','whisper_comment') AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=reports.target_kind AND c.entity_id=reports.target_id AND x.active AND x.kind='crisis')")
+		q := db.Model(&entity.Report{}).Where("target_kind IN ('whisper_post','whisper_comment') AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry c ON c.id=x.content_id WHERE c.kind=reports.target_kind AND c.entity_id=reports.target_id AND x.active AND x.kind='crisis')")
 		if after != "" {
 			q = q.Where("id>?", after)
 		}
-		if e = q.Order("id").Limit(limit + 1).Find(&rows).Error; e != nil {
+		q, out.PageNumber, e = command.NumberedPage(q, page, limit)
+		if e != nil {
+			return e
+		}
+		if e = q.Order("id").Find(&rows).Error; e != nil {
 			return e
 		}
 		if len(rows) > limit {

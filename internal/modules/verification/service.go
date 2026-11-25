@@ -114,6 +114,7 @@ type Summary struct {
 type Page struct {
 	Items      []Summary `json:"items"`
 	NextCursor *string   `json:"next_cursor"`
+	command.PageNumber
 }
 
 type material struct {

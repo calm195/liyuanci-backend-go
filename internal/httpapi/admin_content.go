@@ -145,6 +145,11 @@ func parseAdminContentQuery(raw string) (out moderation.AdminContentQuery, err e
 			out.Helper = value
 		case "cursor":
 			out.Cursor = value
+		case "page":
+			out.Page, err = strconv.Atoi(value)
+			if err != nil || out.Page < 1 || out.Page > 1000000 {
+				return out, command.ErrInvalid
+			}
 		case "from":
 			out.From, err = time.Parse(time.RFC3339, value)
 		case "until":
@@ -155,6 +160,9 @@ func parseAdminContentQuery(raw string) (out moderation.AdminContentQuery, err e
 		if err != nil {
 			return out, command.ErrInvalid
 		}
+	}
+	if out.Page > 0 && out.Cursor != "" {
+		return out, command.ErrInvalid
 	}
 	return out, nil
 }

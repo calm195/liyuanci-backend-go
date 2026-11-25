@@ -87,7 +87,11 @@ func whisperCrisisPlan(ctx context.Context, db *gorm.DB, id string) (p command.D
 }
 
 // WhisperCrises 只列出树洞危机元数据，分页主体摘要不包含后台账号。
-func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperCrisisSummary], err error) {
+func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, limit int) (CursorPage[WhisperCrisisSummary], error) {
+	return s.WhisperCrisesNumbered(ctx, token, rid, cursor, limit, 0)
+}
+
+func (s *Service) WhisperCrisesNumbered(ctx context.Context, token, rid, cursor string, limit, page int) (out CursorPage[WhisperCrisisSummary], err error) {
 	defer s.done("whisper.crisis.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -103,11 +107,15 @@ func (s *Service) WhisperCrises(ctx context.Context, token, rid, cursor string, 
 			return e
 		}
 		var rows []entity.EvidenceCrisisCase
-		q := db.Where("content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule') AND EXISTS(SELECT 1 FROM evidence.evidence_cases ec WHERE ec.id=crisis_cases.evidence_case_id AND ec.status<>'deletion_pending')")
+		q := db.Model(&entity.EvidenceCrisisCase{}).Where("content_type IN ('whisper_post','whisper_comment','whisper_nickname','whisper_capsule') AND EXISTS(SELECT 1 FROM evidence.evidence_cases ec WHERE ec.id=crisis_cases.evidence_case_id AND ec.status<>'deletion_pending')")
 		if after != "" {
 			q = q.Where("id>?", after)
 		}
-		if e = q.Order("id").Limit(limit + 1).Find(&rows).Error; e != nil {
+		q, out.PageNumber, e = command.NumberedPage(q, page, limit)
+		if e != nil {
+			return e
+		}
+		if e = q.Order("id").Find(&rows).Error; e != nil {
 			return e
 		}
 		if len(rows) > limit {

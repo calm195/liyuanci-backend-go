@@ -38,6 +38,21 @@ func (s *Service) ReadPublicationPost(ctx context.Context, db *gorm.DB, now time
 	return s.publicPostBase(ctx, db, now, id, audience{}, catalog)
 }
 
+// CountPublicationComments 使用后台详情投影的同一可见范围。
+func (s *Service) CountPublicationComments(ctx context.Context, db *gorm.DB, now time.Time, id string) (total int64, err error) {
+	parent, err := loadPost(ctx, db, id)
+	if err != nil {
+		return 0, err
+	}
+	err = adminPublicationComments(ctx, db, now, id, parent.post.CurrentContentVersion).Count(&total).Error
+	return
+}
+
+func adminPublicationComments(ctx context.Context, db *gorm.DB, now time.Time, id string, version int64) *gorm.DB {
+	return visibleCommentsQuery(ctx, db, id, version, now).
+		Where("v.public_identity->>'mode'=v.identity_mode AND v.identity_mode IN ('anonymous','semi','named')")
+}
+
 // ReadPublicationComments 仅返回当前帖子版本的可公开评论，按发布时间及 ID 排序。
 func (s *Service) ReadPublicationComments(ctx context.Context, db *gorm.DB, now time.Time, id string, offset, limit int) (items []PublicComment, more bool, err error) {
 	catalog, err := s.resources(ctx)
@@ -48,7 +63,7 @@ func (s *Service) ReadPublicationComments(ctx context.Context, db *gorm.DB, now 
 	if err != nil {
 		return nil, false, err
 	}
-	q := visibleCommentsQuery(ctx, db, id, parent.post.CurrentContentVersion, now)
+	q := adminPublicationComments(ctx, db, now, id, parent.post.CurrentContentVersion)
 	var ids []string
 	if err = q.Order("c.published_at,c.id").Offset(offset).Limit(limit+1).Pluck("c.id", &ids).Error; err != nil {
 		return nil, false, err

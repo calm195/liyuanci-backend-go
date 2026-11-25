@@ -78,8 +78,8 @@ func visibleWishComments(ctx context.Context, db *gorm.DB, now time.Time) *gorm.
  AND NOT EXISTS(SELECT 1 FROM public.penalties p WHERE p.account_id IN(ca.id,wa.id) AND p.revoked_at IS NULL AND p.action_kind IN('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?))
  AND NOT EXISTS(SELECT 1 FROM public.content_restrictions x JOIN public.content_registry cr ON cr.id=x.content_id WHERE x.active AND ((cr.kind='wish' AND cr.entity_id=w.id) OR (cr.kind='wish_comment' AND cr.entity_id IN(c.id,c.root_comment_id,c.reply_to_comment_id))))
  AND NOT EXISTS(SELECT 1 FROM public.privacy_holds h WHERE h.status='active' AND ((h.target_kind='wish' AND h.target_id=w.id) OR (h.target_kind='wish_comment' AND h.target_id IN(c.id,c.root_comment_id,c.reply_to_comment_id))))
- AND (c.root_comment_id IS NULL OR EXISTS(SELECT 1 FROM public.wish_comments root JOIN public.accounts ra ON ra.id=root.author_id AND ra.lifecycle='active' WHERE root.id=c.root_comment_id AND root.parent_content_version=c.parent_content_version AND root.status IN('published','withdrawn') AND NOT EXISTS(SELECT 1 FROM public.penalties rp WHERE rp.account_id=ra.id AND rp.revoked_at IS NULL AND rp.action_kind IN('mute','ban') AND rp.starts_at<=clock_timestamp() AND (rp.ends_at IS NULL OR rp.ends_at>clock_timestamp()))))
- `, now, now, now)
+ AND (c.root_comment_id IS NULL OR EXISTS(SELECT 1 FROM public.wish_comments root JOIN public.accounts ra ON ra.id=root.author_id AND ra.lifecycle='active' WHERE root.id=c.root_comment_id AND root.parent_content_version=c.parent_content_version AND root.status IN('published','withdrawn') AND NOT EXISTS(SELECT 1 FROM public.penalties rp WHERE rp.account_id=ra.id AND rp.revoked_at IS NULL AND rp.action_kind IN('mute','ban') AND rp.starts_at<=? AND (rp.ends_at IS NULL OR rp.ends_at>?))))
+ `, now, now, now, now, now)
 }
 
 // WishCommentEligible 在审核结果提交前复核当前父帖、评论上下文及互动双方。

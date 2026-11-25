@@ -176,7 +176,7 @@ func createName(db *gorm.DB, account string, cipher json.RawMessage) error {
 	return db.Create(&entity.IdentityName{AccountID: account, ContentVersion: 1, NameCipher: cipher}).Error
 }
 
-func listReviews(db *gorm.DB, after string, limit int, view string) ([]entity.IdentityReview, error) {
+func listReviews(db *gorm.DB, after string, limit int, view string, page int) ([]entity.IdentityReview, command.PageNumber, error) {
 	var rows []entity.IdentityReview
 	fields := "identity_reviews.id,identity_reviews.version,identity_reviews.status"
 	if view != "" {
@@ -193,6 +193,10 @@ func listReviews(db *gorm.DB, after string, limit int, view string) ([]entity.Id
 	if after != "" {
 		q = q.Where("identity_reviews.id > ?", after)
 	}
-	e := q.Order("identity_reviews.id").Limit(limit + 1).Find(&rows).Error
-	return rows, e
+	bounded, paging, err := command.NumberedPage(q, page, limit)
+	if err != nil {
+		return nil, paging, err
+	}
+	err = bounded.Order("identity_reviews.id").Find(&rows).Error
+	return rows, paging, err
 }

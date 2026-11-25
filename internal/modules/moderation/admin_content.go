@@ -23,6 +23,7 @@ type AdminContentQuery struct {
 	Keyword, State, Requester, Helper string
 	From, Until                       time.Time
 	Cursor                            string `json:"-"`
+	Page                              int    `json:"-"`
 }
 
 // AdminContentSummary 是管理列表白名单。树洞记录始终省略账号关联。
@@ -89,6 +90,8 @@ type AdminContentDetail struct {
 	Original         *AdminPublicationText  `json:"original"`
 	Story            *AdminPublicationText  `json:"story"`
 	Comments         []AdminPublicationText `json:"comments"`
+	CommentsPage     *int                   `json:"comments_page,omitempty"`
+	CommentsTotal    *int64                 `json:"comments_total,omitempty"`
 	CommentsMore     bool                   `json:"comments_more"`
 	Exportable       bool                   `json:"exportable"`
 }
@@ -147,7 +150,7 @@ func (s *AdminContent) normalize(q *AdminContentQuery) error {
 		}
 		states = []string{"", "draft", "scanning", "review_pending", "rejected", "published", "withdrawn", "cancelled", "isolated", "restricted"}
 	}
-	if !slices.Contains(states, q.State) {
+	if !slices.Contains(states, q.State) || q.Page < 0 || q.Page > 1000000 || q.Page > 0 && q.Cursor != "" {
 		return command.ErrInvalid
 	}
 	return nil
@@ -204,6 +207,10 @@ func (s *AdminContent) List(ctx context.Context, token, rid string, q AdminConte
 		}
 		now := time.Now().UTC()
 		out.Items = []AdminContentSummary{}
+		if q.Page > 0 {
+			out, e = s.numberedContent(ctx, db, now, rid, q)
+			return e
+		}
 		const batchSize = 40
 		const maxScan = 200
 		for scanned := 0; scanned < maxScan; scanned += batchSize {
@@ -242,6 +249,79 @@ func (s *AdminContent) List(ctx context.Context, token, rid string, q AdminConte
 		return nil
 	})
 	return
+}
+
+func (s *AdminContent) numberedContent(ctx context.Context, db *gorm.DB, now time.Time, rid string, q AdminContentQuery) (out CursorPage[AdminContentSummary], err error) {
+	out.Items = []AdminContentSummary{}
+	if q.Keyword == "" {
+		query, meta, e := command.NumberedPage(s.filteredCandidates(db, q, now, ""), q.Page, adminContentPageSize)
+		if e != nil {
+			return out, e
+		}
+		out.PageNumber = meta
+		if e = query.Order("c.created_at DESC,c.id DESC").Scan(&out.Items).Error; e != nil {
+			return out, e
+		}
+		for i := range out.Items {
+			p, e := s.publication(ctx, db, now, rid, out.Items[i].ID)
+			if e != nil && !errors.Is(e, command.ErrNotFound) {
+				return out, e
+			}
+			out.Items[i].Title = p.title
+		}
+	} else {
+		// 关键词搜索先用 SQL 过滤可能匹配的公开文本，再以当前公开资格复核。
+		// 只保留所请求页和最后一页，并用同一数据库快照完成准确计数。
+		const batchSize = 100
+		last := make([]AdminContentSummary, 0, adminContentPageSize)
+		after := ""
+		var count int64
+		start := int64(q.Page-1) * adminContentPageSize
+		for {
+			rows, e := s.candidates(db, q, now, after, batchSize)
+			if e != nil {
+				return out, e
+			}
+			for _, row := range rows {
+				after = row.ID
+				p, e := s.publication(ctx, db, now, rid, row.ID)
+				if errors.Is(e, command.ErrNotFound) {
+					continue
+				}
+				if e != nil {
+					return out, e
+				}
+				if !publicationMatches(p, q.Keyword) {
+					continue
+				}
+				row.Title = p.title
+				if count >= start && count < start+adminContentPageSize {
+					out.Items = append(out.Items, row)
+				}
+				if count%adminContentPageSize == 0 {
+					last = last[:0]
+				}
+				last = append(last, row)
+				count++
+			}
+			if len(rows) < batchSize {
+				break
+			}
+		}
+		out.PageNumber = command.PageAt(count, q.Page, adminContentPageSize)
+		if q.Page != out.Page {
+			out.Items = last
+		}
+	}
+	if q.IncludeStats {
+		for i := range out.Items {
+			out.Items[i].Stats, err = s.statistics(ctx, db, now, out.Items[i].ID)
+			if err != nil {
+				return out, err
+			}
+		}
+	}
+	return out, nil
 }
 
 func publicationMatches(p contentPublication, keyword string) bool {
@@ -303,6 +383,20 @@ func (s *AdminContent) DetailWithStats(ctx context.Context, token, rid, id strin
 		}
 		if p.original != nil {
 			const commentsPageSize = 30
+			if includeStats {
+				var total int64
+				if s.wishes != nil {
+					total, e = s.wishes.CountPublicationComments(ctx, db, now, id)
+				} else {
+					total, e = s.whisper.CountPublicationComments(ctx, db, now, id)
+				}
+				if e != nil {
+					return e
+				}
+				meta := command.PageAt(total, page+1, commentsPageSize)
+				page = meta.Page - 1
+				out.CommentsPage, out.CommentsTotal = &page, &total
+			}
 			out.Comments, out.CommentsMore, e = s.comments(ctx, db, now, id, page*commentsPageSize, commentsPageSize)
 			return e
 		}

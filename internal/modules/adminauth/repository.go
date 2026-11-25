@@ -232,7 +232,7 @@ func precheckSession(ctx context.Context, db *gorm.DB, token string) error {
 }
 
 // accountRows 固定UUID升序作键集分页；单条查询聚合角色，避免分页过程中读取混合角色快照。
-func accountRows(ctx context.Context, db *gorm.DB, after string, limit int) ([]Account, error) {
+func accountRows(ctx context.Context, db *gorm.DB, after string, limit, page int) ([]Account, command.PageNumber, error) {
 	var rows []struct {
 		ID        string
 		Version   int64
@@ -248,18 +248,22 @@ func accountRows(ctx context.Context, db *gorm.DB, after string, limit int) ([]A
 	if after != "" {
 		query = query.Where("a.id > ?::uuid", after)
 	}
-	if err := query.Order("a.id").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
+	bounded, paging, err := command.NumberedPage(query, page, limit)
+	if err != nil {
+		return nil, paging, err
+	}
+	if err = bounded.Order("a.id").Find(&rows).Error; err != nil {
+		return nil, paging, err
 	}
 	out := make([]Account, 0, len(rows))
 	for _, row := range rows {
 		roles := []string{}
 		if err := json.Unmarshal(row.RoleJSON, &roles); err != nil {
-			return nil, err
+			return nil, paging, err
 		}
 		out = append(out, Account{ID: row.ID, Version: row.Version, LoginName: row.LoginName, Active: row.Active, Roles: roles})
 	}
-	return out, nil
+	return out, paging, nil
 }
 
 // replaceRoles 的调用方已按全局顺序锁定目标guard；角色、版本和留迹必须共同提交。

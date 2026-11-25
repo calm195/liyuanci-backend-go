@@ -166,12 +166,12 @@ func resourceQuery(raw, op string, admin bool) (q resourceplaza.Query, err error
 	if op == "list" {
 		allowed = []string{"q", "category_id", "cursor", "limit"}
 		if admin {
-			allowed = append(allowed, "status")
+			allowed = append(allowed, "status", "page")
 		}
 	} else if op == "categories" {
 		allowed = []string{"cursor", "limit"}
 		if admin {
-			allowed = append(allowed, "enabled")
+			allowed = append(allowed, "enabled", "page")
 		}
 	} else if op == "download" {
 		allowed = []string{"expected_version"}
@@ -210,6 +210,13 @@ func resourceQuery(raw, op string, admin bool) (q resourceplaza.Query, err error
 			q.Cursor = v[0]
 		case "expected_version":
 			q.ExpectedVersion, e = resourceplaza.Integer(v[0], false)
+		case "page":
+			var n int64
+			n, e = resourceplaza.Integer(v[0], false)
+			if n > 1000000 {
+				e = command.ErrInvalid
+			}
+			q.Page = int(n)
 		case "limit":
 			var n int64
 			n, e = resourceplaza.Integer(v[0], false)
@@ -226,7 +233,7 @@ func resourceQuery(raw, op string, admin bool) (q resourceplaza.Query, err error
 			return q, e
 		}
 	}
-	if op == "download" && q.ExpectedVersion == 0 {
+	if (op == "download" && q.ExpectedVersion == 0) || (q.Page > 0 && q.Cursor != "") {
 		return q, command.ErrInvalid
 	}
 	return

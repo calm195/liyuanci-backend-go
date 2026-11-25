@@ -95,7 +95,11 @@ func (s *Service) whisperCursor(actor, purpose, id string) string {
 }
 
 // WhisperReviews 列出树洞普通命中元数据，旧业务及危机来源均不可混入。
-func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string, limit int) (out CursorPage[WhisperReviewSummary], err error) {
+func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string, limit int) (CursorPage[WhisperReviewSummary], error) {
+	return s.WhisperReviewsNumbered(ctx, token, rid, cursor, limit, 0)
+}
+
+func (s *Service) WhisperReviewsNumbered(ctx context.Context, token, rid, cursor string, limit, page int) (out CursorPage[WhisperReviewSummary], err error) {
 	defer s.done("whisper.review.list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 {
 		return out, command.ErrInvalid
@@ -118,7 +122,38 @@ func (s *Service) WhisperReviews(ctx context.Context, token, rid, cursor string,
 		if after != "" {
 			q = q.Where("t.id>?", after)
 		}
-		if e = q.Order("t.id").Limit(limit + 1).Scan(&ids).Error; e != nil {
+		if page != 0 {
+			q = q.Joins("JOIN public.accounts owner ON owner.id=c.author_id AND owner.lifecycle='active' AND owner.auth_epoch=t.subject_epoch").
+				Where("c.content_version=t.content_version").
+				Where(`CASE c.kind
+                  WHEN 'whisper_post' THEN EXISTS (
+                    SELECT FROM public.whisper_posts p JOIN public.whisper_post_versions v
+                       ON v.post_id=p.id AND v.content_version=p.current_content_version
+                     WHERE p.id=c.entity_id AND p.owner_id=owner.id AND p.lifecycle='active'
+                       AND v.content_version=t.content_version AND v.review_task_id=t.id
+                  )
+                  WHEN 'whisper_comment' THEN EXISTS (
+                    SELECT FROM public.whisper_comments p JOIN public.whisper_comment_versions v
+                       ON v.comment_id=p.id AND v.content_version=p.content_version
+                     WHERE p.id=c.entity_id AND p.author_id=owner.id AND p.lifecycle='active'
+                       AND v.content_version=t.content_version AND v.review_task_id=t.id
+                  )
+                  WHEN 'whisper_nickname' THEN EXISTS (
+                    SELECT FROM public.whisper_nickname_versions v
+                     WHERE v.content_registry_id=c.id AND v.account_id=owner.id
+                       AND v.nickname_version=t.content_version AND v.review_task_id=t.id
+                  )
+                  WHEN 'whisper_capsule' THEN EXISTS (
+                    SELECT FROM public.whisper_capsules v
+                     WHERE v.id=c.entity_id AND v.owner_id=owner.id AND v.lifecycle='active' AND v.review_task_id=t.id
+                  )
+                  ELSE false END`)
+		}
+		q, out.PageNumber, e = command.NumberedPage(q, page, limit)
+		if e != nil {
+			return e
+		}
+		if e = q.Order("t.id").Scan(&ids).Error; e != nil {
 			return e
 		}
 		if len(ids) > limit {

@@ -37,6 +37,13 @@ func utcTime(v *time.Time) *time.Time {
 // usersRows 使用同一时间计算全局限制；状态和昵称过滤均在键集截断之前执行。
 // translate 只折叠ASCII，strpos按字面匹配，避免locale、LIKE通配符及转义语义漂移。
 func usersRows(ctx context.Context, db *gorm.DB, q UsersQuery, after usersCursor, now time.Time) (rows []userRow, err error) {
+	err = usersFiltered(ctx, db, q, after, now).
+		Order("u.created_at DESC,u.id DESC").Limit(q.Limit + 1).Scan(&rows).Error
+	return
+}
+
+// usersFiltered 让普通用户计数和结果使用相同的权限、过滤和当前时间。
+func usersFiltered(ctx context.Context, db *gorm.DB, q UsersQuery, after usersCursor, now time.Time) *gorm.DB {
 	limits := db.WithContext(ctx).Table("public.penalties AS p").
 		Select("p.account_id,bool_or(p.action_kind='ban') AS banned,max(p.ends_at) FILTER (WHERE p.action_kind='mute') AS muted_until").
 		Where("p.revoked_at IS NULL AND p.action_kind IN ('mute','ban') AND p.starts_at<=? AND (p.ends_at IS NULL OR p.ends_at>?)", now, now).
@@ -60,8 +67,7 @@ func usersRows(ctx context.Context, db *gorm.DB, q UsersQuery, after usersCursor
 	if after.ID != "" {
 		query = query.Where("(u.created_at,u.id)<(?,?::uuid)", after.Position, after.ID)
 	}
-	err = query.Order("u.created_at DESC,u.id DESC").Limit(q.Limit + 1).Scan(&rows).Error
-	return
+	return query
 }
 
 // ordinaryUserContent 是普通案件的授权交集；匿名来源与危机来源绝不生成用户页关联入口。

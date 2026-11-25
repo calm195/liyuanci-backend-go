@@ -20,6 +20,7 @@ type CaseQuery struct {
 	Kind   string
 	Cursor string
 	Limit  int
+	Page   int
 }
 
 func normalizeCaseQuery(q CaseQuery) (CaseQuery, error) {
@@ -32,7 +33,7 @@ func normalizeCaseQuery(q CaseQuery) (CaseQuery, error) {
 	}
 	if !utf8.ValidString(q.Q) || utf8.RuneCountInString(q.Q) > 80 || strings.ContainsRune(q.Q, 0) ||
 		!slices.Contains([]string{"human_required", "all", "approved", "rejected"}, q.Status) ||
-		!slices.Contains([]string{"", "wish", "wish_comment", "application", "message", "story"}, q.Kind) || q.Limit < 1 || q.Limit > 100 {
+		!slices.Contains([]string{"", "wish", "wish_comment", "application", "message", "story"}, q.Kind) || q.Limit < 1 || q.Limit > 100 || q.Page < 0 || q.Page > 1000000 || q.Page > 0 && q.Cursor != "" {
 		return q, command.ErrInvalid
 	}
 	return q, nil
@@ -105,7 +106,12 @@ func (s *Service) QueryCases(ctx context.Context, token, rid string, input CaseQ
 			q = q.Where("("+priority+">?) OR ("+priority+"=? AND t.id>?)", rank, rank, after)
 		}
 		var rows []Summary
-		if e = q.Order(priority + ",t.id").Limit(input.Limit + 1).Scan(&rows).Error; e != nil {
+		bounded, paging, e := command.NumberedPage(q, input.Page, input.Limit)
+		if e != nil {
+			return e
+		}
+		out.PageNumber = paging
+		if e = bounded.Order(priority + ",t.id").Scan(&rows).Error; e != nil {
 			return e
 		}
 		if len(rows) > input.Limit {

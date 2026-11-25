@@ -106,16 +106,21 @@ func adminUsersQuery(c *gin.Context, list bool) (safety.UsersQuery, error) {
 		switch k {
 		case "cursor":
 			q.Cursor = v[0]
-		case "limit":
+		case "limit", "page":
 			// 仅接受十进制数字，避免符号、空白及非规范输入。
 			for _, c := range v[0] {
 				if c < '0' || c > '9' {
 					return q, command.ErrInvalid
 				}
 			}
-			q.Limit, e = strconv.Atoi(v[0])
-			if e != nil {
+			n, err := strconv.Atoi(v[0])
+			if err != nil || n < 1 || (k == "page" && !list) {
 				return q, command.ErrInvalid
+			}
+			if k == "page" {
+				q.Page = n
+			} else {
+				q.Limit = n
 			}
 		case "user_id":
 			if !list {

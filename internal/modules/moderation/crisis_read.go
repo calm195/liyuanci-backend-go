@@ -33,6 +33,7 @@ type CrisisTimeline struct {
 
 // CrisisPage 不含身份或内容摘要。
 type CrisisPage struct {
+	command.PageNumber
 	Items      []CrisisView `json:"items"`
 	NextCursor *string      `json:"next_cursor"`
 }
@@ -53,7 +54,11 @@ func crisisSummary(c entity.EvidenceCrisisCase) CrisisView {
 }
 
 // CrisisCases 使用当前危机角色和主体绑定游标，夜间待办亦保留在队列供次日接手。
-func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, limit int) (out CrisisPage, err error) {
+func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, limit int) (CrisisPage, error) {
+	return s.CrisisCasesNumbered(ctx, token, rid, cursor, limit, 0)
+}
+
+func (s *Service) CrisisCasesNumbered(ctx context.Context, token, rid, cursor string, limit, page int) (out CrisisPage, err error) {
 	defer func() {
 		if err != nil {
 			out = CrisisPage{}
@@ -87,7 +92,11 @@ func (s *Service) CrisisCases(ctx context.Context, token, rid, cursor string, li
 			q = q.Where("c.id>?", after)
 		}
 		var rows []entity.EvidenceCrisisCase
-		if e = q.Order("c.id").Limit(limit + 1).Find(&rows).Error; e != nil {
+		q, out.PageNumber, e = command.NumberedPage(q, page, limit)
+		if e != nil {
+			return e
+		}
+		if e = q.Order("c.id").Find(&rows).Error; e != nil {
 			return e
 		}
 		if len(rows) > limit {

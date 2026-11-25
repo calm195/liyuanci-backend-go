@@ -101,11 +101,24 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 			adminError(c, e)
 			return
 		}
-		list := reviews.ListWorkspace
-		if query.includeCreatedAt {
-			list = reviews.ListWorkspaceWithCreatedAt
+		var out verification.Page
+		if query.page > 0 {
+			numbered, ok := reviews.(interface {
+				ListNumberedReviews(context.Context, string, string, int, string, bool, int) (verification.Page, error)
+			})
+			if !ok {
+				adminError(c, command.ErrInvalid)
+				return
+			}
+			out, e = numbered.ListNumberedReviews(c.Request.Context(), token, c.GetString("request_id"), query.limit, query.view, query.includeCreatedAt, query.page)
+		} else {
+			list := reviews.ListWorkspace
+			if query.includeCreatedAt {
+				list = reviews.ListWorkspaceWithCreatedAt
+			}
+			out, e = list(c.Request.Context(), token, c.GetString("request_id"), query.cursor, query.limit, query.view)
 		}
-		out, e := list(c.Request.Context(), token, c.GetString("request_id"), query.cursor, query.limit, query.view)
+
 		if e != nil {
 			adminError(c, e)
 			return
@@ -180,7 +193,7 @@ func RegisterVerification(r *gin.Engine, students VerificationStudents, reviews 
 
 type identityReviewQuery struct {
 	cursor           string
-	limit            int
+	limit, page      int
 	view             string
 	includeCreatedAt bool
 }
@@ -200,6 +213,11 @@ func parseIdentityReviewQuery(raw string) (out identityReviewQuery, err error) {
 			out.cursor = values[0]
 		case "limit":
 			out.limit, err = strconv.Atoi(values[0])
+		case "page":
+			out.page, err = strconv.Atoi(values[0])
+			if out.page < 1 || out.page > 1000000 {
+				return out, command.ErrInvalid
+			}
 		case "view":
 			out.view = values[0]
 		case "include":
@@ -216,7 +234,7 @@ func parseIdentityReviewQuery(raw string) (out identityReviewQuery, err error) {
 	}
 	if out.limit < 1 || out.limit > 50 || len(out.cursor) > 256 ||
 		out.view != "" && out.view != "pending" && out.view != "history" ||
-		out.includeCreatedAt && out.view == "" {
+		out.includeCreatedAt && out.view == "" || out.page > 0 && out.cursor != "" {
 		return out, command.ErrInvalid
 	}
 	return out, nil

@@ -30,6 +30,7 @@ type UsersQuery struct {
 	UserID, Nickname, Verification, Restriction string
 	Limit                                       int
 	Cursor                                      string `json:"-"`
+	Page                                        int    `json:"-"`
 }
 
 // UserSummary 是普通资料白名单，不携带身份密文、匿名昵称或内容归属。
@@ -47,6 +48,9 @@ type UserSummary struct {
 type UserPage struct {
 	Items      []UserSummary `json:"items"`
 	NextCursor *string       `json:"next_cursor"`
+	Page       int           `json:"page,omitempty"`
+	PageSize   int           `json:"page_size,omitempty"`
+	Total      *int64        `json:"total,omitempty"`
 }
 
 // ActivePenalty 只说明当前可读限制，不含案件来源。
@@ -101,7 +105,7 @@ func NormalizeUsersQuery(q UsersQuery) (UsersQuery, error) {
 		q.UserID = id
 	}
 	q.Nickname = strings.TrimSpace(q.Nickname)
-	if !utf8.ValidString(q.Nickname) || utf8.RuneCountInString(q.Nickname) > 50 || q.Limit < 1 || q.Limit > 50 ||
+	if q.Page < 0 || q.Page > 1000000 || (q.Page > 0 && q.Cursor != "") || !utf8.ValidString(q.Nickname) || utf8.RuneCountInString(q.Nickname) > 50 || q.Limit < 1 || q.Limit > 50 ||
 		!slices.Contains([]string{"", "unverified", "pending", "verified", "rejected"}, q.Verification) ||
 		!slices.Contains([]string{"", "normal", "muted", "banned"}, q.Restriction) {
 		return q, command.ErrInvalid
@@ -305,7 +309,17 @@ func (s *Service) UsersList(ctx context.Context, token, rid string, q UsersQuery
 		if e != nil {
 			return e
 		}
-		rows, e := usersRows(ctx, db, q, after, now)
+		var rows []userRow
+		if q.Page > 0 {
+			query, paging, failure := command.NumberedPage(usersFiltered(ctx, db, q, usersCursor{}, now), q.Page, q.Limit)
+			if failure != nil {
+				return failure
+			}
+			out.Page, out.PageSize, out.Total = paging.Page, paging.PageSize, paging.Total
+			e = query.Order("u.created_at DESC,u.id DESC").Scan(&rows).Error
+		} else {
+			rows, e = usersRows(ctx, db, q, after, now)
+		}
 		if e != nil {
 			return e
 		}

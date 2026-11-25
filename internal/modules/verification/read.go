@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -20,10 +21,10 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/platform/securedata"
 )
 
-func (s *Service) transaction(ctx context.Context, fn func(*gorm.DB) error) error {
+func (s *Service) transaction(ctx context.Context, fn func(*gorm.DB) error, options ...*sql.TxOptions) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(fn)
+	return s.db.WithContext(ctx).Transaction(fn, options...)
 }
 
 // Current 只返回本人的最小审核状态，不回显完整身份材料。
@@ -62,15 +63,20 @@ func (s *Service) List(ctx context.Context, token, rid, cursor string, limit int
 
 // ListWorkspace 读取待审或已处理案件，仅在显式工作区视图下解密并留迹。
 func (s *Service) ListWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string) (out Page, err error) {
-	return s.listWorkspace(ctx, token, rid, cursor, limit, view, false)
+	return s.listWorkspace(ctx, token, rid, cursor, limit, view, false, 0)
 }
 
 // ListWorkspaceWithCreatedAt 仅在客户端显式协商时补充首次申请时间，保留旧响应字段集合。
 func (s *Service) ListWorkspaceWithCreatedAt(ctx context.Context, token, rid, cursor string, limit int, view string) (Page, error) {
-	return s.listWorkspace(ctx, token, rid, cursor, limit, view, true)
+	return s.listWorkspace(ctx, token, rid, cursor, limit, view, true, 0)
 }
 
-func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string, includeCreatedAt bool) (out Page, err error) {
+// ListNumberedReviews 统计当前后台工作区可读的案件。
+func (s *Service) ListNumberedReviews(ctx context.Context, token, rid string, limit int, view string, created bool, page int) (Page, error) {
+	return s.listWorkspace(ctx, token, rid, "", limit, view, created, page)
+}
+
+func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, limit int, view string, includeCreatedAt bool, page int) (out Page, err error) {
 	defer func() {
 		if err != nil {
 			out = Page{}
@@ -78,7 +84,7 @@ func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, 
 	}()
 	defer s.done("list", rid, time.Now(), &err)
 	if limit < 1 || limit > 50 || len(cursor) > 256 || !slices.Contains([]string{"", "pending", "history"}, view) ||
-		includeCreatedAt && view == "" {
+		includeCreatedAt && view == "" || page < 0 || page > 1000000 {
 		return out, command.ErrInvalid
 	}
 	out.Items = []Summary{}
@@ -91,7 +97,8 @@ func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, 
 		if e != nil {
 			return e
 		}
-		rows, e := listReviews(db, after, limit, view)
+		rows, paging, e := listReviews(db, after, limit, view, page)
+		out.PageNumber = paging
 		if e != nil {
 			return e
 		}
@@ -120,7 +127,7 @@ func (s *Service) listWorkspace(ctx context.Context, token, rid, cursor string, 
 			out.Items = append(out.Items, item)
 		}
 		return nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		out = Page{}
 	}

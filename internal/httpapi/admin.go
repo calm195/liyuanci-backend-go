@@ -46,7 +46,7 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 		}
 		query := c.Request.URL.Query()
 		for name, values := range query {
-			if (name != "cursor" && name != "limit") || len(values) != 1 {
+			if (name != "cursor" && name != "limit" && name != "page") || len(values) != 1 {
 				adminError(c, adminauth.ErrInvalid)
 				return
 			}
@@ -60,7 +60,21 @@ func RegisterAdmin(r *gin.Engine, service AdminService) error {
 			}
 			limit = n
 		}
-		out, err := service.ListAccounts(c.Request.Context(), token, query.Get("cursor"), c.GetString("request_id"), limit)
+		var out adminauth.AccountPage
+		var err error
+		if values, exists := query["page"]; exists {
+			page, e := strconv.Atoi(values[0])
+			numbered, ok := service.(interface {
+				ListNumberedAccounts(context.Context, string, string, int, int) (adminauth.AccountPage, error)
+			})
+			if !ok || e != nil || page < 1 || page > 1000000 || query.Has("cursor") {
+				adminError(c, adminauth.ErrInvalid)
+				return
+			}
+			out, err = numbered.ListNumberedAccounts(c.Request.Context(), token, c.GetString("request_id"), limit, page)
+		} else {
+			out, err = service.ListAccounts(c.Request.Context(), token, query.Get("cursor"), c.GetString("request_id"), limit)
+		}
 		if err != nil {
 			adminError(c, err)
 			return
