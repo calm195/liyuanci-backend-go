@@ -38,6 +38,8 @@ type CreatedDraft struct {
 
 // Service 不拥有数据库、密钥或字典生命周期；写入全部由命令引擎管理根事务。
 type Service struct {
+	publicImage      command.PublicImageCheck
+	publicText       command.PublicTextCheck
 	imageObjects     ImageObjects
 	imageScanner     ImageScanner
 	avatarReader     AvatarReader
@@ -183,4 +185,14 @@ func (s *Service) Create(ctx context.Context, token, key, requestID string, inpu
 		command.Input{Token: token, IdempotencyKey: key, RequestID: requestID, Request: digest},
 	)
 	return out, err
+}
+
+// SetPublicTextCheck 在注册路由前装配公开内容检测。
+func (s *Service) SetPublicTextCheck(check command.PublicTextCheck) {
+	s.publicText = check
+}
+
+// SetPublicImageCheck 在开放路由前设置公开配图的异步审核门禁。
+func (s *Service) SetPublicImageCheck(check command.PublicImageCheck) {
+	s.publicImage = check
 }

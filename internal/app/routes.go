@@ -23,6 +23,9 @@ func newServiceRouter(d ServiceDependencies, cfg ServiceConfig, middleware ...gi
 	router := httpapi.New(d.Logger, d.Ready)
 	router.Use(middleware...)
 	router.Use(httpapi.WishIdentityCapability())
+	if d.Media != nil {
+		d.Media.register(router)
+	}
 	if e = s.registerWishImages(router); e != nil {
 		return nil, e
 	}

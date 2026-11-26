@@ -251,6 +251,12 @@ func adminResult(c *gin.Context, status int, data any) {
 func adminError(c *gin.Context, err error) {
 	status, code := http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE"
 	switch {
+	case errors.Is(err, command.ErrMediaReviewPending):
+		status, code = 409, "MEDIA_REVIEW_PENDING"
+	case errors.Is(err, command.ErrContentViolation):
+		status, code = 422, "CONTENT_VIOLATION"
+	case errors.Is(err, command.ErrContentReview):
+		status, code = 422, "CONTENT_REVIEW_REQUIRED"
 	case errors.Is(err, adminauth.ErrInvalid):
 		status, code = 400, "VALIDATION_FAILED"
 	case errors.Is(err, adminauth.ErrUnauthenticated):

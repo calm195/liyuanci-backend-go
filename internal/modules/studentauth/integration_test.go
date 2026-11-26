@@ -537,6 +537,15 @@ func TestPostgresStudent(t *testing.T) {
 		avatarConfig := cfg
 		avatarConfig.AvatarObjects = fixture
 		avatarConfig.AvatarScanner = fixture
+		avatarConfig.PublicImage = func(_ context.Context, account, reservation string, scene int, image []byte) error {
+			if account == "" || reservation == "" || scene != 1 || len(image) == 0 {
+				t.Fatal("头像未绑定账号、预约和图片内容")
+			}
+			if fixture.reviewing.Load() {
+				return command.ErrMediaReviewPending
+			}
+			return nil
+		}
 		avatarService, err := studentauth.New(restricted, logger, exchanger, store, limiter, avatarConfig)
 		if err != nil {
 			t.Fatal(err)

@@ -265,6 +265,10 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 		if e != nil {
 			return "", e
 		}
+		manualReview, e := s.publicText.ForReview(ctx, tx, 4, body)
+		if e != nil {
+			return "", e
+		}
 		nextVersion := a.row.CurrentStoryVersion + 1
 
 		if source != nil {
@@ -316,14 +320,15 @@ func (s *Service) writeStory(ctx context.Context, token, key, rid, id, body stri
 		}
 		epoch := a.row.RestrictionEpoch
 		if e = db.Create(&entity.ModerationTask{
-			PrivacyRecheck:   holds.Active || holds.ParentActive,
-			ID:               taskID,
-			ContentID:        registryID,
-			ContentVersion:   nextVersion,
-			SubjectEpoch:     tx.Actor().AuthEpoch,
-			RestrictionEpoch: &epoch,
-			HoldEpoch:        holds.Epoch,
-			CreatedAt:        tx.Now(),
+			WeChatManualReview: manualReview,
+			PrivacyRecheck:     holds.Active || holds.ParentActive,
+			ID:                 taskID,
+			ContentID:          registryID,
+			ContentVersion:     nextVersion,
+			SubjectEpoch:       tx.Actor().AuthEpoch,
+			RestrictionEpoch:   &epoch,
+			HoldEpoch:          holds.Epoch,
+			CreatedAt:          tx.Now(),
 		}).Error; e != nil {
 			return "", e
 		}

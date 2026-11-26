@@ -11,6 +11,38 @@ import (
 )
 
 // 稳定错误供 HTTP/消费者边界映射，不包含数据库、令牌或个人信息。
+// ErrContentViolation 表示本次提交的内容被内容安全服务明确拒绝。
+var ErrContentViolation = errors.New("提交内容含违规信息")
+
+// ErrContentReview 表示微信给出待复核结果，当前写入不能发布。
+var ErrContentReview = errors.New("提交内容待复核")
+
+// ErrMediaReviewPending 表示微信已受理，当前保留原上传以查验结果。
+var ErrMediaReviewPending = errors.New("图片正在审核")
+
+// PublicImageCheck 校验当前预约对应的实际图片，只有明确通过才返回成功。
+type PublicImageCheck func(context.Context, string, string, int, []byte) error
+
+// PublicTextCheck 只为当前已授权主体检查待发布的完整文本字段。
+type PublicTextCheck func(context.Context, *gorm.DB, string, int, []string) error
+
+// Check 以事务中已经确认的账号绑定提交内容。
+func (check PublicTextCheck) Check(ctx context.Context, tx *Tx, scene int, fields ...string) error {
+	if check == nil {
+		return nil
+	}
+	return check(ctx, tx.DB(), tx.Actor().ID, scene, fields)
+}
+
+// ForReview 保留微信复核结论供持久审核任务使用，明确违规和技术故障仍中止写入。
+func (check PublicTextCheck) ForReview(ctx context.Context, tx *Tx, scene int, fields ...string) (bool, error) {
+	err := check.Check(ctx, tx, scene, fields...)
+	if errors.Is(err, ErrContentReview) {
+		return true, nil
+	}
+	return false, err
+}
+
 var (
 	// ErrVerificationRequired 表示当前操作需要已通过学生认证。
 	ErrVerificationRequired = errors.New("需要学生认证")

@@ -19,6 +19,7 @@ import (
 
 // Service 不拥有客户端生命周期；不注册路由、不迁移、不默认产生审核工作。
 type Service struct {
+	publicText        command.PublicTextCheck
 	candidateCache    contentquery.CandidateCache
 	db                *gorm.DB
 	logger            *zap.Logger
@@ -97,6 +98,8 @@ func boundaryError(err error) error {
 		command.ErrConflict,
 		command.ErrBlockedInteraction,
 		command.ErrInternal,
+		command.ErrContentViolation,
+		command.ErrContentReview,
 		command.ErrUnavailable,
 		command.ErrRetry,
 	} {
@@ -222,4 +225,9 @@ func (s *Service) decrypt(ctx context.Context, purpose, id string, version int64
 		return command.ErrUnavailable
 	}
 	return nil
+}
+
+// SetPublicTextCheck 在注册路由前装配公开内容检测。
+func (s *Service) SetPublicTextCheck(check command.PublicTextCheck) {
+	s.publicText = check
 }

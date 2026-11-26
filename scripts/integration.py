@@ -41,6 +41,7 @@ SUITES = {
     'whisper_review': ('./internal/modules/whisper', ('TestPostgresWhisperModeration',)),
     'studentauth': ('./internal/modules/studentauth', ('TestPostgresStudent',)),
     'whisper_text': ('./internal/modules/whisper', ('TestPostgresWhisperText',)),
+    'wechat_media': ('./internal/app', ('TestRedisWeChatMediaCheck',)),
     'redis_rate': ('./internal/adapters/redis/whisperrate', ('TestRedisWhisperAdmission',)),
     'command': (
         './internal/execution/command',

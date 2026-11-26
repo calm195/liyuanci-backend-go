@@ -157,6 +157,9 @@ func RunServer(ctx context.Context, options ServerOptions) (err error) {
 			return errors.New("树洞依赖装配失败")
 		}
 		defer closeServerResource(log, "whisper_api_close", app.Close, &err)
+		if e = app.configurePublicText(cfg.Business.WeChatAppID, cfg.Business.WeChatSecret); e != nil {
+			return errors.New("悄悄话微信内容安全装配失败")
+		}
 		whisperAPI = app
 		publicContent.AttachWhispers(app)
 		if cfg.Mode == "whispers" {

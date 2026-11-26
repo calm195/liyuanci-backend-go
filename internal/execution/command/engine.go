@@ -451,6 +451,8 @@ func normalizeError(err error) error {
 		ErrDuplicateApplication,
 		ErrBlockedInteraction,
 		ErrReviewPending,
+		ErrContentViolation,
+		ErrContentReview,
 		ErrRetry,
 		ErrUnavailable,
 		ErrInternal,
@@ -504,6 +506,10 @@ func resultCode(err error) string {
 		return "duplicate_application"
 	case errors.Is(err, ErrBlockedInteraction):
 		return "blocked_interaction"
+	case errors.Is(err, ErrContentViolation):
+		return "content_violation"
+	case errors.Is(err, ErrContentReview):
+		return "content_review_required"
 	case errors.Is(err, ErrReviewPending):
 		return "review_pending"
 	case errors.Is(err, ErrConflict):

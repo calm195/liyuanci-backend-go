@@ -514,7 +514,7 @@ func (w *Worker) applyScan(ctx context.Context, tx *command.Tx, work durable.Wor
 		if _, e = captureCrisis(ctx, db, w.codec, row, tx.Now(), a.wordlistEvidence); e != nil {
 			return "", e
 		}
-	} else if !a.SchoolRelated && !a.OrdinaryHit {
+	} else if !a.SchoolRelated && !a.OrdinaryHit && !row.task.WeChatManualReview {
 		status = "approved"
 		decision = "approved"
 		tags, _ := json.Marshal(a.Tags)

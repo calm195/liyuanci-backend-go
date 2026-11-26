@@ -38,6 +38,7 @@ const (
 
 // DevelopmentSettings 是统一业务配置向本地适配器投影的运行参数，不提供独立YAML入口。
 type DevelopmentSettings struct {
+	WeChatMedia                                                                 config.WeChatMedia
 	Tencent                                                                     config.Tencent
 	Content                                                                     config.Content
 	ProviderTimeout                                                             time.Duration
@@ -79,6 +80,7 @@ func developmentSettings(app config.Config) (DevelopmentSettings, error) {
 		AdminCreatePassword: b.AdminCreatePassword,
 		WeChatAppID:         b.WeChatAppID,
 		WeChatSecret:        b.WeChatSecret,
+		WeChatMedia:         b.WeChatMedia,
 		ResourcesFile:       r.ResourcesFile,
 	}
 	return validateDevelopment(cfg)
@@ -123,7 +125,8 @@ func validateDevelopment(cfg DevelopmentSettings) (DevelopmentSettings, error) {
 			}
 		}
 	}
-	if (cfg.WeChatAppID == "") != (cfg.WeChatSecret == "") {
+	if (cfg.WeChatAppID == "") != (cfg.WeChatSecret == "") ||
+		cfg.WeChatMedia.Enabled() && cfg.WeChatAppID == "" || cfg.WeChatMedia.Validate() != nil {
 		return cfg, command.ErrInvalid
 	}
 	return cfg, nil
@@ -185,12 +188,21 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	}
 	var exchange studentauth.Exchanger = local.Unavailable{Logger: logger}
 	var shareCodes wish.ShareCodes
+	var publicText command.PublicTextCheck
+	var media *wechatMedia
+	var publicImage command.PublicImageCheck
 	if cfg.WeChatAppID != "" {
 		wechat, e := gateway.NewWeChat(&http.Client{Timeout: 5 * time.Second}, cfg.WeChatAppID, cfg.WeChatSecret, logger)
 		if e != nil {
 			return nil, closeAll, e
 		}
 		exchange, shareCodes = wechat, wechat
+		publicText = wechatPublicText(codec, wechat)
+		media, e = newWeChatMedia(cfg.WeChatMedia, cfg.WeChatAppID, wechat, database, client, codec, logger)
+		if e != nil {
+			return nil, closeAll, e
+		}
+		publicImage = media.check
 	}
 	objects, scanner, closeMedia, e := developmentMedia(environment, cfg, logger)
 	if e != nil {
@@ -261,21 +273,24 @@ func OpenDevelopment(ctx context.Context, environment string, cfg DevelopmentSet
 	router, e = newServiceRouter(ServiceDependencies{
 		PublicContent: publicContent,
 		PrivacyDB:     privacyDB, EvidenceDeletionDB: evidenceDeletionDB, DeletionJournal: deletionJournal,
-		CrisisDB:   crisisDB,
-		StudentDB:  database,
-		ReviewDB:   database,
-		WishDB:     database,
-		Logger:     logger,
-		Ready:      businessReady,
-		Exchange:   exchange,
-		ShareCodes: shareCodes,
-		Identity:   store,
-		Limiter:    limiter,
-		Codec:      codec,
-		Objects:    objects,
-		Scanner:    scanner,
-		Rules:      local.SchoolRules{Logger: logger},
-		Grades:     businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}},
+		CrisisDB:    crisisDB,
+		StudentDB:   database,
+		ReviewDB:    database,
+		WishDB:      database,
+		Logger:      logger,
+		Ready:       businessReady,
+		Exchange:    exchange,
+		PublicText:  publicText,
+		PublicImage: publicImage,
+		Media:       media,
+		ShareCodes:  shareCodes,
+		Identity:    store,
+		Limiter:     limiter,
+		Codec:       codec,
+		Objects:     objects,
+		Scanner:     scanner,
+		Rules:       local.SchoolRules{Logger: logger},
+		Grades:      businessGrades{RuntimeSettings{LocalTest: cfg.LocalTest, ResourcesFile: cfg.ResourcesFile}},
 	}, ServiceConfig{
 		Privacy: accountCfg, EvidenceDeletion: evidenceCfg,
 		Crisis:     crisisConfig,

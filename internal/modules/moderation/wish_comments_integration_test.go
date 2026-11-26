@@ -41,6 +41,22 @@ func verifyWishComments(t *testing.T, db *gorm.DB, s *wish.Service, reviews *mod
 			must(e)
 			return c
 		}
+		s.SetPublicTextCheck(func(_ context.Context, _ *gorm.DB, actor string, scene int, fields []string) error {
+			if scene != 2 || actor == "" || len(fields) != 1 {
+				t.Fatal("心愿评论没有按当前提交者与评论场景送检")
+			}
+			if fields[0] == "合成违规评论" {
+				return command.ErrContentViolation
+			}
+			if fields[0] == "合成待复核评论" {
+				return command.ErrContentReview
+			}
+			return nil
+		})
+		t.Cleanup(func() { s.SetPublicTextCheck(nil) })
+		if _, e := s.SaveComment(ctx, peerToken, uuid.NewString(), "", w.ID, "", input("合成违规评论")); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("新增评论绕过微信检测", e)
+		}
 		first := create(peerToken, input("想了解更多信息"))
 		page, e := s.ListComments(ctx, "", "", w.ID, false, wish.CommentQuery{})
 		must(e)
@@ -56,6 +72,24 @@ func verifyWishComments(t *testing.T, db *gorm.DB, s *wish.Service, reviews *mod
 		replyInput := input("我也有同样的问题")
 		replyInput.RootCommentID = &first.ID
 		replyInput.ReplyToCommentID = &first.ID
+		rejectedReply := replyInput
+		rejectedReply.Body = "合成违规评论"
+		if _, e = s.SaveComment(ctx, thirdToken, uuid.NewString(), "", w.ID, "", rejectedReply); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("楼内回复绕过微信检测", e)
+		}
+		rejectedEdit := input("合成违规评论")
+		rejectedEdit.ExpectedVersion = first.Version
+		if _, e = s.SaveComment(ctx, peerToken, uuid.NewString(), "", w.ID, first.ID, rejectedEdit); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("评论编辑绕过微信检测", e)
+		}
+		manual := create(peerToken, input("合成待复核评论"))
+		_, e = worker.Consume(ctx, event("wish_comment", manual.ID))
+		must(e)
+		manual, e = s.GetComment(ctx, peerToken, "", manual.ID)
+		must(e)
+		if manual.Status == "published" || manual.ReviewResult == nil || manual.ReviewResult.Decision != "human_required" {
+			t.Fatal("微信待复核的评论未进入人工复核", manual.Status)
+		}
 		reply := create(thirdToken, replyInput)
 		scan("wish_comment", reply.ID)
 		replies, e := s.ListComments(ctx, "", "", w.ID, false, wish.CommentQuery{RootCommentID: first.ID})

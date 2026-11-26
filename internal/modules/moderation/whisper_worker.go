@@ -327,7 +327,7 @@ func (w *WhisperWorker) consumer(scan *entity.ModerationScan, a *WhisperAssessme
 			if _, e = captureWhisperCrisis(ctx, db, w.codec, r, tx.Now(), a.WordlistEvidence); e != nil {
 				return "", e
 			}
-		} else if !a.SchoolRelated && !a.OrdinaryHit {
+		} else if !a.SchoolRelated && !a.OrdinaryHit && !r.task.WeChatManualReview {
 			state = "approved"
 			taskState = "approved"
 			decision = "approved"

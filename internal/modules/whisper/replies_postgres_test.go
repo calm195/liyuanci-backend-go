@@ -3,6 +3,7 @@ package whisper_test
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/calm195/liyuanci-backend-go/internal/entity"
+	"github.com/calm195/liyuanci-backend-go/internal/execution/command"
 	"github.com/calm195/liyuanci-backend-go/internal/execution/durable"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/moderation"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/safety"
@@ -33,6 +35,18 @@ func verifyThreadReplies(t *testing.T, db *gorm.DB, s *whisper.Service, governan
 		must(e)
 		post := raw.(whisper.PublicPost)
 		in := whisper.CommentInput{ContentInput: whisper.ContentInput{Body: "感谢分享", Identity: whisper.IdentityInput{Mode: "anonymous"}}, ExpectedPostVersion: post.Version, ExpectedCommentsEpoch: post.CommentsEpoch}
+		s.SetPublicTextCheck(func(_ context.Context, _ *gorm.DB, actor string, scene int, fields []string) error {
+			if scene == 2 && actor != "" && len(fields) == 1 && fields[0] == "合成违规暖评" {
+				return command.ErrContentViolation
+			}
+			return nil
+		})
+		t.Cleanup(func() { s.SetPublicTextCheck(nil) })
+		rejected := in
+		rejected.Body = "合成违规暖评"
+		if _, e := s.SaveComment(ctx, peer, uuid.NewString(), "", p.ID, "", rejected); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("新增暖评绕过微信检测", e)
+		}
 		first, e := s.SaveComment(ctx, peer, uuid.NewString(), "", p.ID, "", in)
 		must(e)
 		_, e = worker.Consume(ctx, event(first.ID))
@@ -40,6 +54,18 @@ func verifyThreadReplies(t *testing.T, db *gorm.DB, s *whisper.Service, governan
 		in.Body = "欢迎交流"
 		in.RootCommentID = &first.ID
 		in.ReplyToCommentID = &first.ID
+		rejected = in
+		rejected.Body = "合成违规暖评"
+		if _, e = s.SaveComment(ctx, owner, uuid.NewString(), "", p.ID, "", rejected); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("暖评回复绕过微信检测", e)
+		}
+		editable, e := s.GetComment(ctx, peer, "", first.ID)
+		must(e)
+		rejected.RootCommentID, rejected.ReplyToCommentID = nil, nil
+		rejected.ExpectedVersion = editable.Version
+		if _, e = s.SaveComment(ctx, peer, uuid.NewString(), "", p.ID, first.ID, rejected); !errors.Is(e, command.ErrContentViolation) {
+			t.Fatal("暖评编辑绕过微信检测", e)
+		}
 		reply, e := s.SaveComment(ctx, owner, uuid.NewString(), "", p.ID, "", in)
 		must(e)
 		_, e = worker.Consume(ctx, event(reply.ID))

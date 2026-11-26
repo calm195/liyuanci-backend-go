@@ -115,6 +115,12 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 	if e != nil {
 		return nil, e
 	}
+	publicText := wechatPublicText(a.r.codec, exchange)
+	media, e := newWeChatMedia(cfg.WeChatMedia, cfg.WeChatAppID, exchange, student, client, a.r.codec, log)
+	if e != nil {
+		return nil, e
+	}
+	whispers.service.SetPublicTextCheck(publicText)
 	cmd := command.Config(cfg.Runtime.Command)
 	pconf := a.r.privacyConfig()
 	econf := pconf
@@ -140,6 +146,9 @@ func OpenBusiness(ctx context.Context, cfg config.Business, environment string, 
 		Ready:           b.Ready,
 		Exchange:        exchange,
 		ShareCodes:      exchange,
+		PublicText:      publicText,
+		PublicImage:     media.check,
+		Media:           media,
 		Identity:        store,
 		Limiter:         limiter,
 		Codec:           a.r.codec,

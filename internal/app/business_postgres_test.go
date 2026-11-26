@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"encoding/pem"
 	"encoding/xml"
@@ -33,6 +32,7 @@ import (
 	"github.com/calm195/liyuanci-backend-go/internal/modules/adminauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/blockpolicy"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/privacy"
+	"github.com/calm195/liyuanci-backend-go/internal/modules/studentauth"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/studentcard"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/verification"
 	"github.com/calm195/liyuanci-backend-go/internal/modules/whisper"
@@ -199,10 +199,10 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			t.Fatal("凭据进入日志")
 		}
 	}
-	start := func(bin string, args ...string) *runtimeProcess {
+	start := func(env []string, bin string, args ...string) *runtimeProcess {
 		t.Helper()
 		p := &runtimeProcess{cmd: exec.Command(bin, args...), log: &processLog{}, done: make(chan error, 1)}
-		p.cmd.Env = cleanEnv
+		p.cmd.Env = append(append([]string(nil), cleanEnv...), env...)
 		p.cmd.Stdout = p.log
 		p.cmd.Stderr = p.log
 		must(p.cmd.Start())
@@ -241,7 +241,11 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	must(blockpolicy.Enable(ctx, root, log))
 	oneShot(serverBin, true, "-config", appPath, "-check-config")
 	oneShot(serverBin, true, "-config", appPath, "-check")
-	server := start(serverBin, "-config", appPath)
+	wechat := newBusinessWeChatFixture(t, c.WeChatAppID, c.WeChatSecret)
+	fixtureServerEnv := []string{businessFixtureAddress + "=" + wechat.URL, businessFixtureConfig + "=" + appPath}
+	executable, e := os.Executable()
+	must(e)
+	server := start(fixtureServerEnv, executable, "-test.run=^TestBusinessWeChatFixtureServer$")
 	client := &http.Client{Timeout: 10 * time.Second}
 	health := func(path string) int {
 		r, e := client.Get("http://" + address + path)
@@ -321,29 +325,30 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	request("GET", "/admin/users", session.Token, nil, 200, nil)
 	request("GET", "/wishes", "", nil, 200, nil)
 	request("GET", "/me", "", nil, 401, nil)
-	actor, peer := uuid.NewString(), uuid.NewString()
-	token, peerToken := uuid.NewString(), uuid.NewString()
-	for i, row := range [][2]string{{actor, token}, {peer, peerToken}} {
-		state := "verified"
-		if i == 0 {
-			state = "unverified"
+	login := func(code string) studentauth.Session {
+		t.Helper()
+		var session studentauth.Session
+		request("POST", "/auth/wechat-sessions", "", map[string]string{
+			"code": code, "client_request_id": uuid.NewString(),
+		}, 200, &session)
+		var secret entity.IdentitySecret
+		must(root.Where("account_id=? AND purpose='openid'", session.Me.ID).Take(&secret).Error)
+		if session.Token == "" || len(secret.Envelope) == 0 || bytes.Contains(secret.Envelope, []byte(fixtureOpenID(code))) {
+			t.Fatal("测试账号未通过微信登录建立加密身份")
 		}
-		must(root.Create(&entity.Account{ID: row[0], Nickname: "隔离合成用户", Verification: state}).Error)
-		hash := sha256.Sum256([]byte(row[1]))
-		must(root.Exec(
-			"INSERT INTO public.sessions(id,account_id,token_hash,auth_epoch,expires_at) VALUES (?,?,?,1,clock_timestamp()+interval '1 hour')",
-			uuid.NewString(),
-			row[0],
-			hash[:],
-		).Error)
+		return session
 	}
+	authorSession, peerSession := login(businessFixtureAuthor), login(businessFixturePeer)
+	actor, peer := authorSession.Me.ID, peerSession.Me.ID
+	token, peerToken := authorSession.Token, peerSession.Token
+	must(root.Model(&entity.Account{}).Where("id=?", peer).Update("verification", "verified").Error)
 	request("GET", "/admin/users", token, nil, 403, nil)
 	for _, kind := range []string{"card", "content", "whispers", "account", "evidence"} {
 		oneShot(workerBin, true, "-config", workerApp(kind), "-check")
 	}
-	card := start(workerBin, "-config", workerApp("card"))
-	content := start(workerBin, "-config", workerApp("content"))
-	whispers := start(workerBin, "-config", workerApp("whispers"))
+	card := start(nil, workerBin, "-config", workerApp("card"))
+	content := start(nil, workerBin, "-config", workerApp("content"))
+	whispers := start(nil, workerBin, "-config", workerApp("whispers"))
 	var form bytes.Buffer
 	multipartWriter := multipart.NewWriter(&form)
 	part, e := multipartWriter.CreatePart(textproto.MIMEHeader{
@@ -393,11 +398,12 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		Version        int64  `json:"version"`
 		ContentVersion int64  `json:"content_version"`
 	}
+	const wishBody = "生产内容工作进程的隔离心愿"
 	request(
 		"POST",
 		"/wishes",
 		token,
-		wish.ContentInput{Category: "help", Body: "生产内容工作进程的隔离心愿", Campus: "any"},
+		wish.ContentInput{Category: "help", Body: wishBody, Campus: "any"},
 		201,
 		&draft,
 	)
@@ -409,6 +415,9 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 		202,
 		&draft,
 	)
+	if !wechat.sawText(fixtureOpenID(businessFixtureAuthor), 3, "未命名心愿\n"+wishBody) {
+		t.Fatal("心愿提交没有使用当前账号 OpenID 调用微信文本检测")
+	}
 	wait("普通心愿工作进程", func() bool {
 		var n int64
 		return root.Model(&entity.Wish{}).Where("id=? AND state='ready'", draft.ID).Count(&n).Error == nil && n == 1
@@ -419,6 +428,9 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 	request("POST", "/wishes", peerToken, wish.ContentInput{Category: "help", Body: manualBody, Campus: "any"}, 201, &manual)
 	request("POST", "/wishes/"+manual.ID+"/submit-review", peerToken,
 		map[string]any{"expected_version": manual.Version, "content_version": manual.ContentVersion}, 202, &manual)
+	if !wechat.sawText(fixtureOpenID(businessFixturePeer), 3, "未命名心愿\n"+manualBody) {
+		t.Fatal("另一测试账号的微信检测未使用独立 OpenID")
+	}
 	var manualTask string
 	wait("词库命中进入人工复核", func() bool {
 		return root.Raw(`SELECT t.id FROM public.moderation_tasks t JOIN public.content_registry c ON c.id=t.content_id WHERE c.entity_id=? AND t.status='human_required'`, manual.ID).
@@ -468,8 +480,8 @@ func testPostgresBusinessRuntime(t *testing.T, databaseTasks bool) {
 			t.Fatal("停止期间任务未持久保存")
 		}
 		// 两个正式进程竞争同一持久工作，不能重复公开或产生重复回执。
-		whispers = start(workerBin, "-config", workerApp("whispers"))
-		duplicate := start(workerBin, "-config", workerApp("whispers"))
+		whispers = start(nil, workerBin, "-config", workerApp("whispers"))
+		duplicate := start(nil, workerBin, "-config", workerApp("whispers"))
 		wait("重启竞争完成", func() bool {
 			var n int64
 			return root.Model(&entity.WhisperPost{}).Where("id=? AND published_content_version IS NOT NULL", post.ID).Count(&n).Error == nil &&

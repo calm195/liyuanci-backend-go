@@ -53,7 +53,7 @@ func (s *Service) CreateCapsule(ctx context.Context, token, key, rid string, in 
 		if e = registry(ctx, tx.DB(), reg, "whisper_capsule", id, tx.Actor().ID, 1); e != nil {
 			return "", e
 		}
-		task, e := s.submit(ctx, tx, reg, "whisper_capsule", 1, 1, 0, 0)
+		task, e := s.submit(ctx, tx, reg, "whisper_capsule", 1, 1, 0, 0, false)
 		if e != nil {
 			return "", e
 		}

@@ -43,6 +43,7 @@ type Limiter interface {
 
 // Config 必须显式给出期限和独立会话派生密钥，不套用后台会话参数。
 type Config struct {
+	PublicImage   command.PublicImageCheck
 	ProfileGrades func(context.Context) []GradeOption
 	AvatarObjects AvatarObjects
 	AvatarScanner AvatarScanner
@@ -115,6 +116,7 @@ type ProfileInput struct {
 
 // Service 不拥有连接池或适配器；外层先停止HTTP请求，再关闭注入资源。
 type Service struct {
+	publicText  command.PublicTextCheck
 	avatarSlots chan struct{}
 	db          *gorm.DB
 	engine      *command.Engine
@@ -182,6 +184,9 @@ func safe(err error) error {
 	}
 	for _, known := range []error{
 		command.ErrInvalid,
+		command.ErrContentViolation,
+		command.ErrContentReview,
+		command.ErrMediaReviewPending,
 		command.ErrUnauthenticated,
 		command.ErrForbidden,
 		command.ErrNotFound,
@@ -427,7 +432,7 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 				return "", command.ErrVersionConflict
 			}
 			var account entity.Account
-			if e := tx.DB().Select("enrollment_year", "education_level", "grade_override").Where("id=?", guard.ID).Take(&account).Error; e != nil {
+			if e := tx.DB().Select("enrollment_year", "education_level", "grade_override", "avatar_url", "avatar_id").Where("id=?", guard.ID).Take(&account).Error; e != nil {
 				return "", e
 			}
 			if input.EnrollmentYear != nil {
@@ -455,6 +460,14 @@ func (s *Service) UpdateProfile(ctx context.Context, token, key, requestID strin
 				}) {
 					return "", command.ErrInvalid
 				}
+			}
+			if err := s.publicText.Check(ctx, tx, 1, strings.TrimSpace(input.Nickname)); err != nil {
+				return "", err
+			}
+			// 外部地址可以在审核后被替换，新增头像必须走受控的图片上传。
+			if s.config.PublicImage != nil && input.AvatarURL != nil && *input.AvatarURL != "" &&
+				account.AvatarID == nil && *input.AvatarURL != account.AvatarURL {
+				return "", command.ErrInvalid
 			}
 			return guard.ID, replaceProfile(ctx, tx.DB(), guard.ID, input)
 		},
@@ -557,4 +570,9 @@ func (s *Service) project(ctx context.Context, db *gorm.DB, id string, at time.T
 		}
 	}
 	return out, e
+}
+
+// SetPublicTextCheck 在注册路由前装配公开内容检测。
+func (s *Service) SetPublicTextCheck(check command.PublicTextCheck) {
+	s.publicText = check
 }

@@ -367,6 +367,10 @@ func decodeWhisperPost(data []byte, action string) (out whisper.PostInput, err e
 func whisperError(c *gin.Context, err error) {
 	status, code := 503, "DEPENDENCY_UNAVAILABLE"
 	switch {
+	case errors.Is(err, command.ErrContentViolation):
+		status, code = 422, "CONTENT_VIOLATION"
+	case errors.Is(err, command.ErrContentReview):
+		status, code = 422, "CONTENT_REVIEW_REQUIRED"
 	case errors.Is(err, whisper.ErrModuleUnavailable):
 		code = "MODULE_UNAVAILABLE"
 	case errors.Is(err, command.ErrInvalid):

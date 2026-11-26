@@ -65,6 +65,13 @@ func TestPostgresWishImages(t *testing.T) {
 	s := f.service
 	objects := &wishImageMemory{data: map[string][]byte{}}
 	s.SetImages(objects, wishImageApproved{}, nil)
+	var checkResult error
+	s.SetPublicImageCheck(func(_ context.Context, actor, reservation string, scene int, data []byte) error {
+		if actor != f.owner || reservation == "" || scene != 3 || len(data) == 0 {
+			t.Fatal("配图未绑定作者、预约和图片内容")
+		}
+		return checkResult
+	})
 	ids := []string{}
 	for i := range 3 {
 		pixels := image.NewRGBA(image.Rect(0, 0, 32, 32))
@@ -74,6 +81,17 @@ func TestPostgresWishImages(t *testing.T) {
 			t.Fatal(e)
 		}
 		key := uuid.NewString()
+		if i == 0 {
+			checkResult = command.ErrMediaReviewPending
+			if _, e := s.UploadImage(ctx, f.token, key, "image-pending", "image/png", bytes.NewReader(b.Bytes())); !errors.Is(e, command.ErrMediaReviewPending) || len(objects.data) != 0 {
+				t.Fatal("待微信回调的配图被安装", e)
+			}
+			checkResult = command.ErrContentViolation
+			if _, e := s.UploadImage(ctx, f.token, uuid.NewString(), "image-rejected", "image/png", bytes.NewReader(b.Bytes())); !errors.Is(e, command.ErrContentViolation) || len(objects.data) != 0 {
+				t.Fatal("违规配图被安装", e)
+			}
+			checkResult = nil
+		}
 		uploaded, e := s.UploadImage(ctx, f.token, key, "image-test", "image/png", bytes.NewReader(b.Bytes()))
 		if e != nil {
 			t.Fatal(e)

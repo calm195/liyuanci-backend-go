@@ -35,10 +35,12 @@ func (s *serviceSet) buildIdentity(d ServiceDependencies, cfg ServiceConfig) err
 	if e != nil {
 		return e
 	}
+	cfg.Auth.PublicImage = d.PublicImage
 	s.auth, e = studentauth.New(d.StudentDB, d.Logger, d.Exchange, d.Identity, d.Limiter, cfg.Auth)
 	if e != nil {
 		return e
 	}
+	s.auth.SetPublicTextCheck(d.PublicText)
 	s.randomProfiles, e = randomprofile.New(d.StudentDB, d.Logger, cfg.Auth.Command, d.Scanner,
 		func(ctx context.Context, token, requestID string) error {
 			me, err := s.auth.Current(ctx, token, requestID)

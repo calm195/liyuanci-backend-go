@@ -281,6 +281,24 @@ func (s *Service) ChangePost(ctx context.Context, token, key, rid, id, action st
 			if e = s.validateIdentity(ctx, tx.DB(), tx.Actor().ID, identity); e != nil {
 				return "", e
 			}
+			var manualReview bool
+			if s.publicText != nil {
+				version := a.post.CurrentContentVersion
+				title := "未命名悄悄话"
+				var body string
+				if len(a.version.TitleCipher) > 0 {
+					if e = s.decrypt(ctx, "whisper_post_title", id, version, a.version.TitleCipher, &title); e != nil {
+						return "", e
+					}
+				}
+				if e = s.decrypt(ctx, "whisper_post_body", id, version, a.version.BodyCipher, &body); e != nil {
+					return "", e
+				}
+				manualReview, e = s.publicText.ForReview(ctx, tx, 3, title, body)
+				if e != nil {
+					return "", e
+				}
+			}
 			if s.review == nil {
 				return "", command.ErrUnavailable
 			}
@@ -296,6 +314,7 @@ func (s *Service) ChangePost(ctx context.Context, token, key, rid, id, action st
 				a.post.ReviewRound+1,
 				a.post.PrivacyEpoch,
 				a.post.RestrictionEpoch,
+				manualReview,
 			)
 			if e != nil {
 				return "", e
@@ -338,7 +357,7 @@ func (s *Service) ChangePost(ctx context.Context, token, key, rid, id, action st
 	return
 }
 
-func (s *Service) submit(ctx context.Context, tx *command.Tx, contentID, kind string, version, round, hold, restriction int64) (string, error) {
+func (s *Service) submit(ctx context.Context, tx *command.Tx, contentID, kind string, version, round, hold, restriction int64, manualReview bool) (string, error) {
 	if s.review == nil {
 		return "", command.ErrUnavailable
 	}
@@ -347,14 +366,15 @@ func (s *Service) submit(ctx context.Context, tx *command.Tx, contentID, kind st
 		return "", command.ErrInternal
 	}
 	task := entity.ModerationTask{
-		ID:               uuid.NewString(),
-		ContentID:        contentID,
-		ContentVersion:   version,
-		SubjectEpoch:     g.AuthEpoch,
-		HoldEpoch:        hold,
-		RestrictionEpoch: &restriction,
-		Status:           "pending",
-		CreatedAt:        tx.Now(),
+		WeChatManualReview: manualReview,
+		ID:                 uuid.NewString(),
+		ContentID:          contentID,
+		ContentVersion:     version,
+		SubjectEpoch:       g.AuthEpoch,
+		HoldEpoch:          hold,
+		RestrictionEpoch:   &restriction,
+		Status:             "pending",
+		CreatedAt:          tx.Now(),
 	}
 	if e := insertRow(ctx, tx.DB(), &task); e != nil {
 		return "", e
@@ -390,6 +410,10 @@ func (s *Service) SetNickname(ctx context.Context, token, key, rid string, input
 		if p.Version != input.ExpectedVersion {
 			return "", command.ErrVersionConflict
 		}
+		manualReview, e := s.publicText.ForReview(ctx, tx, 1, input.Label)
+		if e != nil {
+			return "", e
+		}
 		if e = ensurePreference(ctx, tx.DB(), p.AccountID); e != nil {
 			return "", e
 		}
@@ -418,7 +442,7 @@ func (s *Service) SetNickname(ctx context.Context, token, key, rid string, input
 		if e = registry(ctx, tx.DB(), registryID, "whisper_nickname", registryID, p.AccountID, version); e != nil {
 			return "", e
 		}
-		taskID, e := s.submit(ctx, tx, registryID, "whisper_nickname", version, 1, 0, 0)
+		taskID, e := s.submit(ctx, tx, registryID, "whisper_nickname", version, 1, 0, 0, manualReview)
 		if e != nil {
 			return "", e
 		}

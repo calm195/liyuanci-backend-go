@@ -30,6 +30,8 @@ func (s *serviceSet) buildInteraction(d ServiceDependencies, cfg ServiceConfig) 
 			return failureNew
 		}
 		s.wishes.SetShareCodes(d.ShareCodes)
+		s.wishes.SetPublicTextCheck(d.PublicText)
+		s.wishes.SetPublicImageCheck(d.PublicImage)
 		avatars, _ := d.Objects.(wish.AvatarReader)
 		s.wishes.SetImages(d.Objects, d.Scanner, avatars)
 	}

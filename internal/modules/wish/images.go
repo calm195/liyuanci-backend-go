@@ -125,7 +125,10 @@ func (s *Service) UploadImage(ctx context.Context, token, key, rid, media string
 		if e := tx.DB().WithContext(ctx).Where("id=? AND owner_id=?", id, tx.Actor().ID).Take(&row).Error; e != nil {
 			return command.ErrNotFound
 		}
-		if row.RemovedAt != nil || row.CleanupStartedAt != nil || row.ScanState == "rejected" {
+		if row.ScanState == "rejected" {
+			return command.ErrContentViolation
+		}
+		if row.RemovedAt != nil || row.CleanupStartedAt != nil {
 			return command.ErrConflict
 		}
 		if row.InstalledAt != nil {
@@ -158,13 +161,18 @@ func (s *Service) UploadImage(ctx context.Context, token, key, rid, media string
 	}()
 	bounded, cancel := context.WithDeadline(ctx, *row.UploadUntil)
 	defer cancel()
+	if s.publicImage != nil {
+		if e := s.publicImage(bounded, actor, row.ID, 3, data); e != nil {
+			return out, e
+		}
+	}
 	approved, e := s.imageScanner.Scan(bounded, data, "image/png")
 	if e != nil {
 		return out, command.ErrUnavailable
 	}
 	if !approved {
 		_ = s.db.WithContext(bounded).Model(&entity.WishImage{}).Where("id=? AND upload_until=?", row.ID, *row.UploadUntil).Updates(map[string]any{"scan_state": "rejected", "upload_cipher": nil, "removable_after": time.Now().UTC()}).Error
-		return out, command.ErrInvalid
+		return out, command.ErrContentViolation
 	}
 	version, e := s.imageObjects.PutOnce(bounded, row.ObjectKey, row.UploadCipher)
 	if e != nil || version == "" {

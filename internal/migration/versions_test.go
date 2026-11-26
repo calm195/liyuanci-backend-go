@@ -37,10 +37,10 @@ func TestVersionCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 36 || entries[len(entries)-1].version != 36 {
+	if len(entries) != 37 || entries[len(entries)-1].version != 37 {
 		t.Fatalf("迁移版本数量错误：%d", len(entries))
 	}
-	for _, last := range []int{33, 34, 35, 36} {
+	for _, last := range []int{33, 34, 35, 36, 37} {
 		catalog := fstest.MapFS{}
 		for version := 1; version <= 32; version++ {
 			for _, direction := range []string{"up", "down"} {

@@ -118,6 +118,10 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e = s.validateIdentity(ctx, tx.DB(), tx.Actor().ID, in.Identity); e != nil {
 			return "", e
 		}
+		manualReview, e := s.publicText.ForReview(ctx, tx, 2, in.Body)
+		if e != nil {
+			return "", e
+		}
 		id, cv, round, hold, restriction := commentID, int64(1), int64(1), int64(0), int64(0)
 		if create {
 			id = uuid.NewString()
@@ -196,7 +200,7 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, postID, comm
 		if e = registry(ctx, tx.DB(), reg, "whisper_comment", id, tx.Actor().ID, cv); e != nil {
 			return "", e
 		}
-		task, e := s.submit(ctx, tx, reg, "whisper_comment", cv, round, hold, restriction)
+		task, e := s.submit(ctx, tx, reg, "whisper_comment", cv, round, hold, restriction, manualReview)
 		if e != nil {
 			return "", e
 		}

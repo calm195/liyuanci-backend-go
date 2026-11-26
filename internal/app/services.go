@@ -51,6 +51,9 @@ type ServiceDependencies struct {
 	WishDB             *gorm.DB
 	Grades             wish.Grades
 	ShareCodes         wish.ShareCodes
+	PublicText         command.PublicTextCheck
+	PublicImage        command.PublicImageCheck
+	Media              *wechatMedia
 	StudentDB          *gorm.DB
 	ReviewDB           *gorm.DB
 	Logger             *zap.Logger

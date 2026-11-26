@@ -166,6 +166,18 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 			if e != nil {
 				return "", e
 			}
+			var manualReview bool
+			if s.publicText != nil && transition.EnqueueReview {
+				manualReview, e = s.checkWishText(ctx, tx, a)
+				if e != nil {
+					return "", e
+				}
+			}
+			if change.Action == Publish {
+				if e = s.checkApprovedWishText(ctx, tx, a); e != nil {
+					return "", e
+				}
+			}
 			if transition.InvalidateReview || transition.Delete {
 				if e = invalidate(ctx, tx, id, transition.InvalidateApplications, "wish_deleted"); e != nil {
 					return "", e
@@ -180,15 +192,16 @@ func (s *Service) mutate(ctx context.Context, token, key, rid, id string, change
 				taskID := uuid.NewString()
 				epoch := a.row.RestrictionEpoch
 				task := entity.ModerationTask{
-					PrivacyRecheck:   a.snapshot.PrivacyHeld,
-					ID:               taskID,
-					ContentID:        a.registry.ID,
-					ContentVersion:   a.content.ContentVersion,
-					SubjectEpoch:     a.account.AuthEpoch,
-					RestrictionEpoch: &epoch,
-					HoldEpoch:        a.snapshot.HoldEpoch,
-					Status:           "pending",
-					CreatedAt:        tx.Now(),
+					WeChatManualReview: manualReview,
+					PrivacyRecheck:     a.snapshot.PrivacyHeld,
+					ID:                 taskID,
+					ContentID:          a.registry.ID,
+					ContentVersion:     a.content.ContentVersion,
+					SubjectEpoch:       a.account.AuthEpoch,
+					RestrictionEpoch:   &epoch,
+					HoldEpoch:          a.snapshot.HoldEpoch,
+					Status:             "pending",
+					CreatedAt:          tx.Now(),
 				}
 				if e = tx.DB().WithContext(ctx).Create(&task).Error; e != nil {
 					return "", e
@@ -412,4 +425,42 @@ func invalidateApplications(ctx context.Context, tx *command.Tx, id, reason stri
 	}
 	// 历史领域工作可能直接以申请为目标，升级后仍须永久取消，不能只处理新增案件路由。
 	return obsoleteWork(ctx, tx, "application", applicationIDs)
+}
+
+// checkWishText 读取当前版本的私有原稿，避免按历史审核结果放行改稿。
+func (s *Service) checkWishText(ctx context.Context, tx *command.Tx, current aggregate) (bool, error) {
+	var envelope securedata.Envelope
+	if json.Unmarshal(current.content.BodyCipher, &envelope) != nil {
+		return false, command.ErrUnavailable
+	}
+	plain, err := s.codec.Decrypt(ctx, securedata.Binding{
+		Purpose:  "wish_content",
+		ObjectID: current.row.ID,
+		Version:  uint64(current.content.ContentVersion),
+	}, envelope)
+	if err != nil {
+		return false, command.ErrUnavailable
+	}
+	defer clear(plain)
+	var content Content
+	if json.Unmarshal(plain, &content) != nil {
+		return false, command.ErrUnavailable
+	}
+	return s.publicText.ForReview(ctx, tx, 3, content.Title, content.Body, content.RewardText)
+}
+
+// checkApprovedWishText 对重新公开复验当前稿，待复核只接纳同一版本的人工批准。
+func (s *Service) checkApprovedWishText(ctx context.Context, tx *command.Tx, current aggregate) error {
+	if s.publicText == nil {
+		return nil
+	}
+	manualReview, err := s.checkWishText(ctx, tx, current)
+	if err != nil {
+		return err
+	}
+	if manualReview && (current.task == nil || !current.task.WeChatManualReview ||
+		current.task.ReviewerID == nil || current.task.Status != "approved") {
+		return command.ErrContentReview
+	}
+	return nil
 }

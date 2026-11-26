@@ -36,6 +36,12 @@ business:
   wechatappid: ''
   # 原微信AppSecret，内联单行字符串；至少16字符。
   wechatsecret: ''
+  # 微信公众平台「消息推送」使用安全模式、JSON，URL 为 origin 加 /api/v1/wechat/media/callback。
+  # origin 是微信可访问的 HTTPS 源地址，无路径或尾部斜线。
+  wechatmedia:
+    origin: ''
+    token: ''
+    encodingaeskey: ''
   # 首次初始化超级管理员的口令，至少12字符，只在私有覆盖填写。
   adminpassword: ''
   # 新建后台账号的初始口令，至少12字符，必须与首次超管口令不同。

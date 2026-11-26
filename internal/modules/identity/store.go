@@ -522,3 +522,23 @@ func (s *Store) bind(ctx context.Context, tx *gorm.DB, accountID, purpose string
 	}
 	return nil
 }
+
+// ReadOpenID 读取已授权账号的加密微信身份。调用方须在使用后清除返回缓冲区。
+func ReadOpenID(ctx context.Context, db *gorm.DB, codec *securedata.Codec, accountID string) ([]byte, error) {
+	var row entity.IdentitySecret
+	if db.WithContext(ctx).Where("account_id = ? AND purpose = ?", accountID, "openid").Take(&row).Error != nil {
+		return nil, ErrUnavailable
+	}
+	var envelope securedata.Envelope
+	if row.ContentVersion < 1 || json.Unmarshal(row.Envelope, &envelope) != nil {
+		return nil, ErrUnavailable
+	}
+	plain, err := codec.Decrypt(ctx, securedata.Binding{
+		Purpose: "openid", ObjectID: accountID, Version: uint64(row.ContentVersion),
+	}, envelope)
+	if err != nil || len(plain) == 0 {
+		clear(plain)
+		return nil, ErrUnavailable
+	}
+	return plain, nil
+}

@@ -18,6 +18,7 @@ import (
 )
 
 type avatarFixture struct {
+	reviewing   atomic.Bool
 	puts        atomic.Int64
 	unavailable atomic.Bool
 	entered     chan struct{}
@@ -85,6 +86,12 @@ func testAvatarCommands(t *testing.T, service *studentauth.Service, fixture *ava
 	if _, err := upload("avatar-tiny", user.Me.Version, tiny.Bytes()); !errors.Is(err, command.ErrInvalid) || fixture.puts.Load() != 0 {
 		t.Fatal("过小头像未拒绝", err)
 	}
+
+	fixture.reviewing.Store(true)
+	if _, err := upload("avatar-first", user.Me.Version, first); !errors.Is(err, command.ErrMediaReviewPending) || fixture.puts.Load() != 0 {
+		t.Fatal("待微信回调的头像被安装", err)
+	}
+	fixture.reviewing.Store(false)
 
 	type result struct {
 		me  studentauth.Me

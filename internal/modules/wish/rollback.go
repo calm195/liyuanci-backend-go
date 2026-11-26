@@ -140,6 +140,11 @@ func (s *Service) Rollback(ctx context.Context, token, key, rid, id string, in R
 				if !reviewReady(a.snapshot) {
 					return "", command.ErrConflict
 				}
+				if next.ExpiresAt != nil && tx.Now().Before(*next.ExpiresAt) {
+					if e = s.checkApprovedWishText(ctx, tx, a); e != nil {
+						return "", e
+					}
+				}
 				next.State = Published
 				if next.ExpiresAt == nil || !tx.Now().Before(*next.ExpiresAt) {
 					next.State = Expired
@@ -224,6 +229,14 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 	if a.row.CurrentContentVersion == math.MaxInt64 {
 		return command.ErrConflict
 	}
+	var manualReview bool
+	if s.publicText != nil {
+		var err error
+		manualReview, err = s.checkWishText(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+	}
 	var envelope securedata.Envelope
 	if json.Unmarshal(a.content.BodyCipher, &envelope) != nil {
 		return command.ErrUnavailable
@@ -287,13 +300,14 @@ func (s *Service) refreshReview(ctx context.Context, tx *command.Tx, a aggregate
 	}
 	epoch := a.row.RestrictionEpoch
 	if e = tx.DB().WithContext(ctx).Create(&entity.ModerationTask{
-		ID:               taskID,
-		ContentID:        registryID,
-		ContentVersion:   next.ContentVersion,
-		SubjectEpoch:     a.account.AuthEpoch,
-		RestrictionEpoch: &epoch,
-		HoldEpoch:        a.snapshot.HoldEpoch,
-		CreatedAt:        tx.Now(),
+		WeChatManualReview: manualReview,
+		ID:                 taskID,
+		ContentID:          registryID,
+		ContentVersion:     next.ContentVersion,
+		SubjectEpoch:       a.account.AuthEpoch,
+		RestrictionEpoch:   &epoch,
+		HoldEpoch:          a.snapshot.HoldEpoch,
+		CreatedAt:          tx.Now(),
 	}).Error; e != nil {
 		return e
 	}

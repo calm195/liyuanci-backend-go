@@ -85,13 +85,17 @@ func (s *Service) reserveAvatar(ctx context.Context, input command.Input, upload
 		}
 		id := uuid.NewString()
 		owner := tx.Actor().ID
+		ttl := avatarReservationTTL
+		if s.config.PublicImage != nil {
+			ttl = 45 * time.Minute
+		}
 		avatar := entity.AccountAvatar{
 			ID:             id,
 			OwnerID:        &owner,
 			ObjectKey:      "avatars/" + id + ".png",
 			ObjectVersion:  objectVersion,
 			ByteSize:       size,
-			RemovableAfter: tx.Now().Add(avatarReservationTTL),
+			RemovableAfter: tx.Now().Add(ttl),
 		}
 		return id, tx.DB().WithContext(ctx).Create(&avatar).Error
 	}
@@ -176,6 +180,16 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 	bounded, stop := context.WithDeadline(ctx, *row.UploadUntil)
 	defer stop()
 	defer s.releaseAvatarLease(ctx, row)
+	// 升级前尚未安装的预约可能已写入旧原图，继续使用该预约的原始字节完成幂等安装。
+	object := display
+	if row.ObjectVersion == upload.Digest {
+		object = data
+	}
+	if s.config.PublicImage != nil {
+		if err = s.config.PublicImage(bounded, me.ID, row.ID, 1, object); err != nil {
+			return out, err
+		}
+	}
 	passed, err := s.config.AvatarScanner.Scan(bounded, data, "image/png")
 	if errors.Is(err, command.ErrInvalid) {
 		return out, command.ErrInvalid
@@ -184,12 +198,7 @@ func (s *Service) UploadAvatar(ctx context.Context, token, key, requestID string
 		return out, command.ErrUnavailable
 	}
 	if !passed {
-		return out, command.ErrInvalid
-	}
-	// 升级前尚未安装的预约可能已写入旧原图，继续使用该预约的原始字节完成幂等安装。
-	object := display
-	if row.ObjectVersion == upload.Digest {
-		object = data
+		return out, command.ErrContentViolation
 	}
 	version, err := s.config.AvatarObjects.PutAvatar(bounded, row.ObjectKey, object)
 	if err != nil || version != row.ObjectVersion {

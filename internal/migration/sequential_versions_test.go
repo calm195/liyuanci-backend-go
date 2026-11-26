@@ -56,9 +56,11 @@ func TestPostgresSequentialVersions(t *testing.T) {
 		t.Fatal("0032误判为当前版本")
 	}
 	must(RunApplication(ctx, db, log, "up"))
-	state(36)
+	state(37)
 	must(requireCurrentVersion(db))
 	must(ApplyApplicationPermissions(ctx, db, log))
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[36]) }))
+	state(36)
 	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[35]) }))
 	state(35)
 	t.Run("恢复跨升级的唯一旧图且尊重新草稿动作", func(t *testing.T) {
@@ -139,6 +141,8 @@ func TestPostgresSequentialVersions(t *testing.T) {
 		state(32)
 	}
 	must(RunApplication(ctx, db, log, "up"))
+	state(37)
+	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[36]) }))
 	state(36)
 	must(db.Transaction(func(tx *gorm.DB) error { return rollbackVersion(tx, entries[35]) }))
 	state(35)
@@ -161,7 +165,7 @@ func TestPostgresSequentialVersions(t *testing.T) {
 	must(db.Model(&entity.SchemaMigration{}).Where("version=? AND checksum=?", 35, last.checksum).Update("version", 33).Error)
 	state(33)
 	must(RunApplication(ctx, db, log, "up"))
-	state(36)
+	state(37)
 	must(requireCurrentVersion(db))
 	must(db.Where("version=?", 33).Take(&after).Error)
 	if before.Checksum != after.Checksum || !before.AppliedAt.Equal(after.AppliedAt) {

@@ -10,6 +10,7 @@ import (
 // Business 是完整业务宿主的显式配置；使用本机密钥与词库审核，按进程校验所需身份与凭据。
 // Runtime 保存所有业务共用的事务、任务、外部服务和恢复约束。
 type Business struct {
+	WeChatMedia                                                        WeChatMedia
 	Runtime                                                            Runtime
 	SessionKey, CardKey, VerificationKey, WishKey, AdminKey, CrisisKey []byte `json:"-"`
 	ModerationKey                                                      []byte `json:"-"`
@@ -69,6 +70,9 @@ func ValidateBusiness(c Business, environment, process string) error {
 		}
 	}
 	if process == "api" {
+		if e := c.WeChatMedia.Validate(); e != nil {
+			return e
+		}
 		for _, key := range [][]byte{c.SessionKey, c.CardKey, c.VerificationKey, c.WishKey, c.CrisisKey} {
 			if len(key) != 32 {
 				return ErrInvalid

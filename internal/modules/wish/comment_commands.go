@@ -128,6 +128,11 @@ func (s *Service) SaveComment(ctx context.Context, token, key, rid, wishID, id s
 		if recent >= 20 {
 			return "", command.ErrConflict
 		}
+		manualReview, e := s.publicText.ForReview(ctx, tx, 2, in.Body)
+		if e != nil {
+			return "", e
+		}
+		task.WeChatManualReview = manualReview
 		plain, _ := json.Marshal(in.Body)
 		defer clear(plain)
 		env, e := s.codec.Encrypt(ctx, securedata.Binding{Purpose: "wish_comment_body", ObjectID: c.ID, Version: uint64(c.ContentVersion)}, plain)
