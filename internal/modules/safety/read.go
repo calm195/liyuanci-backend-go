@@ -187,7 +187,7 @@ func (s *Service) List(ctx context.Context, token, rid, op string, q Query) (out
 	return
 }
 
-// Detail 只在具体普通举报/申诉案件授权并记录访问审计后返回加密说明。
+// Detail 只在具体普通举报/申诉案件授权并记录访问审计后返回所需投影。
 // 不提供任意私聊搜索、学生身份或危机案件的跨域读取。
 func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out any, err error) {
 	defer func() {
@@ -196,10 +196,18 @@ func (s *Service) Detail(ctx context.Context, token, rid, op, id string) (out an
 		}
 	}()
 	defer s.done(op, rid, time.Now(), &err)
-	if !validID(id) || (op != "report_detail" && op != "appeal_detail") {
+	if !validID(id) || (op != "report_detail" && op != "appeal_detail" && op != "report_content_control") {
 		return nil, command.ErrInvalid
 	}
 	err = s.read(ctx, token, true, func(db *gorm.DB, actor string, _ time.Time) error {
+		if op == "report_content_control" {
+			result, e := s.readReportContentControl(db, id)
+			if e != nil {
+				return e
+			}
+			out = result
+			return audit(db, actor, id, op)
+		}
 		if op == "report_detail" {
 			r, e := report(db, id)
 			if e != nil {

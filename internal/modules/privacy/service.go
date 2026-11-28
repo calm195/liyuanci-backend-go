@@ -398,6 +398,12 @@ func (s *Service) deleteEvidence(ctx context.Context, token, key, rid, id string
 }
 
 func (s *Service) superPreflight(ctx context.Context, token string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
+	defer cancel()
+	return authorizeEvidenceAdmin(ctx, s.db, token)
+}
+
+func authorizeEvidenceAdmin(ctx context.Context, db *gorm.DB, token string) error {
 	if token == "" {
 		return command.ErrUnauthenticated
 	}
@@ -406,9 +412,7 @@ func (s *Service) superPreflight(ctx context.Context, token string) error {
 		ID      string
 		Allowed bool
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.Command.Timeout)
-	defer cancel()
-	e := s.db.WithContext(ctx).Raw(`SELECT a.id,EXISTS(SELECT 1 FROM public.admin_role_bindings b WHERE b.admin_id=a.id AND b.role='super_admin') AS allowed FROM public.sessions s JOIN public.admin_accounts a ON a.id=s.admin_id WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.auth_epoch=a.auth_epoch AND a.status='active'`, hash[:]).
+	e := db.WithContext(ctx).Raw(`SELECT a.id,EXISTS(SELECT 1 FROM public.admin_role_bindings b WHERE b.admin_id=a.id AND b.role='super_admin') AS allowed FROM public.sessions s JOIN public.admin_accounts a ON a.id=s.admin_id WHERE s.token_hash=? AND s.subject_kind='admin' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.auth_epoch=a.auth_epoch AND a.status='active'`, hash[:]).
 		Scan(&rows).
 		Error
 	if e != nil {

@@ -467,8 +467,13 @@ func TestOptionalPrivacyAssembly(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(r.Routes()) != len(base.Routes())+2 {
+	if len(r.Routes()) != len(base.Routes())+3 {
 		t.Fatal("证据删除路由不完整")
+	}
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest("GET", "/api/v1/admin/evidence-deletion-jobs?page=1&limit=10", nil))
+	if rr.Code != 401 || rr.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("证据任务列表未按后台读取规则装配")
 	}
 }
 

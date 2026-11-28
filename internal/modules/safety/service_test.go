@@ -50,6 +50,10 @@ func TestInputValidation(t *testing.T) {
 		{"appeal", "", Input{PenaltyID: id, Body: strings.Repeat("a", 101)}, false},
 		{"ack", id, Input{ExpectedVersion: 0}, false},
 		{"report_decision", id, Input{Decision: "confirmed", ExpectedVersion: 1, Reason: "合成"}, true},
+		{"offline", id, Input{TargetKind: "story", ExpectedVersion: 1, Reason: "合成"}, true},
+		{"offline", id, Input{TargetKind: "story", ExpectedVersion: 1, Reason: "合成", ReportID: id}, false},
+		{"offline", id, Input{TargetKind: "story", ExpectedVersion: 1, Reason: "合成", ReportVersion: 1}, false},
+		{"release", id, Input{TargetKind: "wish_comment", ExpectedVersion: 1, Reason: "合成", ReportID: id, ReportVersion: 2}, true},
 		{"appeal_decision", id, Input{Decision: "revoke", ExpectedVersion: 1}, false},
 		{
 			"penalty",

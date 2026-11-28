@@ -21,8 +21,14 @@ type PrivacyAPI interface {
 // EvidenceDeletionAPI 由领域服务复核当前超管会话，证据删除按独立清理域处理。
 // 当前装配共享应用连接池，不能用数据库连接身份代替岗位授权。
 type EvidenceDeletionAPI interface {
-	EvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
+	EvidenceDeletionJobsAPI
 	DeleteEvidence(context.Context, string, string, string, string, privacy.EvidenceInput) (privacy.EvidenceAccepted, error)
+}
+
+// EvidenceDeletionJobsAPI 在完整业务及独立树洞装配中共享超管任务的只读能力。
+type EvidenceDeletionJobsAPI interface {
+	ListEvidenceDeletionJobs(context.Context, string, string, int, int) (privacy.EvidenceJobPage, error)
+	EvidenceStatus(context.Context, string, string, string) (privacy.Receipt, error)
 }
 
 // RegisterPrivacy 显式注册注销入口及无身份回执；所有结果禁止缓存。
@@ -71,26 +77,9 @@ func RegisterPrivacy(r *gin.Engine, s PrivacyAPI) error {
 
 // RegisterEvidenceDeletion 注册超管永久删除的受理入口，202不表示在线对象已清理。
 func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
-	if r == nil || s == nil {
-		return command.ErrInvalid
+	if e := RegisterEvidenceDeletionJobs(r, s); e != nil {
+		return e
 	}
-	r.GET("/api/v1/admin/evidence-deletion-jobs/:id", func(c *gin.Context) {
-		privacyHeaders(c)
-		token, ok := bearer(c)
-		if !ok {
-			return
-		}
-		if len(c.Request.URL.Query()) != 0 {
-			returnInvalid(c)
-			return
-		}
-		out, e := s.EvidenceStatus(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
-		if e != nil {
-			adminError(c, e)
-			return
-		}
-		adminResult(c, http.StatusOK, out)
-	})
 	r.DELETE("/api/v1/admin/evidence/:id", func(c *gin.Context) {
 		privacyHeaders(c)
 		token, ok := bearer(c)
@@ -114,6 +103,49 @@ func RegisterEvidenceDeletion(r *gin.Engine, s EvidenceDeletionAPI) error {
 			return
 		}
 		adminResult(c, http.StatusAccepted, out)
+	})
+	return nil
+}
+
+// RegisterEvidenceDeletionJobs 注册超管任务列表及其普通证据任务详情，逐次复核授权。
+func RegisterEvidenceDeletionJobs(r *gin.Engine, s EvidenceDeletionJobsAPI) error {
+	if r == nil || s == nil {
+		return command.ErrInvalid
+	}
+	r.GET("/api/v1/admin/evidence-deletion-jobs", func(c *gin.Context) {
+		privacyHeaders(c)
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		cursor, limit, page, _, e := adminPageQuery(c.Request.URL.RawQuery, 50, false)
+		if e != nil || cursor != "" {
+			returnInvalid(c)
+			return
+		}
+		out, e := s.ListEvidenceDeletionJobs(c.Request.Context(), token, c.GetString("request_id"), max(1, page), limit)
+		if e != nil {
+			adminError(c, e)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
+	})
+	r.GET("/api/v1/admin/evidence-deletion-jobs/:id", func(c *gin.Context) {
+		privacyHeaders(c)
+		token, ok := bearer(c)
+		if !ok {
+			return
+		}
+		if len(c.Request.URL.Query()) != 0 {
+			returnInvalid(c)
+			return
+		}
+		out, e := s.EvidenceStatus(c.Request.Context(), token, c.GetString("request_id"), c.Param("id"))
+		if e != nil {
+			adminError(c, e)
+			return
+		}
+		adminResult(c, http.StatusOK, out)
 	})
 	return nil
 }

@@ -268,6 +268,8 @@ func TestPostgresWhisperRuntime(t *testing.T) {
 		}
 	}
 	checkHTTP("/readyz", 200)
+	request("GET", "/admin/evidence-deletion-jobs?page=1&limit=10", "", nil, 401, nil)
+	request("GET", "/admin/evidence-deletion-jobs/"+uuid.NewString(), "", nil, 401, nil)
 	var module whisper.ModuleConfig
 	request("GET", "/whispers/config", "", nil, 200, &module)
 	if !module.Enabled || module.SemiAvailable {

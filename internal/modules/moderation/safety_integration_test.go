@@ -817,6 +817,82 @@ func TestSafetyGovernance(t *testing.T) {
 			t.Fatal("解除自动上架")
 		}
 	})
+	t.Run("从授权举报获取内容对象版本并绑定处置", func(t *testing.T) {
+		_, ownerToken := student()
+		_, reporterToken := student()
+		w := published(ownerToken)
+		reportID := confirmed(reporterToken, w)
+		version := wishRow(w.ID).Version + 5
+		must(root.Model(&entity.Wish{}).Where("id=?", w.ID).Update("version", version).Error)
+		path := "/admin/reports/" + reportID + "/content-control"
+		result := call(adminToken, "GET", path, "", "", 200)
+		if result["version"] != float64(version) || result["version"] == result["content_version"] ||
+			result["version"] == result["report_version"] || result["report_status"] != "resolved" ||
+			result["report_id"] != reportID || result["target_kind"] != "wish" || result["target_id"] != w.ID ||
+			len(result) != 8 {
+			t.Fatal("预读没有返回该案的最小内容对象版本")
+		}
+		makeRole := func(role string) string {
+			t.Helper()
+			id, token := uuid.NewString(), uuid.NewString()
+			credential := "synthetic-content-control-" + id
+			must(root.Create(&entity.AdminAccount{ID: id, CredentialRef: &credential}).Error)
+			if role != "" {
+				must(root.Create(&entity.AdminRoleBinding{AdminID: id, Role: role}).Error)
+			}
+			hash := sha256.Sum256([]byte(token))
+			must(root.Create(&entity.Session{
+				ID:        uuid.NewString(),
+				AdminID:   &id,
+				TokenHash: hash[:],
+				AuthEpoch: 1,
+				ExpiresAt: time.Now().Add(time.Hour),
+			}).Error)
+			return token
+		}
+		for _, role := range []string{"crisis_operator", "super_admin"} {
+			call(makeRole(role), "GET", path, "", "", 200)
+		}
+		call(makeRole(""), "GET", path, "", "", 403)
+		call(reporterToken, "GET", path, "", "", 401)
+		call("", "GET", path, "", "", 401)
+		call(adminToken, "GET", path+"?target_id="+uuid.NewString(), "", "", 400)
+		call(adminToken, "GET", "/admin/reports/"+uuid.NewString()+"/content-control", "", "", 404)
+
+		reportVersion := int64(result["report_version"].(float64))
+		restrictionBody := func(targetVersion, selectedReportVersion int64) string {
+			return fmt.Sprintf(`{"reason":"合成处置","expected_version":%d,"report_id":%q,"report_version":%d}`, targetVersion, reportID, selectedReportVersion)
+		}
+		contentPath := "/admin/contents/wish/" + w.ID
+		call(adminToken, "POST", contentPath+"/offline", uuid.NewString(), restrictionBody(version-1, reportVersion), 409)
+		call(adminToken, "POST", contentPath+"/offline", uuid.NewString(), restrictionBody(version, reportVersion-1), 409)
+		other := published(ownerToken)
+		call(adminToken, "POST", "/admin/contents/wish/"+other.ID+"/offline", uuid.NewString(), restrictionBody(wishRow(other.ID).Version, reportVersion), 404)
+		call(adminToken, "POST", contentPath+"/offline", uuid.NewString(), fmt.Sprintf(`{"reason":"合成","expected_version":%d,"report_id":%q}`, version, reportID), 400)
+		key := uuid.NewString()
+		body := restrictionBody(version, reportVersion)
+		out := call(adminToken, "POST", contentPath+"/offline", key, body, 200)
+		if out["status"] != "restricted" || out["version"] != float64(version+1) {
+			t.Fatal("版本核对后的下线结果错误")
+		}
+		replayed := call(adminToken, "POST", contentPath+"/offline", key, body, 200)
+		if replayed["version"] != out["version"] {
+			t.Fatal("重放重复执行了下线")
+		}
+		fresh := call(adminToken, "GET", path, "", "", 200)
+		if fresh["version"] != out["version"] {
+			t.Fatal("解除限制前未读到下线后版本")
+		}
+		released := call(adminToken, "POST", contentPath+"/release-restriction", uuid.NewString(), restrictionBody(version+1, reportVersion), 200)
+		if released["status"] != "released" || wishRow(w.ID).State != "withdrawn" {
+			t.Fatal("解除普通限制错误恢复内容可见性")
+		}
+		must(root.Create(&entity.ContentRestriction{
+			ID: uuid.NewString(), ContentID: result["content_ref"].(string), Kind: "crisis", SourceRef: uuid.NewString(), Active: true,
+		}).Error)
+		call(adminToken, "GET", path, "", "", 404)
+		call(adminToken, "POST", contentPath+"/offline", uuid.NewString(), restrictionBody(version+2, reportVersion), 404)
+	})
 	t.Run("例外退出跨状态处罚主体满额与过期矩阵", func(t *testing.T) {
 		for _, state := range []string{"matching", "realized"} {
 			for _, cause := range []string{"block", "penalty"} {

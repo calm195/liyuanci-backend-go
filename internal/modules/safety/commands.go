@@ -74,7 +74,10 @@ func (s *Service) validate(op, id string, in Input) error {
 			return command.ErrInvalid
 		}
 		if op == "offline" || op == "release" {
-			if !slices.Contains([]string{"wish", "wish_comment", "story", "application", "message"}, in.TargetKind) || !s.text(in.Reason, true) {
+			if restrictionResource(in.TargetKind, id).Kind == "" || !s.text(in.Reason, true) {
+				return command.ErrInvalid
+			}
+			if (in.ReportID != "" || in.ReportVersion != 0) && (!validID(in.ReportID) || in.ReportVersion < 1) {
 				return command.ErrInvalid
 			}
 		}
@@ -154,13 +157,7 @@ func (s *Service) Execute(ctx context.Context, token, key, rid, op, id string, i
 			suffix = "release-restriction"
 		}
 		o.path = "/api/v1/admin/contents/" + in.TargetKind + "/" + id + "/" + suffix
-		o.resource = map[string]command.ResourceKind{
-			"wish_comment": command.WishComment,
-			"wish":         command.Wish,
-			"story":        command.Wish,
-			"application":  command.Application,
-			"message":      command.Message,
-		}[in.TargetKind]
+		o.resource = restrictionResource(in.TargetKind, id).Kind
 	}
 	d := command.Definition{
 		Kind:         "safety." + op,
@@ -227,7 +224,11 @@ func (s *Service) discover(ctx context.Context, db *gorm.DB, a command.Subject, 
 		if e != nil {
 			return p, e
 		}
-		return contentPlan(ctx, db, c)
+		p, e = contentPlan(ctx, db, c)
+		if in.ReportID != "" {
+			p.Resources = append(p.Resources, command.Resource{Kind: command.Report, ID: in.ReportID})
+		}
+		return p, e
 	case "report":
 		c, e := targetRegistry(db, in.TargetKind, in.ID)
 		if e != nil {
@@ -356,6 +357,13 @@ func (s *Service) authorize(ctx context.Context, tx *command.Tx, op, id string, 
 		c, e := targetRegistry(db, in.TargetKind, id)
 		if e != nil {
 			return e
+		}
+		if in.ReportID != "" {
+			r, e := report(db, in.ReportID)
+			if e != nil {
+				return e
+			}
+			return matchRestrictionReport(db, r, c)
 		}
 		return ordinaryCase(db, c.ID)
 	case "report_decision":

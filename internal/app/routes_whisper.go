@@ -59,6 +59,11 @@ func (a *whisperServices) register(router *gin.Engine) (err error) {
 			return
 		}
 	}
+	if !exists("GET", "/api/v1/admin/evidence-deletion-jobs") {
+		if err = httpapi.RegisterEvidenceDeletionJobs(router, a.evidence); err != nil {
+			return
+		}
+	}
 	if !exists("POST", "/api/v1/me/deletion-requests") {
 		err = httpapi.RegisterPrivacy(router, a.deletion)
 	}

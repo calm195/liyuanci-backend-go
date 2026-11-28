@@ -82,6 +82,8 @@ type Input struct {
 	Decision        string `json:"decision,omitempty"`
 	Reason          string `json:"reason,omitempty"`
 	ExpectedVersion int64  `json:"expected_version,omitempty"`
+	ReportID        string `json:"report_id,omitempty"`
+	ReportVersion   int64  `json:"report_version,omitempty"`
 }
 
 // Query 是普通列表的主体和用途绑定游标。

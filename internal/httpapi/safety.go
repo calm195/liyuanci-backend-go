@@ -83,7 +83,7 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			"POST",
 			"/admin/contents/:kind/:id/offline",
 			[]string{"reason", "expected_version"},
-			nil,
+			[]string{"report_id", "report_version"},
 			200,
 			true,
 		},
@@ -92,7 +92,7 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			"POST",
 			"/admin/contents/:kind/:id/release-restriction",
 			[]string{"reason", "expected_version"},
-			nil,
+			[]string{"report_id", "report_version"},
 			200,
 			true,
 		},
@@ -194,6 +194,10 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 				return
 			}
 			if route.op == "offline" || route.op == "release" {
+				if (fields["report_id"] != nil || fields["report_version"] != nil) && (in.ReportID == "" || in.ReportVersion < 1) {
+					returnInvalid(c)
+					return
+				}
 				in.TargetKind = c.Param("kind")
 			}
 			service := student
@@ -269,7 +273,11 @@ func RegisterSafety(r *gin.Engine, student, admin SafetyAPI) error {
 			adminResult(c, 200, out)
 		})
 	}
-	for _, route := range []struct{ op, path string }{{"report_detail", "/admin/reports/:id"}, {"appeal_detail", "/admin/appeals/:id"}} {
+	for _, route := range []struct{ op, path string }{
+		{"report_detail", "/admin/reports/:id"},
+		{"report_content_control", "/admin/reports/:id/content-control"},
+		{"appeal_detail", "/admin/appeals/:id"},
+	} {
 		g.GET(route.path, func(c *gin.Context) {
 			token, ok := bearer(c)
 			if !ok {

@@ -225,6 +225,10 @@ func TestPrivacyDeletion(t *testing.T) {
 		session(id, token, false)
 		return id, token
 	}
+	t.Run("超管分页查看证据删除任务", func(t *testing.T) {
+		id, token := student()
+		checkEvidenceDeletionJobs(t, root, evidence, log, id, token)
+	})
 	wr := func(id string) entity.Wish {
 		t.Helper()
 		var w entity.Wish
